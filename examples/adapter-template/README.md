@@ -98,3 +98,33 @@ The hooks to replace are:
   stop signal into an adapter-local `HostSessionSignal`.
 - `render_pickup_text()`: format the next-agent instructions in the host's
   preferred surface while keeping the raw Cadence packet available.
+
+## Generic Host Signal Fixtures
+
+The `host-signal-fixtures` directory gives adapter authors a host-neutral way
+to exercise the signal contract before wiring a real agent host:
+
+- `context-pressure.json`: maps to `--guardrail context`
+- `operator-stop.json`: maps to `--guardrail operator_stop`
+- `no-signal.json`: JSON `null`, which returns `no_handoff_needed` without
+  calling Cadence
+
+Pass a fixture with `--host-signal-file`:
+
+```bash
+python examples/adapter-template/adapter.py \
+  --runtime-root ./tmp/agentic-cadence-runtime \
+  --repo local/example \
+  --cwd . \
+  --handoff-id example-context-handoff \
+  --title "Example context handoff" \
+  --summary "Fallback summary when no fixture is supplied." \
+  --task-type execution \
+  --next-action "Fallback next action when no fixture is supplied." \
+  --host-signal-file examples/adapter-template/host-signal-fixtures/context-pressure.json
+```
+
+Fixture values override the fallback `--summary`, `--task-type`, `--driver`,
+and `--next-action` arguments because they represent the host-observed stop
+signal. The fixture loader is still part of the copyable adapter template, not
+a stable Python API exported by `codex_cadence`.

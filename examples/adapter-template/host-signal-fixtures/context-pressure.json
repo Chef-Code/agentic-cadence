@@ -1,0 +1,11 @@
+{
+  "kind": "context_pressure",
+  "source": "generic-host-fixture",
+  "confidence": "high",
+  "summary": "The host reports that the current session is close to context pressure.",
+  "task_type": "execution",
+  "drivers": [
+    "multiple_files"
+  ],
+  "next_action": "Claim the generated handoff and continue from the preserved packet."
+}

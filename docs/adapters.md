@@ -44,6 +44,12 @@ This contract does not make Agentic Cadence infer context pressure from
 transcripts, token guesses, or CLI internals. The host observes session state;
 the adapter passes explicit arguments; Cadence enforces the protocol gates.
 
+The copyable template also includes generic JSON host-signal fixtures under
+`examples/adapter-template/host-signal-fixtures`. They exercise
+`context_pressure`, `operator_stop`, and no-signal behavior through
+`--host-signal-file` without claiming to be a Claude, Gemini, or other real
+host adapter.
+
 ## Required Behavior
 
 An adapter must:
@@ -87,7 +93,7 @@ Current packets may still contain Codex-compatible packet labels retained by the
 
 The copyable host adapter template lives at `examples/adapter-template`. It is the smallest practical shape for a future host binding: call the public CLI, pass an explicit runtime root, preserve returned JSON packets, stop on `stop_current_session`, and render host-specific pickup text around the preserved packet.
 
-The template includes placeholder hooks for context-pressure detection and pickup rendering. It does not ship a Claude or Gemini adapter; it gives those future adapters a concrete boundary to copy without importing Cadence internals.
+The template includes placeholder hooks for context-pressure detection, generic host-signal fixtures, and pickup rendering. It does not ship a Claude or Gemini adapter; it gives those future adapters a concrete boundary to copy without importing Cadence internals.
 
 ## First Implementation Slice
 

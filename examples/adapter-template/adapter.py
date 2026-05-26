@@ -46,6 +46,15 @@ SIGNAL_GUARDRAILS = {
     "operator_stop": "operator_stop",
 }
 MAX_SIGNAL_SOURCE_LENGTH = 64
+HOST_SIGNAL_FIXTURE_FIELDS = {
+    "kind",
+    "source",
+    "confidence",
+    "summary",
+    "task_type",
+    "drivers",
+    "next_action",
+}
 
 
 @dataclass(frozen=True)
@@ -88,6 +97,43 @@ def detect_host_session_signal(
         task_type=task_type,
         drivers=tuple(drivers),
         next_action=next_action,
+    )
+
+
+def load_host_signal_fixture(path: Path) -> HostSessionSignal | None:
+    """Load a generic host/session signal fixture from JSON.
+
+    The fixture is for exercising adapter behavior. A JSON object maps to the
+    adapter-local signal shape; JSON null means the host has no stop signal.
+    """
+
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"host signal fixture is not valid JSON: {path}") from exc
+    if payload is None:
+        return None
+    if not isinstance(payload, dict):
+        raise RuntimeError("host signal fixture must be a JSON object or null")
+
+    unknown = sorted(set(payload) - HOST_SIGNAL_FIXTURE_FIELDS)
+    if unknown:
+        raise RuntimeError(f"host signal fixture has unsupported fields: {', '.join(unknown)}")
+    missing = sorted(HOST_SIGNAL_FIXTURE_FIELDS - set(payload))
+    if missing:
+        raise RuntimeError(f"host signal fixture is missing fields: {', '.join(missing)}")
+
+    drivers = payload["drivers"]
+    if isinstance(drivers, list):
+        drivers = tuple(drivers)
+    return HostSessionSignal(
+        kind=payload["kind"],
+        source=payload["source"],
+        confidence=payload["confidence"],
+        summary=payload["summary"],
+        task_type=payload["task_type"],
+        drivers=drivers,
+        next_action=payload["next_action"],
     )
 
 
@@ -322,6 +368,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_CADENCE_TIMEOUT_SECONDS,
         help="Timeout for each Cadence CLI subprocess call.",
     )
+    parser.add_argument(
+        "--host-signal-file",
+        type=Path,
+        help="Generic host/session signal JSON fixture. Use JSON null to model no host signal.",
+    )
     return parser
 
 
@@ -341,6 +392,9 @@ def main(argv: list[str] | None = None) -> int:
             drivers=args.driver,
             cadence_timeout_seconds=args.cadence_timeout_seconds,
             cadence_command=split_cadence_command(args.cadence_command),
+            host_session_signal_detector=(
+                (lambda: load_host_signal_fixture(args.host_signal_file)) if args.host_signal_file else None
+            ),
         )
     except Exception as exc:
         print(f"adapter template failed: {exc}", file=sys.stderr)
