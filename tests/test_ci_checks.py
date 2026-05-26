@@ -184,6 +184,52 @@ class CiChecksTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, readme)
 
+    def test_adapter_direction_docs_define_future_agent_surface(self):
+        adapters_path = ROOT / "docs" / "adapters.md"
+        self.assertTrue(adapters_path.exists(), "missing adapter direction docs")
+
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        adapters = adapters_path.read_text(encoding="utf-8")
+
+        for token in (
+            "## Future Agent Adapters",
+            "docs/adapters.md",
+            "Claude",
+            "Gemini",
+        ):
+            with self.subTest(location="README", token=token):
+                self.assertIn(token, readme)
+
+        for token in (
+            "# Agent Adapter Direction",
+            "agent-neutral",
+            "host/session signal",
+            "consume CLI JSON packets",
+            "do not directly write Cadence runtime files",
+            "call the CLI without private imports",
+            "stop_current_session",
+            "clean-square",
+            "preserve the `prepare-handoff` packet relationship",
+            "must not bypass Cadence governance",
+            "No Claude or Gemini adapter is shipped in 0.1.x",
+            "agentic-cadence status",
+            "agentic-cadence prepare-handoff",
+            "agentic-cadence approve-handoff",
+            "agentic-cadence claim-handoff",
+            "agentic-cadence complete-handoff",
+            "agentic-cadence discover-candidates",
+            "agentic-cadence pr-readiness",
+            "agentic-cadence pr-body-preflight",
+        ):
+            with self.subTest(location="docs/adapters.md", token=token):
+                self.assertIn(token, adapters)
+        combined_docs = f"{readme}\n{adapters}"
+        self.assertNotRegex(
+            combined_docs,
+            r"(?mi)^(?!No\b).*(?:Claude|Gemini).*\badapters?(?:\s+support)?\s+(?:is|are)\s+(?:shipped|supported)\b",
+        )
+        self.assertNotIn("keep clean-square evidence tied to the repository snapshot that produced it", combined_docs)
+
     def test_readme_visual_identity_assets_exist(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         image_targets = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", readme)
