@@ -9,6 +9,7 @@ Thumbs.db
 .vscode/
 .idea/
 .superpowers/
+.worktrees/
 
 # Python scratch and future tooling caches.
 __pycache__/
