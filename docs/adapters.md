@@ -60,9 +60,15 @@ The smoke covers `status`, `prepare-handoff`, approval-gated `claim-handoff`, `a
 
 Current packets may still contain Codex-compatible packet labels retained by the 0.1.x command surface. That is part of the current compatibility layer, not a requirement for future Claude or Gemini adapters. Host adapters should preserve returned packets and render host-specific text around them rather than rewriting packet contents.
 
+## Copyable Adapter Template
+
+The copyable host adapter template lives at `examples/adapter-template`. It is the smallest practical shape for a future host binding: call the public CLI, pass an explicit runtime root, preserve returned JSON packets, stop on `stop_current_session`, and render host-specific pickup text around the preserved packet.
+
+The template includes placeholder hooks for context-pressure detection and pickup rendering. It does not ship a Claude or Gemini adapter; it gives those future adapters a concrete boundary to copy without importing Cadence internals.
+
 ## First Implementation Slice
 
-The current adapter slice is documentation plus an executable smoke fixture, not a full host integration. A small host adapter package should prove that it can:
+The current adapter slice is documentation, an executable smoke fixture, and a copyable template, not a full host integration. A small host adapter package should prove that it can:
 
 - call the CLI without private imports;
 - pass an explicit runtime root;
