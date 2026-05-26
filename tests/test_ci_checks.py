@@ -184,6 +184,24 @@ class CiChecksTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, readme)
 
+    def test_readme_visual_identity_assets_exist(self):
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        image_targets = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", readme)
+
+        for asset in (
+            "docs/assets/readme-badges.svg",
+            "docs/assets/agentic-cadence-banner.svg",
+            "docs/assets/handoff-flow.svg",
+            "docs/assets/cadence-states.svg",
+        ):
+            with self.subTest(asset=asset):
+                self.assertIn(asset, image_targets)
+
+        for target in image_targets:
+            with self.subTest(target=target):
+                self.assertFalse(target.startswith(("http://", "https://")))
+                self.assertTrue((ROOT / target).exists())
+
     def test_readme_five_minute_first_run_uses_only_clean_checkout_paths(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         heading = "## Five-Minute First Run"
