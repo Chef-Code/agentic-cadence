@@ -1,0 +1,23 @@
+# Runtime state belongs in ~/.codex/cadence, not in this repo.
+.agentic-cadence/
+.codex-cadence/
+.codex-transmission/
+
+# Local/editor noise.
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python scratch and future tooling caches.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Public packaging and quickstart output.
+.agentic-cadence-demo/
+.codex-cadence-demo/
+examples/first-run/work/
+dist/
+build/
+*.egg-info/

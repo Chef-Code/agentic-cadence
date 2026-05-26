@@ -1,0 +1,465 @@
+#!/usr/bin/env python3
+"""Validate that protocol docs and CLI enforcement stay aligned."""
+
+from __future__ import annotations
+
+import ast
+import re
+import sys
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+EXPECTED_BUSINESS_MEMORY_TAXONOMY = (
+    "direction",
+    "business_rule",
+    "problem",
+    "feature",
+    "nice_to_have",
+    "risk",
+    "constraint",
+    "unknown",
+)
+EXPECTED_BUSINESS_MEMORY_STATUSES = ("active", "fulfilled", "superseded")
+
+REQUIRED_TOKENS = {
+    "SKILL.md": (
+        "name: agentic-cadence",
+        "create-handoff` requires `--task-type`",
+        "handoff has no persisted estimate",
+        "approve-handoff",
+        "--snapshot-before-file",
+        "--snapshot-after-file",
+        "empty administrative checkpoint epoch",
+        "fail-epoch",
+        "--ci-status green",
+        "max_minutes_per_epoch",
+        "max_epochs_without_user_approval",
+        "Medium uncertainty",
+        "cadence.state",
+        "PLAY_ON",
+        "HUDDLE",
+        "TIMEOUT",
+        "legacy `brake.status",
+        "brake remains `DRIVE`",
+        "Self-Evolution",
+        "openai/codex-action@a26d2d4d8b78a694338b8e3715c3630254340b2c",
+        "OPENAI_API_KEY",
+        "free preflight",
+        "codex_review_preflight.py",
+        "codex-review-skip",
+        "codex-review-elect",
+        "codex-review-force",
+        "codex-review:v1",
+        "canonical workflow-owned",
+        "Guardrail changes",
+        "manual operator review",
+        "discover-candidates",
+        "--discovery-mode off",
+        "--proposal-allowance elect",
+        "--review-threads-file",
+        "--pr-template-file",
+        "pr-body-preflight",
+        "--body-file",
+        "publish_pr_body",
+        "update_pr_body",
+        "provide_template_or_sections",
+        "reviewThreads",
+        "isResolved",
+        "isOutdated",
+        "outdated",
+        "missing required PR body or template sections",
+        "rewrite the PR body",
+        "create a PR",
+        "docs/cadence/business-memory.md",
+        "source: business_memory",
+        "maturity: discovery",
+        "classification",
+        "classification_confidence",
+        "Status",
+        "active",
+        "fulfilled",
+        "superseded",
+        "classification: unknown",
+        "unclassified_signal",
+        "direction",
+        "business_rule",
+        "problem",
+        "feature",
+        "nice_to_have",
+        "risk",
+        "constraint",
+        "unknown",
+        "repo_anchors: []",
+        "evidence.path",
+        "evidence.line",
+        "evidence.heading",
+        "discovery-only",
+        "--max-business-memory-candidates",
+    ),
+    "docs/protocol.md": (
+        "New handoffs must declare `--task-type`",
+        "five core concepts",
+        "`status.brake.status` remains present for compatibility",
+        "cadence.legacy_brake",
+        "PLAY_ON",
+        "HUDDLE",
+        "TIMEOUT",
+        "handoffs without persisted estimates",
+        "approve-handoff",
+        "pickup_approved=true",
+        "--snapshot-before-file",
+        "--snapshot-after-file",
+        "empty administrative checkpoint",
+        "fail-epoch",
+        "--ci-status green",
+        "max_minutes_per_epoch",
+        "max_epochs_without_user_approval",
+        "next_epoch_requires",
+        "Medium uncertainty",
+        "persisted `CONTINUE` self-check",
+        "Self-evolution execution tasks are blocked",
+        ".github/workflows/codex-review.yml",
+        "openai/codex-action@a26d2d4d8b78a694338b8e3715c3630254340b2c",
+        "sandbox: read-only",
+        "free preflight",
+        "codex_review_preflight.py",
+        "codex-review-skip",
+        "codex-review-elect",
+        "codex-review-force",
+        "codex-review:v1",
+        "canonical workflow-owned",
+        "Guardrail changes",
+        "manual operator review",
+        "Candidate discovery is read-only",
+        "Reference implementation: `codex_cadence/cli.py`",
+        "`scripts/cadence.py` is a source-tree wrapper",
+        "`scripts/transmission.py` delegates to `transmission_control.cli`",
+        "discovery_mode: off",
+        "proposal allowance",
+        "--review-threads-file",
+        "--pr-template-file",
+        "pr-body-preflight",
+        "--body-file",
+        "provide_template_or_sections",
+        "reviewThreads",
+        "isResolved",
+        "isOutdated",
+        "outdated",
+        "missing template sections",
+        "rewrite the PR body",
+        "rewrite the body file",
+        "create a PR",
+        "docs/cadence/business-memory.md",
+        "source: business_memory",
+        "maturity: discovery",
+        "classification",
+        "classification_confidence",
+        "Status",
+        "active",
+        "fulfilled",
+        "superseded",
+        "classification: unknown",
+        "unclassified_signal",
+        "direction",
+        "business_rule",
+        "problem",
+        "feature",
+        "nice_to_have",
+        "risk",
+        "constraint",
+        "unknown",
+        "repo_anchors: []",
+        "evidence.path",
+        "evidence.line",
+        "evidence.heading",
+        "repo anchors",
+        "discovery-only",
+        "--max-business-memory-candidates",
+    ),
+    "codex_cadence/cli.py": (
+        "create_parser.add_argument(\"--task-type\"",
+        "required=True",
+        "approve-handoff",
+        "self_check_parser.add_argument(\"--snapshot-after-file\")",
+        "fail_epoch_parser",
+        "snapshot_parser.add_argument(\"--ci-status\"",
+        "continuation_task_limit",
+        "effective_max_tasks",
+        "completed_continue_count",
+        "snapshot_after_checksum",
+        "record_lock_path",
+        "start_epoch_parser.add_argument(\"--snapshot-before-file\", required=True)",
+        "CONTINUE requires brake to remain DRIVE",
+        "cadence_state",
+        "\"PLAY_ON\"",
+        "\"HUDDLE\"",
+        "\"TIMEOUT\"",
+        "self_evolution_propose_only",
+        "discover-candidates",
+        "discover_candidates_command",
+        "CandidateBudget",
+        "business_memory",
+        "--max-business-memory-candidates",
+        "--review-threads-file",
+        "review_threads_file",
+        "--pr-template-file",
+        "pr_template_file",
+        "pr-body-preflight",
+        "pr_body_preflight_command",
+        "load_pr_body",
+        "evaluate_pr_body_preflight",
+        "--body-file",
+    ),
+    ".github/workflows/codex-review.yml": (
+        "pull_request_target",
+        "ready_for_review",
+        "labeled",
+        "unlabeled",
+        "github.event.pull_request.head.repo.full_name == github.repository",
+        "github.event.pull_request.head.repo.full_name != github.repository",
+        "Codex Review skipped for fork PRs",
+        "untrusted PR code",
+        "github.event.pull_request.draft == false",
+        "concurrency:",
+        "group: codex-review-${{ github.event.pull_request.number }}",
+        "cancel-in-progress: true",
+        "codex_review_preflight.py",
+        "needs: preflight",
+        "needs.preflight.outputs.should_run == 'true'",
+        "timeout-minutes: 20",
+        "Check live PR state",
+        "Re-check live PR state before paid review",
+        "steps.live_pr.outputs.can_review == 'true'",
+        "steps.review_pr.outputs.can_review == 'true'",
+        "pull.draft === false",
+        "pull.head.sha === context.payload.pull_request.head.sha",
+        "pr_draft",
+        "stale_head",
+        "ref: ${{ github.event.pull_request.base.sha }}",
+        "ref: ${{ github.event.pull_request.head.sha }}",
+        "path: trusted-preflight",
+        "path: pr-head",
+        "working-directory: pr-head",
+        "python ../trusted-preflight/scripts/codex_review_preflight.py",
+        "--head-ref \"${HEAD_SHA}\"",
+        "issues: read",
+        "pull-requests: read",
+        "BASE_REF: ${{ github.event.pull_request.base.ref }}",
+        "HEAD_SHA: ${{ github.event.pull_request.head.sha }}",
+        '"+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"',
+        "openai/codex-action@a26d2d4d8b78a694338b8e3715c3630254340b2c",
+        "openai-api-key: ${{ secrets.OPENAI_API_KEY }}",
+        "prompt: |",
+        "Do not modify files",
+        "actionable findings",
+        "protocol drift",
+        "race conditions",
+        "missing tests",
+        "safety-strategy: drop-sudo",
+        "sandbox: read-only",
+        "final-message",
+        "codex-review:v1 head=",
+        "CODEX_REVIEW_DEDUPE_KEY",
+        "PR_LABELS_JSON",
+        "codex-review-elect",
+    ),
+}
+
+FORBIDDEN_TOKENS = {
+    ".github/workflows/codex-review.yml": (
+        "refs/pull/${{ github.event.pull_request.number }}/merge",
+        "refs/remotes/pull/${PR_NUMBER}/head",
+    ),
+}
+
+
+def validate_frontmatter(path: Path, errors: list[str]) -> None:
+    text = path.read_text(encoding="utf-8")
+    if not text.startswith("---\n"):
+        errors.append(f"{path.relative_to(ROOT)} must start with YAML frontmatter")
+        return
+    try:
+        _start, frontmatter, _body = text.split("---\n", 2)
+    except ValueError:
+        errors.append(f"{path.relative_to(ROOT)} frontmatter is not closed")
+        return
+    for token in ("name:", "description:"):
+        if token not in frontmatter:
+            errors.append(f"{path.relative_to(ROOT)} frontmatter missing {token}")
+
+
+def validate_tokens(errors: list[str]) -> None:
+    for relative, tokens in REQUIRED_TOKENS.items():
+        path = ROOT / relative
+        if not path.exists():
+            errors.append(f"missing required file: {relative}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        for token in tokens:
+            if token not in text:
+                errors.append(f"{relative} missing required token: {token}")
+    for relative, tokens in FORBIDDEN_TOKENS.items():
+        path = ROOT / relative
+        if not path.exists():
+            continue
+        text = path.read_text(encoding="utf-8")
+        for token in tokens:
+            if token in text:
+                errors.append(f"{relative} must not contain forbidden token: {token}")
+
+
+def tuple_assignment(relative: str, name: str, errors: list[str]) -> tuple[str, ...] | None:
+    path = ROOT / relative
+    if not path.exists():
+        errors.append(f"missing required file: {relative}")
+        return None
+    module = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    for node in module.body:
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(isinstance(target, ast.Name) and target.id == name for target in node.targets):
+            continue
+        value = ast.literal_eval(node.value)
+        if not isinstance(value, tuple) or not all(isinstance(item, str) for item in value):
+            errors.append(f"{relative} {name} must be a tuple of strings")
+            return None
+        return value
+    errors.append(f"{relative} missing {name}")
+    return None
+
+
+def taxonomy_sentence_tokens(text: str) -> tuple[str, ...]:
+    match = re.search(r"(?:taxonomy values|these taxonomy values)[^.]*\.", text, flags=re.IGNORECASE)
+    if match is None:
+        return ()
+    return tuple(re.findall(r"`([^`]+)`", match.group(0)))
+
+
+def status_sentence_tokens(text: str) -> tuple[str, ...]:
+    match = re.search(
+        r"(?:optional\s+(?:business-memory\s+)?`?status`?\s+values\s+are)[^.]*\.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if match is None:
+        return ()
+    return tuple(token for token in re.findall(r"`([^`]+)`", match.group(0)) if token.lower() != "status")
+
+
+def normalized_words(text: str) -> str:
+    return re.sub(r"\s+", " ", text.lower())
+
+
+def business_memory_contract_text(text: str) -> str:
+    paragraphs = re.split(r"\n\s*\n", text)
+    relevant = [
+        paragraph
+        for paragraph in paragraphs
+        if any(token in paragraph.lower() for token in ("business-memory", "business memory", "business_memory"))
+    ]
+    return normalized_words("\n".join(relevant))
+
+
+def validate_business_memory_contract(errors: list[str]) -> None:
+    implementation_taxonomy = tuple_assignment(
+        "codex_cadence/candidates.py",
+        "BUSINESS_MEMORY_CLASSIFICATIONS",
+        errors,
+    )
+    if implementation_taxonomy != EXPECTED_BUSINESS_MEMORY_TAXONOMY:
+        errors.append(
+            "codex_cadence/candidates.py BUSINESS_MEMORY_CLASSIFICATIONS must exactly match "
+            f"{EXPECTED_BUSINESS_MEMORY_TAXONOMY}"
+        )
+    implementation_statuses = tuple_assignment(
+        "codex_cadence/candidates.py",
+        "BUSINESS_MEMORY_STATUSES",
+        errors,
+    )
+    if implementation_statuses != EXPECTED_BUSINESS_MEMORY_STATUSES:
+        errors.append(
+            "codex_cadence/candidates.py BUSINESS_MEMORY_STATUSES must exactly match "
+            f"{EXPECTED_BUSINESS_MEMORY_STATUSES}"
+        )
+
+    for relative in ("SKILL.md", "docs/protocol.md"):
+        path = ROOT / relative
+        text = path.read_text(encoding="utf-8")
+        taxonomy = taxonomy_sentence_tokens(text)
+        if taxonomy != EXPECTED_BUSINESS_MEMORY_TAXONOMY:
+            errors.append(
+                f"{relative} business-memory taxonomy must exactly match "
+                f"{EXPECTED_BUSINESS_MEMORY_TAXONOMY}; got {taxonomy}"
+            )
+
+    for relative in ("SKILL.md", "docs/protocol.md", "docs/cadence/business-memory.md"):
+        path = ROOT / relative
+        text = path.read_text(encoding="utf-8")
+        statuses = status_sentence_tokens(text)
+        if statuses != EXPECTED_BUSINESS_MEMORY_STATUSES:
+            errors.append(
+                f"{relative} business-memory status values must exactly match "
+                f"{EXPECTED_BUSINESS_MEMORY_STATUSES}; got {statuses}"
+            )
+
+    for relative in ("SKILL.md", "docs/protocol.md"):
+        path = ROOT / relative
+        text = path.read_text(encoding="utf-8")
+        normalized = business_memory_contract_text(text)
+        for token in (
+            "docs/cadence/business-memory.md",
+            "source: business_memory",
+            "maturity: discovery",
+            "classification_confidence",
+            "status",
+            "active",
+            "fulfilled",
+            "superseded",
+            "classification: unknown",
+            "unclassified_signal",
+            "repo_anchors: []",
+            "evidence.path",
+            "evidence.line",
+            "evidence.heading",
+            "discovery-only",
+            "must not directly",
+            "execution",
+            "modify files",
+            "commit",
+            "push",
+            "merge",
+            "task sizing",
+            "snapshots",
+            "cadence state",
+            "self-check",
+            "governance policy",
+            "--max-business-memory-candidates",
+        ):
+            if token not in normalized:
+                errors.append(f"{relative} business-memory contract missing: {token}")
+
+    cadence_cli = (ROOT / "codex_cadence" / "cli.py").read_text(encoding="utf-8")
+    for token in (
+        'discover_parser.add_argument("--max-business-memory-candidates"',
+        "max_business_memory_candidates=args.max_business_memory_candidates",
+    ):
+        if token not in cadence_cli:
+            errors.append(f"codex_cadence/cli.py business-memory CLI wiring missing: {token}")
+
+
+def main() -> int:
+    errors: list[str] = []
+    validate_frontmatter(ROOT / "SKILL.md", errors)
+    validate_tokens(errors)
+    validate_business_memory_contract(errors)
+    if errors:
+        for error in errors:
+            print(f"protocol validation error: {error}", file=sys.stderr)
+        return 1
+    print("Protocol validation passed.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

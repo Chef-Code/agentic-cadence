@@ -1,0 +1,7 @@
+# Require owner review for automation and public-release guardrails.
+.github/workflows/** @Chef-Code
+.github/CODEOWNERS @Chef-Code
+scripts/codex_review_preflight.py @Chef-Code
+scripts/validate_protocol.py @Chef-Code
+scripts/public_release_audit.py @Chef-Code
+tests/test_ci_checks.py @Chef-Code

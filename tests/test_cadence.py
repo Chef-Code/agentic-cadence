@@ -1,0 +1,2625 @@
+import json
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from codex_cadence.model import estimate_task
+from codex_cadence.store import default_root, exclusive_lock, lock_path, snapshot_path as persisted_snapshot_path, utc_now
+
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "scripts" / "cadence.py"
+
+
+def run_cli(root, *args):
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(root), *args],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    output = json.loads(result.stdout) if result.stdout.strip() else None
+    return result, output
+
+
+def git(cwd, *args):
+    return subprocess.run(
+        ["git", *args],
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+
+def init_committed_repo(path):
+    git(path, "init", "-b", "main")
+    git(path, "config", "user.email", "test@example.com")
+    git(path, "config", "user.name", "Test User")
+    (Path(path) / "README.md").write_text("hello\n", encoding="utf-8")
+    git(path, "add", "README.md")
+    git(path, "commit", "-m", "initial")
+
+
+def ready_handoff_path(root, handoff_id):
+    return Path(root) / "handoffs" / "ready" / f"{handoff_id}.json"
+
+
+def rewrite_ready_handoff(root, handoff_id, update):
+    path = ready_handoff_path(root, handoff_id)
+    data = json.loads(path.read_text(encoding="utf-8"))
+    update(data)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def valid_snapshot(**overrides):
+    snapshot = {
+        "id": "snapshot-1",
+        "repo": "local/test",
+        "cwd": "/tmp/local-test",
+        "branch": "main",
+        "head": "abc123",
+        "ci": "green",
+        "open_prs": [],
+        "active_pr": None,
+        "unresolved_review_threads": None,
+        "dirty_worktree": False,
+        "known_failures": [],
+        "repo_confidence": "high",
+        "repo_confidence_drivers": [],
+        "captured_at": "2999-05-22T00:00:00Z",
+    }
+    snapshot.update(overrides)
+    return snapshot
+
+
+def write_active_epoch(root, epoch_id, snapshot_before, policy=None):
+    path = Path(root) / "epochs" / "active" / f"{epoch_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "id": epoch_id,
+        "status": "ACTIVE",
+        "repo": "local/test",
+        "branch": "main",
+        "tasks": [],
+        "completed_tasks": [],
+        "snapshot_before": snapshot_before,
+        "policy": policy if policy is not None else {"allow_recursive_discovery": False},
+        "started_at": utc_now(),
+        "updated_at": utc_now(),
+    }
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path
+
+
+def write_active_epoch_raw(root, epoch_id):
+    path = Path(root) / "epochs" / "active" / f"{epoch_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"id": epoch_id, "status": "ACTIVE"}), encoding="utf-8")
+    return path
+
+
+def claimed_handoff_path(root, handoff_id):
+    return Path(root) / "handoffs" / "claimed" / f"{handoff_id}.json"
+
+
+class CadenceCliTests(unittest.TestCase):
+    def test_default_root_uses_cadence_runtime_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"HOME": tmp, "USERPROFILE": tmp}, clear=True):
+                self.assertEqual(default_root(), Path(tmp) / ".codex" / "cadence")
+
+    def test_legacy_transmission_root_env_still_overrides_default_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with mock.patch.dict(os.environ, {"CODEX_TRANSMISSION_ROOT": tmp}, clear=True):
+                self.assertEqual(default_root(), Path(tmp))
+
+    def test_existing_legacy_default_root_preserves_brake_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            legacy_root = home / ".codex" / "transmission"
+            legacy_root.mkdir(parents=True)
+            (legacy_root / "brake.json").write_text(
+                json.dumps({
+                    "status": "PARK",
+                    "reason": "operator pause",
+                    "scope": "global",
+                    "resume_requires": "manual_ack",
+                    "updated_at": "2026-05-22T00:00:00Z",
+                }),
+                encoding="utf-8",
+            )
+
+            with mock.patch.dict(os.environ, {"HOME": tmp, "USERPROFILE": tmp}, clear=True):
+                self.assertEqual(default_root(), legacy_root)
+
+    def test_cadence_root_env_overrides_existing_legacy_default_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            legacy_root = home / ".codex" / "transmission"
+            cadence_root = home / ".codex" / "cadence"
+            legacy_root.mkdir(parents=True)
+
+            with mock.patch.dict(
+                os.environ,
+                {"HOME": tmp, "USERPROFILE": tmp, "CODEX_CADENCE_ROOT": str(cadence_root)},
+                clear=True,
+            ):
+                self.assertEqual(default_root(), cadence_root)
+
+    def test_conflicting_root_env_vars_fail_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cadence_root = Path(tmp) / "cadence"
+            legacy_root = Path(tmp) / "transmission"
+
+            with mock.patch.dict(
+                os.environ,
+                {"CODEX_CADENCE_ROOT": str(cadence_root), "CODEX_TRANSMISSION_ROOT": str(legacy_root)},
+                clear=True,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "point to different roots"):
+                    default_root()
+
+    def test_matching_root_env_vars_are_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "same"
+
+            with mock.patch.dict(
+                os.environ,
+                {"CODEX_CADENCE_ROOT": str(root), "CODEX_TRANSMISSION_ROOT": str(root)},
+                clear=True,
+            ):
+                self.assertEqual(default_root(), root)
+
+    def test_both_default_roots_fail_closed_without_explicit_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            legacy_root = home / ".codex" / "transmission"
+            cadence_root = home / ".codex" / "cadence"
+            legacy_root.mkdir(parents=True)
+            cadence_root.mkdir(parents=True)
+
+            with mock.patch.dict(os.environ, {"HOME": tmp, "USERPROFILE": tmp}, clear=True):
+                with self.assertRaisesRegex(RuntimeError, "both default runtime roots exist"):
+                    default_root()
+
+    def test_explicit_cli_root_works_when_both_default_roots_exist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            legacy_root = home / ".codex" / "transmission"
+            cadence_root = home / ".codex" / "cadence"
+            explicit_root = home / "explicit"
+            legacy_root.mkdir(parents=True)
+            cadence_root.mkdir(parents=True)
+
+            with mock.patch.dict(os.environ, {"HOME": tmp, "USERPROFILE": tmp}, clear=True):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(SCRIPT),
+                        "--root",
+                        str(explicit_root),
+                        "status",
+                    ],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            output = json.loads(result.stdout)
+            self.assertEqual(Path(output["root"]), explicit_root.resolve())
+
+    def test_cli_fails_closed_when_both_default_roots_exist(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            legacy_root = home / ".codex" / "transmission"
+            cadence_root = home / ".codex" / "cadence"
+            legacy_root.mkdir(parents=True)
+            cadence_root.mkdir(parents=True)
+
+            with mock.patch.dict(os.environ, {"HOME": tmp, "USERPROFILE": tmp}, clear=True):
+                result = subprocess.run(
+                    [sys.executable, str(SCRIPT), "status"],
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("both default runtime roots exist", result.stderr)
+
+    def test_status_output_shape_remains_stable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, output = run_cli(tmp, "status")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(set(output.keys()), {"root", "brake", "cadence", "counts", "next_ready"})
+            self.assertEqual(output["counts"], {
+                "ready": 0,
+                "claimed": 0,
+                "completed": 0,
+                "failed": 0,
+            })
+            self.assertEqual(output["cadence"], {
+                "state": "PLAY_ON",
+                "legacy_brake": "DRIVE",
+                "can_start_work": True,
+                "requires_operator_resume": False,
+            })
+
+    def test_status_maps_brake_to_football_cadence_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _brake = run_cli(tmp, "set-brake", "NEUTRAL", "--reason", "operator huddle")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result, output = run_cli(tmp, "status")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["cadence"], {
+                "state": "HUDDLE",
+                "legacy_brake": "NEUTRAL",
+                "can_start_work": False,
+                "requires_operator_resume": False,
+            })
+
+            result, _brake = run_cli(tmp, "set-brake", "PARK", "--reason", "operator timeout")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result, output = run_cli(tmp, "status")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["cadence"], {
+                "state": "TIMEOUT",
+                "legacy_brake": "PARK",
+                "can_start_work": False,
+                "requires_operator_resume": True,
+            })
+
+    def test_init_creates_drive_brake_and_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, output = run_cli(tmp, "init")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["brake"]["status"], "DRIVE")
+            self.assertTrue((Path(tmp) / "brake.json").exists())
+            self.assertTrue((Path(tmp) / "handoffs" / "ready").is_dir())
+
+    def test_handoff_claim_and_complete_lifecycle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, created = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "handoff-1",
+                "--title",
+                "Review PR 1",
+                "--task-type",
+                "execution",
+                "--message",
+                "Continue from here.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(created["status"], "READY")
+            self.assertIn("codex-handoff:v1", created["signature"])
+
+            result, claimed = run_cli(tmp, "claim-handoff", "handoff-1", "--claimer", "test-agent")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(claimed["status"], "CLAIMED")
+            self.assertFalse((Path(tmp) / "handoffs" / "ready" / "handoff-1.json").exists())
+
+            result, completed = run_cli(tmp, "complete-handoff", "handoff-1", "--summary", "done")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(completed["status"], "COMPLETED")
+            self.assertTrue((Path(tmp) / "handoffs" / "completed" / "handoff-1.json").exists())
+
+    def test_long_valid_handoff_id_can_move_through_lifecycle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            handoff_id = "h" * 128
+            result, created = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                handoff_id,
+                "--title",
+                "Review PR 1",
+                "--task-type",
+                "execution",
+                "--message",
+                "Continue from here.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(created["id"], handoff_id)
+
+            result, claimed = run_cli(tmp, "claim-handoff", handoff_id, "--claimer", "test-agent")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(claimed["status"], "CLAIMED")
+
+            result, completed = run_cli(tmp, "complete-handoff", handoff_id, "--summary", "done")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(completed["status"], "COMPLETED")
+
+    def test_claim_write_failure_leaves_handoff_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "handoff-failure",
+                "--title",
+                "Review PR 1",
+                "--task-type",
+                "execution",
+                "--message",
+                "Continue from here.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            ready_path = ready_handoff_path(tmp, "handoff-failure")
+            claimed_path = claimed_handoff_path(tmp, "handoff-failure")
+
+            def fail_claimed_write(path, data):
+                if path == claimed_path:
+                    raise OSError("write failed")
+                raise AssertionError("unexpected write")
+
+            with mock.patch("codex_cadence.cli.atomic_write_json", fail_claimed_write):
+                with self.assertRaisesRegex(OSError, "write failed"):
+                    import codex_cadence.cli as cadence
+
+                    args = type(
+                        "Args",
+                        (),
+                        {"root": Path(tmp), "handoff_id": "handoff-failure", "claimer": "test-agent"},
+                    )()
+                    cadence.claim_handoff(args)
+
+            self.assertTrue(ready_path.exists())
+            self.assertFalse(claimed_path.exists())
+            self.assertEqual(json.loads(ready_path.read_text(encoding="utf-8"))["status"], "READY")
+
+    def test_claim_handoff_uses_runtime_lock_for_brake_transition(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "runtime-locked",
+                "--title",
+                "Review PR 1",
+                "--task-type",
+                "execution",
+                "--message",
+                "Continue from here.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            with exclusive_lock(lock_path(Path(tmp), "runtime")):
+                result, output = run_cli(tmp, "claim-handoff", "runtime-locked", "--claimer", "test-agent")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("lock already held: runtime.lock", result.stderr)
+            self.assertTrue(ready_handoff_path(tmp, "runtime-locked").exists())
+
+    def test_claim_blocks_unsized_handoff_without_estimate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "unsized-stripped-1",
+                "--title",
+                "Stripped estimate",
+                "--task-type",
+                "execution",
+                "--message",
+                "Estimate fields were stripped after creation.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            rewrite_ready_handoff(
+                tmp,
+                "unsized-stripped-1",
+                lambda data: (data.pop("estimate"), data.pop("estimate_input"), data.pop("estimate_checksum")),
+            )
+
+            result, output = run_cli(tmp, "claim-handoff", "unsized-stripped-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 3)
+            self.assertFalse(output["claimed"])
+            self.assertEqual(output["blocked_by_policy"]["action"], "malformed_estimate")
+            self.assertEqual(output["blocked_by_policy"]["reason"], "handoff estimate is required for pickup")
+            self.assertTrue(ready_handoff_path(tmp, "unsized-stripped-1").exists())
+
+    def test_create_handoff_requires_task_type_for_new_handoffs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, output = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "unsized-1",
+                "--title",
+                "Unsized",
+                "--message",
+                "This handoff has no task sizing.",
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("--task-type", result.stderr)
+            self.assertFalse((Path(tmp) / "handoffs" / "ready" / "unsized-1.json").exists())
+
+    def test_create_handoff_rejects_path_traversal_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, output = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                r"..\escaped",
+                "--title",
+                "Escaped",
+                "--task-type",
+                "execution",
+                "--message",
+                "Do not escape state directories.",
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("handoff id", result.stderr)
+            self.assertFalse((Path(tmp) / "handoffs" / "escaped.json").exists())
+
+    def test_claim_blocks_estimated_handoff_missing_estimate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "missing-estimate-1",
+                "--title",
+                "Large migration",
+                "--task-type",
+                "discovery",
+                "--driver",
+                "migration",
+                "--driver",
+                "cross_subsystem",
+                "--driver",
+                "unknown_repo_area",
+                "--message",
+                "Investigate and migrate several subsystems.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            path = rewrite_ready_handoff(tmp, "missing-estimate-1", lambda data: data.pop("estimate"))
+
+            result, output = run_cli(tmp, "claim-handoff", "missing-estimate-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 3)
+            self.assertFalse(output["claimed"])
+            self.assertEqual(output["blocked_by_policy"]["action"], "malformed_estimate")
+            self.assertEqual(output["blocked_by_policy"]["reason"], "handoff estimate is required for pickup")
+            self.assertTrue(path.exists())
+
+    def test_claim_blocks_pre_binding_estimated_handoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "pre-binding-estimate-1",
+                "--title",
+                "Small execution",
+                "--task-type",
+                "execution",
+                "--driver",
+                "reviewer_feedback",
+                "--message",
+                "Resolve one reviewer finding.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            def remove_binding(data):
+                data.pop("estimate_input")
+                data.pop("estimate_checksum")
+
+            path = rewrite_ready_handoff(tmp, "pre-binding-estimate-1", remove_binding)
+
+            result, output = run_cli(tmp, "claim-handoff", "pre-binding-estimate-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 3)
+            self.assertFalse(output["claimed"])
+            self.assertEqual(output["blocked_by_policy"]["action"], "malformed_estimate")
+            self.assertEqual(output["blocked_by_policy"]["reason"], "estimate input must be an object")
+            self.assertTrue(path.exists())
+
+    def test_brake_blocks_claim(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "blocked-1",
+                "--title",
+                "Blocked",
+                "--task-type",
+                "execution",
+                "--message",
+                "Do not pick this up.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, brake = run_cli(tmp, "set-brake", "NEUTRAL", "--reason", "manual brake")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(brake["status"], "NEUTRAL")
+
+            result, claim = run_cli(tmp, "claim-handoff", "blocked-1", "--claimer", "test-agent")
+            self.assertEqual(result.returncode, 2)
+            self.assertFalse(claim["claimed"])
+            self.assertEqual(claim["blocked_by_brake"]["status"], "NEUTRAL")
+            self.assertTrue((Path(tmp) / "handoffs" / "ready" / "blocked-1.json").exists())
+
+    def test_set_brake_cannot_clear_to_drive_directly(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, brake = run_cli(tmp, "set-brake", "PARK", "--reason", "operator stop")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(brake["status"], "PARK")
+
+            result, output = run_cli(tmp, "set-brake", "DRIVE", "--reason", "resume")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("invalid choice", result.stderr)
+
+    def test_clear_brake_returns_to_drive(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, brake = run_cli(tmp, "set-brake", "PARK", "--reason", "operator stop")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(brake["status"], "PARK")
+
+            result, cleared = run_cli(tmp, "clear-brake", "--reason", "operator approved resume")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(cleared["status"], "DRIVE")
+            self.assertEqual(cleared["reason"], "operator approved resume")
+
+    def test_move_handoff_unlink_failure_rolls_back_target_state(self):
+        from codex_cadence.cli import move_handoff
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_cli(root, "init")
+            handoff_id = "handoff-rollback"
+            ready_path = ready_handoff_path(root, handoff_id)
+            ready_path.write_text(
+                json.dumps(
+                    {
+                        "protocol_version": "v1",
+                        "id": handoff_id,
+                        "status": "READY",
+                        "checksum": "sha256:abc",
+                        "signature": "sig",
+                        "message": "test",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            claimed_path = claimed_handoff_path(root, handoff_id)
+            original_unlink = Path.unlink
+
+            def fail_ready_unlink(path):
+                if path == ready_path:
+                    raise OSError("unlink failed")
+                return original_unlink(path)
+
+            with mock.patch("pathlib.Path.unlink", fail_ready_unlink):
+                with self.assertRaisesRegex(OSError, "unlink failed"):
+                    move_handoff(root, handoff_id, "ready", "claimed", {"claimed_by": "tester"})
+
+            self.assertTrue(ready_path.exists())
+            self.assertFalse(claimed_path.exists())
+
+    def test_claim_blocks_xl_handoff_without_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "xl-1",
+                "--title",
+                "Large migration",
+                "--task-type",
+                "discovery",
+                "--driver",
+                "migration",
+                "--driver",
+                "cross_subsystem",
+                "--driver",
+                "unknown_repo_area",
+                "--message",
+                "Investigate and migrate several subsystems.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(tmp, "claim-handoff", "xl-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 3)
+            self.assertFalse(output["claimed"])
+            self.assertEqual(output["blocked_by_policy"]["action"], "decompose_or_ask_approval")
+            self.assertTrue((Path(tmp) / "handoffs" / "ready" / "xl-1.json").exists())
+
+    def test_claim_blocks_xl_handoff_with_missing_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "missing-policy-1",
+                "--title",
+                "Large execution",
+                "--task-type",
+                "execution",
+                "--driver",
+                "migration",
+                "--driver",
+                "cross_subsystem",
+                "--driver",
+                "irreversible_operation",
+                "--message",
+                "Execute a large change.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            path = rewrite_ready_handoff(tmp, "missing-policy-1", lambda data: data["estimate"].pop("policy"))
+
+            result, output = run_cli(tmp, "claim-handoff", "missing-policy-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 3)
+            self.assertFalse(output["claimed"])
+            self.assertEqual(output["blocked_by_policy"]["action"], "malformed_estimate")
+            self.assertTrue(path.exists())
+
+    def test_claim_blocks_internally_inconsistent_estimate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "spoofed-estimate-1",
+                "--title",
+                "Large execution",
+                "--task-type",
+                "execution",
+                "--driver",
+                "migration",
+                "--driver",
+                "cross_subsystem",
+                "--driver",
+                "irreversible_operation",
+                "--message",
+                "Execute a large change.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            def spoof(data):
+                data["estimate"]["bucket"] = "S"
+                data["estimate"]["policy"] = {
+                    "action": "pick_up",
+                    "check_in_every_minutes": 10,
+                    "handoff_after_minutes": 25,
+                    "pickup_requires_approval": False,
+                }
+
+            path = rewrite_ready_handoff(tmp, "spoofed-estimate-1", spoof)
+
+            result, output = run_cli(tmp, "claim-handoff", "spoofed-estimate-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 3)
+            self.assertFalse(output["claimed"])
+            self.assertEqual(output["blocked_by_policy"]["action"], "malformed_estimate")
+            self.assertIn("canonical", output["blocked_by_policy"]["reason"])
+            self.assertTrue(path.exists())
+
+    def test_claim_blocks_self_consistent_downgraded_estimate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "downgraded-estimate-1",
+                "--title",
+                "Large migration",
+                "--task-type",
+                "discovery",
+                "--driver",
+                "migration",
+                "--driver",
+                "cross_subsystem",
+                "--driver",
+                "unknown_repo_area",
+                "--message",
+                "Investigate and migrate several subsystems.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            def downgrade(data):
+                source = {"task_type": "execution", "drivers": ["reviewer_feedback"]}
+                data["estimate_input"] = source
+                data["estimate"] = estimate_task(
+                    title=data["title"],
+                    message=data["message"],
+                    task_type=source["task_type"],
+                    drivers=source["drivers"],
+                )
+
+            path = rewrite_ready_handoff(tmp, "downgraded-estimate-1", downgrade)
+
+            result, output = run_cli(tmp, "claim-handoff", "downgraded-estimate-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 3)
+            self.assertFalse(output["claimed"])
+            self.assertEqual(output["blocked_by_policy"]["action"], "malformed_estimate")
+            self.assertEqual(output["blocked_by_policy"]["reason"], "estimate checksum mismatch")
+            self.assertTrue(path.exists())
+
+    def test_claim_blocks_non_dict_estimate_predictably(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "bad-estimate-1",
+                "--title",
+                "Bad estimate",
+                "--task-type",
+                "execution",
+                "--message",
+                "Persisted estimate is corrupt.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            path = rewrite_ready_handoff(tmp, "bad-estimate-1", lambda data: data.update({"estimate": "bad"}))
+
+            result, output = run_cli(tmp, "claim-handoff", "bad-estimate-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 3)
+            self.assertFalse(output["claimed"])
+            self.assertEqual(output["blocked_by_policy"]["action"], "malformed_estimate")
+            self.assertTrue(path.exists())
+
+    def test_claim_blocks_non_dict_estimate_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "bad-policy-1",
+                "--title",
+                "Bad policy",
+                "--task-type",
+                "execution",
+                "--message",
+                "Persisted policy is corrupt.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            path = rewrite_ready_handoff(tmp, "bad-policy-1", lambda data: data["estimate"].update({"policy": ["bad"]}))
+
+            result, output = run_cli(tmp, "claim-handoff", "bad-policy-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 3)
+            self.assertFalse(output["claimed"])
+            self.assertEqual(output["blocked_by_policy"]["action"], "malformed_estimate")
+            self.assertTrue(path.exists())
+
+    def test_claim_allows_xl_handoff_with_operator_approval_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "xl-approved-1",
+                "--title",
+                "Large migration",
+                "--task-type",
+                "discovery",
+                "--driver",
+                "migration",
+                "--driver",
+                "cross_subsystem",
+                "--driver",
+                "unknown_repo_area",
+                "--message",
+                "Investigate and migrate several subsystems.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result, approval = run_cli(tmp, "approve-handoff", "xl-approved-1", "--approver", "operator")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(approval["handoff_id"], "xl-approved-1")
+            self.assertTrue((Path(tmp) / "approvals" / "xl-approved-1.json").exists())
+
+            result, output = run_cli(tmp, "claim-handoff", "xl-approved-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["status"], "CLAIMED")
+
+    def test_claim_blocks_approval_gated_handoff_with_self_attested_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "bad-metadata-1",
+                "--title",
+                "Large migration",
+                "--task-type",
+                "discovery",
+                "--driver",
+                "migration",
+                "--driver",
+                "cross_subsystem",
+                "--driver",
+                "unknown_repo_area",
+                "--metadata",
+                "pickup_approved=true",
+                "--message",
+                "Investigate and migrate several subsystems.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(tmp, "claim-handoff", "bad-metadata-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 3)
+            self.assertFalse(output["claimed"])
+            self.assertTrue(output["blocked_by_policy"]["pickup_requires_approval"])
+            self.assertEqual(output["blocked_by_policy"]["action"], "decompose_or_ask_approval")
+            self.assertTrue((Path(tmp) / "handoffs" / "ready" / "bad-metadata-1.json").exists())
+
+    def test_claim_blocks_self_evolution_execution(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "self-evolution-execution-1",
+                "--title",
+                "Rewrite protocol",
+                "--task-type",
+                "execution",
+                "--driver",
+                "self_evolution",
+                "--message",
+                "Modify the protocol rules directly.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(tmp, "claim-handoff", "self-evolution-execution-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 3)
+            self.assertFalse(output["claimed"])
+            self.assertEqual(output["blocked_by_policy"]["action"], "self_evolution_propose_only")
+
+    def test_claim_blocks_high_uncertainty_discovery_without_approval(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, created = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "uncertain-discovery-1",
+                "--title",
+                "Unknown area discovery",
+                "--task-type",
+                "discovery",
+                "--driver",
+                "unknown_repo_area",
+                "--driver",
+                "cross_subsystem",
+                "--message",
+                "Investigate the unfamiliar subsystem.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(created["estimate"]["uncertainty"]["level"], "high")
+
+            result, output = run_cli(tmp, "claim-handoff", "uncertain-discovery-1", "--claimer", "test-agent")
+
+            self.assertEqual(result.returncode, 3)
+            self.assertFalse(output["claimed"])
+            self.assertTrue(output["blocked_by_policy"]["pickup_requires_approval"])
+            self.assertTrue((Path(tmp) / "handoffs" / "ready" / "uncertain-discovery-1.json").exists())
+
+    def test_validate_detects_checksum_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, created = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "checksum-1",
+                "--title",
+                "Checksum",
+                "--task-type",
+                "execution",
+                "--message",
+                "Original.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            path = Path(tmp) / "handoffs" / "ready" / "checksum-1.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["message"] = "Tampered."
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+            result, validation = run_cli(tmp, "validate-handoff", "checksum-1")
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(validation["valid"])
+            self.assertIn("checksum mismatch", validation["errors"])
+
+    def test_clean_square_writes_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, _ = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "clean-1",
+                "--title",
+                "Clean",
+                "--task-type",
+                "execution",
+                "--message",
+                "Ready for pickup.",
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, log = run_cli(tmp, "clean-square", "clean-1", "--summary", "old session stopped")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(log["checks"]["handoff_written"])
+            self.assertTrue((Path(tmp) / "logs" / "clean-square" / "clean-1.json").exists())
+
+    def test_plan_task_outputs_estimate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, output = run_cli(
+                tmp,
+                "plan-task",
+                "--title",
+                "Fix CI",
+                "--task-type",
+                "execution",
+                "--driver",
+                "ci_verification",
+                "--message",
+                "Resolve one failing test.",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["title"], "Fix CI")
+            self.assertEqual(output["estimate"]["task_type"], "execution")
+            self.assertIn(output["estimate"]["bucket"], ["S", "M"])
+
+    def test_create_handoff_can_embed_estimate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, created = run_cli(
+                tmp,
+                "create-handoff",
+                "--id",
+                "estimated-1",
+                "--title",
+                "Investigate architecture",
+                "--task-type",
+                "discovery",
+                "--driver",
+                "unknown_repo_area",
+                "--driver",
+                "cross_subsystem",
+                "--message",
+                "Investigate why two subsystems disagree.",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(created["estimate"]["task_type"], "discovery")
+            self.assertEqual(created["estimate_input"]["task_type"], "discovery")
+            self.assertIsNotNone(created["estimate_checksum"])
+            self.assertTrue(created["estimate"]["policy"]["pickup_requires_approval"])
+
+    def test_snapshot_repo_command_writes_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+
+            result, snapshot = run_cli(tmp, "snapshot-repo", "--cwd", repo_tmp, "--repo", "local/test")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(snapshot["repo"], "local/test")
+            self.assertEqual(snapshot["repo_confidence"], "high")
+            self.assertEqual(snapshot["path"], str(Path(tmp) / "snapshots" / f"{snapshot['id']}.json"))
+            self.assertTrue((Path(tmp) / "snapshots" / f"{snapshot['id']}.json").exists())
+
+    def test_snapshot_repo_command_repeated_calls_write_distinct_snapshots(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+
+            first_result, first = run_cli(tmp, "snapshot-repo", "--cwd", repo_tmp, "--repo", "local/test")
+            second_result, second = run_cli(tmp, "snapshot-repo", "--cwd", repo_tmp, "--repo", "local/test")
+
+            self.assertEqual(first_result.returncode, 0, first_result.stderr)
+            self.assertEqual(second_result.returncode, 0, second_result.stderr)
+            self.assertNotEqual(first["id"], second["id"])
+            self.assertTrue((Path(tmp) / "snapshots" / f"{first['id']}.json").exists())
+            self.assertTrue((Path(tmp) / "snapshots" / f"{second['id']}.json").exists())
+            self.assertEqual(len(list((Path(tmp) / "snapshots").glob("*.json"))), 2)
+
+    def test_snapshot_repo_command_invalid_cwd_returns_nonzero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "missing"
+
+            result, output = run_cli(tmp, "snapshot-repo", "--cwd", str(missing), "--repo", "local/test")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+
+    def test_snapshot_repo_command_records_explicit_ci_status(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+
+            result, output = run_cli(tmp, "snapshot-repo", "--cwd", repo_tmp, "--repo", "local/test", "--ci-status", "green")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["ci"], "green")
+
+    def test_discover_candidates_requires_intent_for_local_mode(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+
+            result, output = run_cli(tmp, "discover-candidates", "--cwd", repo)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("intent is required unless --interactive or --discovery-mode off is used", result.stderr)
+
+    def test_discover_candidates_expanded_mode_fails_closed_without_intent(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+
+            result, output = run_cli(tmp, "discover-candidates", "--cwd", repo, "--discovery-mode", "expanded")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("expanded discovery mode is reserved for v2", result.stderr)
+            self.assertNotIn("intent is required", result.stderr)
+
+    def test_discover_candidates_expanded_mode_does_not_prompt_interactive_intent(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(tmp),
+                    "discover-candidates",
+                    "--cwd",
+                    repo,
+                    "--discovery-mode",
+                    "expanded",
+                    "--interactive",
+                ],
+                input="1\n",
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("expanded discovery mode is reserved for v2", result.stderr)
+            self.assertNotIn("Choose discovery intent", result.stderr)
+
+    def test_discover_candidates_off_does_not_require_intent(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+
+            result, output = run_cli(tmp, "discover-candidates", "--cwd", repo, "--discovery-mode", "off")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["candidates"], [])
+            self.assertEqual(output["elected_next"], [])
+            self.assertEqual(output["sources"]["review_findings"], 0)
+            self.assertEqual(output["sources"]["text_markers"], 0)
+            self.assertEqual(output["sources"]["proposals"], 0)
+
+    def test_discover_candidates_elects_known_failure(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+
+            result, output = run_cli(
+                tmp,
+                "discover-candidates",
+                "--cwd",
+                repo,
+                "--intent",
+                "merge_readiness",
+                "--known-failure",
+                "unit tests",
+                "--elect",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["elected_next"][0]["source"], "known_failure")
+
+    def test_discover_candidates_accepts_review_threads_file(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            threads = Path(tmp) / "threads.json"
+            threads.write_text(
+                json.dumps({
+                    "data": {
+                        "repository": {
+                            "pullRequest": {
+                                "reviewThreads": {
+                                    "nodes": [
+                                        {
+                                            "id": "thread-1",
+                                            "isResolved": False,
+                                            "isOutdated": False,
+                                            "path": "codex_cadence/candidates.py",
+                                            "line": 448,
+                                            "comments": {
+                                                "nodes": [
+                                                    {
+                                                        "id": "comment-1",
+                                                        "body": "Map this thread to a finding.",
+                                                        "outdated": False,
+                                                    }
+                                                ]
+                                            },
+                                        }
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                }),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "discover-candidates",
+                "--cwd",
+                repo,
+                "--intent",
+                "merge_readiness",
+                "--review-threads-file",
+                str(threads),
+                "--elect",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["sources"]["review_findings"], 1)
+            self.assertEqual(output["elected_next"][0]["source"], "review_finding")
+
+    def test_discover_candidates_interactive_reads_intent(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(tmp),
+                    "discover-candidates",
+                    "--cwd",
+                    repo,
+                    "--interactive",
+                ],
+                input="1\n",
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            output = json.loads(result.stdout)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["intent"], "merge_readiness")
+
+    def test_epoch_cli_lifecycle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot()), encoding="utf-8")
+
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(epoch["status"], "ACTIVE")
+
+            result, completed = run_cli(tmp, "complete-epoch", epoch["id"], "--decision", "STOP", "--summary", "done")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(completed["status"], "COMPLETED")
+            self.assertEqual(completed["decision"], "STOP")
+
+    def test_start_epoch_blocks_when_brake_is_parked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot()), encoding="utf-8")
+            result, brake = run_cli(tmp, "set-brake", "PARK", "--reason", "operator stop")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(brake["status"], "PARK")
+
+            result, output = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("start-epoch requires brake DRIVE", result.stderr)
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_fail_epoch_moves_active_epoch_to_failed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot()), encoding="utf-8")
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, failed = run_cli(tmp, "fail-epoch", epoch["id"], "--reason", "blocked")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(failed["status"], "FAILED")
+            self.assertEqual(failed["failure_reason"], "blocked")
+            self.assertFalse((Path(tmp) / "epochs" / "active" / f"{epoch['id']}.json").exists())
+            self.assertTrue((Path(tmp) / "epochs" / "failed" / f"{epoch['id']}.json").exists())
+
+    def test_complete_epoch_rejects_continue_without_persisted_self_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot()), encoding="utf-8")
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(tmp, "complete-epoch", epoch["id"], "--decision", "CONTINUE")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("CONTINUE requires a persisted CONTINUE self-check", result.stderr)
+
+    def test_complete_epoch_allows_continue_after_persisted_self_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_before_path = Path(tmp) / "snapshot-before.json"
+            snapshot_before_path.write_text(json.dumps(valid_snapshot(id="snapshot-before")), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_before_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result, check = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                epoch["id"],
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(check["decision"], "CONTINUE")
+
+            result, completed = run_cli(tmp, "complete-epoch", epoch["id"], "--decision", "CONTINUE")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(completed["status"], "COMPLETED")
+            self.assertEqual(completed["decision"], "CONTINUE")
+
+    def test_self_check_asks_approval_after_completed_epoch_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+
+            snapshot_before_1 = Path(tmp) / "snapshot-before-1.json"
+            snapshot_before_1.write_text(json.dumps(valid_snapshot(id="snapshot-before-1")), encoding="utf-8")
+            snapshot_after_1 = Path(tmp) / "snapshot-after-1.json"
+            snapshot_after_1.write_text(json.dumps(valid_snapshot(id="snapshot-after-1")), encoding="utf-8")
+            result, first = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_before_1),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result, check = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                first["id"],
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_1),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(check["decision"], "CONTINUE")
+            self.assertEqual(check["completed_continue_count"], 0)
+            result, completed = run_cli(tmp, "complete-epoch", first["id"], "--decision", "CONTINUE")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(completed["decision"], "CONTINUE")
+
+            snapshot_before_2 = Path(tmp) / "snapshot-before-2.json"
+            snapshot_before_2.write_text(json.dumps(valid_snapshot(id="snapshot-before-2")), encoding="utf-8")
+            snapshot_after_2 = Path(tmp) / "snapshot-after-2.json"
+            snapshot_after_2.write_text(json.dumps(valid_snapshot(id="snapshot-after-2")), encoding="utf-8")
+            result, second = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_before_2),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                second["id"],
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_2),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["completed_continue_count"], 1)
+            self.assertEqual(output["decision"], "ASK_APPROVAL")
+            self.assertEqual(output["reason"], "max_epochs_without_user_approval reached")
+
+    def test_self_check_requires_green_ci_for_default_continuation_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_before_path = Path(tmp) / "snapshot-before.json"
+            snapshot_before_path.write_text(json.dumps(valid_snapshot(id="snapshot-before")), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after", ci="unknown")), encoding="utf-8")
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_before_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                epoch["id"],
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["decision"], "HANDOFF")
+            self.assertEqual(output["reason"], "green CI or explicit handoff required")
+
+    def test_complete_epoch_rejects_continue_when_epoch_exceeds_time_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot()), encoding="utf-8")
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            active_path = Path(tmp) / "epochs" / "active" / f"{epoch['id']}.json"
+            active = json.loads(active_path.read_text(encoding="utf-8"))
+            from codex_cadence.epochs import checksum_json as checksum_epoch_json
+
+            snapshot_after = valid_snapshot(id="snapshot-after")
+            persisted_snapshot_after = persisted_snapshot_path(Path(tmp), snapshot_after["id"])
+            persisted_snapshot_after.parent.mkdir(parents=True, exist_ok=True)
+            persisted_snapshot_after.write_text(json.dumps(snapshot_after), encoding="utf-8")
+            active["started_at"] = "2026-05-22T00:00:00Z"
+            active["last_self_check"] = {
+                "epoch_id": epoch["id"],
+                "decision": "CONTINUE",
+                "epoch_grounded": True,
+                "current_snapshot_grounded": True,
+                "brake_status": "DRIVE",
+                "elected_next": [{"id": "task-2", "task_type": "execution", "bucket": "S"}],
+                "epoch_policy_checksum": "sha256:stale",
+                "snapshot_before_id": active["snapshot_before"]["id"],
+                "snapshot_before_checksum": checksum_epoch_json(active["snapshot_before"]),
+                "snapshot_after_id": snapshot_after["id"],
+                "snapshot_after_checksum": checksum_epoch_json(snapshot_after),
+                "completed_continue_count": 0,
+                "current_snapshot_ci": "green",
+            }
+            active["last_self_check"]["epoch_policy_checksum"] = checksum_epoch_json(active["policy"])
+            active_path.write_text(json.dumps(active), encoding="utf-8")
+
+            result, output = run_cli(tmp, "complete-epoch", epoch["id"], "--decision", "CONTINUE")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("CONTINUE exceeds max_minutes_per_epoch", result.stderr)
+
+    def test_complete_epoch_rejects_replayed_continue_self_check(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot(id="snapshot-before")), encoding="utf-8")
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            active_path = Path(tmp) / "epochs" / "active" / f"{epoch['id']}.json"
+            active = json.loads(active_path.read_text(encoding="utf-8"))
+            from codex_cadence.epochs import checksum_json as checksum_epoch_json
+
+            active["last_self_check"] = {
+                "epoch_id": "other-epoch",
+                "decision": "CONTINUE",
+                "epoch_grounded": True,
+                "current_snapshot_grounded": True,
+                "brake_status": "DRIVE",
+                "elected_next": [{"id": "task-2", "task_type": "execution", "bucket": "S"}],
+                "epoch_policy_checksum": checksum_epoch_json(active["policy"]),
+                "snapshot_before_id": active["snapshot_before"]["id"],
+                "snapshot_before_checksum": checksum_epoch_json(active["snapshot_before"]),
+                "completed_continue_count": 0,
+                "current_snapshot_ci": "green",
+            }
+            active_path.write_text(json.dumps(active), encoding="utf-8")
+
+            result, output = run_cli(tmp, "complete-epoch", epoch["id"], "--decision", "CONTINUE")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("CONTINUE self-check epoch does not match active epoch", result.stderr)
+
+    def test_complete_epoch_rechecks_brake_before_continue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_before_path = Path(tmp) / "snapshot-before.json"
+            snapshot_before_path.write_text(json.dumps(valid_snapshot(id="snapshot-before")), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_before_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result, check = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                epoch["id"],
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(check["decision"], "CONTINUE")
+            result, brake = run_cli(tmp, "set-brake", "PARK", "--reason", "operator stop")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(brake["status"], "PARK")
+
+            result, output = run_cli(tmp, "complete-epoch", epoch["id"], "--decision", "CONTINUE")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("CONTINUE requires brake to remain DRIVE", result.stderr)
+
+    def test_complete_epoch_continue_uses_runtime_lock_for_brake_transition(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_before_path = Path(tmp) / "snapshot-before.json"
+            snapshot_before_path.write_text(json.dumps(valid_snapshot(id="snapshot-before")), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_before_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result, check = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                epoch["id"],
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(check["decision"], "CONTINUE")
+
+            with exclusive_lock(lock_path(Path(tmp), "runtime")):
+                result, output = run_cli(tmp, "complete-epoch", epoch["id"], "--decision", "CONTINUE")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("lock already held: runtime.lock", result.stderr)
+            self.assertTrue((Path(tmp) / "epochs" / "active" / f"{epoch['id']}.json").exists())
+
+    def test_start_epoch_rejects_object_tasks_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_path = Path(tmp) / "tasks.json"
+            tasks_path.write_text(json.dumps({"id": "task-1"}), encoding="utf-8")
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot()), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--tasks-file",
+                str(tasks_path),
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+
+    def test_start_epoch_requires_snapshot_before_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, output = run_cli(tmp, "start-epoch", "--repo", "local/test", "--branch", "main")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("--snapshot-before-file", result.stderr)
+
+    def test_start_epoch_rejects_list_snapshot_before_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps([{"id": "snapshot-1"}]), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+
+    def test_start_epoch_rejects_invalid_snapshot_before_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps({"id": "snapshot-1", "repo_confidence": "high"}), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("invalid snapshot_before", result.stderr)
+
+    def test_start_epoch_rejects_snapshot_repo_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot(repo="other/repo")), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("snapshot repo does not match", result.stderr)
+
+    def test_start_epoch_rejects_snapshot_branch_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot(branch="feature")), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("snapshot branch does not match", result.stderr)
+
+    def test_start_epoch_rejects_existing_active_epoch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first_snapshot_path = Path(tmp) / "snapshot-1.json"
+            first_snapshot_path.write_text(json.dumps(valid_snapshot(id="snapshot-1")), encoding="utf-8")
+            second_snapshot_path = Path(tmp) / "snapshot-2.json"
+            second_snapshot_path.write_text(json.dumps(valid_snapshot(id="snapshot-2")), encoding="utf-8")
+            result, _ = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(first_snapshot_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(second_snapshot_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("active epoch already exists", result.stderr)
+
+    def test_start_epoch_rejects_tasks_over_policy_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_path = Path(tmp) / "tasks.json"
+            tasks = [{"id": f"task-{index}", "task_type": "execution"} for index in range(4)]
+            tasks_path.write_text(json.dumps(tasks), encoding="utf-8")
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot()), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--tasks-file",
+                str(tasks_path),
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("exceeds max_tasks_per_epoch", result.stderr)
+
+    def test_start_epoch_rejects_too_many_discovery_tasks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tasks_path = Path(tmp) / "tasks.json"
+            tasks = [
+                {"id": "task-1", "task_type": "discovery"},
+                {"id": "task-2", "task_type": "discovery"},
+            ]
+            tasks_path.write_text(json.dumps(tasks), encoding="utf-8")
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot()), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--tasks-file",
+                str(tasks_path),
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("exceeds max_discovery_tasks_per_epoch", result.stderr)
+
+    def test_start_epoch_requires_repo_and_branch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot()), encoding="utf-8")
+
+            result, output = run_cli(tmp, "start-epoch", "--branch", "main", "--snapshot-before-file", str(snapshot_path))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("--repo", result.stderr)
+
+            result, output = run_cli(tmp, "start-epoch", "--repo", "local/test", "--snapshot-before-file", str(snapshot_path))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("--branch", result.stderr)
+
+    def test_start_epoch_rejects_missing_task_type(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot()), encoding="utf-8")
+            tasks_path = Path(tmp) / "tasks.json"
+            tasks_path.write_text(json.dumps([{"id": "task-1"}]), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--tasks-file",
+                str(tasks_path),
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("task_type must be execution or discovery", result.stderr)
+
+    def test_self_check_blocks_high_uncertainty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result, output = run_cli(tmp, "self-check", "--uncertainty", "high")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["decision"], "HANDOFF")
+
+    def test_self_check_uses_candidate_uncertainty_signal(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_before_path = Path(tmp) / "snapshot-before.json"
+            snapshot_before_path.write_text(json.dumps(valid_snapshot(id="snapshot-before")), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S", "uncertainty": "high"}]),
+                encoding="utf-8",
+            )
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_before_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                epoch["id"],
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["uncertainty"], "high")
+            self.assertEqual(output["decision"], "HANDOFF")
+
+    def test_self_check_requires_epoch_snapshot_to_continue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(tmp, "self-check", "--candidates-file", str(candidates_path))
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["decision"], "ASK_APPROVAL")
+            self.assertFalse(output["epoch_grounded"])
+            self.assertEqual(output["reason"], "epoch snapshot required for continuation")
+
+    def test_self_check_requires_current_snapshot_to_continue(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot()), encoding="utf-8")
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(tmp, "self-check", "--epoch-id", epoch["id"], "--candidates-file", str(candidates_path))
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["epoch_grounded"])
+            self.assertFalse(output["current_snapshot_grounded"])
+            self.assertEqual(output["decision"], "ASK_APPROVAL")
+            self.assertEqual(output["reason"], "current repo snapshot required for continuation")
+
+    def test_self_check_rejects_stale_snapshot_after(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_before_path = Path(tmp) / "snapshot-before.json"
+            snapshot_before_path.write_text(json.dumps(valid_snapshot(id="snapshot-before")), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(valid_snapshot(id="snapshot-after", captured_at="2000-01-01T00:00:00Z")),
+                encoding="utf-8",
+            )
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_before_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                epoch["id"],
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("snapshot_after must be captured after epoch start", result.stderr)
+
+    def test_self_check_uses_current_snapshot_confidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_before_path = Path(tmp) / "snapshot-before.json"
+            snapshot_before_path.write_text(json.dumps(valid_snapshot(id="snapshot-before", repo_confidence="high")), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after", repo_confidence="low")), encoding="utf-8")
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_before_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                epoch["id"],
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["epoch_grounded"])
+            self.assertTrue(output["current_snapshot_grounded"])
+            self.assertEqual(output["repo_confidence"], "low")
+            self.assertEqual(output["decision"], "ASK_APPROVAL")
+
+    def test_self_check_snapshot_confidence_overrides_cli_flag(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_before_path = Path(tmp) / "snapshot-before.json"
+            snapshot_before_path.write_text(json.dumps(valid_snapshot(id="snapshot-before", repo_confidence="high")), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after", repo_confidence="low")), encoding="utf-8")
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_before_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                epoch["id"],
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--repo-confidence",
+                "high",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["repo_confidence"], "low")
+            self.assertEqual(output["decision"], "ASK_APPROVAL")
+
+    def test_self_check_recursive_discovery_flag_does_not_override_epoch_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            snapshot_path.write_text(json.dumps(valid_snapshot()), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "discovery", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+            result, epoch = run_cli(
+                tmp,
+                "start-epoch",
+                "--repo",
+                "local/test",
+                "--branch",
+                "main",
+                "--snapshot-before-file",
+                str(snapshot_path),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                epoch["id"],
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--allow-recursive-discovery",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["decision"], "ASK_APPROVAL")
+            self.assertEqual(output["reason"], "recursive discovery requires approval")
+
+    def test_self_check_caps_election_to_stored_epoch_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            write_active_epoch(
+                tmp,
+                "epoch-tight-policy",
+                valid_snapshot(),
+                policy={"allow_recursive_discovery": False, "max_tasks_per_epoch": 1},
+            )
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps(
+                    [
+                        {"id": "task-1", "task_type": "execution", "bucket": "S", "score": 10},
+                        {"id": "task-2", "task_type": "execution", "bucket": "S", "score": 9},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-tight-policy",
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--max-tasks",
+                "2",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["decision"], "CONTINUE")
+            self.assertEqual([candidate["id"] for candidate in output["elected_next"]], ["task-1"])
+
+    def test_self_check_accepts_discover_candidates_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            write_active_epoch(tmp, "epoch-discovery-payload", valid_snapshot())
+            candidates_path = Path(tmp) / "discover-output.json"
+            candidates_path.write_text(
+                json.dumps(
+                    {
+                        "intent": "merge_readiness",
+                        "candidates": [
+                            {"id": "task-1", "task_type": "execution", "bucket": "S", "score": 30},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-discovery-payload",
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["decision"], "CONTINUE")
+            self.assertEqual([candidate["id"] for candidate in output["elected_next"]], ["task-1"])
+
+    def test_self_check_honors_discover_candidates_low_repo_confidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            write_active_epoch(tmp, "epoch-discovery-low-confidence", valid_snapshot())
+            candidates_path = Path(tmp) / "discover-output.json"
+            candidates_path.write_text(
+                json.dumps(
+                    {
+                        "intent": "merge_readiness",
+                        "run_signals": {"repo_confidence": "low", "uncertainty": "low"},
+                        "candidates": [
+                            {"id": "task-1", "task_type": "execution", "bucket": "S", "score": 30},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-discovery-low-confidence",
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["repo_confidence"], "low")
+            self.assertEqual(output["decision"], "ASK_APPROVAL")
+            self.assertEqual(output["reason"], "repo confidence is low")
+
+    def test_self_check_honors_discover_candidates_high_uncertainty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            write_active_epoch(tmp, "epoch-discovery-high-uncertainty", valid_snapshot())
+            candidates_path = Path(tmp) / "discover-output.json"
+            candidates_path.write_text(
+                json.dumps(
+                    {
+                        "intent": "merge_readiness",
+                        "run_signals": {"repo_confidence": "high", "uncertainty": "high"},
+                        "candidates": [
+                            {"id": "task-1", "task_type": "execution", "bucket": "S", "score": 30},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-discovery-high-uncertainty",
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["uncertainty"], "high")
+            self.assertEqual(output["decision"], "HANDOFF")
+            self.assertEqual(output["reason"], "uncertainty is high")
+
+    def test_self_check_honors_discover_candidates_high_candidate_growth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            write_active_epoch(tmp, "epoch-discovery-high-growth", valid_snapshot())
+            candidates_path = Path(tmp) / "discover-output.json"
+            candidates_path.write_text(
+                json.dumps(
+                    {
+                        "intent": "merge_readiness",
+                        "run_signals": {"repo_confidence": "high", "uncertainty": "low", "candidate_growth": "high"},
+                        "candidates": [
+                            {"id": "task-1", "task_type": "execution", "bucket": "S", "score": 30},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-discovery-high-growth",
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output.get("candidate_growth"), "high")
+            self.assertEqual(output["uncertainty"], "high")
+            self.assertEqual(output["decision"], "HANDOFF")
+            self.assertEqual(output["reason"], "uncertainty is high")
+
+    def test_self_check_honors_discover_candidates_medium_candidate_growth(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            write_active_epoch(
+                tmp,
+                "epoch-discovery-medium-growth",
+                valid_snapshot(),
+                policy={"allow_recursive_discovery": False, "max_tasks_per_epoch": 3},
+            )
+            candidates_path = Path(tmp) / "discover-output.json"
+            candidates_path.write_text(
+                json.dumps(
+                    {
+                        "intent": "merge_readiness",
+                        "run_signals": {"repo_confidence": "high", "uncertainty": "low", "candidate_growth": "medium"},
+                        "candidates": [
+                            {"id": "task-1", "task_type": "execution", "bucket": "S", "score": 30},
+                            {"id": "task-2", "task_type": "execution", "bucket": "S", "score": 20},
+                            {"id": "task-3", "task_type": "execution", "bucket": "S", "score": 10},
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-discovery-medium-growth",
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--max-tasks",
+                "3",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output.get("candidate_growth"), "medium")
+            self.assertEqual(output["uncertainty"], "medium")
+            self.assertEqual(output["effective_max_tasks"], 1)
+            self.assertEqual(output["decision"], "CONTINUE")
+            self.assertEqual([candidate["id"] for candidate in output["elected_next"]], ["task-1"])
+
+    def test_self_check_caps_discovery_election_to_stored_epoch_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            write_active_epoch(
+                tmp,
+                "epoch-discovery-limit",
+                valid_snapshot(),
+                policy={"allow_recursive_discovery": True, "max_tasks_per_epoch": 3, "max_discovery_tasks_per_epoch": 1},
+            )
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps(
+                    [
+                        {"id": "discovery-1", "task_type": "discovery", "bucket": "S", "score": 100},
+                        {"id": "discovery-2", "task_type": "discovery", "bucket": "S", "score": 90},
+                        {"id": "execution-1", "task_type": "execution", "bucket": "S", "score": 10},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-discovery-limit",
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--max-tasks",
+                "3",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["decision"], "CONTINUE")
+            self.assertEqual([candidate["id"] for candidate in output["elected_next"]], ["discovery-1", "execution-1"])
+
+    def test_self_check_medium_uncertainty_shrinks_election(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            write_active_epoch(
+                tmp,
+                "epoch-medium-uncertainty",
+                valid_snapshot(),
+                policy={"allow_recursive_discovery": False, "max_tasks_per_epoch": 3},
+            )
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps(
+                    [
+                        {"id": "task-1", "task_type": "execution", "bucket": "S", "score": 30},
+                        {"id": "task-2", "task_type": "execution", "bucket": "S", "score": 20},
+                        {"id": "task-3", "task_type": "execution", "bucket": "S", "score": 10},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-medium-uncertainty",
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--max-tasks",
+                "3",
+                "--uncertainty",
+                "medium",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["decision"], "CONTINUE")
+            self.assertEqual(output["effective_max_tasks"], 1)
+            self.assertEqual([candidate["id"] for candidate in output["elected_next"]], ["task-1"])
+
+    def test_self_check_watch_epoch_health_shrinks_election(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            write_active_epoch(
+                tmp,
+                "epoch-watch-health",
+                valid_snapshot(),
+                policy={"allow_recursive_discovery": False, "max_tasks_per_epoch": 3},
+            )
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps(
+                    [
+                        {"id": "task-1", "task_type": "execution", "bucket": "S", "score": 30},
+                        {"id": "task-2", "task_type": "execution", "bucket": "S", "score": 20},
+                    ]
+                ),
+                encoding="utf-8",
+            )
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(json.dumps(valid_snapshot(id="snapshot-after")), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-watch-health",
+                "--candidates-file",
+                str(candidates_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--max-tasks",
+                "3",
+                "--epoch-health",
+                "watch",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["decision"], "CONTINUE")
+            self.assertEqual(output["effective_max_tasks"], 1)
+            self.assertEqual([candidate["id"] for candidate in output["elected_next"]], ["task-1"])
+
+    def test_self_check_rejects_invalid_active_epoch_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            write_active_epoch(tmp, "epoch-invalid-snapshot", {"repo_confidence": "high"})
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-invalid-snapshot",
+                "--candidates-file",
+                str(candidates_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("snapshot_before is invalid", result.stderr)
+
+    def test_self_check_rejects_completed_record_in_active_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            path = write_active_epoch(tmp, "epoch-completed-active", valid_snapshot())
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["status"] = "COMPLETED"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-completed-active",
+                "--candidates-file",
+                str(candidates_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("active epoch status must be ACTIVE", result.stderr)
+
+    def test_self_check_rejects_mismatched_active_epoch_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            path = write_active_epoch(tmp, "epoch-path-id", valid_snapshot())
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["id"] = "epoch-record-id"
+            path.write_text(json.dumps(data), encoding="utf-8")
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-path-id",
+                "--candidates-file",
+                str(candidates_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("active epoch id does not match path", result.stderr)
+
+    def test_self_check_rejects_multiple_active_epochs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            write_active_epoch_raw(tmp, "epoch-1")
+            write_active_epoch_raw(tmp, "epoch-2")
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "execution", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-1",
+                "--candidates-file",
+                str(candidates_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("expected exactly one active epoch", result.stderr)
+
+    def test_self_check_rejects_malformed_recursive_discovery_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_cli(tmp, "init")
+            write_active_epoch(
+                tmp,
+                "epoch-bad-policy",
+                valid_snapshot(),
+                policy={"allow_recursive_discovery": "false"},
+            )
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(
+                json.dumps([{"id": "task-2", "task_type": "discovery", "bucket": "S"}]),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "self-check",
+                "--epoch-id",
+                "epoch-bad-policy",
+                "--candidates-file",
+                str(candidates_path),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("allow_recursive_discovery must be a boolean", result.stderr)
+
+    def test_self_check_rejects_object_candidates_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(json.dumps({"id": "task-1"}), encoding="utf-8")
+
+            result, output = run_cli(tmp, "self-check", "--candidates-file", str(candidates_path))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+
+    def test_self_check_rejects_malformed_candidate_item(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            candidates_path = Path(tmp) / "candidates.json"
+            candidates_path.write_text(json.dumps(["not-a-dict"]), encoding="utf-8")
+
+            result, output = run_cli(tmp, "self-check", "--candidates-file", str(candidates_path))
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("candidate 0 must be a JSON object", result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

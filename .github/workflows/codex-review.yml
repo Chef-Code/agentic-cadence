@@ -1,0 +1,245 @@
+name: Codex Review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codex-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preflight:
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    outputs:
+      should_run: ${{ steps.live_pr.outputs.can_review == 'true' && steps.preflight.outputs.should_run || 'false' }}
+      reason: ${{ steps.live_pr.outputs.can_review == 'true' && steps.preflight.outputs.reason || steps.live_pr.outputs.reason }}
+      dedupe_key: ${{ steps.preflight.outputs.dedupe_key }}
+      changed_files_count: ${{ steps.preflight.outputs.changed_files_count }}
+    steps:
+      - name: Check live PR state
+        id: live_pr
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { data: pull } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            const openUnmerged = pull.state === "open" && pull.merged === false;
+            const notDraft = pull.draft === false;
+            const headMatches = pull.head.sha === context.payload.pull_request.head.sha;
+            let reason = "ready";
+            if (!openUnmerged) {
+              reason = "pr_not_open";
+            } else if (!notDraft) {
+              reason = "pr_draft";
+            } else if (!headMatches) {
+              reason = "stale_head";
+            }
+            const canReview = openUnmerged && notDraft && headMatches;
+            core.setOutput("can_review", canReview ? "true" : "false");
+            core.setOutput("reason", reason);
+
+      - name: Check out trusted preflight
+        if: steps.live_pr.outputs.can_review == 'true'
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: trusted-preflight
+          fetch-depth: 0
+
+      - name: Check out PR head
+        if: steps.live_pr.outputs.can_review == 'true'
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr-head
+          fetch-depth: 0
+
+      - name: Pre-fetch base ref
+        if: steps.live_pr.outputs.can_review == 'true'
+        working-directory: pr-head
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git fetch --no-tags origin \
+            "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
+      - name: Codex review preflight
+        if: steps.live_pr.outputs.can_review == 'true'
+        id: preflight
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_LABELS_JSON: ${{ toJson(github.event.pull_request.labels.*.name) }}
+        working-directory: pr-head
+        run: |
+          python ../trusted-preflight/scripts/codex_review_preflight.py \
+            --base-ref "refs/remotes/origin/${BASE_REF}" \
+            --head-ref "${HEAD_SHA}"
+
+  preflight_notice:
+    if: needs.preflight.outputs.should_run == 'false'
+    runs-on: ubuntu-latest
+    needs: preflight
+    steps:
+      - name: Explain skipped Codex review
+        run: |
+          echo "Codex Review skipped by free preflight: ${{ needs.preflight.outputs.reason }}"
+          echo "Add the codex-review-elect label to elect paid Codex Review when needed."
+
+  codex:
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository && needs.preflight.outputs.should_run == 'true'
+    runs-on: ubuntu-latest
+    needs: preflight
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      final_message: ${{ steps.run_codex.outputs.final-message }}
+    steps:
+      - name: Check live PR state
+        id: live_pr
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { data: pull } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            const openUnmerged = pull.state === "open" && pull.merged === false;
+            const notDraft = pull.draft === false;
+            const headMatches = pull.head.sha === context.payload.pull_request.head.sha;
+            let reason = "ready";
+            if (!openUnmerged) {
+              reason = "pr_not_open";
+            } else if (!notDraft) {
+              reason = "pr_draft";
+            } else if (!headMatches) {
+              reason = "stale_head";
+            }
+            const canReview = openUnmerged && notDraft && headMatches;
+            core.setOutput("can_review", canReview ? "true" : "false");
+            core.setOutput("reason", reason);
+
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        if: steps.live_pr.outputs.can_review == 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Pre-fetch base ref
+        if: steps.live_pr.outputs.can_review == 'true'
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          git fetch --no-tags origin \
+            "+refs/heads/${BASE_REF}:refs/remotes/origin/${BASE_REF}"
+
+      - name: Re-check live PR state before paid review
+        if: steps.live_pr.outputs.can_review == 'true'
+        id: review_pr
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const { data: pull } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.pull_request.number,
+            });
+            const openUnmerged = pull.state === "open" && pull.merged === false;
+            const notDraft = pull.draft === false;
+            const headMatches = pull.head.sha === context.payload.pull_request.head.sha;
+            let reason = "ready";
+            if (!openUnmerged) {
+              reason = "pr_not_open";
+            } else if (!notDraft) {
+              reason = "pr_draft";
+            } else if (!headMatches) {
+              reason = "stale_head";
+            }
+            const canReview = openUnmerged && notDraft && headMatches;
+            core.setOutput("can_review", canReview ? "true" : "false");
+            core.setOutput("reason", reason);
+
+      - name: Run Codex review
+        if: steps.review_pr.outputs.can_review == 'true'
+        id: run_codex
+        uses: openai/codex-action@a26d2d4d8b78a694338b8e3715c3630254340b2c
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt: |
+            Review this pull request as a strict, review-only agent.
+
+            Do not modify files. Do not apply patches. Do not commit. Produce review feedback only.
+
+            Inspect the PR diff and the surrounding code needed to evaluate behavior. Prioritize actionable findings over commentary. If there are no material findings, say that clearly.
+
+            Focus on:
+
+            - correctness regressions
+            - protocol drift between docs, CLI behavior, tests, and workflows
+            - race conditions, unsafe state transitions, and path traversal risks
+            - missing tests for changed behavior
+            - CI gaps or workflow configuration risks
+            - security-sensitive automation behavior
+
+            Avoid broad refactor suggestions, style-only comments, or speculative architecture work unless they expose a concrete defect in this PR.
+          safety-strategy: drop-sudo
+          sandbox: read-only
+
+  post_feedback:
+    if: needs.codex.outputs.final_message != ''
+    runs-on: ubuntu-latest
+    needs: [codex, preflight]
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Post Codex feedback
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: [
+                "## Codex Review",
+                `<!-- codex-review:v1 head=${process.env.CODEX_REVIEW_HEAD_SHA} dedupe=${process.env.CODEX_REVIEW_DEDUPE_KEY} -->`,
+                process.env.CODEX_FINAL_MESSAGE,
+              ].join("\n\n"),
+            });
+        env:
+          CODEX_FINAL_MESSAGE: ${{ needs.codex.outputs.final_message }}
+          CODEX_REVIEW_DEDUPE_KEY: ${{ needs.preflight.outputs.dedupe_key }}
+          CODEX_REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+
+  fork_notice:
+    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Explain skipped Codex review
+        run: echo "Codex Review skipped for fork PRs because pull_request_target must not expose repository secrets to untrusted PR code."

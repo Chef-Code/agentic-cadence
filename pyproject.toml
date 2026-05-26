@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic-cadence"
+version = "0.1.0"
+description = "Durable handoff and governed continuation protocol for long-running coding-agent work"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "Chef-Code" },
+]
+keywords = ["agentic", "agents", "automation", "handoff", "workflow", "codex", "claude", "gemini"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development",
+  "Topic :: Utilities",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Chef-Code/agentic-cadence"
+Repository = "https://github.com/Chef-Code/agentic-cadence"
+Issues = "https://github.com/Chef-Code/agentic-cadence/issues"
+
+[project.scripts]
+agentic-cadence = "codex_cadence.cli:main"
+codex-cadence = "codex_cadence.cli:main"
+codex-transmission = "transmission_control.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["codex_cadence*", "transmission_control*"]
