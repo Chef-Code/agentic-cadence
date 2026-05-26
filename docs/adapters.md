@@ -30,10 +30,15 @@ It must not be imported from or exported by `codex_cadence`.
 
 For this slice, a host signal carries `kind`, `source`, `confidence`, `summary`,
 `task_type`, `drivers`, and `next_action`. The adapter validates those fields,
-requires `PLAY_ON` through `status`, and maps them into the existing
-`prepare-handoff` arguments. `drivers` may be empty because the public CLI
-allows no `--driver` values, but any supplied driver must be accepted by the
-existing task sizing model.
+requires `PLAY_ON` through `status`, and maps the CLI-backed fields into the
+existing `prepare-handoff` arguments. `kind` maps to `--guardrail`:
+`context_pressure` becomes `context`, and `operator_stop` becomes
+`operator_stop`. `summary`, `task_type`, `drivers`, and `next_action` map to
+their matching CLI arguments. `source` and `confidence` are adapter-local
+validation/provenance fields for now; the current public CLI does not store
+them as handoff metadata. `drivers` may be empty because the public CLI allows
+no `--driver` values, but any supplied driver must be accepted by the existing
+task sizing model.
 
 This contract does not make Agentic Cadence infer context pressure from
 transcripts, token guesses, or CLI internals. The host observes session state;

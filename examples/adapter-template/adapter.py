@@ -28,6 +28,7 @@ SignalTaskType = Literal["execution", "discovery"]
 SIGNAL_KINDS = {"context_pressure", "operator_stop"}
 SIGNAL_CONFIDENCES = {"low", "medium", "high"}
 SIGNAL_TASK_TYPES = {"execution", "discovery"}
+# Keep this adapter import-free; tests guard parity with the public CLI's task sizing model.
 SIGNAL_TASK_DRIVERS = {
     "reviewer_feedback",
     "ci_verification",
@@ -39,6 +40,10 @@ SIGNAL_TASK_DRIVERS = {
     "migration",
     "irreversible_operation",
     "self_evolution",
+}
+SIGNAL_GUARDRAILS = {
+    "context_pressure": "context",
+    "operator_stop": "operator_stop",
 }
 MAX_SIGNAL_SOURCE_LENGTH = 64
 
@@ -91,12 +96,9 @@ def validate_host_session_signal(signal: HostSessionSignal) -> HostSessionSignal
 
     if not isinstance(signal, HostSessionSignal):
         raise RuntimeError("host session signal must be a HostSessionSignal")
-    if signal.kind not in SIGNAL_KINDS:
-        raise RuntimeError(f"unsupported host session signal kind: {signal.kind}")
-    if signal.confidence not in SIGNAL_CONFIDENCES:
-        raise RuntimeError(f"unsupported host session signal confidence: {signal.confidence}")
-    if signal.task_type not in SIGNAL_TASK_TYPES:
-        raise RuntimeError(f"unsupported host session signal task_type: {signal.task_type}")
+    kind = _require_allowed_signal_value("kind", signal.kind, SIGNAL_KINDS)
+    confidence = _require_allowed_signal_value("confidence", signal.confidence, SIGNAL_CONFIDENCES)
+    task_type = _require_allowed_signal_value("task_type", signal.task_type, SIGNAL_TASK_TYPES)
 
     source = _require_non_empty_string("source", signal.source)
     if len(source) > MAX_SIGNAL_SOURCE_LENGTH:
@@ -107,14 +109,21 @@ def validate_host_session_signal(signal: HostSessionSignal) -> HostSessionSignal
     drivers = _validate_signal_drivers(signal.drivers)
 
     return HostSessionSignal(
-        kind=signal.kind,
+        kind=kind,
         source=source,
-        confidence=signal.confidence,
+        confidence=confidence,
         summary=summary,
-        task_type=signal.task_type,
+        task_type=task_type,
         drivers=tuple(drivers),
         next_action=next_action,
     )
+
+
+def _require_allowed_signal_value(name: str, value: str, allowed: set[str]) -> str:
+    if not isinstance(value, str) or value not in allowed:
+        choices = ", ".join(sorted(allowed))
+        raise RuntimeError(f"host session signal {name} must be one of: {choices}")
+    return value
 
 
 def _require_non_empty_string(name: str, value: str) -> str:
@@ -259,7 +268,7 @@ def prepare_context_handoff(
             "--title",
             title,
             "--guardrail",
-            "context",
+            SIGNAL_GUARDRAILS[signal.kind],
             "--repo",
             repo,
             "--cwd",

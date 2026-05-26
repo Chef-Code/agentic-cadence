@@ -6,6 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from codex_cadence.model import DRIVER_WEIGHTS
+
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_SCRIPT = ROOT / "examples" / "adapter-template" / "adapter.py"
@@ -56,6 +58,15 @@ class AdapterTemplateExampleTests(unittest.TestCase):
         self.assertIn("detect_host_session_signal", source)
         self.assertIn("validate_host_session_signal", source)
         self.assertIn("render_pickup_text", source)
+
+    def test_host_session_signal_remains_template_local(self):
+        for path in (ROOT / "codex_cadence").rglob("*.py"):
+            with self.subTest(path=path.relative_to(ROOT)):
+                self.assertNotIn("HostSessionSignal", path.read_text(encoding="utf-8"))
+
+    def test_adapter_template_driver_allowlist_tracks_task_sizing_model(self):
+        template = load_template_module()
+        self.assertEqual(template.SIGNAL_TASK_DRIVERS, set(DRIVER_WEIGHTS))
 
     def test_adapter_template_returns_without_cadence_when_signal_absent(self):
         template = load_template_module()
@@ -193,6 +204,73 @@ class AdapterTemplateExampleTests(unittest.TestCase):
             result["packets"]["prepare_handoff"]["handoff"]["estimate"]["policy"]["pickup_requires_approval"]
         )
 
+    def test_adapter_template_default_detector_maps_cli_arguments(self):
+        template = load_template_module()
+        calls = []
+
+        def fake_runner(command, *, runtime_root, cadence_command, **_):
+            calls.append(command)
+            if command[0] == "status":
+                return {"cadence": {"state": "PLAY_ON"}}
+            return {
+                "stop_current_session": True,
+                "handoff": {"id": "template-handoff", "status": "READY"},
+            }
+
+        template.prepare_context_handoff(
+            runtime_root=Path("runtime"),
+            repo="local/template",
+            cwd=Path("."),
+            handoff_id="template-handoff",
+            title="Template handoff",
+            summary="template summary",
+            next_action="start from cli input",
+            cadence_command=["agentic-cadence"],
+            task_type="execution",
+            drivers=["multiple_files"],
+            runner=fake_runner,
+        )
+
+        prepare_command = calls[1]
+        self.assertEqual(prepare_command[prepare_command.index("--guardrail") + 1], "context")
+        self.assertEqual(prepare_command[prepare_command.index("--task-type") + 1], "execution")
+        self.assertEqual(prepare_command[prepare_command.index("--driver") + 1], "multiple_files")
+        self.assertEqual(prepare_command[prepare_command.index("--summary") + 1], "template summary")
+        self.assertEqual(prepare_command[prepare_command.index("--next-action") + 1], "start from cli input")
+
+    def test_adapter_template_maps_signal_kind_to_guardrail(self):
+        template = load_template_module()
+
+        for kind, guardrail in (("context_pressure", "context"), ("operator_stop", "operator_stop")):
+            with self.subTest(kind=kind):
+                calls = []
+
+                def fake_runner(command, *, runtime_root, cadence_command, **_):
+                    calls.append(command)
+                    if command[0] == "status":
+                        return {"cadence": {"state": "PLAY_ON"}}
+                    return {
+                        "stop_current_session": True,
+                        "handoff": {"id": "template-handoff", "status": "READY"},
+                    }
+
+                template.prepare_context_handoff(
+                    runtime_root=Path("runtime"),
+                    repo="local/template",
+                    cwd=Path("."),
+                    handoff_id="template-handoff",
+                    title="Template handoff",
+                    summary="unused summary",
+                    next_action="unused next action",
+                    cadence_command=["agentic-cadence"],
+                    task_type="execution",
+                    runner=fake_runner,
+                    host_session_signal_detector=lambda kind=kind: self.signal(template, kind=kind),
+                )
+
+                prepare_command = calls[1]
+                self.assertEqual(prepare_command[prepare_command.index("--guardrail") + 1], guardrail)
+
     def test_adapter_template_requires_explicit_runtime_root_and_play_on(self):
         template = load_template_module()
         parser = template.build_parser()
@@ -221,10 +299,13 @@ class AdapterTemplateExampleTests(unittest.TestCase):
 
         cases = [
             ("kind", "ci_loop", "kind"),
+            ("kind", [], "kind"),
             ("source", "", "source"),
             ("source", "x" * 65, "source"),
             ("confidence", "certain", "confidence"),
+            ("confidence", [], "confidence"),
             ("task_type", "maintenance", "task_type"),
+            ("task_type", [], "task_type"),
             ("drivers", ("typo_driver",), "driver"),
             ("drivers", "reviewer_feedback", "drivers"),
             ("summary", "   ", "summary"),

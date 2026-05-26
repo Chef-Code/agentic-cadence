@@ -81,9 +81,16 @@ The template validates the signal before calling `prepare-handoff`:
 - `drivers`: zero or more task sizing drivers accepted by the public CLI
 - `next_action`: non-empty text passed to `--next-action`
 
-When no host signal is present, the adapter returns `no_handoff_needed` and
-does not call Cadence. When a signal is present, the adapter still checks
-`status`, requires `PLAY_ON`, and uses the existing `prepare-handoff` command.
+`kind` maps to `--guardrail`: `context_pressure` uses `context`, and
+`operator_stop` uses `operator_stop`. `source` and `confidence` are
+adapter-local validation/provenance fields; the current public CLI does not
+store them as handoff metadata.
+
+When a real host detector returns no signal, the adapter returns
+`no_handoff_needed` and does not call Cadence. The template placeholder
+synthesizes a sample context-pressure signal so the copied example is runnable.
+When a signal is present, the adapter still checks `status`, requires
+`PLAY_ON`, and uses the existing `prepare-handoff` command.
 
 The hooks to replace are:
 
