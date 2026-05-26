@@ -123,7 +123,7 @@ class CiChecksTests(unittest.TestCase):
         self.assertIn("setuptools>=77", pyproject["build-system"]["requires"])
         project = pyproject["project"]
         self.assertEqual(project["name"], "agentic-cadence")
-        self.assertEqual(project["version"], "0.1.0")
+        self.assertEqual(project["version"], "0.1.1")
         self.assertEqual(project["requires-python"], ">=3.11")
         self.assertEqual(project["readme"], "README.md")
         self.assertEqual(project["license"], "MIT")
@@ -262,6 +262,7 @@ class CiChecksTests(unittest.TestCase):
             "## Current Status",
             "early public protocol and tooling release",
             "pip install .",
+            "adapter smoke contract",
             "PyPI publication is not part of this baseline",
         ):
             with self.subTest(location="README", token=token):
@@ -269,6 +270,10 @@ class CiChecksTests(unittest.TestCase):
 
         for token in (
             "# Changelog",
+            "## 0.1.1 - 2026-05-26",
+            "Adapter smoke contract release",
+            "Linux and Windows CI coverage",
+            "Claude and Gemini host adapters",
             "## 0.1.0 - 2026-05-26",
             "Initial public release",
             "agent-neutral",

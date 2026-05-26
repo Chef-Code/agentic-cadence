@@ -4,7 +4,7 @@ Use this checklist before publishing a public release, creating a GitHub release
 
 ## Scope
 
-The `0.1.0` baseline is an early public release for local clone-based use. It documents the protocol, packages the CLI, verifies first-run examples, and keeps public-release audit gates visible.
+The `0.1.x` baseline is an early public release line for local clone-based use. It documents the protocol, packages the CLI, verifies first-run examples and the adapter smoke contract, and keeps public-release audit gates visible.
 
 PyPI publication is a separate release decision. Do not publish to a package index until versioning, credentials, release ownership, and rollback expectations are explicitly reviewed.
 
