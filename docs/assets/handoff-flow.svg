@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="300" viewBox="0 0 1100 300" role="img" aria-labelledby="title desc">
+  <title id="title">Agentic Cadence handoff flow</title>
+  <desc id="desc">A four-step flow: old context, signed handoff, clean square, and fresh agent continuation, guarded by Cadence state.</desc>
+  <style>
+    text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+    .step { font-size: 13px; font-weight: 800; fill: #0f766e; }
+    .title { font-size: 23px; font-weight: 800; fill: #0f172a; }
+    .body { font-size: 15px; font-weight: 600; fill: #475569; }
+    .gate { font-size: 16px; font-weight: 800; fill: #713f12; }
+  </style>
+
+  <rect width="1100" height="300" fill="#f8fafc"/>
+  <rect x="24" y="24" width="1052" height="252" rx="8" fill="#ffffff" stroke="#cbd5e1"/>
+
+  <g transform="translate(70 70)">
+    <rect x="0" y="0" width="188" height="116" rx="8" fill="#f8fafc" stroke="#64748b" stroke-width="2"/>
+    <text class="step" x="22" y="32">01 OLD SESSION</text>
+    <text class="title" x="22" y="65">Context gets</text>
+    <text class="title" x="22" y="93">too full</text>
+  </g>
+
+  <g transform="translate(320 70)">
+    <rect x="0" y="0" width="188" height="116" rx="8" fill="#ecfeff" stroke="#0891b2" stroke-width="2"/>
+    <text class="step" x="22" y="32">02 PACKAGE</text>
+    <text class="title" x="22" y="65">Signed</text>
+    <text class="title" x="22" y="93">handoff</text>
+  </g>
+
+  <g transform="translate(570 70)">
+    <rect x="0" y="0" width="188" height="116" rx="8" fill="#f0fdf4" stroke="#16a34a" stroke-width="2"/>
+    <text class="step" x="22" y="32">03 VERIFY</text>
+    <text class="title" x="22" y="65">Clean square</text>
+    <text class="body" x="22" y="92">repo and state gate</text>
+  </g>
+
+  <g transform="translate(820 70)">
+    <rect x="0" y="0" width="188" height="116" rx="8" fill="#f8fafc" stroke="#334155" stroke-width="2"/>
+    <text class="step" x="22" y="32">04 CONTINUE</text>
+    <text class="title" x="22" y="65">Fresh agent</text>
+    <text class="body" x="22" y="92">claims the work</text>
+  </g>
+
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M266 128H303" stroke="#0891b2" stroke-width="4"/>
+    <path d="M294 118L308 128L294 138" stroke="#0891b2" stroke-width="4"/>
+    <path d="M516 128H553" stroke="#16a34a" stroke-width="4"/>
+    <path d="M544 118L558 128L544 138" stroke="#16a34a" stroke-width="4"/>
+    <path d="M766 128H803" stroke="#334155" stroke-width="4"/>
+    <path d="M794 118L808 128L794 138" stroke="#334155" stroke-width="4"/>
+  </g>
+
+  <g transform="translate(310 220)">
+    <rect x="0" y="0" width="480" height="38" rx="6" fill="#fffbeb" stroke="#f59e0b"/>
+    <text class="gate" x="22" y="25">Cadence fails closed: continue only in PLAY_ON after validation</text>
+  </g>
+</svg>

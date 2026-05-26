@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
+  <title id="title">Agentic Cadence repository banner</title>
+  <desc id="desc">A technical banner showing old agent context packaged into a signed handoff, verified at a clean square, and continued by a fresh coding agent.</desc>
+  <style>
+    text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+    .eyebrow { font-size: 18px; font-weight: 700; fill: #67e8f9; }
+    .title { font-size: 58px; font-weight: 800; fill: #f8fafc; }
+    .subtitle { font-size: 23px; font-weight: 500; fill: #cbd5e1; }
+    .caption { font-size: 17px; font-weight: 700; fill: #e2e8f0; }
+    .small { font-size: 14px; font-weight: 600; fill: #94a3b8; }
+    .label { font-size: 16px; font-weight: 800; fill: #f8fafc; }
+  </style>
+
+  <rect width="1200" height="360" fill="#0b1220"/>
+  <g opacity="0.32" stroke="#22304a" stroke-width="1">
+    <path d="M0 64H1200M0 128H1200M0 192H1200M0 256H1200M0 320H1200"/>
+    <path d="M80 0V360M160 0V360M240 0V360M320 0V360M400 0V360M480 0V360M560 0V360M640 0V360M720 0V360M800 0V360M880 0V360M960 0V360M1040 0V360M1120 0V360"/>
+  </g>
+
+  <g transform="translate(64 70)">
+    <rect x="0" y="0" width="198" height="34" rx="6" fill="#102235" stroke="#155e75"/>
+    <text class="eyebrow" x="18" y="24">AGENTIC CADENCE</text>
+    <text class="title" x="0" y="98">Durable handoff</text>
+    <text class="title" x="0" y="163">for coding agents</text>
+    <text class="subtitle" x="2" y="210">Governed continuation when one chat window</text>
+    <text class="subtitle" x="2" y="239">is not enough.</text>
+    <g transform="translate(0 248)">
+      <rect x="0" y="0" width="122" height="34" rx="6" fill="#0f2f2b" stroke="#22c55e"/>
+      <text class="caption" x="18" y="23">PLAY_ON</text>
+      <rect x="136" y="0" width="110" height="34" rx="6" fill="#302814" stroke="#f59e0b"/>
+      <text class="caption" x="154" y="23">HUDDLE</text>
+      <rect x="260" y="0" width="124" height="34" rx="6" fill="#33151a" stroke="#ef4444"/>
+      <text class="caption" x="278" y="23">TIMEOUT</text>
+    </g>
+  </g>
+
+  <g transform="translate(670 72)">
+    <rect x="0" y="0" width="442" height="218" rx="8" fill="#111827" stroke="#334155" stroke-width="2"/>
+    <g transform="translate(28 32)">
+      <rect x="0" y="0" width="84" height="64" rx="6" fill="#172033" stroke="#475569"/>
+      <text class="small" x="16" y="27">old</text>
+      <text class="label" x="16" y="49">context</text>
+
+      <path d="M96 32H146" stroke="#67e8f9" stroke-width="4" stroke-linecap="round"/>
+      <path d="M137 22L151 32L137 42" fill="none" stroke="#67e8f9" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <rect x="158" y="0" width="96" height="64" rx="6" fill="#102235" stroke="#06b6d4"/>
+      <text class="small" x="175" y="27">signed</text>
+      <text class="label" x="175" y="49">handoff</text>
+
+      <path d="M266 32H316" stroke="#22c55e" stroke-width="4" stroke-linecap="round"/>
+      <path d="M307 22L321 32L307 42" fill="none" stroke="#22c55e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+      <rect x="333" y="0" width="58" height="58" rx="4" fill="#052e2b" stroke="#22c55e" stroke-width="3"/>
+      <path d="M350 30L360 40L377 18" fill="none" stroke="#86efac" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+      <text class="small" x="331" y="86">clean square</text>
+
+      <path d="M205 92V125H319" stroke="#f59e0b" stroke-width="3" stroke-linecap="round"/>
+      <path d="M310 115L324 125L310 135" fill="none" stroke="#f59e0b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="0" y="116" width="166" height="44" rx="6" fill="#151f32" stroke="#334155"/>
+      <text class="small" x="16" y="137">fail closed</text>
+      <text class="small" x="16" y="153">until PLAY_ON</text>
+      <rect x="252" y="116" width="139" height="44" rx="6" fill="#0f2f2b" stroke="#22c55e"/>
+      <text class="caption" x="273" y="144">fresh agent</text>
+    </g>
+  </g>
+</svg>

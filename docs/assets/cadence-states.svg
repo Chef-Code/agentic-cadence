@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="280" viewBox="0 0 1100 280" role="img" aria-labelledby="title desc">
+  <title id="title">Cadence state summary</title>
+  <desc id="desc">A three-panel state summary for PLAY_ON, HUDDLE, and TIMEOUT showing when work may continue, coordinate, or stop.</desc>
+  <style>
+    text { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+    .heading { font-size: 18px; font-weight: 800; fill: #0f172a; }
+    .state { font-size: 30px; font-weight: 900; fill: #0f172a; }
+    .body { font-size: 17px; font-weight: 600; fill: #475569; }
+    .action { font-size: 15px; font-weight: 800; fill: #334155; }
+  </style>
+
+  <rect width="1100" height="280" fill="#f8fafc"/>
+  <text class="heading" x="46" y="42">Cadence continuation states</text>
+
+  <g transform="translate(46 70)">
+    <rect x="0" y="0" width="306" height="166" rx="8" fill="#ffffff" stroke="#bbf7d0" stroke-width="2"/>
+    <rect x="0" y="0" width="14" height="166" rx="7" fill="#22c55e"/>
+    <circle cx="52" cy="52" r="20" fill="#dcfce7" stroke="#16a34a" stroke-width="2"/>
+    <path d="M42 52L50 60L64 42" fill="none" stroke="#15803d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+    <text class="state" x="88" y="61">PLAY_ON</text>
+    <text class="body" x="34" y="108">Work may continue.</text>
+    <text class="action" x="34" y="139">Proceed with the claimed handoff.</text>
+  </g>
+
+  <g transform="translate(397 70)">
+    <rect x="0" y="0" width="306" height="166" rx="8" fill="#ffffff" stroke="#fde68a" stroke-width="2"/>
+    <rect x="0" y="0" width="14" height="166" rx="7" fill="#f59e0b"/>
+    <circle cx="52" cy="52" r="20" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <path d="M42 52H62M52 42V62" stroke="#92400e" stroke-width="5" stroke-linecap="round"/>
+    <text class="state" x="88" y="61">HUDDLE</text>
+    <text class="body" x="34" y="108">Pause and coordinate.</text>
+    <text class="action" x="34" y="139">Resolve ownership before continuing.</text>
+  </g>
+
+  <g transform="translate(748 70)">
+    <rect x="0" y="0" width="306" height="166" rx="8" fill="#ffffff" stroke="#fecaca" stroke-width="2"/>
+    <rect x="0" y="0" width="14" height="166" rx="7" fill="#ef4444"/>
+    <circle cx="52" cy="52" r="20" fill="#fee2e2" stroke="#dc2626" stroke-width="2"/>
+    <path d="M43 43L61 61M61 43L43 61" stroke="#991b1b" stroke-width="5" stroke-linecap="round"/>
+    <text class="state" x="88" y="61">TIMEOUT</text>
+    <text class="body" x="34" y="108">Stop until resumed.</text>
+    <text class="action" x="34" y="139">Fail closed; operator action required.</text>
+  </g>
+</svg>

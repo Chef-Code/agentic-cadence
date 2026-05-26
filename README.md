@@ -1,8 +1,18 @@
 # Agentic Cadence
 
-Agentic Cadence is a durable handoff and governed continuation protocol for long-running coding-agent work. It helps an agent stop cleanly, hand off context to a fresh session, and continue only when the repository and Cadence state allow it.
+![Python 3.11+, MIT license, PR checks, and agentic-cadence package badges.](docs/assets/readme-badges.svg)
+
+![Agentic Cadence banner showing a signed handoff, clean square validation, and fresh agent continuation.](docs/assets/agentic-cadence-banner.svg)
+
+Durable handoff and governed continuation for coding agents that outlive one chat window.
+
+Agentic Cadence helps an agent stop cleanly, hand off context to a fresh session, and continue only when the repository and Cadence state allow it.
 
 The first implementation is used with Codex, and the protocol is intentionally agent-neutral so future adapters can support Claude, Gemini, and other coding agents without changing the core handoff model.
+
+## Protocol At A Glance
+
+![Four-step Agentic Cadence handoff flow from old context to signed handoff, clean square, and fresh agent.](docs/assets/handoff-flow.svg)
 
 ## Requirements
 
@@ -106,6 +116,8 @@ Runtime state lives outside project repositories by default for new installs:
 If the legacy `~/.codex/transmission` root already exists, Agentic Cadence reuses it so queued handoffs and brake state survive the rename. If both legacy and Cadence roots exist, Cadence fails closed until you select one with `--root`, `CODEX_CADENCE_ROOT`, or `CODEX_TRANSMISSION_ROOT`. Commands invoked with `--root X` create the runtime layout at `X` when it is missing.
 
 Cadence exposes these states:
+
+![Cadence state summary for PLAY_ON, HUDDLE, and TIMEOUT.](docs/assets/cadence-states.svg)
 
 - `PLAY_ON`: work may continue.
 - `HUDDLE`: pause and coordinate.
