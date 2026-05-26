@@ -299,10 +299,17 @@ class AdapterTemplateExampleTests(unittest.TestCase):
             "explicit runtime root",
             "preserve returned JSON packets",
             "stop_current_session",
+            "detect_host_session_signal()",
+            "HostSessionSignal",
+            "not a stable Python API",
             "does not ship a Claude or Gemini adapter",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, readme)
+
+        self.assertIn("Host/Session Signal Contract", adapters)
+        self.assertIn("adapter-local `HostSessionSignal`", adapters)
+        self.assertIn("without adding a core object model", roadmap)
 
 
 if __name__ == "__main__":

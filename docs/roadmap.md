@@ -22,13 +22,19 @@ The current 0.1.x line is an early public protocol and tooling baseline for loca
 - release-readiness docs, current-tree audit, history audit, and pinned GitHub Actions guardrails;
 - an executable adapter smoke contract in `examples/adapter-smoke/run.py` that proves a host adapter can drive the public CLI and preserve returned JSON packets.
 - a copyable adapter template in `examples/adapter-template` that shows the public CLI boundary, explicit runtime root, packet preservation, and host-specific pickup hooks.
+- an adapter-local host/session signal contract in `examples/adapter-template`
+  that maps explicit host context-pressure signals to existing
+  `prepare-handoff` arguments without adding a core object model.
 
 ## Known Edges
 
 These are the important boundaries that are not solved yet:
 
 - No Claude or Gemini adapter is shipped. The project has an adapter boundary and smoke contract, not full host integrations.
-- There is no automatic host/session signal for context pressure. `prepare-handoff --guardrail context` still requires explicit input from the caller.
+- There is no automatic real-host context-pressure integration. The adapter
+  template defines the minimal adapter-local signal shape, but
+  `prepare-handoff --guardrail context` still requires explicit input from the
+  caller or host binding.
 - Runtime state is local filesystem state. There is no shared remote backend for teams or cloud agents.
 - Local locks protect local transitions, but there is no distributed lock model for multiple machines.
 - Claimer, approver, and operator values are records, not authenticated identities with role enforcement.
@@ -66,7 +72,7 @@ A mature Agentic Cadence system should provide:
 ### Next
 
 - Exercise and refine `examples/adapter-template` against the first real host/session signal integration.
-- Define the minimal host/session signal interface needed for context-pressure handoff.
+- Exercise the adapter-local host/session signal contract against the first real host binding.
 - Add examples that show how a Claude or Gemini binding would map host events to the existing CLI without shipping unsupported adapter claims.
 - Improve release automation around tag verification and release-note generation while keeping operator confirmation required.
 
