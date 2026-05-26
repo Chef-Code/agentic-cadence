@@ -21,6 +21,7 @@ The current 0.1.x line is an early public protocol and tooling baseline for loca
 - deterministic PR body preflight and PR readiness checks from saved local inputs;
 - release-readiness docs, current-tree audit, history audit, and pinned GitHub Actions guardrails;
 - an executable adapter smoke contract in `examples/adapter-smoke/run.py` that proves a host adapter can drive the public CLI and preserve returned JSON packets.
+- a copyable adapter template in `examples/adapter-template` that shows the public CLI boundary, explicit runtime root, packet preservation, and host-specific pickup hooks.
 
 ## Known Edges
 
@@ -64,7 +65,7 @@ A mature Agentic Cadence system should provide:
 
 ### Next
 
-- Add a copyable adapter template that shells out to `agentic-cadence`, passes explicit runtime roots, preserves packets, and renders host-specific pickup text.
+- Exercise and refine `examples/adapter-template` against the first real host/session signal integration.
 - Define the minimal host/session signal interface needed for context-pressure handoff.
 - Add examples that show how a Claude or Gemini binding would map host events to the existing CLI without shipping unsupported adapter claims.
 - Improve release automation around tag verification and release-note generation while keeping operator confirmation required.
