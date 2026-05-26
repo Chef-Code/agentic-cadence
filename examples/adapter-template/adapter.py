@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -36,18 +37,11 @@ def render_pickup_text(prepare_packet: JsonPacket) -> str:
 
     handoff = prepare_packet.get("handoff", {})
     handoff_id = handoff.get("id", "<handoff-id>")
-    handoff_message = handoff.get("message")
-    if handoff_message:
-        return (
-            f"Pickup prepared for {handoff_id}.\n\n"
-            f"{handoff_message}\n"
-            "Preserve the attached Cadence JSON packet; do not rewrite it."
-        )
-    next_action = handoff.get("next_action") or handoff.get("nextAction") or "<next-action>"
+    status = handoff.get("status", "<status>")
     return (
-        f"Pickup prepared for {handoff_id}.\n"
-        f"Next agent should claim the handoff and start with: {next_action}\n"
-        "Preserve the attached Cadence JSON packet; do not rewrite it."
+        f"Pickup prepared for {handoff_id} with status {status}.\n"
+        "Attach the preserved Cadence JSON packet to the next host session.\n"
+        "Render host-specific next steps from that packet without rewriting it."
     )
 
 
@@ -76,6 +70,22 @@ def require_play_on(status_packet: JsonPacket) -> None:
         raise RuntimeError(f"Cadence state is {state}; adapter must not prepare pickup work")
 
 
+def split_cadence_command(command: str, *, windows: bool | None = None) -> list[str]:
+    """Split a copy-pasted command prefix without damaging Windows paths."""
+
+    use_windows_rules = os.name == "nt" if windows is None else windows
+    parts = shlex.split(command, posix=not use_windows_rules)
+    if use_windows_rules:
+        return [_strip_surrounding_quotes(part) for part in parts]
+    return parts
+
+
+def _strip_surrounding_quotes(value: str) -> str:
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        return value[1:-1]
+    return value
+
+
 def prepare_context_handoff(
     *,
     runtime_root: Path,
@@ -86,6 +96,8 @@ def prepare_context_handoff(
     summary: str,
     next_action: str,
     cadence_command: Sequence[str],
+    task_type: str = "execution",
+    drivers: Sequence[str] = (),
     runner: Callable[..., JsonPacket] = run_cadence,
     context_pressure_detector: Callable[[], bool] = detect_context_pressure,
 ) -> JsonPacket:
@@ -106,6 +118,10 @@ def prepare_context_handoff(
     status_packet = runner(["status"], runtime_root=runtime_root, cadence_command=cadence_command)
     require_play_on(status_packet)
 
+    sizing_args: list[str] = ["--task-type", task_type]
+    for driver in drivers:
+        sizing_args.extend(["--driver", driver])
+
     prepare_packet = runner(
         [
             "prepare-handoff",
@@ -119,8 +135,7 @@ def prepare_context_handoff(
             repo,
             "--cwd",
             str(cwd),
-            "--task-type",
-            "execution",
+            *sizing_args,
             "--summary",
             summary,
             "--next-action",
@@ -150,10 +165,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--title", required=True, help="Human-readable handoff title.")
     parser.add_argument("--summary", required=True, help="Short summary of the current work.")
     parser.add_argument("--next-action", required=True, help="Concrete first action for the next agent.")
+    parser.add_argument("--task-type", choices=("execution", "discovery"), default="execution", help="Cadence task type.")
+    parser.add_argument(
+        "--driver",
+        action="append",
+        default=[],
+        help="Task sizing driver. Repeat for each applicable driver, for example --driver migration.",
+    )
     parser.add_argument(
         "--cadence-command",
         default="agentic-cadence",
-        help='Cadence command prefix, for example: agentic-cadence or "python -m codex_cadence".',
+        help='Cadence command prefix, for example: agentic-cadence, "python -m codex_cadence", or a Windows path.',
     )
     return parser
 
@@ -170,7 +192,9 @@ def main(argv: list[str] | None = None) -> int:
             title=args.title,
             summary=args.summary,
             next_action=args.next_action,
-            cadence_command=shlex.split(args.cadence_command),
+            task_type=args.task_type,
+            drivers=args.driver,
+            cadence_command=split_cadence_command(args.cadence_command),
         )
     except Exception as exc:
         print(f"adapter template failed: {exc}", file=sys.stderr)

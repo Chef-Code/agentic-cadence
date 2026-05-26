@@ -24,6 +24,8 @@ python examples/adapter-template/adapter.py \
   --handoff-id example-context-handoff \
   --title "Example context handoff" \
   --summary "Current agent is close to context pressure." \
+  --task-type execution \
+  --driver reviewer_feedback \
   --next-action "Claim the handoff and continue from the preserved packet."
 ```
 
@@ -31,6 +33,11 @@ When copying this into a real host adapter, keep the Cadence boundary boring:
 call `agentic-cadence` as a subprocess, pass the host's runtime root
 explicitly, preserve returned JSON packets, and render host-specific text
 around those packets instead of rewriting them.
+
+Pass the host's sizing signal through `--task-type` and repeatable `--driver`
+arguments. Cadence uses those fields to decide whether pickup should require
+approval, so copied adapters should not collapse every handoff into the default
+`execution` shape.
 
 From a source checkout, pass the module command as one quoted value:
 
@@ -42,9 +49,16 @@ python examples/adapter-template/adapter.py \
   --handoff-id example-context-handoff \
   --title "Example context handoff" \
   --summary "Current agent is close to context pressure." \
+  --task-type discovery \
+  --driver unknown_repo_area \
+  --driver cross_subsystem \
   --next-action "Claim the handoff and continue from the preserved packet." \
   --cadence-command "python -m codex_cadence"
 ```
+
+On Windows, unquoted absolute command paths such as
+`C:\Python312\python.exe -m codex_cadence` are parsed with Windows-safe rules so
+the backslashes are preserved.
 
 The hooks to replace are:
 

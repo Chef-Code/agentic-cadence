@@ -79,10 +79,58 @@ class AdapterTemplateExampleTests(unittest.TestCase):
             self.assertEqual([call[0][0] for call in calls], ["status", "prepare-handoff"])
             self.assertTrue(result["stop_current_session"])
             self.assertIn("template-handoff", result["pickup_text"])
-            self.assertIn("raw packet body", result["pickup_text"])
+            self.assertNotIn("raw packet body", result["pickup_text"])
+            self.assertIn("preserved Cadence JSON packet", result["pickup_text"])
 
             for _, root_arg, _ in calls:
                 self.assertEqual(root_arg, runtime_root)
+
+    def test_adapter_template_passes_task_sizing_inputs(self):
+        template = load_template_module()
+        calls = []
+
+        def fake_runner(command, *, runtime_root, cadence_command):
+            calls.append(command)
+            if command[0] == "status":
+                return {"cadence": {"state": "PLAY_ON"}}
+            return {
+                "stop_current_session": True,
+                "handoff": {
+                    "id": "template-handoff",
+                    "status": "READY",
+                    "estimate": {
+                        "task_type": "discovery",
+                        "drivers": ["unknown_repo_area", "cross_subsystem", "unclear_requirements"],
+                        "policy": {"pickup_requires_approval": True},
+                    },
+                },
+            }
+
+        result = template.prepare_context_handoff(
+            runtime_root=Path("runtime"),
+            repo="local/template",
+            cwd=Path("."),
+            handoff_id="template-handoff",
+            title="Template handoff",
+            summary="template summary",
+            next_action="start from preserved packet",
+            cadence_command=["agentic-cadence"],
+            task_type="discovery",
+            drivers=["unknown_repo_area", "cross_subsystem", "unclear_requirements"],
+            runner=fake_runner,
+            context_pressure_detector=lambda: True,
+        )
+
+        prepare_command = calls[1]
+        self.assertIn("--task-type", prepare_command)
+        self.assertEqual(prepare_command[prepare_command.index("--task-type") + 1], "discovery")
+        self.assertEqual(
+            [prepare_command[index + 1] for index, value in enumerate(prepare_command) if value == "--driver"],
+            ["unknown_repo_area", "cross_subsystem", "unclear_requirements"],
+        )
+        self.assertTrue(
+            result["packets"]["prepare_handoff"]["handoff"]["estimate"]["policy"]["pickup_requires_approval"]
+        )
 
     def test_adapter_template_requires_explicit_runtime_root_and_play_on(self):
         template = load_template_module()
@@ -103,6 +151,17 @@ class AdapterTemplateExampleTests(unittest.TestCase):
                 runner=lambda command, **_: {"cadence": {"state": "HUDDLE"}},
                 context_pressure_detector=lambda: True,
             )
+
+    def test_adapter_template_splits_windows_cadence_command(self):
+        template = load_template_module()
+        self.assertEqual(
+            template.split_cadence_command(r"C:\Python312\python.exe -m codex_cadence", windows=True),
+            [r"C:\Python312\python.exe", "-m", "codex_cadence"],
+        )
+        self.assertEqual(
+            template.split_cadence_command(r'"C:\Program Files\Python312\python.exe" -m codex_cadence', windows=True),
+            [r"C:\Program Files\Python312\python.exe", "-m", "codex_cadence"],
+        )
 
     def test_adapter_template_is_documented_from_adapter_docs_and_roadmap(self):
         adapters = (ROOT / "docs" / "adapters.md").read_text(encoding="utf-8")
