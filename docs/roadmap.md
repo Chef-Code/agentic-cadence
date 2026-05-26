@@ -1,0 +1,96 @@
+# Agentic Cadence Technical Roadmap
+
+This roadmap documents where Agentic Cadence is now, the edges that are still intentionally exposed, and the direction for the next release slices.
+
+## North Star
+
+Agentic Cadence should become an agent-neutral handoff and governance layer for long-running coding-agent work. A host such as Codex, Claude, Gemini, or a future coding agent should be able to stop cleanly, preserve enough context for a fresh session, respect repository and review gates, and continue only when the protocol says continuation is allowed.
+
+The protocol should stay small and inspectable. Host adapters can render different user experiences, but they should share the same core concepts: Cadence state, handoffs, clean-square evidence, task sizing, approval gates, PR readiness, and release guardrails.
+
+## Current State
+
+The current 0.1.x line is an early public protocol and tooling baseline for local clone-based use. It includes:
+
+- a packaged `agentic-cadence` CLI with Codex-compatible command aliases;
+- local Cadence state with `PLAY_ON`, `HUDDLE`, and `TIMEOUT`;
+- handoff creation, preparation, approval, claim, completion, and failure flows;
+- repo snapshots and clean-square validation for old-session shutdown;
+- task sizing, epoch governance, and conservative pickup gates;
+- read-only candidate discovery from local repo signals, saved review findings, saved GitHub review-thread files, and business memory;
+- deterministic PR body preflight and PR readiness checks from saved local inputs;
+- release-readiness docs, current-tree audit, history audit, and pinned GitHub Actions guardrails;
+- an executable adapter smoke contract in `examples/adapter-smoke/run.py` that proves a host adapter can drive the public CLI and preserve returned JSON packets.
+
+## Known Edges
+
+These are the important boundaries that are not solved yet:
+
+- No Claude or Gemini adapter is shipped. The project has an adapter boundary and smoke contract, not full host integrations.
+- There is no automatic host/session signal for context pressure. `prepare-handoff --guardrail context` still requires explicit input from the caller.
+- Runtime state is local filesystem state. There is no shared remote backend for teams or cloud agents.
+- Local locks protect local transitions, but there is no distributed lock model for multiple machines.
+- Claimer, approver, and operator values are records, not authenticated identities with role enforcement.
+- Policy is conservative but not yet an organization-level policy engine.
+- Review integration is deterministic and local. Candidate discovery can ingest saved review findings and saved GitHub review-thread files, while `pr-readiness` reads saved PR data; Cadence does not fetch, synchronize, or resolve live GitHub review threads.
+- Release verification is documented and repeatable, but release tagging and GitHub release creation still require operator execution.
+- Package distribution is clone-based. PyPI publication is not part of the current baseline.
+- The user experience is primarily CLI and JSON, with static visual docs rather than a live dashboard.
+- Some packet labels remain Codex-compatible in 0.1.x. Adapters must preserve packets and render host-specific text around them instead of rewriting packet contents.
+- Security guardrails exist, but there is no full signed identity model, remote tamper-evident log, or sandbox enforcement boundary.
+
+## Target State
+
+A mature Agentic Cadence system should provide:
+
+- thin, tested host adapters for at least two agents beyond Codex;
+- an adapter template that makes the public CLI contract easy to copy without private imports;
+- explicit host/session signals for context pressure, reviewer loops, CI loops, and operator stop requests;
+- a shared runtime option with clear locking, identity, audit, and rollback expectations;
+- role-aware approval and claim semantics tied to real users or agent identities;
+- configurable policy for task sizing, pickup approval, review spend, and release authority;
+- first-class PR review synchronization that fetches review threads, tracks resolution, and preserves deterministic local evaluation;
+- release commands or scripts that generate notes, verify tags, and refuse unsafe publication states;
+- a dashboard or visual companion that shows Cadence state, active handoffs, approvals, PR readiness, and release status without bypassing the CLI contract.
+
+## Roadmap
+
+### Now
+
+- Keep the 0.1.x release line stable and clone-installable.
+- Treat the CLI JSON packets as the public adapter boundary.
+- Preserve Codex compatibility while moving user-facing docs toward agent-neutral language.
+- Use PRs, required CI, elected bot review where appropriate, and release checks before tagging public releases.
+
+### Next
+
+- Add a copyable adapter template that shells out to `agentic-cadence`, passes explicit runtime roots, preserves packets, and renders host-specific pickup text.
+- Define the minimal host/session signal interface needed for context-pressure handoff.
+- Add examples that show how a Claude or Gemini binding would map host events to the existing CLI without shipping unsupported adapter claims.
+- Improve release automation around tag verification and release-note generation while keeping operator confirmation required.
+
+### Later
+
+- Design a shared runtime backend with distributed locking, identity, and audit logs.
+- Add real host adapters once the template and session-signal contract are stable.
+- Expand policy configuration for teams, repositories, and agent classes.
+- Build an operator-facing dashboard for handoff, review, and release visibility.
+- Decide whether and when PyPI publication is worth the operational burden.
+
+## Non-Goals For 0.1.x
+
+- No autonomous merge or release without explicit operator instruction.
+- No claim that Claude or Gemini adapters are shipped.
+- No hidden writes to Cadence runtime files outside the public CLI.
+- No remote backend or distributed lock promise.
+- No PyPI publication.
+- No replacement for generic secret scanning or external security review.
+
+## Open Questions
+
+- Which host should get the first real non-Codex adapter: Claude, Gemini, or a generic shell adapter?
+- Should shared runtime state be GitHub-backed, file-share-backed, database-backed, or pluggable?
+- What identity model is strong enough for approvals without making local use heavy?
+- Which policy controls should be hard-coded safety rules and which should be repo-configurable?
+- How much release automation should the tool own before package-index publication is considered?
+- What dashboard view would help operators most without encouraging bypasses around the CLI packet contract?
