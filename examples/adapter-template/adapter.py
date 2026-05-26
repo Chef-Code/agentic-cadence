@@ -6,31 +6,142 @@ should copy the shape, keep their host-specific code at the edges, and continue
 to treat Agentic Cadence as a black-box CLI.
 """
 
-from __future__ import annotations
-
 import argparse
 import json
 import os
 import shlex
 import subprocess
 import sys
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Sequence
+from typing import Any, Literal
 
 
 JsonPacket = dict[str, Any]
 DEFAULT_CADENCE_TIMEOUT_SECONDS = 120.0
 
+SignalKind = Literal["context_pressure", "operator_stop"]
+SignalConfidence = Literal["low", "medium", "high"]
+SignalTaskType = Literal["execution", "discovery"]
 
-def detect_context_pressure() -> bool:
-    """Map the host's context-pressure signal into a boolean.
+SIGNAL_KINDS = {"context_pressure", "operator_stop"}
+SIGNAL_CONFIDENCES = {"low", "medium", "high"}
+SIGNAL_TASK_TYPES = {"execution", "discovery"}
+# Keep this adapter import-free; tests guard parity with the public CLI's task sizing model.
+SIGNAL_TASK_DRIVERS = {
+    "reviewer_feedback",
+    "ci_verification",
+    "external_review",
+    "multiple_files",
+    "unknown_repo_area",
+    "unclear_requirements",
+    "cross_subsystem",
+    "migration",
+    "irreversible_operation",
+    "self_evolution",
+}
+SIGNAL_GUARDRAILS = {
+    "context_pressure": "context",
+    "operator_stop": "operator_stop",
+}
+MAX_SIGNAL_SOURCE_LENGTH = 64
 
-    Replace this placeholder with the host-specific signal. Examples include a
-    context-window warning, an explicit operator stop request, or another signal
-    that says the current agent window should prepare pickup work and stop.
+
+@dataclass(frozen=True)
+class HostSessionSignal:
+    """Adapter-local host/session signal.
+
+    This is a copyable template helper, not a stable Agentic Cadence Python API.
+    Host adapters should map their own host signal into this local shape and
+    then pass the existing public CLI arguments to Agentic Cadence.
     """
 
-    return True
+    kind: SignalKind | str
+    source: str
+    confidence: SignalConfidence | str
+    summary: str
+    task_type: SignalTaskType | str
+    drivers: Sequence[str]
+    next_action: str
+
+
+def detect_host_session_signal(
+    *,
+    summary: str,
+    task_type: str,
+    drivers: Sequence[str],
+    next_action: str,
+) -> HostSessionSignal | None:
+    """Map the host's context-pressure signal into an adapter-local signal.
+
+    Replace this placeholder with the host-specific signal. Examples include a
+    context-window warning, an explicit operator stop request, or another host
+    signal that says the current agent window should prepare pickup work and stop.
+    """
+
+    return HostSessionSignal(
+        kind="context_pressure",
+        source="adapter-template",
+        confidence="high",
+        summary=summary,
+        task_type=task_type,
+        drivers=tuple(drivers),
+        next_action=next_action,
+    )
+
+
+def validate_host_session_signal(signal: HostSessionSignal) -> HostSessionSignal:
+    """Validate and normalize the adapter-local host/session signal."""
+
+    if not isinstance(signal, HostSessionSignal):
+        raise RuntimeError("host session signal must be a HostSessionSignal")
+    kind = _require_allowed_signal_value("kind", signal.kind, SIGNAL_KINDS)
+    confidence = _require_allowed_signal_value("confidence", signal.confidence, SIGNAL_CONFIDENCES)
+    task_type = _require_allowed_signal_value("task_type", signal.task_type, SIGNAL_TASK_TYPES)
+
+    source = _require_non_empty_string("source", signal.source)
+    if len(source) > MAX_SIGNAL_SOURCE_LENGTH:
+        raise RuntimeError(f"host session signal source must be {MAX_SIGNAL_SOURCE_LENGTH} characters or fewer")
+
+    summary = _require_non_empty_string("summary", signal.summary)
+    next_action = _require_non_empty_string("next_action", signal.next_action)
+    drivers = _validate_signal_drivers(signal.drivers)
+
+    return HostSessionSignal(
+        kind=kind,
+        source=source,
+        confidence=confidence,
+        summary=summary,
+        task_type=task_type,
+        drivers=tuple(drivers),
+        next_action=next_action,
+    )
+
+
+def _require_allowed_signal_value(name: str, value: str, allowed: set[str]) -> str:
+    if not isinstance(value, str) or value not in allowed:
+        choices = ", ".join(sorted(allowed))
+        raise RuntimeError(f"host session signal {name} must be one of: {choices}")
+    return value
+
+
+def _require_non_empty_string(name: str, value: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise RuntimeError(f"host session signal {name} must be a non-empty string")
+    return value.strip()
+
+
+def _validate_signal_drivers(drivers: Sequence[str]) -> list[str]:
+    if isinstance(drivers, (str, bytes)) or not isinstance(drivers, Sequence):
+        raise RuntimeError("host session signal drivers must be a sequence of strings")
+    selected = list(drivers)
+    for driver in selected:
+        if not isinstance(driver, str) or not driver.strip():
+            raise RuntimeError("host session signal drivers must be non-empty strings")
+        if driver not in SIGNAL_TASK_DRIVERS:
+            raise RuntimeError(f"unsupported host session signal driver: {driver}")
+    return selected
 
 
 def render_pickup_text(prepare_packet: JsonPacket) -> str:
@@ -110,7 +221,7 @@ def prepare_context_handoff(
     drivers: Sequence[str] = (),
     cadence_timeout_seconds: float = DEFAULT_CADENCE_TIMEOUT_SECONDS,
     runner: Callable[..., JsonPacket] = run_cadence,
-    context_pressure_detector: Callable[[], bool] = detect_context_pressure,
+    host_session_signal_detector: Callable[[], HostSessionSignal | None] | None = None,
 ) -> JsonPacket:
     """Prepare a context handoff and return host-ready pickup data.
 
@@ -118,13 +229,24 @@ def prepare_context_handoff(
     Host adapters should render around them instead of rewriting their fields.
     """
 
-    if not context_pressure_detector():
+    signal = (
+        host_session_signal_detector()
+        if host_session_signal_detector is not None
+        else detect_host_session_signal(
+            summary=summary,
+            task_type=task_type,
+            drivers=drivers,
+            next_action=next_action,
+        )
+    )
+    if signal is None:
         return {
             "result": "no_handoff_needed",
             "stop_current_session": False,
             "packets": {},
             "pickup_text": "",
         }
+    signal = validate_host_session_signal(signal)
 
     status_packet = runner(
         ["status"],
@@ -134,8 +256,8 @@ def prepare_context_handoff(
     )
     require_play_on(status_packet)
 
-    sizing_args: list[str] = ["--task-type", task_type]
-    for driver in drivers:
+    sizing_args: list[str] = ["--task-type", signal.task_type]
+    for driver in signal.drivers:
         sizing_args.extend(["--driver", driver])
 
     prepare_packet = runner(
@@ -146,16 +268,16 @@ def prepare_context_handoff(
             "--title",
             title,
             "--guardrail",
-            "context",
+            SIGNAL_GUARDRAILS[signal.kind],
             "--repo",
             repo,
             "--cwd",
             str(cwd),
             *sizing_args,
             "--summary",
-            summary,
+            signal.summary,
             "--next-action",
-            next_action,
+            signal.next_action,
         ],
         runtime_root=runtime_root,
         cadence_command=cadence_command,

@@ -10,7 +10,7 @@ The template intentionally:
 - requires an explicit runtime root with `--runtime-root`;
 - preserves returned JSON packets under `packets`;
 - treats `stop_current_session` as the signal to stop the current host window;
-- leaves `detect_context_pressure()` as the host-specific signal hook;
+- leaves `detect_host_session_signal()` as the host-specific signal hook;
 - leaves `render_pickup_text()` as the host-specific pickup rendering hook;
 - does not ship a Claude or Gemini adapter.
 
@@ -65,9 +65,36 @@ Each Cadence subprocess call has a timeout controlled by
 `--cadence-timeout-seconds`, so a copied adapter fails deterministically instead
 of hanging forever if the underlying command stalls.
 
+## Host Session Signal
+
+`HostSessionSignal` lives only inside `examples/adapter-template/adapter.py`.
+It is a copyable template helper, not a stable Python API exported by
+`codex_cadence`.
+
+The template validates the signal before calling `prepare-handoff`:
+
+- `kind`: `context_pressure` or `operator_stop`
+- `source`: non-empty host/source label, up to 64 characters
+- `confidence`: `low`, `medium`, or `high`
+- `summary`: non-empty text passed to `--summary`
+- `task_type`: `execution` or `discovery`
+- `drivers`: zero or more task sizing drivers accepted by the public CLI
+- `next_action`: non-empty text passed to `--next-action`
+
+`kind` maps to `--guardrail`: `context_pressure` uses `context`, and
+`operator_stop` uses `operator_stop`. `source` and `confidence` are
+adapter-local validation/provenance fields; the current public CLI does not
+store them as handoff metadata.
+
+When a real host detector returns no signal, the adapter returns
+`no_handoff_needed` and does not call Cadence. The template placeholder
+synthesizes a sample context-pressure signal so the copied example is runnable.
+When a signal is present, the adapter still checks `status`, requires
+`PLAY_ON`, and uses the existing `prepare-handoff` command.
+
 The hooks to replace are:
 
-- `detect_context_pressure()`: map the host's context pressure or operator stop
-  signal into a boolean.
+- `detect_host_session_signal()`: map the host's context pressure or operator
+  stop signal into an adapter-local `HostSessionSignal`.
 - `render_pickup_text()`: format the next-agent instructions in the host's
   preferred surface while keeping the raw Cadence packet available.

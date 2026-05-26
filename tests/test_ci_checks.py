@@ -251,7 +251,7 @@ class CiChecksTests(unittest.TestCase):
             "## Open Questions",
             "No Claude or Gemini adapter is shipped",
             "Runtime state is local filesystem state",
-            "There is no automatic host/session signal",
+            "There is no automatic real-host context-pressure integration",
             "saved GitHub review-thread files",
             "Release verification is documented and repeatable",
             "copyable adapter template",

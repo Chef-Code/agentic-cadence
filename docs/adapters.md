@@ -21,6 +21,29 @@ The stable surface for early adapters is:
 
 Adapters may render host-specific pickup instructions, map a host/session signal into explicit command arguments, and choose the runtime root for that host. They must preserve the packet fields returned by Cadence commands, especially `stop_current_session`.
 
+## Host/Session Signal Contract
+
+The minimal context-pressure signal contract is adapter-facing behavior, not a
+new core object model. The copyable template demonstrates this with an
+adapter-local `HostSessionSignal` inside `examples/adapter-template/adapter.py`.
+It must not be imported from or exported by `codex_cadence`.
+
+For this slice, a host signal carries `kind`, `source`, `confidence`, `summary`,
+`task_type`, `drivers`, and `next_action`. The adapter validates those fields,
+requires `PLAY_ON` through `status`, and maps the CLI-backed fields into the
+existing `prepare-handoff` arguments. `kind` maps to `--guardrail`:
+`context_pressure` becomes `context`, and `operator_stop` becomes
+`operator_stop`. `summary`, `task_type`, `drivers`, and `next_action` map to
+their matching CLI arguments. `source` and `confidence` are adapter-local
+validation/provenance fields for now; the current public CLI does not store
+them as handoff metadata. `drivers` may be empty because the public CLI allows
+no `--driver` values, but any supplied driver must be accepted by the existing
+task sizing model.
+
+This contract does not make Agentic Cadence infer context pressure from
+transcripts, token guesses, or CLI internals. The host observes session state;
+the adapter passes explicit arguments; Cadence enforces the protocol gates.
+
 ## Required Behavior
 
 An adapter must:
