@@ -1,6 +1,9 @@
 import ast
 import importlib.util
+import json
+import os
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +15,7 @@ from codex_cadence.model import DRIVER_WEIGHTS
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE_SCRIPT = ROOT / "examples" / "adapter-template" / "adapter.py"
 TEMPLATE_README = ROOT / "examples" / "adapter-template" / "README.md"
+TEMPLATE_FIXTURES = ROOT / "examples" / "adapter-template" / "host-signal-fixtures"
 
 
 def load_template_module():
@@ -67,6 +71,207 @@ class AdapterTemplateExampleTests(unittest.TestCase):
     def test_adapter_template_driver_allowlist_tracks_task_sizing_model(self):
         template = load_template_module()
         self.assertEqual(template.SIGNAL_TASK_DRIVERS, set(DRIVER_WEIGHTS))
+
+    def test_adapter_template_loads_generic_host_signal_fixture(self):
+        template = load_template_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp) / "operator-stop.json"
+            fixture.write_text(
+                json.dumps(
+                    {
+                        "kind": "operator_stop",
+                        "source": "generic-host-fixture",
+                        "confidence": "medium",
+                        "summary": "operator asked this host session to stop",
+                        "task_type": "discovery",
+                        "drivers": ["unknown_repo_area"],
+                        "next_action": "Claim the generated handoff and inspect the preserved packet.",
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            signal = template.load_host_signal_fixture(fixture)
+
+        self.assertIsInstance(signal, template.HostSessionSignal)
+        self.assertEqual(signal.kind, "operator_stop")
+        self.assertEqual(signal.source, "generic-host-fixture")
+        self.assertEqual(signal.confidence, "medium")
+        self.assertEqual(signal.task_type, "discovery")
+        self.assertEqual(signal.drivers, ("unknown_repo_area",))
+        self.assertEqual(signal.summary, "operator asked this host session to stop")
+
+    def test_adapter_template_loads_checked_in_host_signal_fixtures(self):
+        template = load_template_module()
+        cases = {
+            "context-pressure.json": ("context", "execution", ["multiple_files"]),
+            "operator-stop.json": ("operator_stop", "discovery", ["unknown_repo_area"]),
+        }
+
+        for filename, (expected_guardrail, expected_task_type, expected_drivers) in cases.items():
+            with self.subTest(filename=filename):
+                signal = template.validate_host_session_signal(
+                    template.load_host_signal_fixture(TEMPLATE_FIXTURES / filename)
+                )
+                calls = []
+
+                def fake_runner(command, *, runtime_root, cadence_command, _calls=calls, **_):
+                    _calls.append(command)
+                    if command[0] == "status":
+                        return {"cadence": {"state": "PLAY_ON"}}
+                    return {
+                        "stop_current_session": True,
+                        "handoff": {"id": "fixture-handoff", "status": "READY"},
+                    }
+
+                template.prepare_context_handoff(
+                    runtime_root=Path("runtime"),
+                    repo="local/template",
+                    cwd=Path("."),
+                    handoff_id="fixture-handoff",
+                    title="Fixture handoff",
+                    summary="unused summary",
+                    next_action="unused next action",
+                    cadence_command=["agentic-cadence"],
+                    task_type="execution",
+                    runner=fake_runner,
+                    host_session_signal_detector=lambda signal=signal: signal,
+                )
+
+                prepare_command = calls[1]
+                self.assertEqual(prepare_command[prepare_command.index("--guardrail") + 1], expected_guardrail)
+                self.assertEqual(prepare_command[prepare_command.index("--task-type") + 1], expected_task_type)
+                self.assertEqual(prepare_command[prepare_command.index("--summary") + 1], signal.summary)
+                self.assertEqual(prepare_command[prepare_command.index("--next-action") + 1], signal.next_action)
+                self.assertEqual(
+                    [prepare_command[index + 1] for index, value in enumerate(prepare_command) if value == "--driver"],
+                    expected_drivers,
+                )
+
+        self.assertIsNone(template.load_host_signal_fixture(TEMPLATE_FIXTURES / "no-signal.json"))
+
+    def test_adapter_template_null_host_signal_fixture_skips_cadence(self):
+        template = load_template_module()
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Path(tmp) / "no-signal.json"
+            fixture.write_text("null\n", encoding="utf-8")
+
+            result = template.prepare_context_handoff(
+                runtime_root=Path("runtime"),
+                repo="local/template",
+                cwd=Path("."),
+                handoff_id="template-handoff",
+                title="Template handoff",
+                summary="unused summary",
+                next_action="unused next action",
+                cadence_command=["agentic-cadence"],
+                task_type="execution",
+                runner=lambda command, **_: calls.append(command) or {"unexpected": True},
+                host_session_signal_detector=lambda: template.load_host_signal_fixture(fixture),
+            )
+
+        self.assertEqual(result["result"], "no_handoff_needed")
+        self.assertEqual(calls, [])
+
+    def test_adapter_template_fixture_read_errors_are_adapter_errors(self):
+        template = load_template_module()
+        with self.assertRaisesRegex(RuntimeError, "host signal fixture could not be read"):
+            template.load_host_signal_fixture(TEMPLATE_FIXTURES / "missing.json")
+
+    def test_adapter_template_cli_host_signal_file_maps_to_prepare_handoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            trace_path = tmp_path / "trace.json"
+            fake_cadence = tmp_path / "fake_cadence.py"
+            fake_cadence.write_text(
+                "\n".join(
+                    [
+                        "import json",
+                        "import os",
+                        "import sys",
+                        "trace_path = os.environ['FAKE_CADENCE_TRACE']",
+                        "try:",
+                        "    trace = json.loads(open(trace_path, encoding='utf-8').read())",
+                        "except FileNotFoundError:",
+                        "    trace = []",
+                        "trace.append(sys.argv[1:])",
+                        "open(trace_path, 'w', encoding='utf-8').write(json.dumps(trace))",
+                        "command = next(arg for arg in sys.argv[1:] if arg in {'status', 'prepare-handoff'})",
+                        "if command == 'status':",
+                        "    print(json.dumps({'cadence': {'state': 'PLAY_ON'}}))",
+                        "else:",
+                        "    print(json.dumps({'stop_current_session': True, 'handoff': {'id': 'fixture-handoff', 'status': 'READY'}}))",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            fixture = tmp_path / "operator-stop.json"
+            fixture.write_text(
+                json.dumps(
+                    {
+                        "kind": "operator_stop",
+                        "source": "generic-host-fixture",
+                        "confidence": "high",
+                        "summary": "fixture summary wins",
+                        "task_type": "discovery",
+                        "drivers": ["unknown_repo_area", "cross_subsystem"],
+                        "next_action": "fixture next action wins",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env["FAKE_CADENCE_TRACE"] = str(trace_path)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(TEMPLATE_SCRIPT),
+                    "--runtime-root",
+                    str(tmp_path / "runtime"),
+                    "--repo",
+                    "local/template",
+                    "--cwd",
+                    str(tmp_path),
+                    "--handoff-id",
+                    "fixture-handoff",
+                    "--title",
+                    "Fixture handoff",
+                    "--summary",
+                    "cli summary fallback",
+                    "--next-action",
+                    "cli next action fallback",
+                    "--task-type",
+                    "execution",
+                    "--driver",
+                    "multiple_files",
+                    "--host-signal-file",
+                    str(fixture),
+                    "--cadence-command",
+                    f'"{sys.executable}" "{fake_cadence}"',
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            summary = json.loads(result.stdout)
+            trace = json.loads(trace_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(summary["result"], "handoff_prepared")
+        prepare_command = next(command for command in trace if "prepare-handoff" in command)
+        self.assertEqual(prepare_command[prepare_command.index("--guardrail") + 1], "operator_stop")
+        self.assertEqual(prepare_command[prepare_command.index("--task-type") + 1], "discovery")
+        self.assertEqual(prepare_command[prepare_command.index("--summary") + 1], "fixture summary wins")
+        self.assertEqual(prepare_command[prepare_command.index("--next-action") + 1], "fixture next action wins")
+        self.assertEqual(
+            [prepare_command[index + 1] for index, value in enumerate(prepare_command) if value == "--driver"],
+            ["unknown_repo_area", "cross_subsystem"],
+        )
 
     def test_adapter_template_returns_without_cadence_when_signal_absent(self):
         template = load_template_module()
@@ -391,6 +596,11 @@ class AdapterTemplateExampleTests(unittest.TestCase):
         self.assertIn("Host/Session Signal Contract", adapters)
         self.assertIn("adapter-local `HostSessionSignal`", adapters)
         self.assertIn("without adding a core object model", roadmap)
+        self.assertTrue((TEMPLATE_FIXTURES / "context-pressure.json").exists())
+        self.assertTrue((TEMPLATE_FIXTURES / "operator-stop.json").exists())
+        self.assertTrue((TEMPLATE_FIXTURES / "no-signal.json").exists())
+        self.assertIn("--host-signal-file", readme)
+        self.assertIn("host-signal-fixtures", readme)
 
 
 if __name__ == "__main__":
