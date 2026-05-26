@@ -72,6 +72,7 @@ class AdapterTemplateExampleTests(unittest.TestCase):
                 summary="template summary",
                 next_action="start from preserved packet",
                 cadence_command=["agentic-cadence"],
+                task_type="execution",
                 runner=fake_runner,
                 context_pressure_detector=lambda: True,
             )
@@ -138,7 +139,9 @@ class AdapterTemplateExampleTests(unittest.TestCase):
         template = load_template_module()
         parser = template.build_parser()
         runtime_action = next(action for action in parser._actions if "--runtime-root" in action.option_strings)
+        task_type_action = next(action for action in parser._actions if "--task-type" in action.option_strings)
         self.assertTrue(runtime_action.required)
+        self.assertTrue(task_type_action.required)
 
         with self.assertRaisesRegex(RuntimeError, "Cadence state is HUDDLE"):
             template.prepare_context_handoff(
@@ -150,6 +153,7 @@ class AdapterTemplateExampleTests(unittest.TestCase):
                 summary="template summary",
                 next_action="start from preserved packet",
                 cadence_command=["agentic-cadence"],
+                task_type="execution",
                 runner=lambda command, **_: {"cadence": {"state": "HUDDLE"}},
                 context_pressure_detector=lambda: True,
             )

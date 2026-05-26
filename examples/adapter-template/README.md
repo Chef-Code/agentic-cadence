@@ -35,7 +35,7 @@ call `agentic-cadence` as a subprocess, pass the host's runtime root
 explicitly, preserve returned JSON packets, and render host-specific text
 around those packets instead of rewriting them.
 
-Pass the host's sizing signal through `--task-type` and repeatable `--driver`
+Pass the host's sizing signal through required `--task-type` and repeatable `--driver`
 arguments. Cadence uses those fields to decide whether pickup should require
 approval, so copied adapters should not collapse every handoff into the default
 `execution` shape.

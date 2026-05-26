@@ -106,7 +106,7 @@ def prepare_context_handoff(
     summary: str,
     next_action: str,
     cadence_command: Sequence[str],
-    task_type: str = "execution",
+    task_type: str,
     drivers: Sequence[str] = (),
     cadence_timeout_seconds: float = DEFAULT_CADENCE_TIMEOUT_SECONDS,
     runner: Callable[..., JsonPacket] = run_cadence,
@@ -182,7 +182,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--title", required=True, help="Human-readable handoff title.")
     parser.add_argument("--summary", required=True, help="Short summary of the current work.")
     parser.add_argument("--next-action", required=True, help="Concrete first action for the next agent.")
-    parser.add_argument("--task-type", choices=("execution", "discovery"), default="execution", help="Cadence task type.")
+    parser.add_argument("--task-type", choices=("execution", "discovery"), required=True, help="Cadence task type.")
     parser.add_argument(
         "--driver",
         action="append",
