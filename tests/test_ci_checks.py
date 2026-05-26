@@ -202,6 +202,54 @@ class CiChecksTests(unittest.TestCase):
                 self.assertFalse(target.startswith(("http://", "https://")))
                 self.assertTrue((ROOT / target).exists())
 
+    def test_release_readiness_docs_cover_public_baseline(self):
+        changelog_path = ROOT / "CHANGELOG.md"
+        release_path = ROOT / "docs" / "release.md"
+        self.assertTrue(changelog_path.exists())
+        self.assertTrue(release_path.exists())
+
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        changelog = changelog_path.read_text(encoding="utf-8")
+        release = release_path.read_text(encoding="utf-8")
+
+        for token in (
+            "## Current Status",
+            "early public protocol and tooling release",
+            "pip install .",
+            "PyPI publication is not part of this baseline",
+        ):
+            with self.subTest(location="README", token=token):
+                self.assertIn(token, readme)
+
+        for token in (
+            "# Changelog",
+            "## 0.1.0 - 2026-05-26",
+            "Initial public release",
+            "agent-neutral",
+            "prepare-handoff",
+            "pr-readiness",
+        ):
+            with self.subTest(location="CHANGELOG", token=token):
+                self.assertIn(token, changelog)
+
+        for token in (
+            "# Release Checklist",
+            "python scripts/public_release_audit.py --history",
+            "python scripts/validate_protocol.py",
+            "python -m unittest discover -s tests -v",
+            "python -m compileall scripts codex_cadence transmission_control tests",
+            "python -m pip install --upgrade pip build",
+            "python scripts/ci_smoke.py",
+            "python scripts/verify_package.py",
+            "git diff --check",
+            "dedicated secret scanner",
+            "not a substitute for generic secret scanning",
+            "CHANGELOG.md",
+            "GitHub release notes",
+        ):
+            with self.subTest(location="release docs", token=token):
+                self.assertIn(token, release)
+
     def test_readme_five_minute_first_run_uses_only_clean_checkout_paths(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         heading = "## Five-Minute First Run"
