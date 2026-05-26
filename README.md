@@ -20,6 +20,14 @@ PyPI publication is not part of this baseline. Treat package-index publication, 
 
 The protocol is meant to stay agent-neutral while adapters handle host-specific details. See `docs/adapters.md` for the adapter boundary, current Codex compatibility surface, and the intended path for future Claude and Gemini support.
 
+The adapter smoke contract is executable from a clone:
+
+```bash
+python examples/adapter-smoke/run.py --cadence-python python
+```
+
+It proves the adapter path through CLI JSON packets without importing Cadence internals. Current packets may still contain Codex-compatible packet labels retained by the 0.1.x command surface; adapters should preserve those packets rather than rewriting them.
+
 ## Protocol At A Glance
 
 ![Four-step Agentic Cadence handoff flow from old context to signed handoff, clean square, and fresh agent.](docs/assets/handoff-flow.svg)

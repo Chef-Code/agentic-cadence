@@ -19,6 +19,7 @@ __pycache__/
 .agentic-cadence-demo/
 .codex-cadence-demo/
 examples/first-run/work/
+examples/adapter-smoke/work/
 dist/
 build/
 *.egg-info/
