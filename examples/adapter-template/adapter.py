@@ -108,7 +108,11 @@ def load_host_signal_fixture(path: Path) -> HostSessionSignal | None:
     """
 
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        fixture_text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(f"host signal fixture could not be read: {path}") from exc
+    try:
+        payload = json.loads(fixture_text)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"host signal fixture is not valid JSON: {path}") from exc
     if payload is None:

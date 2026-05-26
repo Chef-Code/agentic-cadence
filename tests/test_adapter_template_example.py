@@ -101,6 +101,55 @@ class AdapterTemplateExampleTests(unittest.TestCase):
         self.assertEqual(signal.drivers, ("unknown_repo_area",))
         self.assertEqual(signal.summary, "operator asked this host session to stop")
 
+    def test_adapter_template_loads_checked_in_host_signal_fixtures(self):
+        template = load_template_module()
+        cases = {
+            "context-pressure.json": ("context", "execution", ["multiple_files"]),
+            "operator-stop.json": ("operator_stop", "discovery", ["unknown_repo_area"]),
+        }
+
+        for filename, (expected_guardrail, expected_task_type, expected_drivers) in cases.items():
+            with self.subTest(filename=filename):
+                signal = template.validate_host_session_signal(
+                    template.load_host_signal_fixture(TEMPLATE_FIXTURES / filename)
+                )
+                calls = []
+
+                def fake_runner(command, *, runtime_root, cadence_command, _calls=calls, **_):
+                    _calls.append(command)
+                    if command[0] == "status":
+                        return {"cadence": {"state": "PLAY_ON"}}
+                    return {
+                        "stop_current_session": True,
+                        "handoff": {"id": "fixture-handoff", "status": "READY"},
+                    }
+
+                template.prepare_context_handoff(
+                    runtime_root=Path("runtime"),
+                    repo="local/template",
+                    cwd=Path("."),
+                    handoff_id="fixture-handoff",
+                    title="Fixture handoff",
+                    summary="unused summary",
+                    next_action="unused next action",
+                    cadence_command=["agentic-cadence"],
+                    task_type="execution",
+                    runner=fake_runner,
+                    host_session_signal_detector=lambda signal=signal: signal,
+                )
+
+                prepare_command = calls[1]
+                self.assertEqual(prepare_command[prepare_command.index("--guardrail") + 1], expected_guardrail)
+                self.assertEqual(prepare_command[prepare_command.index("--task-type") + 1], expected_task_type)
+                self.assertEqual(prepare_command[prepare_command.index("--summary") + 1], signal.summary)
+                self.assertEqual(prepare_command[prepare_command.index("--next-action") + 1], signal.next_action)
+                self.assertEqual(
+                    [prepare_command[index + 1] for index, value in enumerate(prepare_command) if value == "--driver"],
+                    expected_drivers,
+                )
+
+        self.assertIsNone(template.load_host_signal_fixture(TEMPLATE_FIXTURES / "no-signal.json"))
+
     def test_adapter_template_null_host_signal_fixture_skips_cadence(self):
         template = load_template_module()
         calls = []
@@ -124,6 +173,11 @@ class AdapterTemplateExampleTests(unittest.TestCase):
 
         self.assertEqual(result["result"], "no_handoff_needed")
         self.assertEqual(calls, [])
+
+    def test_adapter_template_fixture_read_errors_are_adapter_errors(self):
+        template = load_template_module()
+        with self.assertRaisesRegex(RuntimeError, "host signal fixture could not be read"):
+            template.load_host_signal_fixture(TEMPLATE_FIXTURES / "missing.json")
 
     def test_adapter_template_cli_host_signal_file_maps_to_prepare_handoff(self):
         with tempfile.TemporaryDirectory() as tmp:
