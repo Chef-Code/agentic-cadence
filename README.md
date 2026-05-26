@@ -10,6 +10,12 @@ Agentic Cadence helps an agent stop cleanly, hand off context to a fresh session
 
 The first implementation is used with Codex, and the protocol is intentionally agent-neutral so future adapters can support Claude, Gemini, and other coding agents without changing the core handoff model.
 
+## Current Status
+
+Agentic Cadence is an early public protocol and tooling release. The current baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, and public-release history auditing.
+
+PyPI publication is not part of this baseline. Treat package-index publication, signed version tags, and broader adapter support as follow-on release work.
+
 ## Protocol At A Glance
 
 ![Four-step Agentic Cadence handoff flow from old context to signed handoff, clean square, and fresh agent.](docs/assets/handoff-flow.svg)
