@@ -16,6 +16,8 @@ Agentic Cadence is an early public protocol and tooling release. The current bas
 
 PyPI publication is not part of this baseline. Treat package-index publication, signed version tags, and broader adapter support as follow-on release work.
 
+See the current [technical roadmap](docs/roadmap.md) for known edges and target state.
+
 ## Future Agent Adapters
 
 The protocol is meant to stay agent-neutral while adapters handle host-specific details. See `docs/adapters.md` for the adapter boundary, current Codex compatibility surface, and the intended path for future Claude and Gemini support.

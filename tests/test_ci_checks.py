@@ -190,6 +190,7 @@ class CiChecksTests(unittest.TestCase):
 
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         adapters = adapters_path.read_text(encoding="utf-8")
+        roadmap = (ROOT / "docs" / "roadmap.md").read_text(encoding="utf-8")
 
         for token in (
             "## Future Agent Adapters",
@@ -223,12 +224,42 @@ class CiChecksTests(unittest.TestCase):
         ):
             with self.subTest(location="docs/adapters.md", token=token):
                 self.assertIn(token, adapters)
-        combined_docs = f"{readme}\n{adapters}"
+        combined_docs = f"{readme}\n{adapters}\n{roadmap}"
         self.assertNotRegex(
             combined_docs,
-            r"(?mi)^(?!No\b).*(?:Claude|Gemini).*\badapters?(?:\s+support)?\s+(?:is|are)\s+(?:shipped|supported)\b",
+            r"(?mi)^(?!\s*(?:[-*]\s*)?No\b).*(?:Claude|Gemini).*\badapters?(?:\s+support)?\s+(?:is|are)\s+(?:shipped|supported)\b",
         )
         self.assertNotIn("keep clean-square evidence tied to the repository snapshot that produced it", combined_docs)
+
+    def test_roadmap_captures_current_edges_and_target_state(self):
+        roadmap_path = ROOT / "docs" / "roadmap.md"
+        self.assertTrue(roadmap_path.exists(), "missing technical roadmap")
+
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        roadmap = roadmap_path.read_text(encoding="utf-8")
+
+        self.assertIn("[technical roadmap](docs/roadmap.md)", readme)
+
+        for token in (
+            "# Agentic Cadence Technical Roadmap",
+            "## North Star",
+            "## Current State",
+            "## Known Edges",
+            "## Target State",
+            "## Roadmap",
+            "## Non-Goals For 0.1.x",
+            "## Open Questions",
+            "No Claude or Gemini adapter is shipped",
+            "Runtime state is local filesystem state",
+            "There is no automatic host/session signal",
+            "saved GitHub review-thread files",
+            "Release verification is documented and repeatable",
+            "copyable adapter template",
+            "shared runtime backend",
+            "No autonomous merge or release without explicit operator instruction",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, roadmap)
 
     def test_readme_visual_identity_assets_exist(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
