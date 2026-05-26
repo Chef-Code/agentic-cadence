@@ -1,8 +1,10 @@
 import ast
 import importlib.util
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -57,7 +59,7 @@ class AdapterTemplateExampleTests(unittest.TestCase):
             }
             calls = []
 
-            def fake_runner(command, *, runtime_root, cadence_command):
+            def fake_runner(command, *, runtime_root, cadence_command, **_):
                 calls.append((command, runtime_root, cadence_command))
                 return packets[command[0]]
 
@@ -89,7 +91,7 @@ class AdapterTemplateExampleTests(unittest.TestCase):
         template = load_template_module()
         calls = []
 
-        def fake_runner(command, *, runtime_root, cadence_command):
+        def fake_runner(command, *, runtime_root, cadence_command, **_):
             calls.append(command)
             if command[0] == "status":
                 return {"cadence": {"state": "PLAY_ON"}}
@@ -151,6 +153,21 @@ class AdapterTemplateExampleTests(unittest.TestCase):
                 runner=lambda command, **_: {"cadence": {"state": "HUDDLE"}},
                 context_pressure_detector=lambda: True,
             )
+
+    def test_adapter_template_cadence_timeout_reports_deterministic_failure(self):
+        template = load_template_module()
+
+        def timeout_run(*args, **kwargs):
+            raise subprocess.TimeoutExpired(cmd=kwargs.get("args", args[0]), timeout=1)
+
+        with patch.object(template.subprocess, "run", side_effect=timeout_run):
+            with self.assertRaisesRegex(RuntimeError, "timed out after 1s"):
+                template.run_cadence(
+                    ["status"],
+                    runtime_root=Path("runtime"),
+                    cadence_command=["agentic-cadence"],
+                    timeout_seconds=1,
+                )
 
     def test_adapter_template_splits_windows_cadence_command(self):
         template = load_template_module()

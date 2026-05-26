@@ -26,6 +26,7 @@ python examples/adapter-template/adapter.py \
   --summary "Current agent is close to context pressure." \
   --task-type execution \
   --driver reviewer_feedback \
+  --cadence-timeout-seconds 120 \
   --next-action "Claim the handoff and continue from the preserved packet."
 ```
 
@@ -59,6 +60,10 @@ python examples/adapter-template/adapter.py \
 On Windows, unquoted absolute command paths such as
 `C:\Python312\python.exe -m codex_cadence` are parsed with Windows-safe rules so
 the backslashes are preserved.
+
+Each Cadence subprocess call has a timeout controlled by
+`--cadence-timeout-seconds`, so a copied adapter fails deterministically instead
+of hanging forever if the underlying command stalls.
 
 The hooks to replace are:
 

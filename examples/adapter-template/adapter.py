@@ -19,6 +19,7 @@ from typing import Any, Callable, Sequence
 
 
 JsonPacket = dict[str, Any]
+DEFAULT_CADENCE_TIMEOUT_SECONDS = 120.0
 
 
 def detect_context_pressure() -> bool:
@@ -45,11 +46,20 @@ def render_pickup_text(prepare_packet: JsonPacket) -> str:
     )
 
 
-def run_cadence(command: list[str], *, runtime_root: Path, cadence_command: Sequence[str]) -> JsonPacket:
+def run_cadence(
+    command: list[str],
+    *,
+    runtime_root: Path,
+    cadence_command: Sequence[str],
+    timeout_seconds: float = DEFAULT_CADENCE_TIMEOUT_SECONDS,
+) -> JsonPacket:
     """Run Agentic Cadence through the public CLI and return its JSON packet."""
 
     argv = [*cadence_command, "--root", str(runtime_root), *command]
-    result = subprocess.run(argv, text=True, capture_output=True, check=False)
+    try:
+        result = subprocess.run(argv, text=True, capture_output=True, check=False, timeout=timeout_seconds)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"Cadence command timed out after {timeout_seconds:g}s: {' '.join(argv)}") from exc
     if result.returncode != 0:
         raise RuntimeError(
             f"Cadence command failed with {result.returncode}: {' '.join(argv)}\n"
@@ -98,6 +108,7 @@ def prepare_context_handoff(
     cadence_command: Sequence[str],
     task_type: str = "execution",
     drivers: Sequence[str] = (),
+    cadence_timeout_seconds: float = DEFAULT_CADENCE_TIMEOUT_SECONDS,
     runner: Callable[..., JsonPacket] = run_cadence,
     context_pressure_detector: Callable[[], bool] = detect_context_pressure,
 ) -> JsonPacket:
@@ -115,7 +126,12 @@ def prepare_context_handoff(
             "pickup_text": "",
         }
 
-    status_packet = runner(["status"], runtime_root=runtime_root, cadence_command=cadence_command)
+    status_packet = runner(
+        ["status"],
+        runtime_root=runtime_root,
+        cadence_command=cadence_command,
+        timeout_seconds=cadence_timeout_seconds,
+    )
     require_play_on(status_packet)
 
     sizing_args: list[str] = ["--task-type", task_type]
@@ -143,6 +159,7 @@ def prepare_context_handoff(
         ],
         runtime_root=runtime_root,
         cadence_command=cadence_command,
+        timeout_seconds=cadence_timeout_seconds,
     )
 
     return {
@@ -177,6 +194,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="agentic-cadence",
         help='Cadence command prefix, for example: agentic-cadence, "python -m codex_cadence", or a Windows path.',
     )
+    parser.add_argument(
+        "--cadence-timeout-seconds",
+        type=float,
+        default=DEFAULT_CADENCE_TIMEOUT_SECONDS,
+        help="Timeout for each Cadence CLI subprocess call.",
+    )
     return parser
 
 
@@ -194,6 +217,7 @@ def main(argv: list[str] | None = None) -> int:
             next_action=args.next_action,
             task_type=args.task_type,
             drivers=args.driver,
+            cadence_timeout_seconds=args.cadence_timeout_seconds,
             cadence_command=split_cadence_command(args.cadence_command),
         )
     except Exception as exc:
