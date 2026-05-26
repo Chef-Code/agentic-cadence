@@ -40,9 +40,29 @@ Future Claude and Gemini adapters should start as thin host bindings. Their firs
 
 No Claude or Gemini adapter is shipped in 0.1.x. Until those adapters exist, the public contract is the agent-neutral CLI and protocol documentation.
 
+## Executable Smoke Contract
+
+The executable public-CLI smoke contract lives at `examples/adapter-smoke/run.py`. It exercises the early adapter surface through subprocess calls only, preserves the JSON packets returned by Cadence, and never imports `codex_cadence` or `transmission_control` internals.
+
+Run it from a clone after installing the package:
+
+```bash
+python examples/adapter-smoke/run.py
+```
+
+When running directly from a source checkout without installing the command, point it at the current Python interpreter:
+
+```bash
+python examples/adapter-smoke/run.py --cadence-python python
+```
+
+The smoke covers `status`, `prepare-handoff`, approval-gated `claim-handoff`, `approve-handoff`, `complete-handoff`, `discover-candidates`, `pr-body-preflight`, and `pr-readiness`. Its output is a JSON summary that includes the raw command packets under `packets` and a `command_trace` that separates old-session adapter, operator approval, new-session adapter, and utility phases.
+
+Current packets may still contain Codex-compatible packet labels retained by the 0.1.x command surface. That is part of the current compatibility layer, not a requirement for future Claude or Gemini adapters. Host adapters should preserve returned packets and render host-specific text around them rather than rewriting packet contents.
+
 ## First Implementation Slice
 
-The next useful adapter slice is documentation plus fixtures, not a full host integration. A small adapter package should prove that it can:
+The current adapter slice is documentation plus an executable smoke fixture, not a full host integration. A small host adapter package should prove that it can:
 
 - call the CLI without private imports;
 - pass an explicit runtime root;

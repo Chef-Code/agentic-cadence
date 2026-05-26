@@ -72,3 +72,6 @@ jobs:
       - name: Run PowerShell first-run example
         if: runner.os == 'Windows'
         run: pwsh examples/first-run/run.ps1
+
+      - name: Run adapter smoke example
+        run: python examples/adapter-smoke/run.py --cadence-python python
