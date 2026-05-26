@@ -245,8 +245,8 @@ class AdapterTemplateExampleTests(unittest.TestCase):
             with self.subTest(kind=kind):
                 calls = []
 
-                def fake_runner(command, *, runtime_root, cadence_command, **_):
-                    calls.append(command)
+                def fake_runner(command, *, runtime_root, cadence_command, _calls=calls, **_):
+                    _calls.append(command)
                     if command[0] == "status":
                         return {"cadence": {"state": "PLAY_ON"}}
                     return {
@@ -316,8 +316,8 @@ class AdapterTemplateExampleTests(unittest.TestCase):
             with self.subTest(field=field, value=value):
                 calls = []
 
-                def fake_runner(command, **_):
-                    calls.append(command)
+                def fake_runner(command, _calls=calls, **_):
+                    _calls.append(command)
                     return {"cadence": {"state": "PLAY_ON"}}
 
                 with self.assertRaisesRegex(RuntimeError, message):
