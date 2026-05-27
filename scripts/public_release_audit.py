@@ -28,6 +28,9 @@ REQUIRED_CODEOWNERS = (
     "scripts/codex_review_preflight.py",
     "scripts/validate_protocol.py",
     "scripts/public_release_audit.py",
+    "codex_cadence/cli.py",
+    "codex_cadence/release.py",
+    "tests/test_release_dry_run.py",
 )
 
 

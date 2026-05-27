@@ -10,7 +10,7 @@ The protocol should stay small and inspectable. Host adapters can render differe
 
 ## Current State
 
-The current 0.1.x line is an early public protocol and tooling baseline for local clone-based use. It includes:
+The current tree builds on the released 0.1.x line, an early public protocol and tooling baseline for local clone-based use. It includes:
 
 - a packaged `agentic-cadence` CLI with Codex-compatible command aliases;
 - local Cadence state with `PLAY_ON`, `HUDDLE`, and `TIMEOUT`;
@@ -19,7 +19,7 @@ The current 0.1.x line is an early public protocol and tooling baseline for loca
 - task sizing, epoch governance, and conservative pickup gates;
 - read-only candidate discovery from local repo signals, saved review findings, saved GitHub review-thread files, and business memory;
 - deterministic PR body preflight and PR readiness checks from saved local inputs;
-- release-readiness docs, current-tree audit, history audit, and pinned GitHub Actions guardrails;
+- release-readiness docs, current-tree audit, history audit, pinned GitHub Actions guardrails, and current-tree `release-dry-run` helper work for release-note generation and tag verification;
 - an executable adapter smoke contract in `examples/adapter-smoke/run.py` that proves a host adapter can drive the public CLI and preserve returned JSON packets.
 - a copyable adapter template in `examples/adapter-template` that shows the public CLI boundary, explicit runtime root, packet preservation, and host-specific pickup hooks.
 - an adapter-local host/session signal contract in `examples/adapter-template`
@@ -51,7 +51,7 @@ These are the important boundaries that are not solved yet:
 - Claimer, approver, and operator values are records, not authenticated identities with role enforcement.
 - Policy is conservative but not yet an organization-level policy engine.
 - Review integration is deterministic and local. Candidate discovery can ingest saved review findings and saved GitHub review-thread files, while `pr-readiness` reads saved PR data; Cadence does not fetch, synchronize, or resolve live GitHub review threads.
-- Release verification is documented and repeatable, but release tagging and GitHub release creation still require operator execution.
+- Release verification is documented and repeatable, and `release-dry-run` can inspect the local target commit, changelog notes, and tag status, but release tagging and GitHub release creation still require operator execution.
 - Package distribution is clone-based. PyPI publication is not part of the current baseline.
 - The user experience is primarily CLI and JSON, with static visual docs rather than a live dashboard.
 - Some packet labels remain Codex-compatible in 0.1.x. Adapters must preserve packets and render host-specific text around them instead of rewriting packet contents.
@@ -68,7 +68,7 @@ A mature Agentic Cadence system should provide:
 - role-aware approval and claim semantics tied to real users or agent identities;
 - configurable policy for task sizing, pickup approval, review spend, and release authority;
 - first-class PR review synchronization that fetches review threads, tracks resolution, and preserves deterministic local evaluation;
-- release commands or scripts that generate notes, verify tags, and refuse unsafe publication states;
+- broader release authority controls that keep generated notes, tag verification, and publication decisions behind explicit operator approval;
 - a dashboard or visual companion that shows Cadence state, active handoffs, approvals, PR readiness, and release status without bypassing the CLI contract.
 
 ## Roadmap
@@ -79,6 +79,7 @@ A mature Agentic Cadence system should provide:
 - Treat the CLI JSON packets as the public adapter boundary.
 - Preserve Codex compatibility while moving user-facing docs toward agent-neutral language.
 - Use PRs, required CI, elected bot review where appropriate, and release checks before tagging public releases.
+- Use `release-dry-run` before operator-created tags or GitHub releases to compare generated notes, target commit, and tag status.
 
 ### Next
 
@@ -93,7 +94,6 @@ A mature Agentic Cadence system should provide:
   host-signal smoke before adding host-specific claims.
 - Keep the generic shell host-binding stub aligned with the mapping example as
   the executable pattern for future host adapters.
-- Improve release automation around tag verification and release-note generation while keeping operator confirmation required.
 
 ### Later
 

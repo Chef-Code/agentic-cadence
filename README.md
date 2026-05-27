@@ -135,6 +135,16 @@ agentic-cadence pr-body-preflight --body-file pr-body.md --pr-template-file .git
 
 Use this before `gh pr create` or `gh pr edit` when a repository has a PR template. Missing template headings are reported as blockers with `recommended_next_action: update_pr_body`. If no template file or `--required-body-section` is supplied, the packet fails closed with `recommended_next_action: provide_template_or_sections`.
 
+## Release Dry Run
+
+`release-dry-run` checks release metadata before an operator creates a tag or GitHub release. After `pyproject.toml` and `CHANGELOG.md` have been updated for the intended release version, it reads local metadata and Git refs, generates release notes from the matching changelog entry, requires the selected target ref to match checked-out `HEAD`, verifies an existing tag points at the selected release commit, and returns a JSON packet with `operator_confirmation_required: true`.
+
+```bash
+agentic-cadence release-dry-run --cwd . --version <version>
+```
+
+The command does not create tags, call GitHub, create a release, write release-note files, build distributions, upload artifacts, or publish packages. Package-index publication remains blocked in the packet with `recommended_next_action: do_not_publish_package`.
+
 ## Runtime State
 
 Runtime state lives outside project repositories by default for new installs:

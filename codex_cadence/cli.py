@@ -37,6 +37,7 @@ from codex_cadence.pr_readiness import (
     load_pr_json,
     load_template_sections,
 )
+from codex_cadence.release import evaluate_release_dry_run
 from codex_cadence.repo_state import snapshot_repo, validate_repo_snapshot
 from codex_cadence.store import (
     BRAKE_STATUSES,
@@ -906,6 +907,18 @@ def pr_body_preflight_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def release_dry_run_command(args: argparse.Namespace) -> int:
+    payload = evaluate_release_dry_run(
+        cwd=Path(args.cwd),
+        version=args.version,
+        tag=args.tag,
+        target_branch=args.target_branch,
+        target_ref=args.target_ref,
+    )
+    emit(payload)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Agentic Cadence")
     parser.add_argument("--root", type=Path, help="Agentic Cadence state root")
@@ -1007,6 +1020,17 @@ def build_parser() -> argparse.ArgumentParser:
     body_preflight_parser.add_argument("--required-body-section", action="append", default=[])
     body_preflight_parser.add_argument("--pr-template-file")
     body_preflight_parser.set_defaults(func=pr_body_preflight_command, requires_root=False)
+
+    release_parser = subparsers.add_parser(
+        "release-dry-run",
+        help="Evaluate release metadata, notes, and tag status without publishing",
+    )
+    release_parser.add_argument("--cwd", default=".")
+    release_parser.add_argument("--version")
+    release_parser.add_argument("--tag")
+    release_parser.add_argument("--target-branch", default="main")
+    release_parser.add_argument("--target-ref", default="HEAD")
+    release_parser.set_defaults(func=release_dry_run_command, requires_root=False)
 
     start_epoch_parser = subparsers.add_parser("start-epoch", help="Create an active epoch")
     start_epoch_parser.add_argument("--repo", required=True)
