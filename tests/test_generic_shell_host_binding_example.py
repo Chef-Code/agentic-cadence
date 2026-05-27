@@ -26,6 +26,27 @@ class GenericShellHostBindingExampleTests(unittest.TestCase):
     def load_event(self, filename):
         return json.loads((HOST_EVENT_DIR / filename).read_text(encoding="utf-8"))
 
+    def run_shell_binding_event_file(self, event_payload, work_dir, event_filename=None, encoding="utf-8"):
+        event_path = work_dir.parent / (event_filename or f"{work_dir.name}.json")
+        event_path.write_text(json.dumps(event_payload), encoding=encoding)
+        return subprocess.run(
+            [
+                sys.executable,
+                str(SHELL_BINDING_SCRIPT),
+                "--host-event-file",
+                str(event_path),
+                "--work-dir",
+                str(work_dir),
+                "--cadence-python",
+                sys.executable,
+            ],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=180,
+        )
+
     def test_generic_shell_binding_uses_public_boundaries_only(self):
         self.assertTrue(SHELL_BINDING_SCRIPT.exists(), "missing generic shell host-binding example")
         source = SHELL_BINDING_SCRIPT.read_text(encoding="utf-8")
@@ -51,9 +72,13 @@ class GenericShellHostBindingExampleTests(unittest.TestCase):
         adapters = (ROOT / "docs" / "adapters.md").read_text(encoding="utf-8")
         mapping = (ROOT / "examples" / "adapter-template" / "host-binding-mapping.md").read_text(encoding="utf-8")
         roadmap = (ROOT / "docs" / "roadmap.md").read_text(encoding="utf-8")
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
         self.assertIn("examples/generic-shell-host-binding/run.py", adapters)
         self.assertIn("examples/generic-shell-host-binding/run.py", mapping)
         self.assertIn("generic shell host-binding", roadmap)
+        for text in (adapters, mapping, roadmap, readme):
+            self.assertIn("--host-event-file", text)
+            self.assertIn("file-backed", text)
 
     def test_generic_shell_binding_local_helpers_are_safe_and_predictable(self):
         shell_binding = self.load_shell_binding_module()
@@ -170,6 +195,100 @@ class GenericShellHostBindingExampleTests(unittest.TestCase):
         self.assertEqual(operator_stop["observed_task_type"], operator_event["task_type"])
         self.assertEqual(operator_stop["observed_drivers"], operator_event["drivers"])
         self.assertEqual(operator_stop["observed_next_action"], operator_event["next_action"])
+
+    def test_generic_shell_binding_reads_external_host_event_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            context_result = self.run_shell_binding_event_file(
+                self.load_event("context-pressure.json"),
+                tmp_root / "context-work",
+                event_filename="context pressure event.json",
+                encoding="utf-8-sig",
+            )
+            operator_result = self.run_shell_binding_event_file(
+                self.load_event("operator-stop.json"),
+                tmp_root / "operator-work",
+            )
+            no_event_result = self.run_shell_binding_event_file(None, tmp_root / "no-event-work")
+
+        self.assertEqual(context_result.returncode, 0, context_result.stderr)
+        context = json.loads(context_result.stdout)
+        self.assertEqual(context["result"], "generic_shell_host_binding_event_passed")
+        context_scenario = context["scenario"]
+        self.assertEqual(context_scenario["host_event"], "context_pressure")
+        self.assertEqual(context_scenario["mapped_signal_kind"], "context_pressure")
+        self.assertEqual(context_scenario["adapter_result"], "handoff_prepared")
+        self.assertTrue(context_scenario["cadence_called"])
+        self.assertTrue(context_scenario["stop_current_session"])
+        self.assertEqual(context_scenario["observed_guardrail"], "context")
+        self.assertEqual(context_scenario["packets"]["prepare_handoff"]["handoff"]["status"], "READY")
+
+        self.assertEqual(operator_result.returncode, 0, operator_result.stderr)
+        operator = json.loads(operator_result.stdout)
+        self.assertEqual(operator["result"], "generic_shell_host_binding_event_passed")
+        operator_scenario = operator["scenario"]
+        self.assertEqual(operator_scenario["host_event"], "operator_stop")
+        self.assertEqual(operator_scenario["mapped_signal_kind"], "operator_stop")
+        self.assertEqual(operator_scenario["adapter_result"], "handoff_prepared")
+        self.assertTrue(operator_scenario["cadence_called"])
+        self.assertTrue(operator_scenario["stop_current_session"])
+        self.assertEqual(operator_scenario["observed_guardrail"], "operator_stop")
+        self.assertEqual(operator_scenario["packets"]["prepare_handoff"]["handoff"]["status"], "READY")
+
+        self.assertEqual(no_event_result.returncode, 0, no_event_result.stderr)
+        no_event = json.loads(no_event_result.stdout)
+        self.assertEqual(no_event["result"], "generic_shell_host_binding_event_passed")
+        no_event_scenario = no_event["scenario"]
+        self.assertIsNone(no_event_scenario["host_event"])
+        self.assertIsNone(no_event_scenario["mapped_signal_kind"])
+        self.assertEqual(no_event_scenario["adapter_result"], "no_handoff_needed")
+        self.assertFalse(no_event_scenario["cadence_called"])
+        self.assertEqual(no_event_scenario["packets"], {})
+
+    def test_generic_shell_binding_external_host_event_file_errors_are_clear(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            missing = subprocess.run(
+                [
+                    sys.executable,
+                    str(SHELL_BINDING_SCRIPT),
+                    "--host-event-file",
+                    str(tmp_root / "missing.json"),
+                    "--work-dir",
+                    str(tmp_root / "missing-work"),
+                    "--cadence-python",
+                    sys.executable,
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=180,
+            )
+            invalid_path = tmp_root / "invalid.json"
+            invalid_path.write_text("{not-json", encoding="utf-8")
+            invalid = subprocess.run(
+                [
+                    sys.executable,
+                    str(SHELL_BINDING_SCRIPT),
+                    "--host-event-file",
+                    str(invalid_path),
+                    "--work-dir",
+                    str(tmp_root / "invalid-work"),
+                    "--cadence-python",
+                    sys.executable,
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=180,
+            )
+
+        self.assertEqual(missing.returncode, 1)
+        self.assertIn("host event file could not be read", missing.stderr)
+        self.assertEqual(invalid.returncode, 1)
+        self.assertIn("host event file is not valid JSON", invalid.stderr)
 
     def test_generic_shell_binding_runs_in_package_matrix(self):
         workflow = (ROOT / ".github" / "workflows" / "pr.yml").read_text(encoding="utf-8")
