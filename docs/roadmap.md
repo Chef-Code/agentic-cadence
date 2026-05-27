@@ -33,6 +33,9 @@ The current 0.1.x line is an early public protocol and tooling baseline for loca
 - a host-binding mapping example that shows future adapter authors how to map
   host events into those generic signal fields and existing CLI arguments
   without shipping unsupported host-specific adapters.
+- a generic shell host-binding stub that reads host-event JSON, maps it into
+  the adapter-local signal shape, and exercises the copyable adapter template
+  without claiming to be a real host adapter.
 
 ## Known Edges
 
@@ -88,6 +91,8 @@ A mature Agentic Cadence system should provide:
 - Compare the first real host binding against
   `examples/adapter-template/host-binding-mapping.md` and the generic
   host-signal smoke before adding host-specific claims.
+- Keep the generic shell host-binding stub aligned with the mapping example as
+  the executable pattern for future host adapters.
 - Improve release automation around tag verification and release-note generation while keeping operator confirmation required.
 
 ### Later

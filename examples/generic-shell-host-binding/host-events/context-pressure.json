@@ -1,0 +1,9 @@
+{
+  "event": "context_pressure",
+  "source": "generic-shell-host-binding",
+  "confidence": "high",
+  "summary": "The generic shell host reports that the current session is close to context pressure.",
+  "task_type": "execution",
+  "drivers": ["multiple_files"],
+  "next_action": "Claim the generated handoff and continue from the preserved packet."
+}

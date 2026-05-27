@@ -22,6 +22,7 @@ __pycache__/
 examples/first-run/work/
 examples/adapter-smoke/work/
 examples/generic-host-signal/work/
+examples/generic-shell-host-binding/work/
 dist/
 build/
 *.egg-info/

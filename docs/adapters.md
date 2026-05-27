@@ -62,6 +62,12 @@ binding can translate host-observed events into the same fixture fields and
 public CLI arguments without shipping or claiming a real Claude or Gemini
 adapter.
 
+The generic shell host-binding stub at
+`examples/generic-shell-host-binding/run.py` turns simple host-event JSON into
+that same adapter-local signal shape, invokes the copyable adapter template, and
+verifies the public CLI behavior. It is a runnable host-binding pattern, not a
+real host adapter.
+
 ## Required Behavior
 
 An adapter must:
@@ -110,6 +116,16 @@ python examples/generic-host-signal/run.py --cadence-python python
 It is intentionally narrower than the full adapter smoke: it focuses on the
 host/session signal fixture mapping and the adapter template's preserved
 `status` and `prepare-handoff` packets.
+
+The generic shell host-binding stub is executable from a source clone:
+
+```bash
+python examples/generic-shell-host-binding/run.py --cadence-python python
+```
+
+It is narrower still: it proves that a host binding can map host-native event
+JSON into the generic signal shape before handing control to the adapter
+template and public CLI.
 
 ## Copyable Adapter Template
 
