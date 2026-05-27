@@ -154,6 +154,8 @@ PR body preflight covers the pre-publish side of the same template contract. `pr
 
 The packet must include `operator_confirmation_required: true` and recommend `create_tag_after_operator_confirmation`, `create_github_release_after_operator_confirmation`, `address_blockers`, or `do_not_publish_package` as appropriate. The command must not create tags, call GitHub, create a release, write release-note files, build distributions, upload artifacts, publish packages, push, or merge.
 
+`.github/workflows/release-dry-run.yml` is the manual GitHub Actions wrapper for this packet. It must use `workflow_dispatch`, accept `version`, `tag`, and optional `target_ref` inputs, check out `main` with full history and tags, run `python scripts/cadence.py release-dry-run`, upload `release-dry-run.json` and `release-notes.md`, and fail when `ready_to_release` is not true. The workflow must keep `contents: read` permissions and must not create tags, create GitHub releases, publish packages, push, or merge.
+
 ## Self-Evolution Rule
 
 Agentic Cadence may propose changes to itself, but it must not silently rewrite its own safety rules while executing active work. Self-evolution execution tasks are blocked by pickup and self-check under the default `propose_only` policy. Policy changes should be reviewed like normal code changes before becoming active.

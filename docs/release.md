@@ -34,6 +34,12 @@ python scripts/verify_package.py
 git diff --check
 ```
 
+## Manual GitHub Actions dry run
+
+After the release PR is merged to `main`, an operator can run `.github/workflows/release-dry-run.yml` from the GitHub Actions UI. Provide the intended `version`, explicit `tag`, and optional `target_ref`. The workflow checks out `main` with full history and tags, runs `python scripts/cadence.py release-dry-run`, uploads `release-dry-run.json` and `release-notes.md`, and fails if the packet reports blockers.
+
+This workflow is a verification gate only. It does not create tags, create GitHub releases, publish packages, push, merge, or replace operator confirmation.
+
 ## GitHub Release Notes
 
 `release-dry-run` emits `release_notes` from the matching `CHANGELOG.md` entry so the operator can compare the proposed GitHub release body before creating anything.
@@ -49,6 +55,7 @@ GitHub release notes should include:
 ## After Merge
 
 - Wait for required branch-protection checks on `main` to pass.
+- Run the manual GitHub Actions dry run and inspect the uploaded `release-dry-run.json` and `release-notes.md` artifacts.
 - Run `python scripts/cadence.py release-dry-run --cwd . --version <version>` and review the generated notes, target commit, and tag status.
 - Create the release tag only from a verified `main` commit.
 - If a GitHub release is created, keep its notes aligned with `CHANGELOG.md`.

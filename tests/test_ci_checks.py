@@ -334,6 +334,8 @@ class CiChecksTests(unittest.TestCase):
 
         for token in (
             "# Release Checklist",
+            "Manual GitHub Actions dry run",
+            ".github/workflows/release-dry-run.yml",
             "python scripts/public_release_audit.py --history",
             "python scripts/cadence.py release-dry-run --cwd . --version <version>",
             "python scripts/validate_protocol.py",
@@ -659,6 +661,119 @@ class CiChecksTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, text)
 
+    def test_release_dry_run_workflow_is_manual_read_only_and_artifacted(self):
+        workflow = ROOT / ".github" / "workflows" / "release-dry-run.yml"
+        self.assertTrue(workflow.exists(), "missing release dry-run workflow")
+        text = workflow.read_text(encoding="utf-8")
+
+        for token in (
+            "workflow_dispatch:",
+            "version:",
+            "tag:",
+            "target_ref:",
+            "permissions:",
+            "contents: read",
+            "fetch-depth: 0",
+            "persist-credentials: false",
+            "python-version: \"3.12\"",
+            "python scripts/cadence.py release-dry-run",
+            "--version \"$RELEASE_VERSION\"",
+            "--tag \"$RELEASE_TAG\"",
+            "--target-ref \"$TARGET_REF\"",
+            "python scripts/prepare_release_dry_run_artifacts.py",
+            "python scripts/enforce_release_dry_run_result.py",
+            "release-dry-run.json",
+            "release-notes.md",
+            "actions/upload-artifact@",
+            "ready_to_release",
+            "operator_confirmation_required",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, text)
+
+        self.assertLess(text.index("Upload release dry-run artifacts"), text.index("Enforce release dry-run result"))
+        self.assertIn("required: true", text[text.index("version:") : text.index("target_ref:")])
+        self.assertIn("required: true", text[text.index("tag:") : text.index("target_ref:")])
+        self.assertIn("required: false", text[text.index("target_ref:") : text.index("jobs:")])
+        validator = load_validate_protocol()
+        errors = []
+        validator.validate_release_dry_run_workflow(errors)
+        self.assertEqual(errors, [])
+
+    def test_release_dry_run_artifact_scripts_prepare_outputs_before_enforcement(self):
+        cases = (
+            (
+                "blocked",
+                {
+                    "ready_to_release": False,
+                    "operator_confirmation_required": True,
+                    "recommended_next_action": "address_blockers",
+                    "release_notes": "## 0.2.0 - 2026-05-27\n\nBlocked release notes.\n",
+                    "warnings": [{"code": "warn:one,two", "message": "line%value\nnext\r"}],
+                    "blockers": [{"code": "blocker:one,two", "message": "blocked%value\nnext\r"}],
+                },
+                1,
+                "release_blocked",
+            ),
+            (
+                "ready",
+                {
+                    "ready_to_release": True,
+                    "operator_confirmation_required": True,
+                    "recommended_next_action": "create_tag_after_operator_confirmation",
+                    "release_notes": "## 0.2.0 - 2026-05-27\n\nReady release notes.\n",
+                    "warnings": [],
+                    "blockers": [],
+                },
+                0,
+                "No tags, GitHub releases, or package publications are created",
+            ),
+        )
+
+        for name, packet, expected_returncode, expected_output in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                tmp_root = Path(tmp)
+                (tmp_root / "release-dry-run.json").write_text(json.dumps(packet), encoding="utf-8")
+                output_path = tmp_root / "github-output.txt"
+                env = os.environ.copy()
+                env["GITHUB_OUTPUT"] = str(output_path)
+
+                prepare = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts" / "prepare_release_dry_run_artifacts.py")],
+                    cwd=tmp_root,
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                outputs = dict(
+                    line.split("=", 1)
+                    for line in output_path.read_text(encoding="utf-8").splitlines()
+                    if "=" in line
+                )
+                enforce_env = env.copy()
+                enforce_env["READY_TO_RELEASE"] = outputs["ready_to_release"]
+                enforce_env["OPERATOR_CONFIRMATION_REQUIRED"] = outputs["operator_confirmation_required"]
+                enforce = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts" / "enforce_release_dry_run_result.py")],
+                    cwd=tmp_root,
+                    env=enforce_env,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                notes = (tmp_root / "release-notes.md").read_text(encoding="utf-8")
+
+            self.assertEqual(prepare.returncode, 0, prepare.stderr or prepare.stdout)
+            self.assertEqual(notes, packet["release_notes"])
+            self.assertEqual(outputs["ready_to_release"], str(packet["ready_to_release"]).lower())
+            self.assertEqual(outputs["operator_confirmation_required"], "true")
+            self.assertEqual(enforce.returncode, expected_returncode, enforce.stderr or enforce.stdout)
+            self.assertIn(expected_output, enforce.stdout)
+            if name == "blocked":
+                self.assertIn("::warning title=warn%3Aone%2Ctwo::line%25value%0Anext%0D", prepare.stdout)
+                self.assertIn("::error title=blocker%3Aone%2Ctwo::blocked%25value%0Anext%0D", prepare.stdout)
+
     def test_github_actions_are_pinned_to_full_commit_shas(self):
         workflow_dir = ROOT / ".github" / "workflows"
         self.assertTrue(workflow_dir.exists(), "missing workflow directory")
@@ -944,6 +1059,167 @@ class CiChecksTests(unittest.TestCase):
             any("forbidden token" in error for error in errors),
             f"expected forbidden token error, got {errors}",
         )
+
+    def test_protocol_validator_rejects_release_workflow_guard_drift(self):
+        validator = load_validate_protocol()
+        source = ROOT / ".github" / "workflows" / "release-dry-run.yml"
+
+        cases = (
+            (
+                "tag_not_required",
+                lambda text: text.replace(
+                    "      tag:\n        description: Release tag to verify, usually v<version>.\n        required: true",
+                    "      tag:\n        description: Release tag to verify, usually v<version>.\n        required: false",
+                ),
+                "tag input must be required",
+            ),
+            (
+                "scheduled",
+                lambda text: text.replace(
+                    "  workflow_dispatch:\n",
+                    "  workflow_dispatch:\n  schedule:\n    - cron: '0 0 * * *'\n",
+                ),
+                "must declare only workflow_dispatch",
+            ),
+            (
+                "repository_dispatch",
+                lambda text: text.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  repository_dispatch:\n"),
+                "must declare only workflow_dispatch",
+            ),
+            (
+                "job_write_permission",
+                lambda text: text.replace(
+                    "    steps:\n",
+                    "    permissions:\n      packages: write\n    steps:\n",
+                ),
+                "must not define job-level permissions",
+            ),
+            (
+                "inline_job_write_permission",
+                lambda text: text.replace(
+                    "    steps:\n",
+                    "    permissions: { contents: write }\n    steps:\n",
+                ),
+                "must not define job-level permissions",
+            ),
+            (
+                "workflow_write_permission",
+                lambda text: text.replace("  contents: read\n", "  contents: read\n  id-token: write\n"),
+                "workflow permissions must be exactly contents: read",
+            ),
+            (
+                "missing_ready_failure",
+                lambda text: text.replace(
+                    "          READY_TO_RELEASE: ${{ steps.inspect.outputs.ready_to_release }}\n",
+                    "",
+                ),
+                "must fail when ready_to_release is false",
+            ),
+            (
+                "missing_confirmation_failure",
+                lambda text: text.replace(
+                    "          OPERATOR_CONFIRMATION_REQUIRED: ${{ steps.inspect.outputs.operator_confirmation_required }}\n",
+                    "",
+                ),
+                "must fail when operator_confirmation_required is false",
+            ),
+            (
+                "artifacts_after_failure",
+                lambda text: text.replace(
+                    "      - name: Upload release dry-run artifacts",
+                    "      - name: Enforce release dry-run result\n"
+                    "        shell: bash\n"
+                    "        run: exit 1\n\n"
+                    "      - name: Upload release dry-run artifacts",
+                    1,
+                ),
+                "must upload artifacts before enforcing failure",
+            ),
+            (
+                "git_push",
+                lambda text: text.replace(
+                    "      - name: Enforce release dry-run result",
+                    "      - name: Illegal mutation\n"
+                    "        shell: bash\n"
+                    "        run: git push origin main\n\n"
+                    "      - name: Enforce release dry-run result",
+                    1,
+                ),
+                "forbidden release command: git push",
+            ),
+            (
+                "piped_git_push",
+                lambda text: text.replace(
+                    "      - name: Enforce release dry-run result",
+                    "      - name: Illegal mutation\n"
+                    "        shell: bash\n"
+                    "        run: true | git push origin main\n\n"
+                    "      - name: Enforce release dry-run result",
+                    1,
+                ),
+                "forbidden release command: git push",
+            ),
+            (
+                "git_merge",
+                lambda text: text.replace(
+                    "      - name: Enforce release dry-run result",
+                    "      - name: Illegal mutation\n"
+                    "        shell: bash\n"
+                    "        run: git merge release-candidate\n\n"
+                    "      - name: Enforce release dry-run result",
+                    1,
+                ),
+                "forbidden release command: git merge",
+            ),
+            (
+                "github_release_action",
+                lambda text: text.replace(
+                    "      - name: Enforce release dry-run result",
+                    "      - name: Illegal release action\n"
+                    "        uses: softprops/action-gh-release@1111111111111111111111111111111111111111\n\n"
+                    "      - name: Enforce release dry-run result",
+                    1,
+                ),
+                "release or publishing action: softprops/action-gh-release",
+            ),
+        )
+
+        for name, mutate, expected in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                tmp_root = Path(tmp)
+                workflow = tmp_root / ".github" / "workflows" / "release-dry-run.yml"
+                workflow.parent.mkdir(parents=True)
+                workflow.write_text(mutate(source.read_text(encoding="utf-8")), encoding="utf-8")
+
+                original_root = validator.ROOT
+                validator.ROOT = tmp_root
+                try:
+                    errors = []
+                    validator.validate_release_dry_run_workflow(errors)
+                finally:
+                    validator.ROOT = original_root
+
+            self.assertTrue(any(expected in error for error in errors), f"expected {expected!r}, got {errors}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            workflow = tmp_root / ".github" / "workflows" / "release-dry-run.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(
+                source.read_text(encoding="utf-8")
+                + "\n# Operational notes may mention git push or push: without adding a trigger.\n",
+                encoding="utf-8",
+            )
+
+            original_root = validator.ROOT
+            validator.ROOT = tmp_root
+            try:
+                errors = []
+                validator.validate_release_dry_run_workflow(errors)
+            finally:
+                validator.ROOT = original_root
+
+        self.assertEqual(errors, [])
 
     def test_protocol_validator_rejects_business_memory_status_drift(self):
         validator = load_validate_protocol()

@@ -65,7 +65,10 @@ REQUIRED_TOKENS = {
         "update_pr_body",
         "provide_template_or_sections",
         "release-dry-run",
+        ".github/workflows/release-dry-run.yml",
         "operator_confirmation_required",
+        "release-dry-run.json",
+        "release-notes.md",
         "create_tag_after_operator_confirmation",
         "do_not_publish_package",
         "reviewThreads",
@@ -147,7 +150,10 @@ REQUIRED_TOKENS = {
         "--body-file",
         "provide_template_or_sections",
         "release-dry-run",
+        ".github/workflows/release-dry-run.yml",
         "operator_confirmation_required",
+        "release-dry-run.json",
+        "release-notes.md",
         "create_github_release_after_operator_confirmation",
         "do_not_publish_package",
         "reviewThreads",
@@ -275,6 +281,44 @@ REQUIRED_TOKENS = {
         "PR_LABELS_JSON",
         "codex-review-elect",
     ),
+    ".github/workflows/release-dry-run.yml": (
+        "workflow_dispatch",
+        "version:",
+        "tag:",
+        "target_ref:",
+        "permissions:",
+        "contents: read",
+        "ref: main",
+        "fetch-depth: 0",
+        "fetch-tags: true",
+        "persist-credentials: false",
+        "python scripts/cadence.py release-dry-run",
+        "--version \"$RELEASE_VERSION\"",
+        "--tag \"$RELEASE_TAG\"",
+        "--target-ref \"$TARGET_REF\"",
+        "python scripts/prepare_release_dry_run_artifacts.py",
+        "python scripts/enforce_release_dry_run_result.py",
+        "release-dry-run.json",
+        "release-notes.md",
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        "ready_to_release",
+        "operator_confirmation_required",
+    ),
+    "scripts/prepare_release_dry_run_artifacts.py": (
+        "def escape_command",
+        "%25",
+        "%0A",
+        "%0D",
+        "::warning title=",
+        "::error title=",
+        "GITHUB_OUTPUT",
+        "release-notes.md",
+    ),
+    "scripts/enforce_release_dry_run_result.py": (
+        "READY_TO_RELEASE",
+        "OPERATOR_CONFIRMATION_REQUIRED",
+        "No tags, GitHub releases, or package publications are created by this workflow.",
+    ),
 }
 
 FORBIDDEN_TOKENS = {
@@ -282,6 +326,24 @@ FORBIDDEN_TOKENS = {
         "refs/pull/${{ github.event.pull_request.number }}/merge",
         "refs/remotes/pull/${PR_NUMBER}/head",
     ),
+}
+
+FORBIDDEN_RELEASE_ACTIONS = (
+    "actions/create-release",
+    "marvinpinto/action-automatic-releases",
+    "ncipollo/release-action",
+    "pypa/gh-action-pypi-publish",
+    "softprops/action-gh-release",
+    "svenstaro/upload-release-action",
+)
+
+SHELL_COMMAND_PREFIX = r"^(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:sudo\s+)?"
+FORBIDDEN_RELEASE_COMMAND_PATTERNS = {
+    "gh release create": re.compile(SHELL_COMMAND_PREFIX + r"gh\s+release\s+create\b"),
+    "git tag": re.compile(SHELL_COMMAND_PREFIX + r"git\s+tag\b"),
+    "git push": re.compile(SHELL_COMMAND_PREFIX + r"git\s+push\b"),
+    "git merge": re.compile(SHELL_COMMAND_PREFIX + r"git\s+merge\b"),
+    "twine upload": re.compile(SHELL_COMMAND_PREFIX + r"(?:python(?:3)?\s+-m\s+)?twine\s+upload\b"),
 }
 
 
@@ -318,6 +380,211 @@ def validate_tokens(errors: list[str]) -> None:
         for token in tokens:
             if token in text:
                 errors.append(f"{relative} must not contain forbidden token: {token}")
+
+
+def indented_block_after(text: str, header: str) -> str:
+    """Return the indented YAML-like block immediately following a header line."""
+    lines = text.splitlines()
+    try:
+        start = next(index for index, line in enumerate(lines) if line == header)
+    except StopIteration:
+        return ""
+
+    header_indent = len(header) - len(header.lstrip(" "))
+    block = []
+    for line in lines[start + 1 :]:
+        if line.strip() and len(line) - len(line.lstrip(" ")) <= header_indent:
+            break
+        block.append(line)
+    return "\n".join(block)
+
+
+def mapping_at_indent(text: str, indent: int) -> dict[str, str]:
+    """Collect simple key/value mappings found at a specific indentation level."""
+    mapping = {}
+    prefix = " " * indent
+    for line in text.splitlines():
+        if not line.startswith(prefix) or line.startswith(prefix + " "):
+            continue
+        stripped = line.strip()
+        if ":" not in stripped:
+            continue
+        key, value = stripped.split(":", 1)
+        mapping[key] = value.strip()
+    return mapping
+
+
+def workflow_uses_values(text: str) -> tuple[str, ...]:
+    """Return external action references from workflow uses entries."""
+    values = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        match = re.match(r"^(?:-\s*)?uses:\s*(?P<value>\S+)\s*$", stripped)
+        if match is not None:
+            values.append(match.group("value").strip("'\""))
+    return tuple(values)
+
+
+def workflow_run_blocks(text: str) -> tuple[str, ...]:
+    """Return inline and block scalar run commands from a workflow document."""
+    lines = text.splitlines()
+    blocks = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        match = re.match(r"^(?:-\s*)?run:\s*(?P<value>.*)$", stripped)
+        if match is None:
+            index += 1
+            continue
+
+        indent = len(line) - len(line.lstrip(" "))
+        value = match.group("value").strip()
+        if value and value not in ("|", ">"):
+            blocks.append(value)
+            index += 1
+            continue
+
+        block = []
+        index += 1
+        while index < len(lines):
+            child = lines[index]
+            child_indent = len(child) - len(child.lstrip(" "))
+            if child.strip() and child_indent <= indent:
+                break
+            block.append(child[indent + 2 :] if len(child) > indent + 2 else "")
+            index += 1
+        blocks.append("\n".join(block))
+    return tuple(blocks)
+
+
+def workflow_non_run_lines(text: str) -> tuple[str, ...]:
+    """Return workflow lines while omitting multiline run command bodies."""
+    lines = text.splitlines()
+    visible = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        visible.append(line)
+        stripped = line.strip()
+        match = re.match(r"^(?:-\s*)?run:\s*(?P<value>.*)$", stripped)
+        if match is None or match.group("value").strip() not in ("|", ">"):
+            index += 1
+            continue
+
+        indent = len(line) - len(line.lstrip(" "))
+        index += 1
+        while index < len(lines):
+            child = lines[index]
+            child_indent = len(child) - len(child.lstrip(" "))
+            if child.strip() and child_indent <= indent:
+                break
+            index += 1
+    return tuple(visible)
+
+
+def workflow_has_job_permissions(text: str) -> bool:
+    """Report whether the workflow declares job-level permissions."""
+    in_jobs = False
+    for line in workflow_non_run_lines(text):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(line) - len(line.lstrip(" "))
+        if indent == 0:
+            in_jobs = stripped.split(":", 1)[0] == "jobs"
+            continue
+        if in_jobs and indent >= 4 and re.match(r"permissions\s*:", stripped):
+            return True
+    return False
+
+
+def shell_command_segments(line: str) -> tuple[str, ...]:
+    """Split shell text on common command separators for mutation scanning."""
+    return tuple(
+        segment.strip()
+        for segment in re.split(r"(?:&&|\|\||(?<!\|)\|(?!\|)|;|\bthen\b|\bdo\b)", line)
+        if segment.strip()
+    )
+
+
+def validate_release_workflow_mutations(relative: str, text: str, errors: list[str]) -> None:
+    """Reject release/publish actions and mutating release commands in workflow steps."""
+    for value in workflow_uses_values(text):
+        action_ref = value.lower().split("@", 1)[0]
+        for action in FORBIDDEN_RELEASE_ACTIONS:
+            if action_ref == action:
+                errors.append(f"{relative} must not use release or publishing action: {action}")
+
+    for block in workflow_run_blocks(text):
+        for line in block.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            for segment in shell_command_segments(stripped):
+                for label, pattern in FORBIDDEN_RELEASE_COMMAND_PATTERNS.items():
+                    if pattern.search(segment):
+                        errors.append(f"{relative} must not run forbidden release command: {label}")
+
+
+def validate_release_dry_run_workflow(errors: list[str]) -> None:
+    """Validate that the release dry-run workflow remains manual and read-only."""
+    relative = ".github/workflows/release-dry-run.yml"
+    path = ROOT / relative
+    if not path.exists():
+        errors.append(f"missing required file: {relative}")
+        return
+
+    text = path.read_text(encoding="utf-8")
+    if "workflow_dispatch:" not in text:
+        errors.append(f"{relative} must use workflow_dispatch")
+
+    on_block = indented_block_after(text, "on:")
+    if set(mapping_at_indent(on_block, 2)) != {"workflow_dispatch"}:
+        errors.append(f"{relative} must declare only workflow_dispatch")
+    validate_release_workflow_mutations(relative, text, errors)
+
+    permissions_block = indented_block_after(text, "permissions:")
+    if mapping_at_indent(permissions_block, 2) != {"contents": "read"}:
+        errors.append(f"{relative} workflow permissions must be exactly contents: read")
+    if workflow_has_job_permissions(text):
+        errors.append(f"{relative} must not define job-level permissions")
+
+    for input_name in ("version", "tag"):
+        block = indented_block_after(text, f"      {input_name}:")
+        if not block:
+            errors.append(f"{relative} missing {input_name} input")
+        elif "required: true" not in block:
+            errors.append(f"{relative} {input_name} input must be required")
+
+    target_ref_block = indented_block_after(text, "      target_ref:")
+    if not target_ref_block:
+        errors.append(f"{relative} missing target_ref input")
+    elif "required: false" not in target_ref_block:
+        errors.append(f"{relative} target_ref input must be optional")
+
+    try:
+        upload_index = text.index("      - name: Upload release dry-run artifacts")
+        enforce_index = text.index("      - name: Enforce release dry-run result")
+    except ValueError:
+        errors.append(f"{relative} missing artifact upload or enforcement step")
+    else:
+        if upload_index > enforce_index:
+            errors.append(f"{relative} must upload artifacts before enforcing failure")
+
+    enforce_block = indented_block_after(text, "      - name: Enforce release dry-run result")
+    if not enforce_block:
+        errors.append(f"{relative} missing enforcement step")
+    else:
+        if "READY_TO_RELEASE" not in enforce_block:
+            errors.append(f"{relative} must fail when ready_to_release is false")
+        if "OPERATOR_CONFIRMATION_REQUIRED" not in enforce_block:
+            errors.append(f"{relative} must fail when operator_confirmation_required is false")
+        if "scripts/enforce_release_dry_run_result.py" not in enforce_block:
+            errors.append(f"{relative} must run the release dry-run enforcement script")
 
 
 def tuple_assignment(relative: str, name: str, errors: list[str]) -> tuple[str, ...] | None:
@@ -463,6 +730,7 @@ def main() -> int:
     errors: list[str] = []
     validate_frontmatter(ROOT / "SKILL.md", errors)
     validate_tokens(errors)
+    validate_release_dry_run_workflow(errors)
     validate_business_memory_contract(errors)
     if errors:
         for error in errors:
