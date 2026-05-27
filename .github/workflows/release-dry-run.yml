@@ -54,45 +54,8 @@ jobs:
 
       - name: Prepare release artifacts
         id: inspect
-        shell: python
-        run: |
-          import json
-          import os
-          import pathlib
-
-          packet_path = pathlib.Path("release-dry-run.json")
-          packet = json.loads(packet_path.read_text(encoding="utf-8"))
-          pathlib.Path("release-notes.md").write_text(packet.get("release_notes", ""), encoding="utf-8")
-
-          print(f"ready_to_release={packet.get('ready_to_release')}")
-          print(f"operator_confirmation_required={packet.get('operator_confirmation_required')}")
-          print(f"recommended_next_action={packet.get('recommended_next_action')}")
-
-          def escape_command(value):
-              return (
-                  str(value)
-                  .replace("%", "%25")
-                  .replace("\r", "%0D")
-                  .replace("\n", "%0A")
-                  .replace(":", "%3A")
-                  .replace(",", "%2C")
-              )
-
-          for warning in packet.get("warnings", []):
-              code = escape_command(warning.get("code", "release_warning"))
-              message = escape_command(warning.get("message", warning))
-              print(f"::warning title={code}::{message}")
-          for blocker in packet.get("blockers", []):
-              code = escape_command(blocker.get("code", "release_blocker"))
-              message = escape_command(blocker.get("message", blocker))
-              print(f"::error title={code}::{message}")
-
-          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-              output.write(f"ready_to_release={str(packet.get('ready_to_release')).lower()}\n")
-              output.write(
-                  "operator_confirmation_required="
-                  f"{str(packet.get('operator_confirmation_required')).lower()}\n"
-              )
+        shell: bash
+        run: python scripts/prepare_release_dry_run_artifacts.py
 
       - name: Upload release dry-run artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -108,14 +71,4 @@ jobs:
         env:
           READY_TO_RELEASE: ${{ steps.inspect.outputs.ready_to_release }}
           OPERATOR_CONFIRMATION_REQUIRED: ${{ steps.inspect.outputs.operator_confirmation_required }}
-        run: |
-          set -euo pipefail
-          if [[ "$OPERATOR_CONFIRMATION_REQUIRED" != "true" ]]; then
-            echo "::error title=operator_confirmation_required::Release dry-run packets must require operator confirmation."
-            exit 1
-          fi
-          if [[ "$READY_TO_RELEASE" != "true" ]]; then
-            echo "::error title=release_blocked::Release dry run reported blockers. Inspect release-dry-run artifact."
-            exit 1
-          fi
-          echo "No tags, GitHub releases, or package publications are created by this workflow."
+        run: python scripts/enforce_release_dry_run_result.py

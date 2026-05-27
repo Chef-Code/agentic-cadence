@@ -296,15 +296,27 @@ REQUIRED_TOKENS = {
         "--version \"$RELEASE_VERSION\"",
         "--tag \"$RELEASE_TAG\"",
         "--target-ref \"$TARGET_REF\"",
+        "python scripts/prepare_release_dry_run_artifacts.py",
+        "python scripts/enforce_release_dry_run_result.py",
         "release-dry-run.json",
         "release-notes.md",
         "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
         "ready_to_release",
         "operator_confirmation_required",
+    ),
+    "scripts/prepare_release_dry_run_artifacts.py": (
         "def escape_command",
         "%25",
         "%0A",
         "%0D",
+        "::warning title=",
+        "::error title=",
+        "GITHUB_OUTPUT",
+        "release-notes.md",
+    ),
+    "scripts/enforce_release_dry_run_result.py": (
+        "READY_TO_RELEASE",
+        "OPERATOR_CONFIRMATION_REQUIRED",
         "No tags, GitHub releases, or package publications are created by this workflow.",
     ),
 }
@@ -314,22 +326,17 @@ FORBIDDEN_TOKENS = {
         "refs/pull/${{ github.event.pull_request.number }}/merge",
         "refs/remotes/pull/${PR_NUMBER}/head",
     ),
-    ".github/workflows/release-dry-run.yml": (
-        "schedule:",
-        "repository_dispatch:",
-        "release:",
-        "workflow_run:",
-        "push:",
-        "pull_request:",
-        "pull_request_target:",
-        "workflow_call:",
-        "gh release create",
-        "git tag",
-        "git push",
-        "git merge",
-        "twine upload",
-        "pypa/gh-action-pypi-publish",
-    ),
+}
+
+FORBIDDEN_RELEASE_ACTIONS = ("pypa/gh-action-pypi-publish",)
+
+SHELL_COMMAND_PREFIX = r"^(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:sudo\s+)?"
+FORBIDDEN_RELEASE_COMMAND_PATTERNS = {
+    "gh release create": re.compile(SHELL_COMMAND_PREFIX + r"gh\s+release\s+create\b"),
+    "git tag": re.compile(SHELL_COMMAND_PREFIX + r"git\s+tag\b"),
+    "git push": re.compile(SHELL_COMMAND_PREFIX + r"git\s+push\b"),
+    "git merge": re.compile(SHELL_COMMAND_PREFIX + r"git\s+merge\b"),
+    "twine upload": re.compile(SHELL_COMMAND_PREFIX + r"(?:python(?:3)?\s+-m\s+)?twine\s+upload\b"),
 }
 
 
@@ -398,6 +405,71 @@ def mapping_at_indent(text: str, indent: int) -> dict[str, str]:
     return mapping
 
 
+def workflow_uses_values(text: str) -> tuple[str, ...]:
+    values = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        match = re.match(r"^(?:-\s*)?uses:\s*(?P<value>\S+)\s*$", stripped)
+        if match is not None:
+            values.append(match.group("value").strip("'\""))
+    return tuple(values)
+
+
+def workflow_run_blocks(text: str) -> tuple[str, ...]:
+    lines = text.splitlines()
+    blocks = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        stripped = line.strip()
+        match = re.match(r"^(?:-\s*)?run:\s*(?P<value>.*)$", stripped)
+        if match is None:
+            index += 1
+            continue
+
+        indent = len(line) - len(line.lstrip(" "))
+        value = match.group("value").strip()
+        if value and value not in ("|", ">"):
+            blocks.append(value)
+            index += 1
+            continue
+
+        block = []
+        index += 1
+        while index < len(lines):
+            child = lines[index]
+            child_indent = len(child) - len(child.lstrip(" "))
+            if child.strip() and child_indent <= indent:
+                break
+            block.append(child[indent + 2 :] if len(child) > indent + 2 else "")
+            index += 1
+        blocks.append("\n".join(block))
+    return tuple(blocks)
+
+
+def shell_command_segments(line: str) -> tuple[str, ...]:
+    return tuple(segment.strip() for segment in re.split(r"(?:&&|\|\||;|\bthen\b|\bdo\b)", line) if segment.strip())
+
+
+def validate_release_workflow_mutations(relative: str, text: str, errors: list[str]) -> None:
+    for value in workflow_uses_values(text):
+        for action in FORBIDDEN_RELEASE_ACTIONS:
+            if value.startswith(action):
+                errors.append(f"{relative} must not use publishing action: {action}")
+
+    for block in workflow_run_blocks(text):
+        for line in block.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            for segment in shell_command_segments(stripped):
+                for label, pattern in FORBIDDEN_RELEASE_COMMAND_PATTERNS.items():
+                    if pattern.search(segment):
+                        errors.append(f"{relative} must not run forbidden release command: {label}")
+
+
 def validate_release_dry_run_workflow(errors: list[str]) -> None:
     relative = ".github/workflows/release-dry-run.yml"
     path = ROOT / relative
@@ -408,13 +480,11 @@ def validate_release_dry_run_workflow(errors: list[str]) -> None:
     text = path.read_text(encoding="utf-8")
     if "workflow_dispatch:" not in text:
         errors.append(f"{relative} must use workflow_dispatch")
-    for token in FORBIDDEN_TOKENS.get(relative, ()):
-        if token in text:
-            errors.append(f"{relative} must not contain forbidden token: {token}")
 
     on_block = indented_block_after(text, "on:")
     if set(mapping_at_indent(on_block, 2)) != {"workflow_dispatch"}:
         errors.append(f"{relative} must declare only workflow_dispatch")
+    validate_release_workflow_mutations(relative, text, errors)
 
     permissions_block = indented_block_after(text, "permissions:")
     if mapping_at_indent(permissions_block, 2) != {"contents": "read"}:
@@ -448,12 +518,12 @@ def validate_release_dry_run_workflow(errors: list[str]) -> None:
     if not enforce_block:
         errors.append(f"{relative} missing enforcement step")
     else:
-        if 'if [[ "$READY_TO_RELEASE" != "true" ]]' not in enforce_block:
+        if "READY_TO_RELEASE" not in enforce_block:
             errors.append(f"{relative} must fail when ready_to_release is false")
-        if 'if [[ "$OPERATOR_CONFIRMATION_REQUIRED" != "true" ]]' not in enforce_block:
+        if "OPERATOR_CONFIRMATION_REQUIRED" not in enforce_block:
             errors.append(f"{relative} must fail when operator_confirmation_required is false")
-        if enforce_block.count("exit 1") < 2:
-            errors.append(f"{relative} release enforcement must exit non-zero for blocked packets")
+        if "scripts/enforce_release_dry_run_result.py" not in enforce_block:
+            errors.append(f"{relative} must run the release dry-run enforcement script")
 
 
 def tuple_assignment(relative: str, name: str, errors: list[str]) -> tuple[str, ...] | None:

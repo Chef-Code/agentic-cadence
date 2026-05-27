@@ -680,19 +680,13 @@ class CiChecksTests(unittest.TestCase):
             "--version \"$RELEASE_VERSION\"",
             "--tag \"$RELEASE_TAG\"",
             "--target-ref \"$TARGET_REF\"",
+            "python scripts/prepare_release_dry_run_artifacts.py",
+            "python scripts/enforce_release_dry_run_result.py",
             "release-dry-run.json",
             "release-notes.md",
             "actions/upload-artifact@",
             "ready_to_release",
             "operator_confirmation_required",
-            "recommended_next_action",
-            "def escape_command",
-            "%25",
-            "%0A",
-            "%0D",
-            "escape_command(warning.get",
-            "escape_command(blocker.get",
-            "No tags, GitHub releases, or package publications are created by this workflow.",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, text)
@@ -701,19 +695,70 @@ class CiChecksTests(unittest.TestCase):
         self.assertIn("required: true", text[text.index("version:") : text.index("target_ref:")])
         self.assertIn("required: true", text[text.index("tag:") : text.index("target_ref:")])
         self.assertIn("required: false", text[text.index("target_ref:") : text.index("jobs:")])
-        self.assertNotIn("schedule:", text)
-        self.assertNotIn("workflow_run:", text)
-        self.assertNotIn("push:", text)
-        self.assertNotIn("pull_request:", text)
-        self.assertNotIn("gh release create", text)
-        self.assertNotIn("git tag", text)
-        self.assertNotIn("git push", text)
-        self.assertNotIn("git merge", text)
-        self.assertNotIn("twine upload", text)
-        self.assertNotIn("pypa/gh-action-pypi-publish", text)
-        self.assertNotIn("repository_dispatch:", text)
-        self.assertNotIn("packages: write", text)
-        self.assertNotIn("id-token: write", text)
+        validator = load_validate_protocol()
+        errors = []
+        validator.validate_release_dry_run_workflow(errors)
+        self.assertEqual(errors, [])
+
+    def test_release_dry_run_artifact_scripts_prepare_outputs_before_enforcement(self):
+        packet = {
+            "ready_to_release": False,
+            "operator_confirmation_required": True,
+            "recommended_next_action": "address_blockers",
+            "release_notes": "## 0.2.0 - 2026-05-27\n\nRelease notes.\n",
+            "warnings": [{"code": "warn:one,two", "message": "line%value\nnext\r"}],
+            "blockers": [{"code": "blocker:one,two", "message": "blocked%value\nnext\r"}],
+        }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            (tmp_root / "release-dry-run.json").write_text(json.dumps(packet), encoding="utf-8")
+            output_path = tmp_root / "github-output.txt"
+            env = os.environ.copy()
+            env["GITHUB_OUTPUT"] = str(output_path)
+
+            prepare = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "prepare_release_dry_run_artifacts.py")],
+                cwd=tmp_root,
+                env=env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            enforce_env = env.copy()
+            enforce_env["READY_TO_RELEASE"] = "false"
+            enforce_env["OPERATOR_CONFIRMATION_REQUIRED"] = "true"
+            blocked = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "enforce_release_dry_run_result.py")],
+                cwd=tmp_root,
+                env=enforce_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            enforce_env["READY_TO_RELEASE"] = "true"
+            ready = subprocess.run(
+                [sys.executable, str(ROOT / "scripts" / "enforce_release_dry_run_result.py")],
+                cwd=tmp_root,
+                env=enforce_env,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            notes = (tmp_root / "release-notes.md").read_text(encoding="utf-8")
+            outputs = output_path.read_text(encoding="utf-8")
+
+        self.assertEqual(prepare.returncode, 0, prepare.stderr or prepare.stdout)
+        self.assertEqual(notes, packet["release_notes"])
+        self.assertIn("ready_to_release=false", outputs)
+        self.assertIn("operator_confirmation_required=true", outputs)
+        self.assertIn("::warning title=warn%3Aone%2Ctwo::line%25value%0Anext%0D", prepare.stdout)
+        self.assertIn("::error title=blocker%3Aone%2Ctwo::blocked%25value%0Anext%0D", prepare.stdout)
+        self.assertEqual(blocked.returncode, 1, blocked.stderr or blocked.stdout)
+        self.assertIn("release_blocked", blocked.stdout)
+        self.assertEqual(ready.returncode, 0, ready.stderr or ready.stdout)
+        self.assertIn("No tags, GitHub releases, or package publications are created", ready.stdout)
 
     def test_github_actions_are_pinned_to_full_commit_shas(self):
         workflow_dir = ROOT / ".github" / "workflows"
@@ -1020,7 +1065,7 @@ class CiChecksTests(unittest.TestCase):
                     "  workflow_dispatch:\n",
                     "  workflow_dispatch:\n  schedule:\n    - cron: '0 0 * * *'\n",
                 ),
-                "forbidden token",
+                "must declare only workflow_dispatch",
             ),
             (
                 "repository_dispatch",
@@ -1043,10 +1088,7 @@ class CiChecksTests(unittest.TestCase):
             (
                 "missing_ready_failure",
                 lambda text: text.replace(
-                    '          if [[ "$READY_TO_RELEASE" != "true" ]]; then\n'
-                    '            echo "::error title=release_blocked::Release dry run reported blockers. Inspect release-dry-run artifact."\n'
-                    "            exit 1\n"
-                    "          fi\n",
+                    "          READY_TO_RELEASE: ${{ steps.inspect.outputs.ready_to_release }}\n",
                     "",
                 ),
                 "must fail when ready_to_release is false",
@@ -1054,10 +1096,7 @@ class CiChecksTests(unittest.TestCase):
             (
                 "missing_confirmation_failure",
                 lambda text: text.replace(
-                    '          if [[ "$OPERATOR_CONFIRMATION_REQUIRED" != "true" ]]; then\n'
-                    '            echo "::error title=operator_confirmation_required::Release dry-run packets must require operator confirmation."\n'
-                    "            exit 1\n"
-                    "          fi\n",
+                    "          OPERATOR_CONFIRMATION_REQUIRED: ${{ steps.inspect.outputs.operator_confirmation_required }}\n",
                     "",
                 ),
                 "must fail when operator_confirmation_required is false",
@@ -1076,13 +1115,27 @@ class CiChecksTests(unittest.TestCase):
             ),
             (
                 "git_push",
-                lambda text: text + "\n# git push origin main\n",
-                "forbidden token",
+                lambda text: text.replace(
+                    "      - name: Enforce release dry-run result",
+                    "      - name: Illegal mutation\n"
+                    "        shell: bash\n"
+                    "        run: git push origin main\n\n"
+                    "      - name: Enforce release dry-run result",
+                    1,
+                ),
+                "forbidden release command: git push",
             ),
             (
                 "git_merge",
-                lambda text: text + "\n# git merge release-candidate\n",
-                "forbidden token",
+                lambda text: text.replace(
+                    "      - name: Enforce release dry-run result",
+                    "      - name: Illegal mutation\n"
+                    "        shell: bash\n"
+                    "        run: git merge release-candidate\n\n"
+                    "      - name: Enforce release dry-run result",
+                    1,
+                ),
+                "forbidden release command: git merge",
             ),
         )
 
@@ -1102,6 +1155,26 @@ class CiChecksTests(unittest.TestCase):
                     validator.ROOT = original_root
 
             self.assertTrue(any(expected in error for error in errors), f"expected {expected!r}, got {errors}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            workflow = tmp_root / ".github" / "workflows" / "release-dry-run.yml"
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text(
+                source.read_text(encoding="utf-8")
+                + "\n# Operational notes may mention git push or push: without adding a trigger.\n",
+                encoding="utf-8",
+            )
+
+            original_root = validator.ROOT
+            validator.ROOT = tmp_root
+            try:
+                errors = []
+                validator.validate_release_dry_run_workflow(errors)
+            finally:
+                validator.ROOT = original_root
+
+        self.assertEqual(errors, [])
 
     def test_protocol_validator_rejects_business_memory_status_drift(self):
         validator = load_validate_protocol()
