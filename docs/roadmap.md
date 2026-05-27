@@ -33,10 +33,11 @@ The current tree builds on the released 0.1.x line, an early public protocol and
 - a host-binding mapping example that shows future adapter authors how to map
   host events into those generic signal fields and existing CLI arguments
   without shipping unsupported host-specific adapters.
-- a generic shell host-binding example with bundled fixture smoke mode and a
-  file-backed `--host-event-file` path that reads one host-event JSON payload,
-  maps it into the adapter-local signal shape, and exercises the copyable
-  adapter template without claiming to be a real host adapter.
+- a generic shell host-binding example with bundled fixture smoke mode plus
+  file-backed `--host-event-file` and stdin-backed `--host-event-stdin` paths
+  that read one host-event JSON payload, map it into the adapter-local signal
+  shape, and exercise the copyable adapter template without claiming to be a
+  real host adapter.
 
 ## Known Edges
 
@@ -94,8 +95,9 @@ A mature Agentic Cadence system should provide:
   `examples/adapter-template/host-binding-mapping.md` and the generic
   host-signal smoke before adding host-specific claims.
 - Keep the generic shell host-binding example aligned with the mapping example,
-  including its file-backed `--host-event-file` path, as the executable pattern
-  for future host adapters.
+  including its file-backed `--host-event-file` and stdin-backed
+  `--host-event-stdin` paths, as the executable pattern for future host
+  adapters.
 
 ### Later
 

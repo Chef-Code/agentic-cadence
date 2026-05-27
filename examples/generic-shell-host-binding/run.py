@@ -162,6 +162,19 @@ def load_host_event_file(path: Path) -> Any:
         raise RuntimeError(f"host event file is not valid JSON: {path}") from exc
 
 
+def load_host_event_stdin() -> Any:
+    try:
+        text = sys.stdin.buffer.read().decode("utf-8-sig")
+    except OSError as exc:
+        raise RuntimeError("host event stdin could not be read") from exc
+    except UnicodeDecodeError as exc:
+        raise RuntimeError("host event stdin is not valid UTF-8") from exc
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("host event stdin is not valid JSON") from exc
+
+
 def map_host_event_to_signal(event_payload: Any) -> dict[str, Any] | None:
     if event_payload is None:
         return None
@@ -367,9 +380,14 @@ def run_stub(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
-def run_event_file(args: argparse.Namespace) -> dict[str, Any]:
-    host_event_file = args.host_event_file.resolve()
-    host_event = load_host_event_file(host_event_file)
+def run_external_event(
+    args: argparse.Namespace,
+    *,
+    host_event: Any,
+    event_label: str,
+    host_event_source: str,
+    host_event_file: Path | None,
+) -> dict[str, Any]:
     signal_payload = map_host_event_to_signal(host_event)
     expected_guardrail = (
         EVENT_GUARDRAILS[signal_payload["kind"]]
@@ -383,7 +401,7 @@ def run_event_file(args: argparse.Namespace) -> dict[str, Any]:
     command_value = cadence_command_value(args.cadence_python, args.cadence_command)
     scenario = run_adapter_for_payload(
         host_event=host_event,
-        event_label=str(host_event_file),
+        event_label=event_label,
         scenario_slug=EXTERNAL_SCENARIO_SLUG,
         expected_guardrail=expected_guardrail,
         work_dir=work_dir,
@@ -393,24 +411,48 @@ def run_event_file(args: argparse.Namespace) -> dict[str, Any]:
     return {
         "result": "generic_shell_host_binding_event_passed",
         "work_dir": str(work_dir),
-        "host_event_file": str(host_event_file),
+        "host_event_source": host_event_source,
+        "host_event_file": str(host_event_file) if host_event_file is not None else None,
         "adapter_template_path": ADAPTER_TEMPLATE_DISPLAY,
         "adapter_template": str(ADAPTER_TEMPLATE),
         "mapping_doc_path": MAPPING_DOC_DISPLAY,
         "mapping_doc": str(MAPPING_DOC),
         "host_binding_note": (
-            "This file-backed generic shell host binding consumes one external host-event JSON file "
+            "This generic shell host binding consumes one external host-event JSON payload "
             "and maps it through the adapter template and public CLI."
         ),
         "scenario": scenario,
     }
 
 
+def run_event_file(args: argparse.Namespace) -> dict[str, Any]:
+    host_event_file = args.host_event_file.resolve()
+    return run_external_event(
+        args,
+        host_event=load_host_event_file(host_event_file),
+        event_label=str(host_event_file),
+        host_event_source="file",
+        host_event_file=host_event_file,
+    )
+
+
+def run_event_stdin(args: argparse.Namespace) -> dict[str, Any]:
+    return run_external_event(
+        args,
+        host_event=load_host_event_stdin(),
+        event_label="<stdin>",
+        host_event_source="stdin",
+        host_event_file=None,
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the generic shell host-binding stub example.")
     parser.add_argument("--work-dir", type=Path, help="Disposable work directory. Refuses existing custom paths by default.")
     parser.add_argument("--replace-existing", action="store_true", help="Remove an existing --work-dir before running.")
-    parser.add_argument("--host-event-file", type=Path, help="External host-event JSON file to process once.")
+    host_event_group = parser.add_mutually_exclusive_group()
+    host_event_group.add_argument("--host-event-file", type=Path, help="External host-event JSON file to process once.")
+    host_event_group.add_argument("--host-event-stdin", action="store_true", help="Read one external host-event JSON payload from stdin.")
     parser.add_argument("--cadence-command", help="Installed Cadence command to invoke.")
     parser.add_argument(
         "--cadence-python",
@@ -426,7 +468,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        summary = run_event_file(args) if args.host_event_file else run_stub(args)
+        if args.host_event_file:
+            summary = run_event_file(args)
+        elif args.host_event_stdin:
+            summary = run_event_stdin(args)
+        else:
+            summary = run_stub(args)
     except Exception as exc:
         print(f"generic shell host-binding stub failed: {exc}", file=sys.stderr)
         return 1

@@ -40,17 +40,18 @@ python examples/generic-host-signal/run.py --cadence-python python
 It verifies no-signal, `context_pressure`, and `operator_stop` behavior through
 the copyable adapter template without claiming Claude or Gemini adapter support.
 
-The generic shell host-binding example adds a file-backed shell integration path
-for one external host event:
+The generic shell host-binding example adds file-backed and stdin-backed shell
+integration paths for one external host event:
 
 ```bash
 python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-file /path/to/host-event.json
+some-host-signal-command | python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-stdin
 ```
 
-The file must contain a `context_pressure` or `operator_stop` host-event object,
-or JSON `null` when no handoff is needed. This still exercises the adapter
-template and public CLI boundary; it does not ship a real Claude or Gemini
-adapter.
+The file or stdin payload must contain a `context_pressure` or `operator_stop`
+host-event object, or JSON `null` when no handoff is needed. This still
+exercises the adapter template and public CLI boundary; it does not ship a real
+Claude or Gemini adapter.
 
 ## Protocol At A Glance
 
