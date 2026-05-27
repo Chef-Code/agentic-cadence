@@ -45,6 +45,7 @@ python examples/generic-host-signal/run.py --cadence-python python
 python examples/generic-shell-host-binding/run.py --cadence-python python
 python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-file /path/to/host-event.json
 some-host-signal-command | python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-stdin
+python examples/generic-shell-host-binding/run.py --replay-contract --cadence-python python
 ```
 
 The generic smoke runs `context_pressure`, `operator_stop`, and no signal
@@ -55,3 +56,9 @@ its file-backed `--host-event-file` and stdin-backed `--host-event-stdin` modes
 consume one external host-event JSON object, or JSON `null` for no handoff
 needed. A real host binding should match those observable behaviors before
 adding host-specific event detection.
+
+The replay contract is the strictest generic shell check. It feeds the bundled
+`no-event`, `context_pressure`, and `operator_stop` host-event payloads through
+fixture, file-backed, and stdin-backed paths, then compares their normalized
+adapter and public CLI behavior. Use it as an example-level contract before
+claiming that a future host-specific binding matches the generic mapping.
