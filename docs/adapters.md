@@ -71,6 +71,13 @@ provide file-backed and stdin-backed paths for one external host-event JSON
 object or JSON `null`. It is a runnable host-binding pattern, not a real host
 adapter.
 
+The same example also exposes `--replay-contract`. That mode replays the
+bundled `no-event`, `context_pressure`, and `operator_stop` payloads through
+the bundled fixture path, file-backed path, and stdin-backed path, then compares
+their normalized adapter/CLI behavior. The comparison ignores timestamps and
+temporary paths while checking the observed event, guardrail, summary, task
+type, drivers, next action, packet keys, handoff status, and stop signal.
+
 ## Required Behavior
 
 An adapter must:
@@ -133,6 +140,7 @@ pipe one host-event payload through stdin:
 ```bash
 python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-file /path/to/host-event.json
 some-host-signal-command | python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-stdin
+python examples/generic-shell-host-binding/run.py --replay-contract --cadence-python python
 ```
 
 The external file or stdin payload must be one host-event JSON object for
@@ -140,6 +148,11 @@ The external file or stdin payload must be one host-event JSON object for
 needed. This is narrower still than a real adapter: it proves that a host
 binding can map host-native event JSON into the generic signal shape before
 handing control to the adapter template and public CLI.
+
+Use the replay contract when changing the generic shell host-binding example.
+It verifies that the same host-event payload stays consistent across the
+bundled fixture, file-backed, and stdin-backed paths without claiming support
+for any named non-Codex host adapter.
 
 ## Copyable Adapter Template
 
@@ -151,8 +164,9 @@ The template includes placeholder hooks for context-pressure detection, generic 
 
 The current adapter work is documentation, executable smoke fixtures, a copyable
 template, host-signal fixtures, a host-binding mapping example, and a generic
-shell host-binding pattern with fixture, file, and stdin input modes. It is not
-a full host integration. A small host adapter package should prove that it can:
+shell host-binding pattern with fixture, file, and stdin input modes plus the
+replay-contract verifier. It is not a full host integration. A small host
+adapter package should prove that it can:
 
 - call the CLI without private imports;
 - pass an explicit runtime root;

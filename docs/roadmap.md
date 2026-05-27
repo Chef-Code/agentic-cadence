@@ -38,6 +38,9 @@ The current tree builds on the released 0.1.x line, with additional unreleased r
   that read one host-event JSON payload, map it into the adapter-local signal
   shape, and exercise the copyable adapter template without claiming to be a
   real host adapter.
+- a generic shell host-binding `--replay-contract` mode that compares the same
+  bundled host-event payloads across fixture, file-backed, and stdin-backed
+  paths.
 
 ## Known Edges
 
@@ -85,10 +88,8 @@ A mature Agentic Cadence system should provide:
 
 ### Next
 
-- Add a replay/contract helper for the generic shell host binding so the same
-  host-event payloads can be compared across bundled fixture, file-backed, and
-  stdin-backed paths.
-- Use that replay helper to refine `examples/adapter-template` before adding
+- Use the generic shell host-binding `--replay-contract` helper to refine
+  `examples/adapter-template` before adding
   host-specific adapter claims.
 - Use the generic host-signal fixtures as the compatibility bridge while
   comparing future host bindings against the same public CLI mapping behavior.
@@ -96,7 +97,9 @@ A mature Agentic Cadence system should provide:
   compared against future real host bindings.
 - Compare the first real host binding against
   `examples/adapter-template/host-binding-mapping.md` and the generic
-  host-signal smoke before adding host-specific claims.
+  host-signal smoke plus
+  `examples/generic-shell-host-binding/run.py --replay-contract` before
+  adding host-specific claims.
 - Keep the generic shell host-binding example aligned with the mapping example,
   including its file-backed `--host-event-file` and stdin-backed
   `--host-event-stdin` paths, as the executable pattern for future host

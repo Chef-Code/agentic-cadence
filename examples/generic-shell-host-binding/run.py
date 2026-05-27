@@ -63,6 +63,7 @@ def run(
     *,
     cwd: Path = ROOT,
     expect: int = 0,
+    input_text: str | None = None,
     timeout_seconds: float = 120.0,
 ) -> subprocess.CompletedProcess[str]:
     try:
@@ -70,6 +71,7 @@ def run(
             command,
             cwd=cwd,
             text=True,
+            input=input_text,
             capture_output=True,
             check=False,
             timeout=timeout_seconds,
@@ -446,6 +448,186 @@ def run_event_stdin(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def replay_cadence_args(args: argparse.Namespace) -> list[str]:
+    if args.cadence_python:
+        return ["--cadence-python", args.cadence_python]
+    if args.cadence_command:
+        return ["--cadence-command", args.cadence_command]
+    return []
+
+
+def run_shell_binding_child(
+    child_args: list[str],
+    *,
+    cadence_args: list[str],
+    input_text: str | None = None,
+) -> dict[str, Any]:
+    result = run(
+        [sys.executable, str(SCRIPT_DIR / "run.py"), *child_args, *cadence_args],
+        input_text=input_text,
+        timeout_seconds=240.0,
+    )
+    return json.loads(result.stdout)
+
+
+def require_replay_boolean(value: Any, field: str) -> bool:
+    if not isinstance(value, bool):
+        raise RuntimeError(f"{field} must be a JSON boolean")
+    return value
+
+
+def normalized_replay_behavior(scenario: dict[str, Any]) -> dict[str, Any]:
+    packets = scenario.get("packets")
+    if not isinstance(packets, dict):
+        packets = {}
+
+    prepare_packet = packets.get("prepare_handoff")
+    handoff = prepare_packet.get("handoff") if isinstance(prepare_packet, dict) else None
+    prepare_stop_current_session = (
+        require_replay_boolean(prepare_packet.get("stop_current_session"), "prepare_handoff.stop_current_session")
+        if isinstance(prepare_packet, dict)
+        else None
+    )
+
+    return {
+        "host_event": scenario.get("host_event"),
+        "mapped_signal_kind": scenario.get("mapped_signal_kind"),
+        "adapter_result": scenario.get("adapter_result"),
+        "cadence_called": require_replay_boolean(scenario.get("cadence_called"), "cadence_called"),
+        "observed_guardrail": scenario.get("observed_guardrail"),
+        "observed_summary": scenario.get("observed_summary"),
+        "observed_task_type": scenario.get("observed_task_type"),
+        "observed_drivers": scenario.get("observed_drivers"),
+        "observed_next_action": scenario.get("observed_next_action"),
+        "stop_current_session": require_replay_boolean(scenario.get("stop_current_session"), "stop_current_session"),
+        "packet_keys": sorted(packets),
+        "prepared_handoff_status": handoff.get("status") if isinstance(handoff, dict) else None,
+        "prepare_stop_current_session": prepare_stop_current_session,
+    }
+
+
+def bundled_fixture_scenario(summary: dict[str, Any], event_name: str) -> dict[str, Any]:
+    scenarios = summary.get("scenarios")
+    if not isinstance(scenarios, list):
+        raise RuntimeError("bundled fixture replay did not return scenarios")
+    for scenario in scenarios:
+        if isinstance(scenario, dict) and scenario.get("host_event_file") == event_name:
+            return scenario
+    raise RuntimeError(f"bundled fixture replay did not return {event_name}")
+
+
+def single_event_scenario(summary: dict[str, Any], label: str) -> dict[str, Any]:
+    scenario = summary.get("scenario")
+    if not isinstance(scenario, dict):
+        raise RuntimeError(f"{label} replay did not return one scenario")
+    return scenario
+
+
+def replay_contract_case(
+    *,
+    event_name: str,
+    work_dir: Path,
+    cadence_args: list[str],
+    bundled_summary: dict[str, Any],
+) -> dict[str, Any]:
+    scenario_slug = event_name.removesuffix(".json")
+    event_path = HOST_EVENT_DIR / event_name
+    fixture_text = event_path.read_text(encoding="utf-8")
+
+    path_results = {
+        "bundled_fixture": normalized_replay_behavior(bundled_fixture_scenario(bundled_summary, event_name)),
+        "host_event_file": normalized_replay_behavior(
+            single_event_scenario(
+                run_shell_binding_child(
+                    [
+                        "--host-event-file",
+                        str(event_path),
+                        "--work-dir",
+                        str(work_dir / "host-event-file" / scenario_slug),
+                    ],
+                    cadence_args=cadence_args,
+                ),
+                f"{event_name} file-backed",
+            )
+        ),
+        "host_event_stdin": normalized_replay_behavior(
+            single_event_scenario(
+                run_shell_binding_child(
+                    [
+                        "--host-event-stdin",
+                        "--work-dir",
+                        str(work_dir / "host-event-stdin" / scenario_slug),
+                    ],
+                    cadence_args=cadence_args,
+                    input_text=fixture_text,
+                ),
+                f"{event_name} stdin-backed",
+            )
+        ),
+    }
+
+    input_paths = ["bundled_fixture", "host_event_file", "host_event_stdin"]
+    normalized_behavior = path_results["bundled_fixture"]
+    divergent_paths = {
+        label: path_results[label]
+        for label in input_paths
+        if path_results[label] != normalized_behavior
+    }
+    if divergent_paths:
+        raise RuntimeError(
+            f"{event_name} host-event behavior diverged across replay paths: "
+            f"{json.dumps({'baseline': normalized_behavior, 'all_path_results': path_results}, indent=2, sort_keys=True)}"
+        )
+
+    return {
+        "host_event_file": event_name,
+        "consistent": True,
+        "input_paths": input_paths,
+        "normalized_behavior": normalized_behavior,
+        "path_results": path_results,
+    }
+
+
+def run_replay_contract(args: argparse.Namespace) -> dict[str, Any]:
+    work_dir = (args.work_dir or DEFAULT_WORK_DIR).resolve()
+    replace_existing = args.replace_existing or args.work_dir is None
+    prepare_work_dir(work_dir, replace_existing=replace_existing)
+    cadence_args = replay_cadence_args(args)
+
+    bundled_summary = run_shell_binding_child(
+        ["--work-dir", str(work_dir / "bundled-fixtures")],
+        cadence_args=cadence_args,
+    )
+    contract_cases = [
+        replay_contract_case(
+            event_name=event_name,
+            work_dir=work_dir,
+            cadence_args=cadence_args,
+            bundled_summary=bundled_summary,
+        )
+        for event_name, _expected_guardrail in SCENARIOS
+    ]
+
+    return {
+        "result": "generic_shell_host_binding_replay_contract_passed",
+        "work_dir": str(work_dir),
+        "host_event_dir": str(HOST_EVENT_DIR),
+        "adapter_template_path": ADAPTER_TEMPLATE_DISPLAY,
+        "adapter_template": str(ADAPTER_TEMPLATE),
+        "mapping_doc_path": MAPPING_DOC_DISPLAY,
+        "mapping_doc": str(MAPPING_DOC),
+        "host_binding_note": (
+            "This generic shell host-binding replay contract is not a real host adapter "
+            "for Claude, Gemini, or any other coding-agent host."
+        ),
+        "contract_note": (
+            "This replay contract compares fixture, file-backed, and stdin-backed generic shell "
+            "host-event paths through the copyable adapter template and public CLI."
+        ),
+        "contract_cases": contract_cases,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the generic shell host-binding stub example.")
     parser.add_argument("--work-dir", type=Path, help="Disposable work directory. Refuses existing custom paths by default.")
@@ -453,6 +635,11 @@ def build_parser() -> argparse.ArgumentParser:
     host_event_group = parser.add_mutually_exclusive_group()
     host_event_group.add_argument("--host-event-file", type=Path, help="External host-event JSON file to process once.")
     host_event_group.add_argument("--host-event-stdin", action="store_true", help="Read one external host-event JSON payload from stdin.")
+    host_event_group.add_argument(
+        "--replay-contract",
+        action="store_true",
+        help="Compare bundled fixture, file-backed, and stdin-backed behavior for the same host events.",
+    )
     parser.add_argument("--cadence-command", help="Installed Cadence command to invoke.")
     parser.add_argument(
         "--cadence-python",
@@ -468,7 +655,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if args.host_event_file:
+        if args.replay_contract:
+            summary = run_replay_contract(args)
+        elif args.host_event_file:
             summary = run_event_file(args)
         elif args.host_event_stdin:
             summary = run_event_stdin(args)

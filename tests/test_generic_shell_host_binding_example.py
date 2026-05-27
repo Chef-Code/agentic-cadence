@@ -100,6 +100,7 @@ class GenericShellHostBindingExampleTests(unittest.TestCase):
         for text in (adapters, mapping, roadmap, readme):
             self.assertIn("--host-event-file", text)
             self.assertIn("--host-event-stdin", text)
+            self.assertIn("--replay-contract", text)
             self.assertIn("file-backed", text)
 
     def test_generic_shell_binding_local_helpers_are_safe_and_predictable(self):
@@ -131,6 +132,9 @@ class GenericShellHostBindingExampleTests(unittest.TestCase):
             shell_binding.map_host_event_to_signal({**valid_event, "drivers": [""]})
         with self.assertRaisesRegex(RuntimeError, "source must be"):
             shell_binding.map_host_event_to_signal({**valid_event, "source": "x" * 65})
+
+        with self.assertRaisesRegex(RuntimeError, "cadence_called must be a JSON boolean"):
+            shell_binding.normalized_replay_behavior({"cadence_called": "true"})
 
         class CodepageDecodedStdin:
             def __init__(self, payload):
@@ -330,6 +334,65 @@ class GenericShellHostBindingExampleTests(unittest.TestCase):
         self.assertFalse(no_event_scenario["cadence_called"])
         self.assertEqual(no_event_scenario["packets"], {})
 
+    def test_generic_shell_binding_replay_contract_compares_all_input_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SHELL_BINDING_SCRIPT),
+                    "--replay-contract",
+                    "--work-dir",
+                    str(Path(tmp) / "replay-work"),
+                    "--cadence-python",
+                    sys.executable,
+                ],
+                cwd=ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+                timeout=240,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        summary = json.loads(result.stdout)
+        self.assertEqual(summary["result"], "generic_shell_host_binding_replay_contract_passed")
+        self.assertIn("not a real host adapter", summary["host_binding_note"])
+        self.assertIn("fixture, file-backed, and stdin-backed", summary["contract_note"])
+
+        cases = {case["host_event_file"]: case for case in summary["contract_cases"]}
+        self.assertEqual(list(cases), ["no-event.json", "context-pressure.json", "operator-stop.json"])
+        for case in cases.values():
+            self.assertTrue(case["consistent"])
+            self.assertEqual(case["input_paths"], ["bundled_fixture", "host_event_file", "host_event_stdin"])
+            self.assertEqual(
+                case["path_results"]["bundled_fixture"],
+                case["path_results"]["host_event_file"],
+            )
+            self.assertEqual(
+                case["path_results"]["bundled_fixture"],
+                case["path_results"]["host_event_stdin"],
+            )
+            self.assertEqual(case["normalized_behavior"], case["path_results"]["bundled_fixture"])
+
+        no_event = cases["no-event.json"]["normalized_behavior"]
+        self.assertEqual(no_event["adapter_result"], "no_handoff_needed")
+        self.assertFalse(no_event["cadence_called"])
+        self.assertEqual(no_event["packet_keys"], [])
+
+        context_pressure = cases["context-pressure.json"]["normalized_behavior"]
+        self.assertEqual(context_pressure["host_event"], "context_pressure")
+        self.assertEqual(context_pressure["observed_guardrail"], "context")
+        self.assertEqual(context_pressure["packet_keys"], ["prepare_handoff", "status"])
+        self.assertEqual(context_pressure["prepared_handoff_status"], "READY")
+        self.assertTrue(context_pressure["prepare_stop_current_session"])
+
+        operator_stop = cases["operator-stop.json"]["normalized_behavior"]
+        self.assertEqual(operator_stop["host_event"], "operator_stop")
+        self.assertEqual(operator_stop["observed_guardrail"], "operator_stop")
+        self.assertEqual(operator_stop["packet_keys"], ["prepare_handoff", "status"])
+        self.assertEqual(operator_stop["prepared_handoff_status"], "READY")
+        self.assertTrue(operator_stop["prepare_stop_current_session"])
+
     def test_generic_shell_binding_external_host_event_file_errors_are_clear(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_root = Path(tmp)
@@ -417,6 +480,10 @@ class GenericShellHostBindingExampleTests(unittest.TestCase):
 
         self.assertIn("Run generic shell host-binding stub example", package_section)
         self.assertIn("python examples/generic-shell-host-binding/run.py --cadence-python python", package_section)
+        self.assertIn(
+            "python examples/generic-shell-host-binding/run.py --replay-contract --cadence-python python",
+            package_section,
+        )
         self.assertIn("examples/generic-shell-host-binding/work/", ignore_text)
 
 
