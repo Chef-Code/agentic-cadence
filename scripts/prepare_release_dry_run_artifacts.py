@@ -22,6 +22,7 @@ def escape_command(value: object) -> str:
 
 
 def issue_value(issue: object, key: str, default: str) -> object:
+    """Return a structured issue field or the raw issue fallback."""
     if isinstance(issue, dict):
         return issue.get(key, default)
     return issue
@@ -32,6 +33,7 @@ def prepare_artifacts(
     notes_path: Path = Path("release-notes.md"),
     github_output_path: Path | None = None,
 ) -> dict[str, str]:
+    """Write release notes, annotations, and workflow outputs from a dry-run packet."""
     packet: dict[str, Any] = json.loads(packet_path.read_text(encoding="utf-8"))
     notes_path.write_text(packet.get("release_notes", ""), encoding="utf-8")
 
@@ -63,6 +65,7 @@ def prepare_artifacts(
 
 
 def main() -> int:
+    """Prepare artifacts using GitHub Actions environment variables."""
     github_output = os.environ.get("GITHUB_OUTPUT")
     prepare_artifacts(github_output_path=Path(github_output) if github_output else None)
     return 0

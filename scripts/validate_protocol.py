@@ -383,6 +383,7 @@ def validate_tokens(errors: list[str]) -> None:
 
 
 def indented_block_after(text: str, header: str) -> str:
+    """Return the indented YAML-like block immediately following a header line."""
     lines = text.splitlines()
     try:
         start = next(index for index, line in enumerate(lines) if line == header)
@@ -399,6 +400,7 @@ def indented_block_after(text: str, header: str) -> str:
 
 
 def mapping_at_indent(text: str, indent: int) -> dict[str, str]:
+    """Collect simple key/value mappings found at a specific indentation level."""
     mapping = {}
     prefix = " " * indent
     for line in text.splitlines():
@@ -413,6 +415,7 @@ def mapping_at_indent(text: str, indent: int) -> dict[str, str]:
 
 
 def workflow_uses_values(text: str) -> tuple[str, ...]:
+    """Return external action references from workflow uses entries."""
     values = []
     for line in text.splitlines():
         stripped = line.strip()
@@ -425,6 +428,7 @@ def workflow_uses_values(text: str) -> tuple[str, ...]:
 
 
 def workflow_run_blocks(text: str) -> tuple[str, ...]:
+    """Return inline and block scalar run commands from a workflow document."""
     lines = text.splitlines()
     blocks = []
     index = 0
@@ -457,6 +461,7 @@ def workflow_run_blocks(text: str) -> tuple[str, ...]:
 
 
 def workflow_non_run_lines(text: str) -> tuple[str, ...]:
+    """Return workflow lines while omitting multiline run command bodies."""
     lines = text.splitlines()
     visible = []
     index = 0
@@ -481,6 +486,7 @@ def workflow_non_run_lines(text: str) -> tuple[str, ...]:
 
 
 def workflow_has_job_permissions(text: str) -> bool:
+    """Report whether the workflow declares job-level permissions."""
     in_jobs = False
     for line in workflow_non_run_lines(text):
         stripped = line.strip()
@@ -497,6 +503,7 @@ def workflow_has_job_permissions(text: str) -> bool:
 
 
 def shell_command_segments(line: str) -> tuple[str, ...]:
+    """Split shell text on common command separators for mutation scanning."""
     return tuple(
         segment.strip()
         for segment in re.split(r"(?:&&|\|\||(?<!\|)\|(?!\|)|;|\bthen\b|\bdo\b)", line)
@@ -505,6 +512,7 @@ def shell_command_segments(line: str) -> tuple[str, ...]:
 
 
 def validate_release_workflow_mutations(relative: str, text: str, errors: list[str]) -> None:
+    """Reject release/publish actions and mutating release commands in workflow steps."""
     for value in workflow_uses_values(text):
         action_ref = value.lower().split("@", 1)[0]
         for action in FORBIDDEN_RELEASE_ACTIONS:
@@ -523,6 +531,7 @@ def validate_release_workflow_mutations(relative: str, text: str, errors: list[s
 
 
 def validate_release_dry_run_workflow(errors: list[str]) -> None:
+    """Validate that the release dry-run workflow remains manual and read-only."""
     relative = ".github/workflows/release-dry-run.yml"
     path = ROOT / relative
     if not path.exists():

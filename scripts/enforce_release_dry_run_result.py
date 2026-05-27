@@ -11,6 +11,7 @@ def enforce_release_dry_run_result(
     ready_to_release: str | None,
     operator_confirmation_required: str | None,
 ) -> int:
+    """Return non-zero unless the dry-run packet is ready and still requires confirmation."""
     if operator_confirmation_required != "true":
         print(
             "::error title=operator_confirmation_required::"
@@ -28,6 +29,7 @@ def enforce_release_dry_run_result(
 
 
 def main() -> int:
+    """Enforce the release dry-run result using GitHub Actions step outputs."""
     return enforce_release_dry_run_result(
         ready_to_release=os.environ.get("READY_TO_RELEASE"),
         operator_confirmation_required=os.environ.get("OPERATOR_CONFIRMATION_REQUIRED"),
