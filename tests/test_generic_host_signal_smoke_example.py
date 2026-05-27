@@ -40,20 +40,27 @@ class GenericHostSignalSmokeExampleTests(unittest.TestCase):
 
     def test_generic_host_signal_smoke_runs_fixture_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
-            result = subprocess.run(
-                [
-                    sys.executable,
-                    str(SMOKE_SCRIPT),
-                    "--work-dir",
-                    str(Path(tmp) / "work"),
-                    "--cadence-python",
-                    sys.executable,
-                ],
-                cwd=ROOT,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
+            try:
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(SMOKE_SCRIPT),
+                        "--work-dir",
+                        str(Path(tmp) / "work"),
+                        "--cadence-python",
+                        sys.executable,
+                    ],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=180,
+                )
+            except subprocess.TimeoutExpired as exc:
+                self.fail(
+                    "generic host-signal smoke timed out after "
+                    f"{exc.timeout}s\nstdout:\n{exc.stdout}\nstderr:\n{exc.stderr}"
+                )
 
             self.assertEqual(result.returncode, 0, result.stderr)
             summary = json.loads(result.stdout)

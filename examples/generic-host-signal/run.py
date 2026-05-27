@@ -32,8 +32,24 @@ SCENARIOS = (
 )
 
 
-def run(command: list[str], *, cwd: Path = ROOT, expect: int = 0) -> subprocess.CompletedProcess[str]:
-    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
+def run(
+    command: list[str],
+    *,
+    cwd: Path = ROOT,
+    expect: int = 0,
+    timeout_seconds: float = 120.0,
+) -> subprocess.CompletedProcess[str]:
+    try:
+        result = subprocess.run(
+            command,
+            cwd=cwd,
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"command timed out after {timeout_seconds}s: {' '.join(command)}") from exc
     if result.returncode != expect:
         raise RuntimeError(
             f"command failed with {result.returncode}, expected {expect}: {' '.join(command)}\n"
