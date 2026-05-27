@@ -28,6 +28,8 @@ The current 0.1.x line is an early public protocol and tooling baseline for loca
 - generic host-signal fixtures for the adapter template that exercise
   `context_pressure`, `operator_stop`, and no-signal behavior without claiming
   to ship a real Claude or Gemini adapter.
+- a generic host-signal smoke example that runs those fixtures through the
+  copyable adapter template and public CLI before any real host adapter exists.
 
 ## Known Edges
 
@@ -78,6 +80,8 @@ A mature Agentic Cadence system should provide:
 - Exercise the adapter-local host/session signal contract against the first real host binding.
 - Use the generic host-signal fixtures as the compatibility bridge while
   comparing future host bindings against the same public CLI mapping behavior.
+- Keep the generic host-signal smoke example green as the adapter contract is
+  compared against future real host bindings.
 - Add examples that show how a Claude or Gemini binding would map host events to the existing CLI without shipping unsupported adapter claims.
 - Improve release automation around tag verification and release-note generation while keeping operator confirmation required.
 

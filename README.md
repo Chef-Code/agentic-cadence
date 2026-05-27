@@ -30,6 +30,16 @@ python examples/adapter-smoke/run.py --cadence-python python
 
 It proves the adapter path through CLI JSON packets without importing Cadence internals. Current packets may still contain Codex-compatible packet labels retained by the 0.1.x command surface; adapters should preserve those packets rather than rewriting them.
 
+The generic host-signal smoke example exercises the adapter-local signal
+fixtures before a real host binding exists:
+
+```bash
+python examples/generic-host-signal/run.py --cadence-python python
+```
+
+It verifies no-signal, `context_pressure`, and `operator_stop` behavior through
+the copyable adapter template without claiming Claude or Gemini adapter support.
+
 ## Protocol At A Glance
 
 ![Four-step Agentic Cadence handoff flow from old context to signed handoff, clean square, and fresh agent.](docs/assets/handoff-flow.svg)
