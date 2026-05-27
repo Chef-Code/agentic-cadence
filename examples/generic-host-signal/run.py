@@ -49,6 +49,10 @@ def cadence_command_value(cadence_python: str | None, cadence_command: str) -> s
     return cadence_command
 
 
+def load_fixture_payload(fixture_name: str) -> Any:
+    return json.loads((HOST_SIGNAL_FIXTURES / fixture_name).read_text(encoding="utf-8"))
+
+
 def prepare_work_dir(path: Path, *, replace_existing: bool) -> None:
     if path.exists():
         if not replace_existing:
@@ -89,6 +93,7 @@ def run_adapter_for_fixture(
     runtime_root = scenario_dir / "runtime"
     target_repo = scenario_dir / "repo"
     init_target_repo(target_repo)
+    fixture_payload = load_fixture_payload(fixture_name)
 
     result = run(
         [
@@ -122,21 +127,45 @@ def run_adapter_for_fixture(
     packets = adapter_output.get("packets", {})
 
     observed_guardrail = None
+    observed_summary = None
+    observed_task_type = None
+    observed_drivers = None
+    observed_next_action = None
     if expected_guardrail is not None:
+        if not isinstance(fixture_payload, dict):
+            raise RuntimeError(f"{fixture_name} must be a JSON object for signal scenarios")
         prepare_packet = packets.get("prepare_handoff")
         if not isinstance(prepare_packet, dict):
             raise RuntimeError(f"{fixture_name} did not preserve prepare_handoff packet")
         handoff = prepare_packet.get("handoff")
         if not isinstance(handoff, dict):
             raise RuntimeError(f"{fixture_name} prepare_handoff packet is missing handoff")
+        clean_square = prepare_packet.get("clean_square")
+        estimate_input = handoff.get("estimate_input")
+        message = handoff.get("message")
         observed_guardrail = handoff.get("guardrail")
+        observed_summary = clean_square.get("summary") if isinstance(clean_square, dict) else None
+        observed_task_type = estimate_input.get("task_type") if isinstance(estimate_input, dict) else None
+        observed_drivers = estimate_input.get("drivers") if isinstance(estimate_input, dict) else None
+        observed_next_action = (
+            fixture_payload["next_action"] if isinstance(message, str) and fixture_payload["next_action"] in message else None
+        )
         if observed_guardrail != expected_guardrail:
             raise RuntimeError(
                 f"{fixture_name} mapped to guardrail {observed_guardrail!r}, expected {expected_guardrail!r}"
             )
+        expected_mappings = {
+            "summary": (observed_summary, fixture_payload["summary"]),
+            "task_type": (observed_task_type, fixture_payload["task_type"]),
+            "drivers": (observed_drivers, fixture_payload["drivers"]),
+            "next_action": (observed_next_action, fixture_payload["next_action"]),
+        }
+        for field, (observed, expected) in expected_mappings.items():
+            if observed != expected:
+                raise RuntimeError(f"{fixture_name} mapped {field} to {observed!r}, expected {expected!r}")
         if not adapter_output.get("stop_current_session"):
             raise RuntimeError(f"{fixture_name} did not surface stop_current_session")
-    elif adapter_output.get("result") != "no_handoff_needed" or packets:
+    elif fixture_payload is not None or adapter_output.get("result") != "no_handoff_needed" or packets:
         raise RuntimeError(f"{fixture_name} should not call Cadence or prepare a handoff")
 
     return {
@@ -144,6 +173,10 @@ def run_adapter_for_fixture(
         "adapter_result": adapter_output.get("result"),
         "cadence_called": bool(packets),
         "observed_guardrail": observed_guardrail,
+        "observed_summary": observed_summary,
+        "observed_task_type": observed_task_type,
+        "observed_drivers": observed_drivers,
+        "observed_next_action": observed_next_action,
         "stop_current_session": bool(adapter_output.get("stop_current_session")),
         "packets": packets,
     }

@@ -9,6 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SMOKE_SCRIPT = ROOT / "examples" / "generic-host-signal" / "run.py"
+FIXTURE_DIR = ROOT / "examples" / "adapter-template" / "host-signal-fixtures"
 
 
 class GenericHostSignalSmokeExampleTests(unittest.TestCase):
@@ -70,19 +71,33 @@ class GenericHostSignalSmokeExampleTests(unittest.TestCase):
         self.assertEqual(no_signal["packets"], {})
 
         context_pressure = summary["scenarios"][1]
+        context_fixture = json.loads((FIXTURE_DIR / "context-pressure.json").read_text(encoding="utf-8"))
         self.assertEqual(context_pressure["adapter_result"], "handoff_prepared")
         self.assertTrue(context_pressure["cadence_called"])
         self.assertTrue(context_pressure["stop_current_session"])
         self.assertEqual(context_pressure["observed_guardrail"], "context")
+        for key in ("observed_summary", "observed_task_type", "observed_drivers", "observed_next_action"):
+            self.assertIn(key, context_pressure)
+        self.assertEqual(context_pressure["observed_summary"], context_fixture["summary"])
+        self.assertEqual(context_pressure["observed_task_type"], context_fixture["task_type"])
+        self.assertEqual(context_pressure["observed_drivers"], context_fixture["drivers"])
+        self.assertEqual(context_pressure["observed_next_action"], context_fixture["next_action"])
         self.assertEqual(context_pressure["packets"]["status"]["cadence"]["state"], "PLAY_ON")
         self.assertEqual(context_pressure["packets"]["prepare_handoff"]["handoff"]["status"], "READY")
         self.assertEqual(context_pressure["packets"]["prepare_handoff"]["handoff"]["guardrail"], "context")
 
         operator_stop = summary["scenarios"][2]
+        operator_fixture = json.loads((FIXTURE_DIR / "operator-stop.json").read_text(encoding="utf-8"))
         self.assertEqual(operator_stop["adapter_result"], "handoff_prepared")
         self.assertTrue(operator_stop["cadence_called"])
         self.assertTrue(operator_stop["stop_current_session"])
         self.assertEqual(operator_stop["observed_guardrail"], "operator_stop")
+        for key in ("observed_summary", "observed_task_type", "observed_drivers", "observed_next_action"):
+            self.assertIn(key, operator_stop)
+        self.assertEqual(operator_stop["observed_summary"], operator_fixture["summary"])
+        self.assertEqual(operator_stop["observed_task_type"], operator_fixture["task_type"])
+        self.assertEqual(operator_stop["observed_drivers"], operator_fixture["drivers"])
+        self.assertEqual(operator_stop["observed_next_action"], operator_fixture["next_action"])
         self.assertEqual(operator_stop["packets"]["status"]["cadence"]["state"], "PLAY_ON")
         self.assertEqual(operator_stop["packets"]["prepare_handoff"]["handoff"]["status"], "READY")
         self.assertEqual(operator_stop["packets"]["prepare_handoff"]["handoff"]["guardrail"], "operator_stop")
