@@ -78,3 +78,6 @@ jobs:
 
       - name: Run generic host-signal smoke example
         run: python examples/generic-host-signal/run.py --cadence-python python
+
+      - name: Run generic shell host-binding stub example
+        run: python examples/generic-shell-host-binding/run.py --cadence-python python
