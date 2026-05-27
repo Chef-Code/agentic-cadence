@@ -10,7 +10,7 @@ The protocol should stay small and inspectable. Host adapters can render differe
 
 ## Current State
 
-The current 0.1.x line is an early public protocol and tooling baseline for local clone-based use. It includes:
+The current tree builds on the released 0.1.x line, an early public protocol and tooling baseline for local clone-based use. It includes:
 
 - a packaged `agentic-cadence` CLI with Codex-compatible command aliases;
 - local Cadence state with `PLAY_ON`, `HUDDLE`, and `TIMEOUT`;
@@ -19,7 +19,7 @@ The current 0.1.x line is an early public protocol and tooling baseline for loca
 - task sizing, epoch governance, and conservative pickup gates;
 - read-only candidate discovery from local repo signals, saved review findings, saved GitHub review-thread files, and business memory;
 - deterministic PR body preflight and PR readiness checks from saved local inputs;
-- release-readiness docs, current-tree audit, history audit, pinned GitHub Actions guardrails, and a `release-dry-run` helper for release-note generation and tag verification;
+- release-readiness docs, current-tree audit, history audit, pinned GitHub Actions guardrails, and current-tree `release-dry-run` helper work for release-note generation and tag verification;
 - an executable adapter smoke contract in `examples/adapter-smoke/run.py` that proves a host adapter can drive the public CLI and preserve returned JSON packets.
 - a copyable adapter template in `examples/adapter-template` that shows the public CLI boundary, explicit runtime root, packet preservation, and host-specific pickup hooks.
 - an adapter-local host/session signal contract in `examples/adapter-template`

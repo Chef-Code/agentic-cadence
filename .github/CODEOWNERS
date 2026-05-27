@@ -4,6 +4,7 @@
 scripts/codex_review_preflight.py @Chef-Code
 scripts/validate_protocol.py @Chef-Code
 scripts/public_release_audit.py @Chef-Code
+codex_cadence/cli.py @Chef-Code
 codex_cadence/release.py @Chef-Code
 tests/test_ci_checks.py @Chef-Code
 tests/test_release_dry_run.py @Chef-Code

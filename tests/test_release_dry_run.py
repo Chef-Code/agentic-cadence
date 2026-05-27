@@ -125,6 +125,36 @@ class ReleaseDryRunTests(unittest.TestCase):
         self.assertEqual(packet["git"]["tag"]["target_sha"], old_head)
         self.assertIn("tag_points_to_different_commit", {blocker["code"] for blocker in packet["blockers"]})
 
+    def test_target_ref_must_match_checked_out_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            old_head = init_release_repo(repo)
+            (repo / "README.md").write_text("# Release repo\n", encoding="utf-8")
+            for command in (
+                ["git", "add", "README.md"],
+                ["git", "commit", "-m", "Move checked-out head"],
+            ):
+                result = run(command, repo)
+                self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+            packet = evaluate_release_dry_run(repo, version="0.2.0", target_ref=old_head)
+
+        self.assertFalse(packet["ready_to_release"])
+        self.assertEqual(packet["decision"], "blocked")
+        self.assertEqual(packet["git"]["target_sha"], old_head)
+        self.assertIn("target_ref_not_checked_out", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_explicit_empty_tag_is_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_release_repo(repo)
+
+            packet = evaluate_release_dry_run(repo, version="0.2.0", tag="  ")
+
+        self.assertFalse(packet["ready_to_release"])
+        self.assertEqual(packet["release"]["tag"], "")
+        self.assertIn("release_tag_missing", {blocker["code"] for blocker in packet["blockers"]})
+
     def test_requested_version_must_match_package_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

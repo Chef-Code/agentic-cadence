@@ -106,6 +106,7 @@ def _inspect_git(
         "cwd": str(cwd),
         "target_ref": target_ref,
         "target_sha": None,
+        "checked_out_sha": None,
         "current_branch": None,
         "target_branch": target_branch,
         "worktree_clean": False,
@@ -129,6 +130,21 @@ def _inspect_git(
         )
     else:
         summary["target_sha"] = target_sha
+
+    checked_out_sha, error = _git_scalar(cwd, ["rev-parse", "--verify", "HEAD^{commit}"])
+    if checked_out_sha is None:
+        blockers.append(_issue("checked_out_ref_not_found", "could not resolve checked-out HEAD", detail=error))
+    else:
+        summary["checked_out_sha"] = checked_out_sha
+        if target_sha and checked_out_sha != target_sha:
+            blockers.append(
+                _issue(
+                    "target_ref_not_checked_out",
+                    f"release target {target_sha} is not the checked-out HEAD {checked_out_sha}",
+                    target_sha=target_sha,
+                    checked_out_sha=checked_out_sha,
+                )
+            )
 
     current_branch, error = _git_scalar(cwd, ["branch", "--show-current"])
     summary["current_branch"] = current_branch or ""
@@ -249,7 +265,9 @@ def evaluate_release_dry_run(
 
     release_tag = tag.strip() if isinstance(tag, str) else f"v{release_version}" if release_version else ""
     expected_tag = f"v{release_version}" if release_version else ""
-    if tag and expected_tag and release_tag != expected_tag:
+    if not release_tag:
+        blockers.append(_issue("release_tag_missing", "release dry run requires a non-empty release tag"))
+    elif tag and expected_tag and release_tag != expected_tag:
         blockers.append(
             _issue(
                 "tag_version_mismatch",

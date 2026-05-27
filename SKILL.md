@@ -146,10 +146,10 @@ python scripts/cadence.py pr-body-preflight --body-file pr-body.md --pr-template
 
 ## Release Dry Run Packets
 
-Use `release-dry-run` before an operator creates a release tag or GitHub release. The command is deterministic and local: it reads `pyproject.toml`, `CHANGELOG.md`, and Git refs under `--cwd`; verifies the requested version matches package metadata; derives `release_notes` from the matching changelog entry; checks that the changelog entry is latest; verifies an existing tag points at the selected release commit; and emits `operator_confirmation_required: true`.
+Use `release-dry-run` before an operator creates a release tag or GitHub release. After `pyproject.toml` and `CHANGELOG.md` have been updated for the intended release version, the command is deterministic and local: it reads release metadata and Git refs under `--cwd`; verifies the requested version matches package metadata; derives `release_notes` from the matching changelog entry; checks that the changelog entry is latest; requires the selected target ref to match checked-out `HEAD`; verifies an existing tag points at the selected release commit; and emits `operator_confirmation_required: true`.
 
 ```bash
-python scripts/cadence.py release-dry-run --cwd . --version 0.1.1
+python scripts/cadence.py release-dry-run --cwd . --version <version>
 ```
 
 It must not create tags, call GitHub, create a release, write release-note files, build distributions, upload artifacts, publish packages, push, or merge. Ready packets recommend `create_tag_after_operator_confirmation` or `create_github_release_after_operator_confirmation`; package-index publication remains blocked with `do_not_publish_package`.

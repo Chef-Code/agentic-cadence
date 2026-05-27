@@ -181,7 +181,7 @@ class CiChecksTests(unittest.TestCase):
             "codex-cadence",
             "python -m codex_cadence --help",
             "agentic-cadence pr-body-preflight --body-file pr-body.md --pr-template-file .github/pull_request_template.md",
-            "agentic-cadence release-dry-run --cwd . --version 0.1.1",
+            "agentic-cadence release-dry-run --cwd . --version <version>",
             "MIT",
         ):
             with self.subTest(token=token):
@@ -289,6 +289,8 @@ class CiChecksTests(unittest.TestCase):
         self.assertTrue(release_path.exists())
 
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        roadmap = (ROOT / "docs" / "roadmap.md").read_text(encoding="utf-8")
         changelog = changelog_path.read_text(encoding="utf-8")
         release = release_path.read_text(encoding="utf-8")
 
@@ -299,9 +301,14 @@ class CiChecksTests(unittest.TestCase):
             "adapter smoke contract",
             "PyPI publication is not part of this baseline",
             "## Release Dry Run",
+            "updated for the intended release version",
         ):
             with self.subTest(location="README", token=token):
                 self.assertIn(token, readme)
+
+        for text_name, text in (("README", readme), ("SKILL", skill), ("release docs", release), ("roadmap", roadmap)):
+            with self.subTest(location=text_name, stale_release_dry_run_example=True):
+                self.assertNotIn("release-dry-run --cwd . --version 0.1.1", text)
 
         for token in (
             "# Changelog",
@@ -676,6 +683,7 @@ class CiChecksTests(unittest.TestCase):
             "scripts/codex_review_preflight.py",
             "scripts/validate_protocol.py",
             "scripts/public_release_audit.py",
+            "codex_cadence/cli.py",
             "codex_cadence/release.py",
             "tests/test_ci_checks.py",
             "tests/test_release_dry_run.py",
