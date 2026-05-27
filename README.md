@@ -12,7 +12,7 @@ The first implementation is used with Codex, and the protocol is intentionally a
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The current baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, and public-release history auditing.
+Agentic Cadence is an early public protocol and tooling release. The current baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, release dry-run verification, and public-release history auditing.
 
 PyPI publication is not part of this baseline. Treat package-index publication, signed version tags, and broader adapter support as follow-on release work.
 
@@ -197,7 +197,7 @@ Compatibility names:
 ## Development
 
 ```bash
-python -m compileall scripts codex_cadence transmission_control tests
+python -m compileall scripts codex_cadence transmission_control tests examples
 python -m unittest discover -s tests -v
 python scripts/validate_protocol.py
 python scripts/ci_smoke.py

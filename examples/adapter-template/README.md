@@ -128,3 +128,22 @@ Fixture values override the fallback `--summary`, `--task-type`, `--driver`,
 and `--next-action` arguments because they represent the host-observed stop
 signal. The fixture loader is still part of the copyable adapter template, not
 a stable Python API exported by `codex_cadence`.
+
+## Generic Shell Host Binding
+
+The current repository also includes
+`examples/generic-shell-host-binding/run.py` as the runnable host-binding
+pattern for shell-captured host events. It maps one host-event JSON object, or
+JSON `null`, into the same adapter-local signal shape before invoking this
+template through the public CLI boundary.
+
+Run the fixture smoke or pass one external host-event payload through a file or
+stdin:
+
+```bash
+python examples/generic-shell-host-binding/run.py --cadence-python python
+python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-file /path/to/host-event.json
+some-host-signal-command | python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-stdin
+```
+
+This remains a generic binding contract, not a Claude or Gemini adapter.

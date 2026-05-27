@@ -10,7 +10,7 @@ The protocol should stay small and inspectable. Host adapters can render differe
 
 ## Current State
 
-The current tree builds on the released 0.1.x line, an early public protocol and tooling baseline for local clone-based use. It includes:
+The current tree builds on the released 0.1.x line, with additional unreleased release-readiness and adapter-contract work on `main`. It includes:
 
 - a packaged `agentic-cadence` CLI with Codex-compatible command aliases;
 - local Cadence state with `PLAY_ON`, `HUDDLE`, and `TIMEOUT`;
@@ -19,7 +19,7 @@ The current tree builds on the released 0.1.x line, an early public protocol and
 - task sizing, epoch governance, and conservative pickup gates;
 - read-only candidate discovery from local repo signals, saved review findings, saved GitHub review-thread files, and business memory;
 - deterministic PR body preflight and PR readiness checks from saved local inputs;
-- release-readiness docs, current-tree audit, history audit, pinned GitHub Actions guardrails, and current-tree `release-dry-run` helper work for release-note generation and tag verification;
+- release-readiness docs, current-tree audit, history audit, pinned GitHub Actions guardrails, a local `release-dry-run` helper, and a manual GitHub Actions release dry-run workflow for release-note generation and tag verification;
 - an executable adapter smoke contract in `examples/adapter-smoke/run.py` that proves a host adapter can drive the public CLI and preserve returned JSON packets.
 - a copyable adapter template in `examples/adapter-template` that shows the public CLI boundary, explicit runtime root, packet preservation, and host-specific pickup hooks.
 - an adapter-local host/session signal contract in `examples/adapter-template`
@@ -85,8 +85,11 @@ A mature Agentic Cadence system should provide:
 
 ### Next
 
-- Exercise and refine `examples/adapter-template` against the first real host/session signal integration.
-- Exercise the adapter-local host/session signal contract against the first real host binding.
+- Add a replay/contract helper for the generic shell host binding so the same
+  host-event payloads can be compared across bundled fixture, file-backed, and
+  stdin-backed paths.
+- Use that replay helper to refine `examples/adapter-template` before adding
+  host-specific adapter claims.
 - Use the generic host-signal fixtures as the compatibility bridge while
   comparing future host bindings against the same public CLI mapping behavior.
 - Keep the generic host-signal smoke example green as the adapter contract is
@@ -118,7 +121,7 @@ A mature Agentic Cadence system should provide:
 
 ## Open Questions
 
-- Which host should get the first real non-Codex adapter: Claude, Gemini, or a generic shell adapter?
+- Which host should get the first named non-Codex adapter after the generic shell binding contract is stable: Claude, Gemini, or another host?
 - Should shared runtime state be GitHub-backed, file-share-backed, database-backed, or pluggable?
 - What identity model is strong enough for approvals without making local use heavy?
 - Which policy controls should be hard-coded safety rules and which should be repo-configurable?

@@ -860,10 +860,17 @@ class CiChecksTests(unittest.TestCase):
 
     def test_public_release_docs_describe_clean_history_gate(self):
         docs = (ROOT / "docs" / "public-release.md").read_text(encoding="utf-8")
+        before_pr_section = docs[docs.index("## Current Private Repository") : docs.index("## Clean Public History")]
 
         for token in (
             "python scripts\\public_release_audit.py",
             "python scripts\\public_release_audit.py --history",
+            "python scripts\\cadence.py release-dry-run --cwd . --version <version>",
+            "after the release PR is merged to a clean checked-out `main`",
+            "origin/main",
+            "target_branch_mismatch",
+            "target_not_at_origin_branch",
+            ".github/workflows/release-dry-run.yml",
             "Deleted files remain available in Git history",
             "clean public mirror",
             "Require CODEOWNERS review",
@@ -871,6 +878,7 @@ class CiChecksTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIn(token, docs)
+        self.assertNotIn("release-dry-run", before_pr_section)
 
     def test_codex_review_workflow_runs_with_review_only_safeguards(self):
         workflow = ROOT / ".github" / "workflows" / "codex-review.yml"

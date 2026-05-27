@@ -147,9 +147,12 @@ The copyable host adapter template lives at `examples/adapter-template`. It is t
 
 The template includes placeholder hooks for context-pressure detection, generic host-signal fixtures, and pickup rendering. It does not ship a Claude or Gemini adapter; it gives those future adapters a concrete boundary to copy without importing Cadence internals.
 
-## First Implementation Slice
+## Current Adapter Slice
 
-The current adapter slice is documentation, an executable smoke fixture, and a copyable template, not a full host integration. A small host adapter package should prove that it can:
+The current adapter work is documentation, executable smoke fixtures, a copyable
+template, host-signal fixtures, a host-binding mapping example, and a generic
+shell host-binding pattern with fixture, file, and stdin input modes. It is not
+a full host integration. A small host adapter package should prove that it can:
 
 - call the CLI without private imports;
 - pass an explicit runtime root;

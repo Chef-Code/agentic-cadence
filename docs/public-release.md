@@ -27,6 +27,26 @@ python scripts\public_release_audit.py --history
 
 The history audit must pass in the exact repository that will become public.
 
+## Release Dry Run
+
+Run the local release dry run only against a reviewed release target, normally
+after the release PR is merged to a clean checked-out `main` that matches
+`origin/main`, or with explicit `--target-ref` and `--target-branch` values for
+a reviewed target commit:
+
+```powershell
+python scripts\cadence.py release-dry-run --cwd . --version <version>
+```
+
+On an ordinary PR branch, blockers such as `target_branch_mismatch` or
+`target_not_at_origin_branch` are expected and should not be treated as a green
+release signal.
+
+Operators may also run `.github/workflows/release-dry-run.yml` manually after
+the release PR is merged. Both dry-run paths verify package metadata, changelog
+notes, target refs, and tag status without creating tags, GitHub releases,
+pushes, merges, or packages.
+
 ## GitHub Settings
 
 Before switching visibility:
