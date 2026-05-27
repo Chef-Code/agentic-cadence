@@ -2,6 +2,23 @@
 
 All notable public changes to Agentic Cadence are documented here.
 
+## Unreleased
+
+Current `main` contains post-0.1.1 release-readiness and adapter-contract work.
+
+### Added
+
+- `release-dry-run` command support for local version, changelog, target-ref, generated release-note, and tag-target verification while requiring operator confirmation for any tag, GitHub release, or package publication.
+- Manual `.github/workflows/release-dry-run.yml` workflow that runs the same read-only release dry run from GitHub Actions, uploads `release-dry-run.json` and `release-notes.md`, and fails on blockers without creating tags, releases, pushes, merges, or packages.
+- Generic host-signal fixtures and smoke coverage for no-signal, `context_pressure`, and `operator_stop` behavior through the copyable adapter template.
+- Host-binding mapping documentation that shows how future host bindings should translate host-observed events into the adapter-local signal shape and public CLI arguments.
+- Generic shell host-binding example with bundled fixture smoke mode, file-backed `--host-event-file`, and stdin-backed `--host-event-stdin` paths for one external host-event JSON payload or JSON `null`.
+
+### Changed
+
+- Adapter documentation now treats the generic shell host-binding example as the executable pattern for future host adapters while still avoiding unsupported Claude or Gemini adapter claims.
+- Release documentation now points operators at both local `release-dry-run` and the manual GitHub Actions dry run before any operator-created tag or GitHub release.
+
 ## 0.1.1 - 2026-05-26
 
 Adapter smoke contract release.

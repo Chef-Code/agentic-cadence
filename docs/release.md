@@ -4,7 +4,7 @@ Use this checklist before publishing a public release, creating a GitHub release
 
 ## Scope
 
-The `0.1.x` baseline is an early public release line for local clone-based use. It documents the protocol, packages the CLI, verifies first-run examples and the adapter smoke contract, and keeps public-release audit gates visible.
+The `0.1.x` baseline is an early public release line for local clone-based use. It documents the protocol, packages the CLI, verifies first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, and keeps public-release audit gates visible.
 
 PyPI publication is a separate release decision. Do not publish to a package index until versioning, credentials, release ownership, and rollback expectations are explicitly reviewed.
 
@@ -26,7 +26,7 @@ python scripts/cadence.py release-dry-run --cwd . --version <version>
 python scripts/public_release_audit.py --history
 python scripts/validate_protocol.py
 python -m unittest tests.test_ci_checks -v
-python -m compileall scripts codex_cadence transmission_control tests
+python -m compileall scripts codex_cadence transmission_control tests examples
 python -m unittest discover -s tests -v
 python scripts/ci_smoke.py
 python -m pip install --upgrade pip build
