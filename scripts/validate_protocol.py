@@ -291,6 +291,7 @@ REQUIRED_TOKENS = {
         "ref: main",
         "fetch-depth: 0",
         "fetch-tags: true",
+        "persist-credentials: false",
         "python scripts/cadence.py release-dry-run",
         "--version \"$RELEASE_VERSION\"",
         "--tag \"$RELEASE_TAG\"",

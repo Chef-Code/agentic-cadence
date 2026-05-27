@@ -674,6 +674,7 @@ class CiChecksTests(unittest.TestCase):
             "permissions:",
             "contents: read",
             "fetch-depth: 0",
+            "persist-credentials: false",
             "python-version: \"3.12\"",
             "python scripts/cadence.py release-dry-run",
             "--version \"$RELEASE_VERSION\"",
