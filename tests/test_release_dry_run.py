@@ -4,6 +4,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
 
 from codex_cadence.release import evaluate_release_dry_run
@@ -164,6 +165,28 @@ class ReleaseDryRunTests(unittest.TestCase):
 
         self.assertFalse(packet["ready_to_release"])
         self.assertIn("version_mismatch", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_file_cwd_returns_blocked_packet_instead_of_crashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd_file = Path(tmp) / "not-a-directory"
+            cwd_file.write_text("not a repo\n", encoding="utf-8")
+
+            packet = evaluate_release_dry_run(cwd_file, version="0.2.0")
+
+        self.assertFalse(packet["ready_to_release"])
+        self.assertIn("release_cwd_not_directory", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_git_oserror_returns_blocked_packet_instead_of_crashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_release_repo(repo)
+
+            with mock.patch("codex_cadence.release.subprocess.run", side_effect=OSError("git unavailable")):
+                packet = evaluate_release_dry_run(repo, version="0.2.0")
+
+        self.assertFalse(packet["ready_to_release"])
+        self.assertIn("git_repo_missing", {blocker["code"] for blocker in packet["blockers"]})
+        self.assertIn("git unavailable", packet["blockers"][-1]["message"])
 
     def test_cli_release_dry_run_reads_local_files_without_creating_tag_or_release(self):
         with tempfile.TemporaryDirectory() as tmp:

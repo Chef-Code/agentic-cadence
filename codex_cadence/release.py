@@ -77,7 +77,11 @@ def _find_changelog_entry(text: str, version: str) -> tuple[dict[str, str] | Non
 
 
 def _run_git(cwd: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=cwd, text=True, capture_output=True, check=False)
+    command = ["git", *args]
+    try:
+        return subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
+    except OSError as exc:
+        return subprocess.CompletedProcess(command, 1, "", str(exc))
 
 
 def _git_scalar(cwd: Path, args: list[str]) -> tuple[str | None, str | None]:
@@ -116,6 +120,9 @@ def _inspect_git(
 
     if not cwd.exists():
         blockers.append(_issue("release_cwd_missing", f"release cwd does not exist: {cwd}", cwd=str(cwd)))
+        return summary, blockers, warnings
+    if not cwd.is_dir():
+        blockers.append(_issue("release_cwd_not_directory", f"release cwd is not a directory: {cwd}", cwd=str(cwd)))
         return summary, blockers, warnings
 
     inside, error = _git_scalar(cwd, ["rev-parse", "--is-inside-work-tree"])
