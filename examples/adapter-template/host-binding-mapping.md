@@ -16,6 +16,14 @@ adapter code while preserving the existing public CLI boundary.
 | The operator asks the host session to stop and prepare pickup. | `kind: "operator_stop"`, host-specific `source`, `confidence`, `summary`, `task_type`, `drivers`, and `next_action`. | The adapter validates the signal, checks `agentic-cadence status`, and calls `prepare-handoff` with `--guardrail operator_stop`, `--summary`, `--task-type`, any `--driver` values, and `--next-action`. |
 | The host has no stop or handoff signal. | `null`, matching `host-signal-fixtures/no-signal.json`. | The adapter makes no Cadence call and returns `no_handoff_needed`. |
 
+Adapter-local fields are not all Cadence fields. `source` and `confidence` are
+validated provenance fields for the host binding; they are not passed to
+`prepare-handoff` or stored in handoff metadata by the current public CLI.
+CLI-backed fields are `summary`, `task_type`, `drivers`, `next_action`, and
+the `kind` to `--guardrail` mapping. `confidence` must be `low`, `medium`, or
+`high`; `task_type` must be `execution` or `discovery`; and each `drivers`
+entry must be accepted by the existing `prepare-handoff` task sizing model.
+
 ## Adapter Boundary
 
 A host binding should observe host-specific state outside Cadence, then pass an
