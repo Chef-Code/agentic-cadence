@@ -22,6 +22,7 @@ PyPI publication is a separate release decision. Do not publish to a package ind
 Run these commands from the repository root:
 
 ```bash
+python scripts/cadence.py release-dry-run --cwd . --version <version>
 python scripts/public_release_audit.py --history
 python scripts/validate_protocol.py
 python -m unittest tests.test_ci_checks -v
@@ -35,6 +36,8 @@ git diff --check
 
 ## GitHub Release Notes
 
+`release-dry-run` emits `release_notes` from the matching `CHANGELOG.md` entry so the operator can compare the proposed GitHub release body before creating anything.
+
 GitHub release notes should include:
 
 - version number and release date;
@@ -46,6 +49,7 @@ GitHub release notes should include:
 ## After Merge
 
 - Wait for required branch-protection checks on `main` to pass.
+- Run `python scripts/cadence.py release-dry-run --cwd . --version <version>` and review the generated notes, target commit, and tag status.
 - Create the release tag only from a verified `main` commit.
 - If a GitHub release is created, keep its notes aligned with `CHANGELOG.md`.
 - If a package publication is added in a future release, record the package-index URL and verification command in this document.

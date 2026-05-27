@@ -144,6 +144,16 @@ Use `pr-body-preflight` before publishing or updating a pull request body. It is
 python scripts/cadence.py pr-body-preflight --body-file pr-body.md --pr-template-file .github/pull_request_template.md
 ```
 
+## Release Dry Run Packets
+
+Use `release-dry-run` before an operator creates a release tag or GitHub release. The command is deterministic and local: it reads `pyproject.toml`, `CHANGELOG.md`, and Git refs under `--cwd`; verifies the requested version matches package metadata; derives `release_notes` from the matching changelog entry; checks that the changelog entry is latest; verifies an existing tag points at the selected release commit; and emits `operator_confirmation_required: true`.
+
+```bash
+python scripts/cadence.py release-dry-run --cwd . --version 0.1.1
+```
+
+It must not create tags, call GitHub, create a release, write release-note files, build distributions, upload artifacts, publish packages, push, or merge. Ready packets recommend `create_tag_after_operator_confirmation` or `create_github_release_after_operator_confirmation`; package-index publication remains blocked with `do_not_publish_package`.
+
 ## PR Review Automation
 
 Pull requests should always run the deterministic PR checks. The Codex Review workflow is an elected paid reviewer, not an automatic blocker on every push. `.github/workflows/codex-review.yml` invokes pinned `openai/codex-action@a26d2d4d8b78a694338b8e3715c3630254340b2c` through `pull_request_target` for `opened`, `synchronize`, `reopened`, `ready_for_review`, `labeled`, and `unlabeled` events when the PR is not a draft and comes from the same repository, but the free preflight skips paid review unless a trusted operator applies `codex-review-elect` or `codex-review-force`. Fork PRs run a skip notice because `pull_request_target` must not expose repository secrets to untrusted PR code. Same-repository review jobs check the live PR state before checkout and immediately before the paid Codex action, requiring the PR to remain open, unmerged, not draft, and on the same head SHA as the triggering event so obsolete, draft, merged, or closed PRs do not fail on missing synthetic merge refs or spend review credits. The workflow keeps the review prompt inline, uses `safety-strategy: drop-sudo` and `sandbox: read-only`, and tells Codex to review only, avoid modifying files, and focus on actionable findings, protocol drift, race conditions, missing tests, and security-sensitive automation behavior.

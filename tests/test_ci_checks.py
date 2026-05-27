@@ -181,6 +181,7 @@ class CiChecksTests(unittest.TestCase):
             "codex-cadence",
             "python -m codex_cadence --help",
             "agentic-cadence pr-body-preflight --body-file pr-body.md --pr-template-file .github/pull_request_template.md",
+            "agentic-cadence release-dry-run --cwd . --version 0.1.1",
             "MIT",
         ):
             with self.subTest(token=token):
@@ -297,6 +298,7 @@ class CiChecksTests(unittest.TestCase):
             "pip install .",
             "adapter smoke contract",
             "PyPI publication is not part of this baseline",
+            "## Release Dry Run",
         ):
             with self.subTest(location="README", token=token):
                 self.assertIn(token, readme)
@@ -319,6 +321,7 @@ class CiChecksTests(unittest.TestCase):
         for token in (
             "# Release Checklist",
             "python scripts/public_release_audit.py --history",
+            "python scripts/cadence.py release-dry-run --cwd . --version <version>",
             "python scripts/validate_protocol.py",
             "python -m unittest discover -s tests -v",
             "python -m compileall scripts codex_cadence transmission_control tests",
@@ -330,6 +333,7 @@ class CiChecksTests(unittest.TestCase):
             "not a substitute for generic secret scanning",
             "CHANGELOG.md",
             "GitHub release notes",
+            "release_notes",
         ):
             with self.subTest(location="release docs", token=token):
                 self.assertIn(token, release)
@@ -672,7 +676,9 @@ class CiChecksTests(unittest.TestCase):
             "scripts/codex_review_preflight.py",
             "scripts/validate_protocol.py",
             "scripts/public_release_audit.py",
+            "codex_cadence/release.py",
             "tests/test_ci_checks.py",
+            "tests/test_release_dry_run.py",
             "@Chef-Code",
         ):
             with self.subTest(token=token):

@@ -148,6 +148,12 @@ PR readiness may check target-repository template compliance from local files. `
 
 PR body preflight covers the pre-publish side of the same template contract. `pr-body-preflight --body-file <path> --pr-template-file <path>` must read a draft PR body and a local Markdown pull request template, derive required template sections from template headings, and report missing template sections before PR creation or update. It must reuse the same heading parser as PR readiness, match draft body headings by normalized section label, ignore headings inside HTML comments or fenced code blocks without creating false setext headings across skipped blocks, stay repo-agnostic, and must not hard-code target-specific labels, call GitHub, rewrite the body file, create a PR, update a PR, spend paid review, or merge the PR. If no template file or `--required-body-section` is supplied, it must fail closed and recommend `provide_template_or_sections`.
 
+## Release Dry Run
+
+`release-dry-run` checks a release candidate before an operator creates a tag or GitHub release. It must read only local `pyproject.toml`, `CHANGELOG.md`, and Git refs; derive release notes from the matching changelog entry; verify the requested version matches package metadata; require the changelog entry to be the latest release entry; verify an existing tag points at the selected release commit; and report a clean-worktree, target-branch, and local `origin/<branch>` comparison when those refs are available.
+
+The packet must include `operator_confirmation_required: true` and recommend `create_tag_after_operator_confirmation`, `create_github_release_after_operator_confirmation`, `address_blockers`, or `do_not_publish_package` as appropriate. The command must not create tags, call GitHub, create a release, write release-note files, build distributions, upload artifacts, publish packages, push, or merge.
+
 ## Self-Evolution Rule
 
 Agentic Cadence may propose changes to itself, but it must not silently rewrite its own safety rules while executing active work. Self-evolution execution tasks are blocked by pickup and self-check under the default `propose_only` policy. Policy changes should be reviewed like normal code changes before becoming active.
