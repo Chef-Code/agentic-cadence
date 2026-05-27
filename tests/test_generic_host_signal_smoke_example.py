@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SMOKE_SCRIPT = ROOT / "examples" / "generic-host-signal" / "run.py"
 FIXTURE_DIR = ROOT / "examples" / "adapter-template" / "host-signal-fixtures"
+MAPPING_DOC = ROOT / "examples" / "adapter-template" / "host-binding-mapping.md"
 
 
 class GenericHostSignalSmokeExampleTests(unittest.TestCase):
@@ -114,6 +115,33 @@ class GenericHostSignalSmokeExampleTests(unittest.TestCase):
 
         self.assertIn("Run generic host-signal smoke example", workflow)
         self.assertIn("python examples/generic-host-signal/run.py --cadence-python python", workflow)
+
+    def test_host_binding_mapping_example_documents_future_binding_boundary(self):
+        self.assertTrue(MAPPING_DOC.exists(), "missing host-binding mapping example")
+
+        mapping = MAPPING_DOC.read_text(encoding="utf-8")
+        self.assertIn("Host Binding Mapping Example", mapping)
+        self.assertIn("examples/generic-host-signal/run.py", mapping)
+
+        table_rows = [line for line in mapping.splitlines() if line.startswith("| The ")]
+        context_row = next(row for row in table_rows if '`kind: "context_pressure"`' in row)
+        operator_row = next(row for row in table_rows if '`kind: "operator_stop"`' in row)
+        no_signal_row = next(row for row in table_rows if "no stop or handoff signal" in row)
+        self.assertIn("`--guardrail context`", context_row)
+        self.assertNotIn("`--guardrail operator_stop`", context_row)
+        self.assertIn("`--guardrail operator_stop`", operator_row)
+        self.assertNotIn("`--guardrail context`", operator_row)
+        self.assertIn("no Cadence call", no_signal_row)
+
+        lower_mapping = mapping.lower()
+        self.assertIn("adapter-local fields", lower_mapping)
+        self.assertIn("not a real host integration", lower_mapping)
+        self.assertIn("no claude or gemini adapter is shipped", lower_mapping)
+
+        adapters = (ROOT / "docs" / "adapters.md").read_text(encoding="utf-8")
+        roadmap = (ROOT / "docs" / "roadmap.md").read_text(encoding="utf-8")
+        self.assertIn("examples/adapter-template/host-binding-mapping.md", adapters)
+        self.assertIn("host-binding mapping example", roadmap)
 
 
 if __name__ == "__main__":
