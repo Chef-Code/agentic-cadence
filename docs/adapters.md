@@ -56,6 +56,12 @@ copyable adapter template as a subprocess, drives Cadence through the public
 CLI, and verifies the no-signal, `context_pressure`, and `operator_stop`
 mapping behavior before any real host adapter exists.
 
+The host-binding mapping example at
+`examples/adapter-template/host-binding-mapping.md` shows how a future host
+binding can translate host-observed events into the same fixture fields and
+public CLI arguments without shipping or claiming a real Claude or Gemini
+adapter.
+
 ## Required Behavior
 
 An adapter must:

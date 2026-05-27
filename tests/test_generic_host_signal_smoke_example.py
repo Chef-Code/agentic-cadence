@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SMOKE_SCRIPT = ROOT / "examples" / "generic-host-signal" / "run.py"
 FIXTURE_DIR = ROOT / "examples" / "adapter-template" / "host-signal-fixtures"
+MAPPING_DOC = ROOT / "examples" / "adapter-template" / "host-binding-mapping.md"
 
 
 class GenericHostSignalSmokeExampleTests(unittest.TestCase):
@@ -114,6 +115,27 @@ class GenericHostSignalSmokeExampleTests(unittest.TestCase):
 
         self.assertIn("Run generic host-signal smoke example", workflow)
         self.assertIn("python examples/generic-host-signal/run.py --cadence-python python", workflow)
+
+    def test_host_binding_mapping_example_documents_future_binding_boundary(self):
+        self.assertTrue(MAPPING_DOC.exists(), "missing host-binding mapping example")
+
+        mapping = MAPPING_DOC.read_text(encoding="utf-8")
+        self.assertIn("Host Binding Mapping Example", mapping)
+        self.assertIn("examples/generic-host-signal/run.py", mapping)
+        self.assertIn("context_pressure", mapping)
+        self.assertIn("`--guardrail context`", mapping)
+        self.assertIn("operator_stop", mapping)
+        self.assertIn("`--guardrail operator_stop`", mapping)
+        self.assertIn("no signal", mapping)
+        self.assertIn("no Cadence call", mapping)
+        self.assertIn("No Claude or Gemini adapter is shipped", mapping)
+        self.assertNotIn("Claude adapter is shipped", mapping.replace("No Claude or Gemini adapter is shipped", ""))
+        self.assertNotIn("Gemini adapter is shipped", mapping.replace("No Claude or Gemini adapter is shipped", ""))
+
+        adapters = (ROOT / "docs" / "adapters.md").read_text(encoding="utf-8")
+        roadmap = (ROOT / "docs" / "roadmap.md").read_text(encoding="utf-8")
+        self.assertIn("examples/adapter-template/host-binding-mapping.md", adapters)
+        self.assertIn("host-binding mapping example", roadmap)
 
 
 if __name__ == "__main__":
