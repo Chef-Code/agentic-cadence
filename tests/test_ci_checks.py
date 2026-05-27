@@ -290,6 +290,7 @@ class CiChecksTests(unittest.TestCase):
 
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")
+        protocol = (ROOT / "docs" / "protocol.md").read_text(encoding="utf-8")
         roadmap = (ROOT / "docs" / "roadmap.md").read_text(encoding="utf-8")
         changelog = changelog_path.read_text(encoding="utf-8")
         release = release_path.read_text(encoding="utf-8")
@@ -306,7 +307,13 @@ class CiChecksTests(unittest.TestCase):
             with self.subTest(location="README", token=token):
                 self.assertIn(token, readme)
 
-        for text_name, text in (("README", readme), ("SKILL", skill), ("release docs", release), ("roadmap", roadmap)):
+        for text_name, text in (
+            ("README", readme),
+            ("SKILL", skill),
+            ("protocol", protocol),
+            ("release docs", release),
+            ("roadmap", roadmap),
+        ):
             with self.subTest(location=text_name, stale_release_dry_run_example=True):
                 self.assertNotIn("release-dry-run --cwd . --version 0.1.1", text)
 
