@@ -701,64 +701,78 @@ class CiChecksTests(unittest.TestCase):
         self.assertEqual(errors, [])
 
     def test_release_dry_run_artifact_scripts_prepare_outputs_before_enforcement(self):
-        packet = {
-            "ready_to_release": False,
-            "operator_confirmation_required": True,
-            "recommended_next_action": "address_blockers",
-            "release_notes": "## 0.2.0 - 2026-05-27\n\nRelease notes.\n",
-            "warnings": [{"code": "warn:one,two", "message": "line%value\nnext\r"}],
-            "blockers": [{"code": "blocker:one,two", "message": "blocked%value\nnext\r"}],
-        }
+        cases = (
+            (
+                "blocked",
+                {
+                    "ready_to_release": False,
+                    "operator_confirmation_required": True,
+                    "recommended_next_action": "address_blockers",
+                    "release_notes": "## 0.2.0 - 2026-05-27\n\nBlocked release notes.\n",
+                    "warnings": [{"code": "warn:one,two", "message": "line%value\nnext\r"}],
+                    "blockers": [{"code": "blocker:one,two", "message": "blocked%value\nnext\r"}],
+                },
+                1,
+                "release_blocked",
+            ),
+            (
+                "ready",
+                {
+                    "ready_to_release": True,
+                    "operator_confirmation_required": True,
+                    "recommended_next_action": "create_tag_after_operator_confirmation",
+                    "release_notes": "## 0.2.0 - 2026-05-27\n\nReady release notes.\n",
+                    "warnings": [],
+                    "blockers": [],
+                },
+                0,
+                "No tags, GitHub releases, or package publications are created",
+            ),
+        )
 
-        with tempfile.TemporaryDirectory() as tmp:
-            tmp_root = Path(tmp)
-            (tmp_root / "release-dry-run.json").write_text(json.dumps(packet), encoding="utf-8")
-            output_path = tmp_root / "github-output.txt"
-            env = os.environ.copy()
-            env["GITHUB_OUTPUT"] = str(output_path)
+        for name, packet, expected_returncode, expected_output in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                tmp_root = Path(tmp)
+                (tmp_root / "release-dry-run.json").write_text(json.dumps(packet), encoding="utf-8")
+                output_path = tmp_root / "github-output.txt"
+                env = os.environ.copy()
+                env["GITHUB_OUTPUT"] = str(output_path)
 
-            prepare = subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / "prepare_release_dry_run_artifacts.py")],
-                cwd=tmp_root,
-                env=env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            enforce_env = env.copy()
-            enforce_env["READY_TO_RELEASE"] = "false"
-            enforce_env["OPERATOR_CONFIRMATION_REQUIRED"] = "true"
-            blocked = subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / "enforce_release_dry_run_result.py")],
-                cwd=tmp_root,
-                env=enforce_env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-            enforce_env["READY_TO_RELEASE"] = "true"
-            ready = subprocess.run(
-                [sys.executable, str(ROOT / "scripts" / "enforce_release_dry_run_result.py")],
-                cwd=tmp_root,
-                env=enforce_env,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
+                prepare = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts" / "prepare_release_dry_run_artifacts.py")],
+                    cwd=tmp_root,
+                    env=env,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                outputs = dict(
+                    line.split("=", 1)
+                    for line in output_path.read_text(encoding="utf-8").splitlines()
+                    if "=" in line
+                )
+                enforce_env = env.copy()
+                enforce_env["READY_TO_RELEASE"] = outputs["ready_to_release"]
+                enforce_env["OPERATOR_CONFIRMATION_REQUIRED"] = outputs["operator_confirmation_required"]
+                enforce = subprocess.run(
+                    [sys.executable, str(ROOT / "scripts" / "enforce_release_dry_run_result.py")],
+                    cwd=tmp_root,
+                    env=enforce_env,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                )
+                notes = (tmp_root / "release-notes.md").read_text(encoding="utf-8")
 
-            notes = (tmp_root / "release-notes.md").read_text(encoding="utf-8")
-            outputs = output_path.read_text(encoding="utf-8")
-
-        self.assertEqual(prepare.returncode, 0, prepare.stderr or prepare.stdout)
-        self.assertEqual(notes, packet["release_notes"])
-        self.assertIn("ready_to_release=false", outputs)
-        self.assertIn("operator_confirmation_required=true", outputs)
-        self.assertIn("::warning title=warn%3Aone%2Ctwo::line%25value%0Anext%0D", prepare.stdout)
-        self.assertIn("::error title=blocker%3Aone%2Ctwo::blocked%25value%0Anext%0D", prepare.stdout)
-        self.assertEqual(blocked.returncode, 1, blocked.stderr or blocked.stdout)
-        self.assertIn("release_blocked", blocked.stdout)
-        self.assertEqual(ready.returncode, 0, ready.stderr or ready.stdout)
-        self.assertIn("No tags, GitHub releases, or package publications are created", ready.stdout)
+            self.assertEqual(prepare.returncode, 0, prepare.stderr or prepare.stdout)
+            self.assertEqual(notes, packet["release_notes"])
+            self.assertEqual(outputs["ready_to_release"], str(packet["ready_to_release"]).lower())
+            self.assertEqual(outputs["operator_confirmation_required"], "true")
+            self.assertEqual(enforce.returncode, expected_returncode, enforce.stderr or enforce.stdout)
+            self.assertIn(expected_output, enforce.stdout)
+            if name == "blocked":
+                self.assertIn("::warning title=warn%3Aone%2Ctwo::line%25value%0Anext%0D", prepare.stdout)
+                self.assertIn("::error title=blocker%3Aone%2Ctwo::blocked%25value%0Anext%0D", prepare.stdout)
 
     def test_github_actions_are_pinned_to_full_commit_shas(self):
         workflow_dir = ROOT / ".github" / "workflows"
@@ -1081,6 +1095,14 @@ class CiChecksTests(unittest.TestCase):
                 "must not define job-level permissions",
             ),
             (
+                "inline_job_write_permission",
+                lambda text: text.replace(
+                    "    steps:\n",
+                    "    permissions: { contents: write }\n    steps:\n",
+                ),
+                "must not define job-level permissions",
+            ),
+            (
                 "workflow_write_permission",
                 lambda text: text.replace("  contents: read\n", "  contents: read\n  id-token: write\n"),
                 "workflow permissions must be exactly contents: read",
@@ -1126,6 +1148,18 @@ class CiChecksTests(unittest.TestCase):
                 "forbidden release command: git push",
             ),
             (
+                "piped_git_push",
+                lambda text: text.replace(
+                    "      - name: Enforce release dry-run result",
+                    "      - name: Illegal mutation\n"
+                    "        shell: bash\n"
+                    "        run: true | git push origin main\n\n"
+                    "      - name: Enforce release dry-run result",
+                    1,
+                ),
+                "forbidden release command: git push",
+            ),
+            (
                 "git_merge",
                 lambda text: text.replace(
                     "      - name: Enforce release dry-run result",
@@ -1136,6 +1170,17 @@ class CiChecksTests(unittest.TestCase):
                     1,
                 ),
                 "forbidden release command: git merge",
+            ),
+            (
+                "github_release_action",
+                lambda text: text.replace(
+                    "      - name: Enforce release dry-run result",
+                    "      - name: Illegal release action\n"
+                    "        uses: softprops/action-gh-release@1111111111111111111111111111111111111111\n\n"
+                    "      - name: Enforce release dry-run result",
+                    1,
+                ),
+                "release or publishing action: softprops/action-gh-release",
             ),
         )
 

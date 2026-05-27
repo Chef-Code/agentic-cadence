@@ -328,7 +328,14 @@ FORBIDDEN_TOKENS = {
     ),
 }
 
-FORBIDDEN_RELEASE_ACTIONS = ("pypa/gh-action-pypi-publish",)
+FORBIDDEN_RELEASE_ACTIONS = (
+    "actions/create-release",
+    "marvinpinto/action-automatic-releases",
+    "ncipollo/release-action",
+    "pypa/gh-action-pypi-publish",
+    "softprops/action-gh-release",
+    "svenstaro/upload-release-action",
+)
 
 SHELL_COMMAND_PREFIX = r"^(?:env\s+)?(?:[A-Za-z_][A-Za-z0-9_]*=\S+\s+)*(?:sudo\s+)?"
 FORBIDDEN_RELEASE_COMMAND_PATTERNS = {
@@ -449,15 +456,60 @@ def workflow_run_blocks(text: str) -> tuple[str, ...]:
     return tuple(blocks)
 
 
+def workflow_non_run_lines(text: str) -> tuple[str, ...]:
+    lines = text.splitlines()
+    visible = []
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        visible.append(line)
+        stripped = line.strip()
+        match = re.match(r"^(?:-\s*)?run:\s*(?P<value>.*)$", stripped)
+        if match is None or match.group("value").strip() not in ("|", ">"):
+            index += 1
+            continue
+
+        indent = len(line) - len(line.lstrip(" "))
+        index += 1
+        while index < len(lines):
+            child = lines[index]
+            child_indent = len(child) - len(child.lstrip(" "))
+            if child.strip() and child_indent <= indent:
+                break
+            index += 1
+    return tuple(visible)
+
+
+def workflow_has_job_permissions(text: str) -> bool:
+    in_jobs = False
+    for line in workflow_non_run_lines(text):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+
+        indent = len(line) - len(line.lstrip(" "))
+        if indent == 0:
+            in_jobs = stripped.split(":", 1)[0] == "jobs"
+            continue
+        if in_jobs and indent >= 4 and re.match(r"permissions\s*:", stripped):
+            return True
+    return False
+
+
 def shell_command_segments(line: str) -> tuple[str, ...]:
-    return tuple(segment.strip() for segment in re.split(r"(?:&&|\|\||;|\bthen\b|\bdo\b)", line) if segment.strip())
+    return tuple(
+        segment.strip()
+        for segment in re.split(r"(?:&&|\|\||(?<!\|)\|(?!\|)|;|\bthen\b|\bdo\b)", line)
+        if segment.strip()
+    )
 
 
 def validate_release_workflow_mutations(relative: str, text: str, errors: list[str]) -> None:
     for value in workflow_uses_values(text):
+        action_ref = value.lower().split("@", 1)[0]
         for action in FORBIDDEN_RELEASE_ACTIONS:
-            if value.startswith(action):
-                errors.append(f"{relative} must not use publishing action: {action}")
+            if action_ref == action:
+                errors.append(f"{relative} must not use release or publishing action: {action}")
 
     for block in workflow_run_blocks(text):
         for line in block.splitlines():
@@ -489,7 +541,7 @@ def validate_release_dry_run_workflow(errors: list[str]) -> None:
     permissions_block = indented_block_after(text, "permissions:")
     if mapping_at_indent(permissions_block, 2) != {"contents": "read"}:
         errors.append(f"{relative} workflow permissions must be exactly contents: read")
-    if re.search(r"(?m)^ {4,}permissions:\s*$", text):
+    if workflow_has_job_permissions(text):
         errors.append(f"{relative} must not define job-level permissions")
 
     for input_name in ("version", "tag"):
