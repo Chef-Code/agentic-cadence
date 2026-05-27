@@ -685,11 +685,18 @@ class CiChecksTests(unittest.TestCase):
             "ready_to_release",
             "operator_confirmation_required",
             "recommended_next_action",
+            "def escape_command",
+            "%25",
+            "%0A",
+            "%0D",
+            "escape_command(warning.get",
+            "escape_command(blocker.get",
             "No tags, GitHub releases, or package publications are created by this workflow.",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, text)
 
+        self.assertLess(text.index("Upload release dry-run artifacts"), text.index("Enforce release dry-run result"))
         self.assertIn("required: true", text[text.index("version:") : text.index("target_ref:")])
         self.assertIn("required: true", text[text.index("tag:") : text.index("target_ref:")])
         self.assertIn("required: false", text[text.index("target_ref:") : text.index("jobs:")])
@@ -703,6 +710,9 @@ class CiChecksTests(unittest.TestCase):
         self.assertNotIn("git merge", text)
         self.assertNotIn("twine upload", text)
         self.assertNotIn("pypa/gh-action-pypi-publish", text)
+        self.assertNotIn("repository_dispatch:", text)
+        self.assertNotIn("packages: write", text)
+        self.assertNotIn("id-token: write", text)
 
     def test_github_actions_are_pinned_to_full_commit_shas(self):
         workflow_dir = ROOT / ".github" / "workflows"
@@ -1010,6 +1020,58 @@ class CiChecksTests(unittest.TestCase):
                     "  workflow_dispatch:\n  schedule:\n    - cron: '0 0 * * *'\n",
                 ),
                 "forbidden token",
+            ),
+            (
+                "repository_dispatch",
+                lambda text: text.replace("  workflow_dispatch:\n", "  workflow_dispatch:\n  repository_dispatch:\n"),
+                "must declare only workflow_dispatch",
+            ),
+            (
+                "job_write_permission",
+                lambda text: text.replace(
+                    "    steps:\n",
+                    "    permissions:\n      packages: write\n    steps:\n",
+                ),
+                "must not define job-level permissions",
+            ),
+            (
+                "workflow_write_permission",
+                lambda text: text.replace("  contents: read\n", "  contents: read\n  id-token: write\n"),
+                "workflow permissions must be exactly contents: read",
+            ),
+            (
+                "missing_ready_failure",
+                lambda text: text.replace(
+                    '          if [[ "$READY_TO_RELEASE" != "true" ]]; then\n'
+                    '            echo "::error title=release_blocked::Release dry run reported blockers. Inspect release-dry-run artifact."\n'
+                    "            exit 1\n"
+                    "          fi\n",
+                    "",
+                ),
+                "must fail when ready_to_release is false",
+            ),
+            (
+                "missing_confirmation_failure",
+                lambda text: text.replace(
+                    '          if [[ "$OPERATOR_CONFIRMATION_REQUIRED" != "true" ]]; then\n'
+                    '            echo "::error title=operator_confirmation_required::Release dry-run packets must require operator confirmation."\n'
+                    "            exit 1\n"
+                    "          fi\n",
+                    "",
+                ),
+                "must fail when operator_confirmation_required is false",
+            ),
+            (
+                "artifacts_after_failure",
+                lambda text: text.replace(
+                    "      - name: Upload release dry-run artifacts",
+                    "      - name: Enforce release dry-run result\n"
+                    "        shell: bash\n"
+                    "        run: exit 1\n\n"
+                    "      - name: Upload release dry-run artifacts",
+                    1,
+                ),
+                "must upload artifacts before enforcing failure",
             ),
             (
                 "git_push",

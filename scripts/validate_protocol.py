@@ -300,6 +300,10 @@ REQUIRED_TOKENS = {
         "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
         "ready_to_release",
         "operator_confirmation_required",
+        "def escape_command",
+        "%25",
+        "%0A",
+        "%0D",
         "No tags, GitHub releases, or package publications are created by this workflow.",
     ),
 }
@@ -311,6 +315,8 @@ FORBIDDEN_TOKENS = {
     ),
     ".github/workflows/release-dry-run.yml": (
         "schedule:",
+        "repository_dispatch:",
+        "release:",
         "workflow_run:",
         "push:",
         "pull_request:",
@@ -377,6 +383,20 @@ def indented_block_after(text: str, header: str) -> str:
     return "\n".join(block)
 
 
+def mapping_at_indent(text: str, indent: int) -> dict[str, str]:
+    mapping = {}
+    prefix = " " * indent
+    for line in text.splitlines():
+        if not line.startswith(prefix) or line.startswith(prefix + " "):
+            continue
+        stripped = line.strip()
+        if ":" not in stripped:
+            continue
+        key, value = stripped.split(":", 1)
+        mapping[key] = value.strip()
+    return mapping
+
+
 def validate_release_dry_run_workflow(errors: list[str]) -> None:
     relative = ".github/workflows/release-dry-run.yml"
     path = ROOT / relative
@@ -391,6 +411,16 @@ def validate_release_dry_run_workflow(errors: list[str]) -> None:
         if token in text:
             errors.append(f"{relative} must not contain forbidden token: {token}")
 
+    on_block = indented_block_after(text, "on:")
+    if set(mapping_at_indent(on_block, 2)) != {"workflow_dispatch"}:
+        errors.append(f"{relative} must declare only workflow_dispatch")
+
+    permissions_block = indented_block_after(text, "permissions:")
+    if mapping_at_indent(permissions_block, 2) != {"contents": "read"}:
+        errors.append(f"{relative} workflow permissions must be exactly contents: read")
+    if re.search(r"(?m)^ {4,}permissions:\s*$", text):
+        errors.append(f"{relative} must not define job-level permissions")
+
     for input_name in ("version", "tag"):
         block = indented_block_after(text, f"      {input_name}:")
         if not block:
@@ -403,6 +433,26 @@ def validate_release_dry_run_workflow(errors: list[str]) -> None:
         errors.append(f"{relative} missing target_ref input")
     elif "required: false" not in target_ref_block:
         errors.append(f"{relative} target_ref input must be optional")
+
+    try:
+        upload_index = text.index("      - name: Upload release dry-run artifacts")
+        enforce_index = text.index("      - name: Enforce release dry-run result")
+    except ValueError:
+        errors.append(f"{relative} missing artifact upload or enforcement step")
+    else:
+        if upload_index > enforce_index:
+            errors.append(f"{relative} must upload artifacts before enforcing failure")
+
+    enforce_block = indented_block_after(text, "      - name: Enforce release dry-run result")
+    if not enforce_block:
+        errors.append(f"{relative} missing enforcement step")
+    else:
+        if 'if [[ "$READY_TO_RELEASE" != "true" ]]' not in enforce_block:
+            errors.append(f"{relative} must fail when ready_to_release is false")
+        if 'if [[ "$OPERATOR_CONFIRMATION_REQUIRED" != "true" ]]' not in enforce_block:
+            errors.append(f"{relative} must fail when operator_confirmation_required is false")
+        if enforce_block.count("exit 1") < 2:
+            errors.append(f"{relative} release enforcement must exit non-zero for blocked packets")
 
 
 def tuple_assignment(relative: str, name: str, errors: list[str]) -> tuple[str, ...] | None:

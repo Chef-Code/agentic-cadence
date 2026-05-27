@@ -66,10 +66,25 @@ jobs:
           print(f"ready_to_release={packet.get('ready_to_release')}")
           print(f"operator_confirmation_required={packet.get('operator_confirmation_required')}")
           print(f"recommended_next_action={packet.get('recommended_next_action')}")
+
+          def escape_command(value):
+              return (
+                  str(value)
+                  .replace("%", "%25")
+                  .replace("\r", "%0D")
+                  .replace("\n", "%0A")
+                  .replace(":", "%3A")
+                  .replace(",", "%2C")
+              )
+
           for warning in packet.get("warnings", []):
-              print(f"::warning title={warning.get('code', 'release_warning')}::{warning.get('message', warning)}")
+              code = escape_command(warning.get("code", "release_warning"))
+              message = escape_command(warning.get("message", warning))
+              print(f"::warning title={code}::{message}")
           for blocker in packet.get("blockers", []):
-              print(f"::error title={blocker.get('code', 'release_blocker')}::{blocker.get('message', blocker)}")
+              code = escape_command(blocker.get("code", "release_blocker"))
+              message = escape_command(blocker.get("message", blocker))
+              print(f"::error title={code}::{message}")
 
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write(f"ready_to_release={str(packet.get('ready_to_release')).lower()}\n")
