@@ -27,6 +27,9 @@ ADAPTER_TEMPLATE = ROOT / "examples" / "adapter-template" / "adapter.py"
 MAPPING_DOC_DISPLAY = "examples/adapter-template/host-binding-mapping.md"
 MAPPING_DOC = ROOT / "examples" / "adapter-template" / "host-binding-mapping.md"
 HOST_EVENT_DIR = SCRIPT_DIR / "host-events"
+DEFAULT_WORK_DIR = SCRIPT_DIR / "work"
+WORK_DIR_MARKER = ".generic-shell-host-binding-work"
+DEFAULT_CADENCE_COMMAND = "agentic-cadence"
 SCENARIOS = (
     ("no-event.json", None),
     ("context-pressure.json", "context"),
@@ -35,6 +38,19 @@ SCENARIOS = (
 ALLOWED_EVENTS = {"context_pressure", "operator_stop"}
 ALLOWED_CONFIDENCE = {"low", "medium", "high"}
 ALLOWED_TASK_TYPES = {"execution", "discovery"}
+ALLOWED_DRIVERS = {
+    "reviewer_feedback",
+    "ci_verification",
+    "external_review",
+    "multiple_files",
+    "unknown_repo_area",
+    "unclear_requirements",
+    "cross_subsystem",
+    "migration",
+    "irreversible_operation",
+    "self_evolution",
+}
+MAX_SOURCE_LENGTH = 64
 
 
 def run(
@@ -63,19 +79,47 @@ def run(
     return result
 
 
-def cadence_command_value(cadence_python: str | None, cadence_command: str) -> str:
-    python_command = cadence_python or os.environ.get("AGENTIC_CADENCE_PYTHON")
-    if python_command:
-        return f'"{python_command}" -m codex_cadence'
-    return cadence_command
+def cadence_command_value(cadence_python: str | None, cadence_command: str | None) -> str:
+    if cadence_python:
+        return f'"{cadence_python}" -m codex_cadence'
+    if cadence_command:
+        return cadence_command
+    env_python = os.environ.get("AGENTIC_CADENCE_PYTHON")
+    if env_python:
+        return f'"{env_python}" -m codex_cadence'
+    return DEFAULT_CADENCE_COMMAND
 
 
 def prepare_work_dir(path: Path, *, replace_existing: bool) -> None:
+    path = path.resolve()
     if path.exists():
+        if not path.is_dir():
+            raise RuntimeError(f"work directory path is not a directory: {path}")
         if not replace_existing:
             raise RuntimeError(f"work directory already exists: {path}; pass --replace-existing to reuse it")
+        ensure_safe_replacement_target(path)
         shutil.rmtree(path, onerror=remove_readonly)
     path.mkdir(parents=True)
+    (path / WORK_DIR_MARKER).write_text("Disposable generic shell host-binding work directory.\n", encoding="utf-8")
+
+
+def ensure_safe_replacement_target(path: Path) -> None:
+    default_work_dir = DEFAULT_WORK_DIR.resolve()
+    if path == default_work_dir or path.is_relative_to(default_work_dir):
+        return
+
+    blocked_paths = {
+        Path(path.anchor).resolve(),
+        Path.home().resolve(),
+        ROOT.resolve(),
+        SCRIPT_DIR.resolve(),
+    }
+    if path in blocked_paths:
+        raise RuntimeError(f"refusing to remove unsafe work directory target: {path}")
+
+    marker = path / WORK_DIR_MARKER
+    if not marker.is_file():
+        raise RuntimeError(f"refusing to remove custom work directory without {WORK_DIR_MARKER} marker: {path}")
 
 
 def remove_readonly(func: Any, path: str, _exc_info: Any) -> None:
@@ -120,13 +164,14 @@ def map_host_event_to_signal(event_payload: Any) -> dict[str, Any] | None:
     if task_type not in ALLOWED_TASK_TYPES:
         raise RuntimeError(f"unsupported host event task_type: {task_type!r}")
 
-    drivers = event_payload.get("drivers")
-    if not isinstance(drivers, list):
-        raise RuntimeError("host event drivers must be a JSON array")
+    drivers = validate_host_event_drivers(event_payload.get("drivers"))
 
     for field in ("source", "summary", "next_action"):
         if not isinstance(event_payload.get(field), str) or not event_payload[field].strip():
             raise RuntimeError(f"host event field {field!r} must be a non-empty string")
+
+    if len(event_payload["source"]) > MAX_SOURCE_LENGTH:
+        raise RuntimeError(f"host event source must be {MAX_SOURCE_LENGTH} characters or fewer")
 
     return {
         "kind": event,
@@ -137,6 +182,18 @@ def map_host_event_to_signal(event_payload: Any) -> dict[str, Any] | None:
         "drivers": drivers,
         "next_action": event_payload["next_action"],
     }
+
+
+def validate_host_event_drivers(drivers: Any) -> list[str]:
+    if not isinstance(drivers, list):
+        raise RuntimeError("host event drivers must be a JSON array")
+    selected = list(drivers)
+    for driver in selected:
+        if not isinstance(driver, str) or not driver.strip():
+            raise RuntimeError("host event drivers must be non-empty strings")
+        if driver not in ALLOWED_DRIVERS:
+            raise RuntimeError(f"unsupported host event driver: {driver}")
+    return selected
 
 
 def run_adapter_for_event(
@@ -245,7 +302,7 @@ def run_adapter_for_event(
 
 
 def run_stub(args: argparse.Namespace) -> dict[str, Any]:
-    work_dir = (args.work_dir or (SCRIPT_DIR / "work")).resolve()
+    work_dir = (args.work_dir or DEFAULT_WORK_DIR).resolve()
     replace_existing = args.replace_existing or args.work_dir is None
     prepare_work_dir(work_dir, replace_existing=replace_existing)
     command_value = cadence_command_value(args.cadence_python, args.cadence_command)
@@ -280,10 +337,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the generic shell host-binding stub example.")
     parser.add_argument("--work-dir", type=Path, help="Disposable work directory. Refuses existing custom paths by default.")
     parser.add_argument("--replace-existing", action="store_true", help="Remove an existing --work-dir before running.")
-    parser.add_argument("--cadence-command", default="agentic-cadence", help="Installed Cadence command to invoke.")
+    parser.add_argument("--cadence-command", help="Installed Cadence command to invoke.")
     parser.add_argument(
         "--cadence-python",
-        help="Run Cadence as '<python> -m codex_cadence'. Also configurable through AGENTIC_CADENCE_PYTHON.",
+        help=(
+            "Run Cadence as '<python> -m codex_cadence'. When omitted, AGENTIC_CADENCE_PYTHON is used "
+            "only if --cadence-command is also omitted."
+        ),
     )
     return parser
 

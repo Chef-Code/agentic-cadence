@@ -38,13 +38,15 @@ decisions through public commands such as `status` and `prepare-handoff`.
 ## Compatibility Check
 
 Before building a real host binding, compare the host event mapping against the
-generic smoke example:
+generic smoke and shell host-binding examples:
 
 ```bash
 python examples/generic-host-signal/run.py --cadence-python python
+python examples/generic-shell-host-binding/run.py --cadence-python python
 ```
 
-That smoke example runs `context_pressure`, `operator_stop`, and no signal
-fixtures through `examples/adapter-template/adapter.py` and verifies the public
-CLI mapping behavior. A real host binding should match those observable
+The generic smoke runs `context_pressure`, `operator_stop`, and no signal
+fixtures through `examples/adapter-template/adapter.py`. The shell
+host-binding stub adds a runnable host-event JSON mapping step before invoking
+the same adapter template. A real host binding should match those observable
 behaviors before adding host-specific event detection.
