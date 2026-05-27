@@ -50,6 +50,12 @@ The copyable template also includes generic JSON host-signal fixtures under
 `--host-signal-file` without claiming to be a Claude, Gemini, or other real
 host adapter.
 
+The generic host-signal smoke example at `examples/generic-host-signal/run.py`
+uses those fixtures as a host-neutral compatibility bridge. It invokes the
+copyable adapter template as a subprocess, drives Cadence through the public
+CLI, and verifies the no-signal, `context_pressure`, and `operator_stop`
+mapping behavior before any real host adapter exists.
+
 ## Required Behavior
 
 An adapter must:
@@ -88,6 +94,16 @@ python examples/adapter-smoke/run.py --cadence-python python
 The smoke covers `status`, `prepare-handoff`, approval-gated `claim-handoff`, `approve-handoff`, `complete-handoff`, `discover-candidates`, `pr-body-preflight`, and `pr-readiness`. Its output is a JSON summary that includes the raw command packets under `packets` and a `command_trace` that separates old-session adapter, operator approval, new-session adapter, and utility phases.
 
 Current packets may still contain Codex-compatible packet labels retained by the 0.1.x command surface. That is part of the current compatibility layer, not a requirement for future Claude or Gemini adapters. Host adapters should preserve returned packets and render host-specific text around them rather than rewriting packet contents.
+
+The generic host-signal smoke contract is also executable from a source clone:
+
+```bash
+python examples/generic-host-signal/run.py --cadence-python python
+```
+
+It is intentionally narrower than the full adapter smoke: it focuses on the
+host/session signal fixture mapping and the adapter template's preserved
+`status` and `prepare-handoff` packets.
 
 ## Copyable Adapter Template
 

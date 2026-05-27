@@ -21,6 +21,7 @@ __pycache__/
 .codex-cadence-demo/
 examples/first-run/work/
 examples/adapter-smoke/work/
+examples/generic-host-signal/work/
 dist/
 build/
 *.egg-info/

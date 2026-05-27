@@ -156,6 +156,7 @@ class CiChecksTests(unittest.TestCase):
             ".agentic-cadence-demo/",
             ".codex-cadence-demo/",
             "examples/first-run/work/",
+            "examples/generic-host-signal/work/",
             "dist/",
             "build/",
             "*.egg-info/",
