@@ -51,7 +51,7 @@ These are the important boundaries that are not solved yet:
 - Claimer, approver, and operator values are records, not authenticated identities with role enforcement.
 - Policy is conservative but not yet an organization-level policy engine.
 - Review integration is deterministic and local. Candidate discovery can ingest saved review findings and saved GitHub review-thread files, while `pr-readiness` reads saved PR data; Cadence does not fetch, synchronize, or resolve live GitHub review threads.
-- Release verification is documented and repeatable, and `release-dry-run` can inspect the local target commit, changelog notes, and tag status, but release tagging and GitHub release creation still require operator execution.
+- Release verification is documented and repeatable, and `release-dry-run` can inspect the local target commit, changelog notes, and tag status locally or through a manual GitHub Actions workflow, but release tagging and GitHub release creation still require operator execution.
 - Package distribution is clone-based. PyPI publication is not part of the current baseline.
 - The user experience is primarily CLI and JSON, with static visual docs rather than a live dashboard.
 - Some packet labels remain Codex-compatible in 0.1.x. Adapters must preserve packets and render host-specific text around them instead of rewriting packet contents.
@@ -79,7 +79,7 @@ A mature Agentic Cadence system should provide:
 - Treat the CLI JSON packets as the public adapter boundary.
 - Preserve Codex compatibility while moving user-facing docs toward agent-neutral language.
 - Use PRs, required CI, elected bot review where appropriate, and release checks before tagging public releases.
-- Use `release-dry-run` before operator-created tags or GitHub releases to compare generated notes, target commit, and tag status.
+- Use `release-dry-run` or the manual GitHub Actions dry-run workflow before operator-created tags or GitHub releases to compare generated notes, target commit, and tag status.
 
 ### Next
 

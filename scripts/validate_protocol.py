@@ -65,7 +65,10 @@ REQUIRED_TOKENS = {
         "update_pr_body",
         "provide_template_or_sections",
         "release-dry-run",
+        ".github/workflows/release-dry-run.yml",
         "operator_confirmation_required",
+        "release-dry-run.json",
+        "release-notes.md",
         "create_tag_after_operator_confirmation",
         "do_not_publish_package",
         "reviewThreads",
@@ -147,7 +150,10 @@ REQUIRED_TOKENS = {
         "--body-file",
         "provide_template_or_sections",
         "release-dry-run",
+        ".github/workflows/release-dry-run.yml",
         "operator_confirmation_required",
+        "release-dry-run.json",
+        "release-notes.md",
         "create_github_release_after_operator_confirmation",
         "do_not_publish_package",
         "reviewThreads",
@@ -275,12 +281,47 @@ REQUIRED_TOKENS = {
         "PR_LABELS_JSON",
         "codex-review-elect",
     ),
+    ".github/workflows/release-dry-run.yml": (
+        "workflow_dispatch",
+        "version:",
+        "tag:",
+        "target_ref:",
+        "permissions:",
+        "contents: read",
+        "ref: main",
+        "fetch-depth: 0",
+        "fetch-tags: true",
+        "python scripts/cadence.py release-dry-run",
+        "--version \"$RELEASE_VERSION\"",
+        "--tag \"$RELEASE_TAG\"",
+        "--target-ref \"$TARGET_REF\"",
+        "release-dry-run.json",
+        "release-notes.md",
+        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        "ready_to_release",
+        "operator_confirmation_required",
+        "No tags, GitHub releases, or package publications are created by this workflow.",
+    ),
 }
 
 FORBIDDEN_TOKENS = {
     ".github/workflows/codex-review.yml": (
         "refs/pull/${{ github.event.pull_request.number }}/merge",
         "refs/remotes/pull/${PR_NUMBER}/head",
+    ),
+    ".github/workflows/release-dry-run.yml": (
+        "schedule:",
+        "workflow_run:",
+        "push:",
+        "pull_request:",
+        "pull_request_target:",
+        "workflow_call:",
+        "gh release create",
+        "git tag",
+        "git push",
+        "git merge",
+        "twine upload",
+        "pypa/gh-action-pypi-publish",
     ),
 }
 
@@ -318,6 +359,50 @@ def validate_tokens(errors: list[str]) -> None:
         for token in tokens:
             if token in text:
                 errors.append(f"{relative} must not contain forbidden token: {token}")
+
+
+def indented_block_after(text: str, header: str) -> str:
+    lines = text.splitlines()
+    try:
+        start = next(index for index, line in enumerate(lines) if line == header)
+    except StopIteration:
+        return ""
+
+    header_indent = len(header) - len(header.lstrip(" "))
+    block = []
+    for line in lines[start + 1 :]:
+        if line.strip() and len(line) - len(line.lstrip(" ")) <= header_indent:
+            break
+        block.append(line)
+    return "\n".join(block)
+
+
+def validate_release_dry_run_workflow(errors: list[str]) -> None:
+    relative = ".github/workflows/release-dry-run.yml"
+    path = ROOT / relative
+    if not path.exists():
+        errors.append(f"missing required file: {relative}")
+        return
+
+    text = path.read_text(encoding="utf-8")
+    if "workflow_dispatch:" not in text:
+        errors.append(f"{relative} must use workflow_dispatch")
+    for token in FORBIDDEN_TOKENS.get(relative, ()):
+        if token in text:
+            errors.append(f"{relative} must not contain forbidden token: {token}")
+
+    for input_name in ("version", "tag"):
+        block = indented_block_after(text, f"      {input_name}:")
+        if not block:
+            errors.append(f"{relative} missing {input_name} input")
+        elif "required: true" not in block:
+            errors.append(f"{relative} {input_name} input must be required")
+
+    target_ref_block = indented_block_after(text, "      target_ref:")
+    if not target_ref_block:
+        errors.append(f"{relative} missing target_ref input")
+    elif "required: false" not in target_ref_block:
+        errors.append(f"{relative} target_ref input must be optional")
 
 
 def tuple_assignment(relative: str, name: str, errors: list[str]) -> tuple[str, ...] | None:
@@ -463,6 +548,7 @@ def main() -> int:
     errors: list[str] = []
     validate_frontmatter(ROOT / "SKILL.md", errors)
     validate_tokens(errors)
+    validate_release_dry_run_workflow(errors)
     validate_business_memory_contract(errors)
     if errors:
         for error in errors:

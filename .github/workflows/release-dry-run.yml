@@ -1,0 +1,105 @@
+name: Release Dry Run
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version from pyproject.toml and CHANGELOG.md.
+        required: true
+        type: string
+      tag:
+        description: Release tag to verify, usually v<version>.
+        required: true
+        type: string
+      target_ref:
+        description: Optional Git ref or SHA that must match checked-out HEAD.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    name: Release dry run
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out main with tags
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          ref: main
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.12"
+
+      - name: Run release dry run
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          TARGET_REF: ${{ inputs.target_ref }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$TARGET_REF" ]]; then
+            python scripts/cadence.py release-dry-run --cwd . --version "$RELEASE_VERSION" --tag "$RELEASE_TAG" --target-ref "$TARGET_REF" | tee release-dry-run.json
+          else
+            python scripts/cadence.py release-dry-run --cwd . --version "$RELEASE_VERSION" --tag "$RELEASE_TAG" | tee release-dry-run.json
+          fi
+
+      - name: Prepare release artifacts
+        id: inspect
+        shell: python
+        run: |
+          import json
+          import os
+          import pathlib
+
+          packet_path = pathlib.Path("release-dry-run.json")
+          packet = json.loads(packet_path.read_text(encoding="utf-8"))
+          pathlib.Path("release-notes.md").write_text(packet.get("release_notes", ""), encoding="utf-8")
+
+          print(f"ready_to_release={packet.get('ready_to_release')}")
+          print(f"operator_confirmation_required={packet.get('operator_confirmation_required')}")
+          print(f"recommended_next_action={packet.get('recommended_next_action')}")
+          for warning in packet.get("warnings", []):
+              print(f"::warning title={warning.get('code', 'release_warning')}::{warning.get('message', warning)}")
+          for blocker in packet.get("blockers", []):
+              print(f"::error title={blocker.get('code', 'release_blocker')}::{blocker.get('message', blocker)}")
+
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              output.write(f"ready_to_release={str(packet.get('ready_to_release')).lower()}\n")
+              output.write(
+                  "operator_confirmation_required="
+                  f"{str(packet.get('operator_confirmation_required')).lower()}\n"
+              )
+
+      - name: Upload release dry-run artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: release-dry-run
+          path: |
+            release-dry-run.json
+            release-notes.md
+          if-no-files-found: error
+
+      - name: Enforce release dry-run result
+        shell: bash
+        env:
+          READY_TO_RELEASE: ${{ steps.inspect.outputs.ready_to_release }}
+          OPERATOR_CONFIRMATION_REQUIRED: ${{ steps.inspect.outputs.operator_confirmation_required }}
+        run: |
+          set -euo pipefail
+          if [[ "$OPERATOR_CONFIRMATION_REQUIRED" != "true" ]]; then
+            echo "::error title=operator_confirmation_required::Release dry-run packets must require operator confirmation."
+            exit 1
+          fi
+          if [[ "$READY_TO_RELEASE" != "true" ]]; then
+            echo "::error title=release_blocked::Release dry run reported blockers. Inspect release-dry-run artifact."
+            exit 1
+          fi
+          echo "No tags, GitHub releases, or package publications are created by this workflow."

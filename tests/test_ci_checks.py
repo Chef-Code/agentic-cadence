@@ -334,6 +334,8 @@ class CiChecksTests(unittest.TestCase):
 
         for token in (
             "# Release Checklist",
+            "Manual GitHub Actions dry run",
+            ".github/workflows/release-dry-run.yml",
             "python scripts/public_release_audit.py --history",
             "python scripts/cadence.py release-dry-run --cwd . --version <version>",
             "python scripts/validate_protocol.py",
@@ -659,6 +661,49 @@ class CiChecksTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, text)
 
+    def test_release_dry_run_workflow_is_manual_read_only_and_artifacted(self):
+        workflow = ROOT / ".github" / "workflows" / "release-dry-run.yml"
+        self.assertTrue(workflow.exists(), "missing release dry-run workflow")
+        text = workflow.read_text(encoding="utf-8")
+
+        for token in (
+            "workflow_dispatch:",
+            "version:",
+            "tag:",
+            "target_ref:",
+            "permissions:",
+            "contents: read",
+            "fetch-depth: 0",
+            "python-version: \"3.12\"",
+            "python scripts/cadence.py release-dry-run",
+            "--version \"$RELEASE_VERSION\"",
+            "--tag \"$RELEASE_TAG\"",
+            "--target-ref \"$TARGET_REF\"",
+            "release-dry-run.json",
+            "release-notes.md",
+            "actions/upload-artifact@",
+            "ready_to_release",
+            "operator_confirmation_required",
+            "recommended_next_action",
+            "No tags, GitHub releases, or package publications are created by this workflow.",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, text)
+
+        self.assertIn("required: true", text[text.index("version:") : text.index("target_ref:")])
+        self.assertIn("required: true", text[text.index("tag:") : text.index("target_ref:")])
+        self.assertIn("required: false", text[text.index("target_ref:") : text.index("jobs:")])
+        self.assertNotIn("schedule:", text)
+        self.assertNotIn("workflow_run:", text)
+        self.assertNotIn("push:", text)
+        self.assertNotIn("pull_request:", text)
+        self.assertNotIn("gh release create", text)
+        self.assertNotIn("git tag", text)
+        self.assertNotIn("git push", text)
+        self.assertNotIn("git merge", text)
+        self.assertNotIn("twine upload", text)
+        self.assertNotIn("pypa/gh-action-pypi-publish", text)
+
     def test_github_actions_are_pinned_to_full_commit_shas(self):
         workflow_dir = ROOT / ".github" / "workflows"
         self.assertTrue(workflow_dir.exists(), "missing workflow directory")
@@ -944,6 +989,56 @@ class CiChecksTests(unittest.TestCase):
             any("forbidden token" in error for error in errors),
             f"expected forbidden token error, got {errors}",
         )
+
+    def test_protocol_validator_rejects_release_workflow_guard_drift(self):
+        validator = load_validate_protocol()
+        source = ROOT / ".github" / "workflows" / "release-dry-run.yml"
+
+        cases = (
+            (
+                "tag_not_required",
+                lambda text: text.replace(
+                    "      tag:\n        description: Release tag to verify, usually v<version>.\n        required: true",
+                    "      tag:\n        description: Release tag to verify, usually v<version>.\n        required: false",
+                ),
+                "tag input must be required",
+            ),
+            (
+                "scheduled",
+                lambda text: text.replace(
+                    "  workflow_dispatch:\n",
+                    "  workflow_dispatch:\n  schedule:\n    - cron: '0 0 * * *'\n",
+                ),
+                "forbidden token",
+            ),
+            (
+                "git_push",
+                lambda text: text + "\n# git push origin main\n",
+                "forbidden token",
+            ),
+            (
+                "git_merge",
+                lambda text: text + "\n# git merge release-candidate\n",
+                "forbidden token",
+            ),
+        )
+
+        for name, mutate, expected in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                tmp_root = Path(tmp)
+                workflow = tmp_root / ".github" / "workflows" / "release-dry-run.yml"
+                workflow.parent.mkdir(parents=True)
+                workflow.write_text(mutate(source.read_text(encoding="utf-8")), encoding="utf-8")
+
+                original_root = validator.ROOT
+                validator.ROOT = tmp_root
+                try:
+                    errors = []
+                    validator.validate_release_dry_run_workflow(errors)
+                finally:
+                    validator.ROOT = original_root
+
+            self.assertTrue(any(expected in error for error in errors), f"expected {expected!r}, got {errors}")
 
     def test_protocol_validator_rejects_business_memory_status_drift(self):
         validator = load_validate_protocol()
