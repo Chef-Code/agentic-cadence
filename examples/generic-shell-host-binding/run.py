@@ -30,12 +30,17 @@ HOST_EVENT_DIR = SCRIPT_DIR / "host-events"
 DEFAULT_WORK_DIR = SCRIPT_DIR / "work"
 WORK_DIR_MARKER = ".generic-shell-host-binding-work"
 DEFAULT_CADENCE_COMMAND = "agentic-cadence"
+EXTERNAL_SCENARIO_SLUG = "external-host-event"
 SCENARIOS = (
     ("no-event.json", None),
     ("context-pressure.json", "context"),
     ("operator-stop.json", "operator_stop"),
 )
 ALLOWED_EVENTS = {"context_pressure", "operator_stop"}
+EVENT_GUARDRAILS = {
+    "context_pressure": "context",
+    "operator_stop": "operator_stop",
+}
 ALLOWED_CONFIDENCE = {"low", "medium", "high"}
 ALLOWED_TASK_TYPES = {"execution", "discovery"}
 ALLOWED_DRIVERS = {
@@ -146,6 +151,17 @@ def load_host_event(event_name: str) -> Any:
     return json.loads((HOST_EVENT_DIR / event_name).read_text(encoding="utf-8"))
 
 
+def load_host_event_file(path: Path) -> Any:
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except OSError as exc:
+        raise RuntimeError(f"host event file could not be read: {path}") from exc
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"host event file is not valid JSON: {path}") from exc
+
+
 def map_host_event_to_signal(event_payload: Any) -> dict[str, Any] | None:
     if event_payload is None:
         return None
@@ -204,13 +220,31 @@ def run_adapter_for_event(
     cadence_command: str,
 ) -> dict[str, Any]:
     scenario_slug = event_name.removesuffix(".json")
+    return run_adapter_for_payload(
+        host_event=load_host_event(event_name),
+        event_label=event_name,
+        scenario_slug=scenario_slug,
+        expected_guardrail=expected_guardrail,
+        work_dir=work_dir,
+        cadence_command=cadence_command,
+    )
+
+
+def run_adapter_for_payload(
+    *,
+    host_event: Any,
+    event_label: str,
+    scenario_slug: str,
+    expected_guardrail: str | None,
+    work_dir: Path,
+    cadence_command: str,
+) -> dict[str, Any]:
     scenario_dir = work_dir / scenario_slug
     runtime_root = scenario_dir / "runtime"
     target_repo = scenario_dir / "repo"
     generated_signal = scenario_dir / "host-signal.json"
     init_target_repo(target_repo)
 
-    host_event = load_host_event(event_name)
     signal_payload = map_host_event_to_signal(host_event)
     generated_signal.parent.mkdir(parents=True, exist_ok=True)
     generated_signal.write_text(json.dumps(signal_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
@@ -253,13 +287,13 @@ def run_adapter_for_event(
     observed_next_action = None
     if expected_guardrail is not None:
         if not isinstance(signal_payload, dict):
-            raise RuntimeError(f"{event_name} must map to a signal payload")
+            raise RuntimeError(f"{event_label} must map to a signal payload")
         prepare_packet = packets.get("prepare_handoff")
         if not isinstance(prepare_packet, dict):
-            raise RuntimeError(f"{event_name} did not preserve prepare_handoff packet")
+            raise RuntimeError(f"{event_label} did not preserve prepare_handoff packet")
         handoff = prepare_packet.get("handoff")
         if not isinstance(handoff, dict):
-            raise RuntimeError(f"{event_name} prepare_handoff packet is missing handoff")
+            raise RuntimeError(f"{event_label} prepare_handoff packet is missing handoff")
         clean_square = prepare_packet.get("clean_square")
         estimate_input = handoff.get("estimate_input")
         message = handoff.get("message")
@@ -279,14 +313,14 @@ def run_adapter_for_event(
         }
         for field, (observed, expected) in expected_mappings.items():
             if observed != expected:
-                raise RuntimeError(f"{event_name} mapped {field} to {observed!r}, expected {expected!r}")
+                raise RuntimeError(f"{event_label} mapped {field} to {observed!r}, expected {expected!r}")
         if not adapter_output.get("stop_current_session"):
-            raise RuntimeError(f"{event_name} did not surface stop_current_session")
+            raise RuntimeError(f"{event_label} did not surface stop_current_session")
     elif signal_payload is not None or adapter_output.get("result") != "no_handoff_needed" or packets:
-        raise RuntimeError(f"{event_name} should not call Cadence or prepare a handoff")
+        raise RuntimeError(f"{event_label} should not call Cadence or prepare a handoff")
 
     return {
-        "host_event_file": event_name,
+        "host_event_file": event_label,
         "host_event": host_event.get("event") if isinstance(host_event, dict) else None,
         "mapped_signal_kind": signal_payload.get("kind") if isinstance(signal_payload, dict) else None,
         "adapter_result": adapter_output.get("result"),
@@ -333,10 +367,50 @@ def run_stub(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def run_event_file(args: argparse.Namespace) -> dict[str, Any]:
+    host_event_file = args.host_event_file.resolve()
+    host_event = load_host_event_file(host_event_file)
+    signal_payload = map_host_event_to_signal(host_event)
+    expected_guardrail = (
+        EVENT_GUARDRAILS[signal_payload["kind"]]
+        if isinstance(signal_payload, dict)
+        else None
+    )
+
+    work_dir = (args.work_dir or DEFAULT_WORK_DIR).resolve()
+    replace_existing = args.replace_existing or args.work_dir is None
+    prepare_work_dir(work_dir, replace_existing=replace_existing)
+    command_value = cadence_command_value(args.cadence_python, args.cadence_command)
+    scenario = run_adapter_for_payload(
+        host_event=host_event,
+        event_label=str(host_event_file),
+        scenario_slug=EXTERNAL_SCENARIO_SLUG,
+        expected_guardrail=expected_guardrail,
+        work_dir=work_dir,
+        cadence_command=command_value,
+    )
+
+    return {
+        "result": "generic_shell_host_binding_event_passed",
+        "work_dir": str(work_dir),
+        "host_event_file": str(host_event_file),
+        "adapter_template_path": ADAPTER_TEMPLATE_DISPLAY,
+        "adapter_template": str(ADAPTER_TEMPLATE),
+        "mapping_doc_path": MAPPING_DOC_DISPLAY,
+        "mapping_doc": str(MAPPING_DOC),
+        "host_binding_note": (
+            "This file-backed generic shell host binding consumes one external host-event JSON file "
+            "and maps it through the adapter template and public CLI."
+        ),
+        "scenario": scenario,
+    }
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the generic shell host-binding stub example.")
     parser.add_argument("--work-dir", type=Path, help="Disposable work directory. Refuses existing custom paths by default.")
     parser.add_argument("--replace-existing", action="store_true", help="Remove an existing --work-dir before running.")
+    parser.add_argument("--host-event-file", type=Path, help="External host-event JSON file to process once.")
     parser.add_argument("--cadence-command", help="Installed Cadence command to invoke.")
     parser.add_argument(
         "--cadence-python",
@@ -352,7 +426,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        summary = run_stub(args)
+        summary = run_event_file(args) if args.host_event_file else run_stub(args)
     except Exception as exc:
         print(f"generic shell host-binding stub failed: {exc}", file=sys.stderr)
         return 1

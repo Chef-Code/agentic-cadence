@@ -43,10 +43,13 @@ generic smoke and shell host-binding examples:
 ```bash
 python examples/generic-host-signal/run.py --cadence-python python
 python examples/generic-shell-host-binding/run.py --cadence-python python
+python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-file /path/to/host-event.json
 ```
 
 The generic smoke runs `context_pressure`, `operator_stop`, and no signal
 fixtures through `examples/adapter-template/adapter.py`. The shell
-host-binding stub adds a runnable host-event JSON mapping step before invoking
-the same adapter template. A real host binding should match those observable
-behaviors before adding host-specific event detection.
+host-binding example adds a runnable host-event JSON mapping step before
+invoking the same adapter template. Its fixture mode uses the bundled examples;
+its file-backed `--host-event-file` mode consumes one external host-event JSON
+object, or JSON `null` for no handoff needed. A real host binding should match
+those observable behaviors before adding host-specific event detection.
