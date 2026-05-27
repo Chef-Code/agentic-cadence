@@ -66,9 +66,10 @@ The generic shell host-binding example at
 `examples/generic-shell-host-binding/run.py` turns simple host-event JSON into
 that same adapter-local signal shape, invokes the copyable adapter template, and
 verifies the public CLI behavior. Its fixture smoke mode runs the bundled
-host-event examples, while `--host-event-file` provides a file-backed path for
-one external host-event JSON object or JSON `null`. It is a runnable
-host-binding pattern, not a real host adapter.
+host-event examples, while `--host-event-file` and `--host-event-stdin`
+provide file-backed and stdin-backed paths for one external host-event JSON
+object or JSON `null`. It is a runnable host-binding pattern, not a real host
+adapter.
 
 ## Required Behavior
 
@@ -126,17 +127,19 @@ python examples/generic-shell-host-binding/run.py --cadence-python python
 ```
 
 That command runs the bundled fixture smoke. To exercise a real shell-captured
-signal without adding a host-specific adapter, pass a file-backed host event:
+signal without adding a host-specific adapter, pass a file-backed host event or
+pipe one host-event payload through stdin:
 
 ```bash
 python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-file /path/to/host-event.json
+some-host-signal-command | python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-stdin
 ```
 
-The external file must be one host-event JSON object for `context_pressure` or
-`operator_stop`, or JSON `null` when no handoff is needed. This is narrower
-still than a real adapter: it proves that a host binding can map host-native
-event JSON into the generic signal shape before handing control to the adapter
-template and public CLI.
+The external file or stdin payload must be one host-event JSON object for
+`context_pressure` or `operator_stop`, or JSON `null` when no handoff is
+needed. This is narrower still than a real adapter: it proves that a host
+binding can map host-native event JSON into the generic signal shape before
+handing control to the adapter template and public CLI.
 
 ## Copyable Adapter Template
 
