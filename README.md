@@ -65,6 +65,20 @@ Claude or Gemini adapter. The replay contract verifies that the same payload
 produces the same normalized adapter/CLI-observed behavior through bundled
 fixture, file-backed, and stdin-backed paths.
 
+The generic external host-binding conformance harness compares a supplied
+binding command against the same generic shell replay baseline before any named
+host adapter is claimed:
+
+```bash
+python examples/external-host-binding-conformance/run.py --cadence-python python
+```
+
+By default it uses the generic shell host-binding example as the sample external
+command. Future host bindings can pass `--binding-command-template` with
+quoted path placeholders such as `"{host_event_file}"` and
+`"{case_work_dir}"` to prove they match the generic fixture behavior without
+claiming Claude or Gemini adapter support.
+
 ## Protocol At A Glance
 
 ![Four-step Agentic Cadence handoff flow from old context to signed handoff, clean square, and fresh agent.](docs/assets/handoff-flow.svg)

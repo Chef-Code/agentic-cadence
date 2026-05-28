@@ -90,3 +90,6 @@ jobs:
 
       - name: Run generic host/shell parity contract
         run: python examples/generic-host-signal/run.py --parity-contract --cadence-python python
+
+      - name: Run external host-binding conformance harness
+        run: python examples/external-host-binding-conformance/run.py --cadence-python python

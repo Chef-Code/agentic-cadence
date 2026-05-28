@@ -48,6 +48,7 @@ python examples/generic-shell-host-binding/run.py --cadence-python python
 python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-file /path/to/host-event.json
 some-host-signal-command | python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-stdin
 python examples/generic-shell-host-binding/run.py --replay-contract --cadence-python python
+python examples/external-host-binding-conformance/run.py --cadence-python python
 ```
 
 The schema contract validates the checked-in host-signal fixtures and generic
@@ -75,3 +76,10 @@ The host/shell parity contract compares the generic host-signal smoke with the
 generic shell replay contract. Use it to catch drift between the adapter-template
 host-signal fixtures and the shell host-event fixtures before adding
 host-specific detection.
+
+The external host-binding conformance harness compares a supplied binding
+command against the generic shell replay baseline. Its default command uses the
+generic shell host-binding example as a sample external binding; future named
+adapters can pass `--binding-command-template` with quoted path placeholders
+such as `"{host_event_file}"` and `"{case_work_dir}"` before claiming
+host-specific support.

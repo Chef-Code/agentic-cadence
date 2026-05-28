@@ -89,6 +89,14 @@ their normalized adapter/CLI behavior. The comparison ignores timestamps and
 temporary paths while checking the observed event, guardrail, summary, task
 type, drivers, next action, packet keys, handoff status, and stop signal.
 
+The generic external host-binding conformance harness at
+`examples/external-host-binding-conformance/run.py` compares a supplied binding
+command against that generic shell replay baseline. By default it uses the
+generic shell host-binding example as the sample external command; future host
+bindings can pass `--binding-command-template` with quoted path placeholders
+such as `"{host_event_file}"` and `"{case_work_dir}"`. This is a pre-claim
+acceptance harness, not a Claude, Gemini, or other named host adapter.
+
 ## Required Behavior
 
 An adapter must:
@@ -169,6 +177,21 @@ It verifies that the same host-event payload stays consistent across the
 bundled fixture, file-backed, and stdin-backed paths without claiming support
 for any named non-Codex host adapter.
 
+Use the external host-binding conformance harness before claiming a future
+host-specific binding matches the generic behavior. The default command uses the
+generic shell host-binding example as the sample external command and proves the
+harness plumbing:
+
+```bash
+python examples/external-host-binding-conformance/run.py --cadence-python python
+```
+
+For a future binding, pass a command template and quote path placeholders:
+
+```bash
+python examples/external-host-binding-conformance/run.py --cadence-python python --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
+```
+
 ## Copyable Adapter Template
 
 The copyable host adapter template lives at `examples/adapter-template`. It is the smallest practical shape for a future host binding: call the public CLI, pass an explicit runtime root, preserve returned JSON packets, stop on `stop_current_session`, and render host-specific pickup text around the preserved packet.
@@ -181,8 +204,8 @@ The current adapter work is documentation, executable smoke fixtures, a copyable
 template, host-signal fixtures, a host-binding mapping example, and a generic
 shell host-binding pattern with fixture, file, and stdin input modes plus the
 replay-contract verifier. It also includes a generic host/shell parity
-contract. It is not a full host integration. A small host adapter package
-should prove that it can:
+contract and an external host-binding conformance harness. It is not a full
+host integration. A small host adapter package should prove that it can:
 
 - call the CLI without private imports;
 - pass an explicit runtime root;
