@@ -153,6 +153,26 @@ class CiChecksTests(unittest.TestCase):
         self.assertEqual(project["urls"]["Issues"], "https://github.com/Chef-Code/agentic-cadence/issues")
         self.assertNotIn("License :: OSI Approved :: MIT License", project["classifiers"])
 
+    def test_public_identity_contract_keeps_agentic_primary_and_legacy_aliases(self):
+        pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        project = pyproject["project"]
+        scripts = project["scripts"]
+
+        self.assertEqual(project["name"], "agentic-cadence")
+        self.assertEqual(
+            scripts,
+            {
+                "agentic-cadence": "codex_cadence.cli:main",
+                "codex-cadence": "codex_cadence.cli:main",
+                "codex-transmission": "transmission_control.cli:main",
+            },
+        )
+        keywords = {keyword.lower() for keyword in project["keywords"]}
+        self.assertIn("agentic", keywords)
+        self.assertIn("codex", keywords)
+        self.assertNotIn("claude", keywords)
+        self.assertNotIn("gemini", keywords)
+
     def test_pyproject_uses_explicit_package_discovery(self):
         pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
