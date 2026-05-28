@@ -18,6 +18,8 @@ Entry schema:
   active.
 - Use `Workflow`, `Time Saved`, `Risk`, `Pain`, `Signals`, and `Do not` fields.
 - `Time Saved` and `Risk` values should be `high`, `medium`, or `low`.
+- Keep entry field values and list items on one physical line; wrapped
+  continuation lines are treated as malformed discovery input.
 - Business-memory entries are discovery input only; they do not authorize
   implementation, paid review spending, commits, pushes, or merges outside
   normal Cadence governance.
@@ -28,18 +30,13 @@ Kind: direction
 Workflow: Public package readiness
 Time Saved: high
 Risk: medium
-Pain: The project began as a Codex-focused protocol, but the public tool should
-make room for Codex, Claude, Gemini, and future coding agents without implying
-that the core model only works for one host.
+Pain: The project began as a Codex-focused protocol, but the public tool should make room for Codex, Claude, Gemini, and future coding agents without implying that the core model only works for one host.
 Signals:
 - The repository is named `agentic-cadence`.
 - The primary public command should be `agentic-cadence`.
-- Existing `codex-cadence`, `codex-transmission`, `codex_cadence.*`, and
-  `transmission_control.*` names should remain compatibility aliases until a
-  deliberate migration removes them.
+- Existing `codex-cadence`, `codex-transmission`, `codex_cadence.*`, and `transmission_control.*` names should remain compatibility aliases until a deliberate migration removes them.
 Do not:
-- Do not break existing users of the Codex-era command names in the public
-  readiness pass.
+- Do not break existing users of the Codex-era command names in the public readiness pass.
 - Do not rename import packages without a separate migration plan.
 
 ## Context Pressure Needs A Durable Seed Handoff Loop
@@ -50,23 +47,17 @@ Kind: feature
 Workflow: Context-window shutdown and pickup
 Time Saved: high
 Risk: high
-Pain: Long-running agent sessions need a repeatable way to package current
-state, publish a signed handoff, validate it, record clean-square, and stop the
-old session without losing the next action.
+Pain: Long-running agent sessions need a repeatable way to package current state, publish a signed handoff, validate it, record clean-square, and stop the old session without losing the next action.
 Signals:
-- Existing primitives work: `status`, `snapshot-repo`, `create-handoff`,
-  `validate-handoff`, `next-handoff`, and `clean-square`.
-- `prepare-handoff` packages those primitives into a deterministic old-session
-  shutdown loop.
+- Existing primitives work: `status`, `snapshot-repo`, `create-handoff`, `validate-handoff`, `next-handoff`, and `clean-square`.
+- `prepare-handoff` packages those primitives into a deterministic old-session shutdown loop.
 - Automatic context-pressure detection still requires a host-provided signal.
 Do not:
 - Do not claim or complete the new handoff from the old session.
 - Do not launch a new agent window from this command.
 - Do not infer token pressure from repository contents or transcript guesses.
-- Do not commit, push, create PRs, spend paid review, or merge as part of
-  handoff preparation.
-- Do not treat a generated seed as permission to bypass Cadence state, task
-  sizing, pickup policy, or operator merge gates.
+- Do not commit, push, create PRs, spend paid review, or merge as part of handoff preparation.
+- Do not treat a generated seed as permission to bypass Cadence state, task sizing, pickup policy, or operator merge gates.
 
 ## PR Readiness Needs A Single Decision Packet
 
@@ -76,17 +67,12 @@ Kind: risk
 Workflow: PR review and merge readiness
 Time Saved: high
 Risk: high
-Pain: Operators need one deterministic readiness packet that summarizes check
-state, reviewer state, PR body compliance, blockers, and recommended next
-action before a merge decision.
+Pain: Operators need one deterministic readiness packet that summarizes check state, reviewer state, PR body compliance, blockers, and recommended next action before a merge decision.
 Signals:
-- Duplicate CI runs, skipped review jobs, template compliance, and unresolved
-  actionable findings should be visible in one packet.
-- Readiness evaluation should consume saved PR metadata and local files without
-  calling GitHub or merging.
+- Duplicate CI runs, skipped review jobs, template compliance, and unresolved actionable findings should be visible in one packet.
+- Readiness evaluation should consume saved PR metadata and local files without calling GitHub or merging.
 Do not:
 - Do not auto-merge solely because checks are green.
-- Do not treat duplicate check names as blockers without head-SHA and run-status
-  context.
+- Do not treat duplicate check names as blockers without head-SHA and run-status context.
 - Do not ignore unresolved actionable reviewer findings.
 - Do not spend paid review unless the elected review guardrail allows it.
