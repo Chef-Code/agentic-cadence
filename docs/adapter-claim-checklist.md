@@ -76,10 +76,23 @@ Run the composite pre-claim suite. First run the generic baseline:
 python examples/adapter-contract-runner/run.py --cadence-python python
 ```
 
+For PR evidence, emit the compact evidence summary after the suite passes:
+
+```bash
+python examples/adapter-contract-runner/run.py --cadence-python python --evidence-summary
+```
+
 Then run the proposed binding through the composite runner:
 
 ```bash
 python examples/adapter-contract-runner/run.py --cadence-python python --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
+```
+
+For PR evidence from the proposed binding, add the compact evidence summary flag
+to that same command:
+
+```bash
+python examples/adapter-contract-runner/run.py --cadence-python python --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}' --evidence-summary
 ```
 
 ## PR Evidence
@@ -87,6 +100,7 @@ python examples/adapter-contract-runner/run.py --cadence-python python --binding
 Before asking for review, include:
 
 - the exact commands above and their results;
+- the compact evidence summary from `--evidence-summary`;
 - the host-binding mapping evidence;
 - the files that implement the named binding;
 - documentation that says what is supported and what is not supported;
