@@ -27,6 +27,7 @@ SHELL_BINDING_DISPLAY = "examples/generic-shell-host-binding/run.py"
 HOST_EVENT_DIR = ROOT / "examples" / "generic-shell-host-binding" / "host-events"
 DEFAULT_WORK_DIR = SCRIPT_DIR / "work"
 WORK_DIR_MARKER = ".external-host-binding-conformance-work"
+WINDOWS_JUNCTION_REPARSE_TAG = getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003)
 SCENARIOS = ("no-event.json", "context-pressure.json", "operator-stop.json")
 
 
@@ -128,10 +129,20 @@ def reject_symlink_path_components(path: Path) -> None:
 def redirecting_path_kind(path: Path) -> str | None:
     if path.is_symlink():
         return "symlink"
-    is_junction = getattr(path, "is_junction", None)
-    if is_junction is not None and is_junction():
+    if path_is_junction(path):
         return "junction"
     return None
+
+
+def path_is_junction(path: Path) -> bool:
+    is_junction = getattr(path, "is_junction", None)
+    if is_junction is not None:
+        return is_junction()
+    try:
+        path_stat = path.stat(follow_symlinks=False)
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    return getattr(path_stat, "st_reparse_tag", None) == WINDOWS_JUNCTION_REPARSE_TAG
 
 
 def remove_readonly(func: Any, path: str, _exc_info: Any) -> None:

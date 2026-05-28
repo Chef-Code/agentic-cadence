@@ -45,6 +45,26 @@ class ExternalHostBindingConformanceTests(unittest.TestCase):
         if not junction.is_junction():
             self.skipTest("created path is not reported as a junction")
 
+    def test_external_conformance_detects_junction_with_stat_fallback(self):
+        module = load_conformance_module()
+
+        class FakeJunctionStat:
+            st_reparse_tag = module.WINDOWS_JUNCTION_REPARSE_TAG
+
+        class FakeJunctionPath:
+            stat_follow_symlinks = None
+
+            def is_symlink(self):
+                return False
+
+            def stat(self, *, follow_symlinks=True):
+                self.stat_follow_symlinks = follow_symlinks
+                return FakeJunctionStat()
+
+        fake_path = FakeJunctionPath()
+        self.assertEqual(module.redirecting_path_kind(fake_path), "junction")
+        self.assertFalse(fake_path.stat_follow_symlinks)
+
     def test_external_conformance_uses_public_boundaries_only(self):
         self.assertTrue(CONFORMANCE_SCRIPT.exists(), "missing external host-binding conformance harness")
         source = CONFORMANCE_SCRIPT.read_text(encoding="utf-8")
