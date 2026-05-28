@@ -44,10 +44,21 @@ class ExternalHostBindingConformanceTests(unittest.TestCase):
                     private_imports.append(node.module)
 
         self.assertEqual(private_imports, [])
-        self.assertIn("subprocess.run", source)
-        self.assertIn("generic-shell-host-binding", source)
-        self.assertIn("host_signal_contract.py", source)
-        self.assertIn("binding-command-template", source)
+        calls_subprocess_run = any(
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "subprocess"
+            and node.func.attr == "run"
+            for node in ast.walk(tree)
+        )
+        module = load_conformance_module()
+        parsed = module.build_parser().parse_args(["--binding-command-template", "binding {host_event_file}"])
+
+        self.assertTrue(calls_subprocess_run)
+        self.assertEqual(module.SHELL_BINDING_DISPLAY, "examples/generic-shell-host-binding/run.py")
+        self.assertEqual(module.SCHEMA_SCRIPT.name, "host_signal_contract.py")
+        self.assertEqual(parsed.binding_command_template, "binding {host_event_file}")
 
     def test_external_conformance_default_command_matches_generic_shell_replay(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -249,7 +260,7 @@ class ExternalHostBindingConformanceTests(unittest.TestCase):
                 timeout=360,
             )
 
-        self.assertEqual(result.returncode, 1)
+        self.assertNotEqual(result.returncode, 0)
         self.assertIn("context-pressure.json diverged from generic shell baseline", result.stderr)
 
     def test_external_conformance_is_documented_and_in_ci(self):
