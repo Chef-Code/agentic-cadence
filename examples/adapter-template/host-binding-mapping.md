@@ -80,5 +80,6 @@ host-specific detection.
 The external host-binding conformance harness compares a supplied binding
 command against the generic shell replay baseline. Its default command uses the
 generic shell host-binding example as a sample external binding; future named
-adapters can pass `--binding-command-template` with `{host_event_file}` and
-`{case_work_dir}` placeholders before claiming host-specific support.
+adapters can pass `--binding-command-template` with quoted path placeholders
+such as `"{host_event_file}"` and `"{case_work_dir}"` before claiming
+host-specific support.

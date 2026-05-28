@@ -178,10 +178,18 @@ bundled fixture, file-backed, and stdin-backed paths without claiming support
 for any named non-Codex host adapter.
 
 Use the external host-binding conformance harness before claiming a future
-host-specific binding matches the generic behavior:
+host-specific binding matches the generic behavior. The default command uses the
+generic shell host-binding example as the sample external command and proves the
+harness plumbing:
 
 ```bash
 python examples/external-host-binding-conformance/run.py --cadence-python python
+```
+
+For a future binding, pass a command template and quote path placeholders:
+
+```bash
+python examples/external-host-binding-conformance/run.py --cadence-python python --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
 ```
 
 ## Copyable Adapter Template

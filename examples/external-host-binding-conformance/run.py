@@ -70,10 +70,10 @@ def run_json(command: list[str], *, timeout_seconds: float = 360.0) -> dict[str,
 
 
 def prepare_work_dir(path: Path, *, replace_existing: bool) -> None:
-    path = path.expanduser().absolute()
-    if path.exists() or path.is_symlink():
-        if path.is_symlink():
-            raise RuntimeError(f"refusing to remove symlink work directory: {path}")
+    unresolved_path = absolute_unresolved_path(path)
+    reject_symlink_path_components(unresolved_path)
+    path = unresolved_path.resolve(strict=False)
+    if path.exists():
         if not path.is_dir():
             raise RuntimeError(f"work directory path is not a directory: {path}")
         if not replace_existing:
@@ -85,7 +85,8 @@ def prepare_work_dir(path: Path, *, replace_existing: bool) -> None:
 
 
 def ensure_safe_replacement_target(path: Path) -> None:
-    default_work_dir = DEFAULT_WORK_DIR.absolute()
+    path = path.resolve(strict=False)
+    default_work_dir = DEFAULT_WORK_DIR.resolve(strict=False)
     if path == default_work_dir or path.is_relative_to(default_work_dir):
         return
 
@@ -101,6 +102,27 @@ def ensure_safe_replacement_target(path: Path) -> None:
     marker = path / WORK_DIR_MARKER
     if not marker.is_file():
         raise RuntimeError(f"refusing to remove custom work directory without {WORK_DIR_MARKER} marker: {path}")
+
+
+def absolute_unresolved_path(path: Path) -> Path:
+    path = path.expanduser()
+    if path.is_absolute():
+        return path
+    return Path.cwd() / path
+
+
+def reject_symlink_path_components(path: Path) -> None:
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current = current / part
+        try:
+            is_symlink = current.is_symlink()
+        except OSError as exc:
+            raise RuntimeError(f"could not inspect work directory path component {current}: {exc}") from exc
+        if is_symlink:
+            if current == path:
+                raise RuntimeError(f"refusing to use symlink work directory: {current}")
+            raise RuntimeError(f"refusing to use work directory through symlink path component: {current}")
 
 
 def remove_readonly(func: Any, path: str, _exc_info: Any) -> None:
@@ -360,9 +382,10 @@ def conformance_case(
 
 
 def run_conformance(args: argparse.Namespace) -> dict[str, Any]:
-    work_dir = (args.work_dir or DEFAULT_WORK_DIR).expanduser().absolute()
+    work_dir = absolute_unresolved_path(args.work_dir or DEFAULT_WORK_DIR)
     replace_existing = args.replace_existing or args.work_dir is None
     prepare_work_dir(work_dir, replace_existing=replace_existing)
+    work_dir = work_dir.resolve(strict=False)
     child_cadence_args = cadence_args(args)
 
     schema_summary = run_json([sys.executable, str(SCHEMA_SCRIPT)])

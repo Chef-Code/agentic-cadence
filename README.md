@@ -75,8 +75,9 @@ python examples/external-host-binding-conformance/run.py --cadence-python python
 
 By default it uses the generic shell host-binding example as the sample external
 command. Future host bindings can pass `--binding-command-template` with
-`{host_event_file}` and `{case_work_dir}` placeholders to prove they match the
-generic fixture behavior without claiming Claude or Gemini adapter support.
+quoted path placeholders such as `"{host_event_file}"` and
+`"{case_work_dir}"` to prove they match the generic fixture behavior without
+claiming Claude or Gemini adapter support.
 
 ## Protocol At A Glance
 

@@ -160,6 +160,55 @@ class ExternalHostBindingConformanceTests(unittest.TestCase):
 
             self.assertTrue(sentinel.exists())
 
+    def test_external_conformance_refuses_parent_traversal_work_dir_replacement(self):
+        module = load_conformance_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            script_dir = tmp_path / "script"
+            work_dir = script_dir / "work"
+            work_dir.mkdir(parents=True)
+            sentinel = script_dir / "keep.txt"
+            sentinel.write_text("keep", encoding="utf-8")
+            original_default = module.DEFAULT_WORK_DIR
+            original_script = module.SCRIPT_DIR
+            try:
+                module.DEFAULT_WORK_DIR = work_dir
+                module.SCRIPT_DIR = script_dir
+                with self.assertRaisesRegex(RuntimeError, "unsafe work directory target"):
+                    module.prepare_work_dir(work_dir / "..", replace_existing=True)
+            finally:
+                module.DEFAULT_WORK_DIR = original_default
+                module.SCRIPT_DIR = original_script
+
+            self.assertTrue(sentinel.exists())
+
+    def test_external_conformance_refuses_symlink_parent_work_dir_replacement(self):
+        module = load_conformance_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            default_work = tmp_path / "work"
+            outside = tmp_path / "outside"
+            external_dir = outside / "external-dir"
+            default_work.mkdir()
+            external_dir.mkdir(parents=True)
+            sentinel = external_dir / "keep.txt"
+            sentinel.write_text("keep", encoding="utf-8")
+            link = default_work / "link"
+            try:
+                os.symlink(outside, link, target_is_directory=True)
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"directory symlinks are unavailable: {exc}")
+
+            original_default = module.DEFAULT_WORK_DIR
+            try:
+                module.DEFAULT_WORK_DIR = default_work
+                with self.assertRaisesRegex(RuntimeError, "symlink path component"):
+                    module.prepare_work_dir(link / "external-dir", replace_existing=True)
+            finally:
+                module.DEFAULT_WORK_DIR = original_default
+
+            self.assertTrue(sentinel.exists())
+
     def test_external_conformance_derives_observed_fields_from_packets(self):
         module = load_conformance_module()
         scenario = {
@@ -273,6 +322,9 @@ class ExternalHostBindingConformanceTests(unittest.TestCase):
 
         for text in (readme, adapters, roadmap, mapping, workflow):
             self.assertIn("examples/external-host-binding-conformance/run.py", text)
+        for text in (readme, adapters, mapping):
+            self.assertIn('"{host_event_file}"', text)
+            self.assertIn('"{case_work_dir}"', text)
         self.assertIn("Run external host-binding conformance harness", workflow)
         self.assertIn("external-host-binding-conformance/work/", ignore_text)
 
