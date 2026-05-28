@@ -86,9 +86,16 @@ replay, parity, and external conformance contracts into one command:
 python examples/adapter-contract-runner/run.py --cadence-python python
 ```
 
-Use it before any future host-specific binding claim. Future bindings can pass
-the same quoted binding command template through the runner, and the runner
-still reports that it does not ship Claude or Gemini adapter support.
+Use it before any future host-specific binding claim. For PR evidence, add the
+compact evidence summary:
+
+```bash
+python examples/adapter-contract-runner/run.py --cadence-python python --evidence-summary
+```
+
+Future bindings can pass the same quoted binding command template through the
+runner, with or without `--evidence-summary`, and the runner still reports that
+it does not ship Claude or Gemini adapter support.
 
 Before documenting a named non-Codex host binding, follow
 `docs/adapter-claim-checklist.md` and include the required generic contract
