@@ -105,6 +105,11 @@ It is the broad generic check to run before a future host-specific binding
 claim, and it still does not ship or claim Claude, Gemini, or other named host
 support.
 
+Before a PR documents a named non-Codex host binding, use
+`docs/adapter-claim-checklist.md`. The checklist keeps the claim tied to the
+generic schema, smoke, replay, parity, and external conformance evidence instead
+of relying on prose alone.
+
 ## Required Behavior
 
 An adapter must:

@@ -234,6 +234,44 @@ class CiChecksTests(unittest.TestCase):
         )
         self.assertNotIn("keep clean-square evidence tied to the repository snapshot that produced it", combined_docs)
 
+    def test_adapter_claim_checklist_docs_define_preclaim_gate(self):
+        checklist_path = ROOT / "docs" / "adapter-claim-checklist.md"
+        self.assertTrue(checklist_path.exists(), "missing adapter claim checklist")
+
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        adapters = (ROOT / "docs" / "adapters.md").read_text(encoding="utf-8")
+        roadmap = (ROOT / "docs" / "roadmap.md").read_text(encoding="utf-8")
+        checklist = checklist_path.read_text(encoding="utf-8")
+
+        for doc_name, text in (
+            ("README", readme),
+            ("adapter docs", adapters),
+            ("roadmap", roadmap),
+        ):
+            with self.subTest(doc=doc_name):
+                self.assertIn("docs/adapter-claim-checklist.md", text)
+
+        for token in (
+            "# Adapter Claim Checklist",
+            "No Claude or Gemini adapter is shipped",
+            "examples/adapter-template/host_signal_contract.py",
+            "examples/generic-host-signal/run.py --cadence-python python",
+            "examples/generic-host-signal/run.py --parity-contract --cadence-python python",
+            "examples/generic-shell-host-binding/run.py --replay-contract --cadence-python python",
+            "examples/external-host-binding-conformance/run.py --cadence-python python",
+            "examples/adapter-contract-runner/run.py --cadence-python python",
+            "--binding-command-template",
+            "{host_event_file}",
+            "{case_work_dir}",
+            "examples/adapter-template/host-binding-mapping.md",
+            "preserve CLI JSON packets",
+            "stop_current_session",
+            "PLAY_ON",
+            "do not claim named host support",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, checklist)
+
     def test_roadmap_captures_current_edges_and_target_state(self):
         roadmap_path = ROOT / "docs" / "roadmap.md"
         self.assertTrue(roadmap_path.exists(), "missing technical roadmap")
