@@ -44,6 +44,8 @@ The current tree builds on the released 0.1.x line, with additional unreleased r
 - a generic host/shell `--parity-contract` mode that compares the
   adapter-template host-signal fixtures against the generic shell replay
   contract.
+- a host-signal contract schema helper that validates the generic host-signal
+  fixtures and shell host-event payloads before subprocess replay/parity runs.
 
 ## Known Edges
 
@@ -94,6 +96,8 @@ A mature Agentic Cadence system should provide:
 - Use the generic shell host-binding `--replay-contract` helper to refine
   `examples/adapter-template` before adding
   host-specific adapter claims.
+- Use `examples/adapter-template/host_signal_contract.py` to catch schema and
+  fixture drift before running the heavier replay and parity contracts.
 - Use the generic host/shell `--parity-contract` helper to keep the
   adapter-template host-signal fixtures and shell host-event fixtures aligned.
 - Use the generic host-signal fixtures as the compatibility bridge while

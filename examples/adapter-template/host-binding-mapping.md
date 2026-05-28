@@ -41,6 +41,7 @@ Before building a real host binding, compare the host event mapping against the
 generic smoke and shell host-binding examples:
 
 ```bash
+python examples/adapter-template/host_signal_contract.py
 python examples/generic-host-signal/run.py --cadence-python python
 python examples/generic-host-signal/run.py --parity-contract --cadence-python python
 python examples/generic-shell-host-binding/run.py --cadence-python python
@@ -48,6 +49,12 @@ python examples/generic-shell-host-binding/run.py --cadence-python python --host
 some-host-signal-command | python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-stdin
 python examples/generic-shell-host-binding/run.py --replay-contract --cadence-python python
 ```
+
+The schema contract validates the checked-in host-signal fixtures and generic
+shell host-event payloads before subprocess smoke runs. It rejects extra or
+missing fields and catches drift between paired host-signal and shell
+host-event payloads in `kind` or `event`, `confidence`, `summary`,
+`task_type`, `drivers`, and `next_action`.
 
 The generic smoke runs `context_pressure`, `operator_stop`, and no signal
 fixtures through `examples/adapter-template/adapter.py`. The shell
