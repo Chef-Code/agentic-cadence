@@ -1,8 +1,10 @@
 # Adapter Claim Checklist
 
 Use this checklist before opening any PR that claims support for a named
-non-Codex host adapter. The current repository provides generic adapter
-contracts only. No Claude or Gemini adapter is shipped in this repository.
+non-Codex host adapter.
+
+No Claude or Gemini adapter is shipped in this repository; the current tree
+provides generic adapter contracts only.
 
 ## Claim Boundary
 
@@ -34,6 +36,12 @@ Document the host-event mapping before claiming support:
 
 ## Required Contract Commands
 
+Run the public CLI adapter smoke contract:
+
+```bash
+python examples/adapter-smoke/run.py --cadence-python python
+```
+
 Run the schema and generic smoke contracts:
 
 ```bash
@@ -56,7 +64,7 @@ python examples/external-host-binding-conformance/run.py --cadence-python python
 
 Then run the proposed binding through the same harness with a quoted command
 template. The command must accept `{host_event_file}` and `{case_work_dir}` and
-should forward `{cadence_args}` when it invokes Cadence:
+must forward `{cadence_args}` when it invokes Cadence:
 
 ```bash
 python examples/external-host-binding-conformance/run.py --cadence-python python --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'

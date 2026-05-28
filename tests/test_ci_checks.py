@@ -227,7 +227,19 @@ class CiChecksTests(unittest.TestCase):
         ):
             with self.subTest(location="docs/adapters.md", token=token):
                 self.assertIn(token, adapters)
-        combined_docs = f"{readme}\n{adapters}\n{roadmap}"
+        public_claim_surfaces = [
+            readme,
+            adapters,
+            roadmap,
+            (ROOT / "docs" / "adapter-claim-checklist.md").read_text(encoding="utf-8"),
+            (ROOT / "CHANGELOG.md").read_text(encoding="utf-8"),
+            (ROOT / "docs" / "release.md").read_text(encoding="utf-8"),
+            (ROOT / "pyproject.toml").read_text(encoding="utf-8"),
+        ]
+        pr_template = ROOT / ".github" / "pull_request_template.md"
+        if pr_template.exists():
+            public_claim_surfaces.append(pr_template.read_text(encoding="utf-8"))
+        combined_docs = "\n".join(public_claim_surfaces)
         self.assertNotRegex(
             combined_docs,
             r"(?mi)^(?!\s*(?:[-*]\s*)?No\b).*(?:Claude|Gemini).*\badapters?(?:\s+support)?\s+(?:is|are)\s+(?:shipped|supported)\b",
@@ -254,6 +266,7 @@ class CiChecksTests(unittest.TestCase):
         for token in (
             "# Adapter Claim Checklist",
             "No Claude or Gemini adapter is shipped",
+            "python examples/adapter-smoke/run.py --cadence-python python",
             "examples/adapter-template/host_signal_contract.py",
             "examples/generic-host-signal/run.py --cadence-python python",
             "examples/generic-host-signal/run.py --parity-contract --cadence-python python",
@@ -261,8 +274,12 @@ class CiChecksTests(unittest.TestCase):
             "examples/external-host-binding-conformance/run.py --cadence-python python",
             "examples/adapter-contract-runner/run.py --cadence-python python",
             "--binding-command-template",
+            'python examples/external-host-binding-conformance/run.py --cadence-python python --binding-command-template \'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}\'',
+            'python examples/adapter-contract-runner/run.py --cadence-python python --binding-command-template \'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}\'',
             "{host_event_file}",
             "{case_work_dir}",
+            "{cadence_args}",
+            "must forward `{cadence_args}`",
             "examples/adapter-template/host-binding-mapping.md",
             "preserve CLI JSON packets",
             "stop_current_session",
