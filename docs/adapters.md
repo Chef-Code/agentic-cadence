@@ -102,8 +102,10 @@ The generic adapter contract pre-claim suite at
 host-signal smoke, generic shell replay contract, host/shell parity contract,
 and external host-binding conformance harness into one subprocess-only command.
 It is the broad generic check to run before a future host-specific binding
-claim, and it still does not ship or claim Claude, Gemini, or other named host
-support.
+claim. Its `--evidence-summary` mode emits compact PR evidence with required
+contract coverage, observed contract labels, pass status, and binding-template
+placeholder coverage while omitting nested packet payloads. The runner still
+does not ship or claim Claude, Gemini, or other named host support.
 
 Before a PR documents a named non-Codex host binding, use
 `docs/adapter-claim-checklist.md`. The checklist keeps the claim tied to the

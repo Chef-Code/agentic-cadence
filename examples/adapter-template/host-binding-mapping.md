@@ -89,4 +89,6 @@ The generic adapter contract pre-claim suite at
 `examples/adapter-contract-runner/run.py` composes those schema, smoke, replay,
 parity, and external conformance checks into one command. Future bindings can
 pass the same `--binding-command-template` through the runner before making any
-host-specific support claim.
+host-specific support claim. Add `--evidence-summary` when preparing PR
+evidence so the reviewer can see required contract coverage and binding
+placeholder coverage without nested packet payloads.

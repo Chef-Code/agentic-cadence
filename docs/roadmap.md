@@ -52,7 +52,7 @@ The current tree builds on the released 0.1.x line, with additional unreleased r
 - a generic adapter contract pre-claim runner at
   `examples/adapter-contract-runner/run.py` that composes the schema, smoke,
   replay, parity, and external conformance contracts before any named host
-  adapter claim.
+  adapter claim and can emit compact PR evidence with `--evidence-summary`.
 
 ## Known Edges
 
@@ -119,6 +119,9 @@ A mature Agentic Cadence system should provide:
   `examples/generic-host-signal/run.py --parity-contract` and
   `examples/generic-shell-host-binding/run.py --replay-contract` before
   adding host-specific claims.
+- Include `examples/adapter-contract-runner/run.py --evidence-summary` output
+  in future adapter-claim PRs so reviewers can inspect contract coverage
+  without expanding nested packet payloads.
 - Use `docs/adapter-claim-checklist.md` as the PR gate before documenting any
   named non-Codex host adapter support.
 - Keep the generic shell host-binding example aligned with the mapping example,
