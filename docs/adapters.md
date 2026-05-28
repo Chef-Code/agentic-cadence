@@ -97,6 +97,14 @@ bindings can pass `--binding-command-template` with quoted path placeholders
 such as `"{host_event_file}"` and `"{case_work_dir}"`. This is a pre-claim
 acceptance harness, not a Claude, Gemini, or other named host adapter.
 
+The generic adapter contract pre-claim suite at
+`examples/adapter-contract-runner/run.py` composes the schema helper, generic
+host-signal smoke, generic shell replay contract, host/shell parity contract,
+and external host-binding conformance harness into one subprocess-only command.
+It is the broad generic check to run before a future host-specific binding
+claim, and it still does not ship or claim Claude, Gemini, or other named host
+support.
+
 ## Required Behavior
 
 An adapter must:
@@ -186,10 +194,18 @@ harness plumbing:
 python examples/external-host-binding-conformance/run.py --cadence-python python
 ```
 
+Use the composite pre-claim suite when you want the full generic adapter
+contract in one command:
+
+```bash
+python examples/adapter-contract-runner/run.py --cadence-python python
+```
+
 For a future binding, pass a command template and quote path placeholders:
 
 ```bash
 python examples/external-host-binding-conformance/run.py --cadence-python python --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
+python examples/adapter-contract-runner/run.py --cadence-python python --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
 ```
 
 ## Copyable Adapter Template
@@ -204,8 +220,9 @@ The current adapter work is documentation, executable smoke fixtures, a copyable
 template, host-signal fixtures, a host-binding mapping example, and a generic
 shell host-binding pattern with fixture, file, and stdin input modes plus the
 replay-contract verifier. It also includes a generic host/shell parity
-contract and an external host-binding conformance harness. It is not a full
-host integration. A small host adapter package should prove that it can:
+contract, an external host-binding conformance harness, and a composite generic
+adapter contract pre-claim runner. It is not a full host integration. A small
+host adapter package should prove that it can:
 
 - call the CLI without private imports;
 - pass an explicit runtime root;

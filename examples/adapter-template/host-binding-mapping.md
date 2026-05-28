@@ -49,6 +49,7 @@ python examples/generic-shell-host-binding/run.py --cadence-python python --host
 some-host-signal-command | python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-stdin
 python examples/generic-shell-host-binding/run.py --replay-contract --cadence-python python
 python examples/external-host-binding-conformance/run.py --cadence-python python
+python examples/adapter-contract-runner/run.py --cadence-python python
 ```
 
 The schema contract validates the checked-in host-signal fixtures and generic
@@ -83,3 +84,9 @@ generic shell host-binding example as a sample external binding; future named
 adapters can pass `--binding-command-template` with quoted path placeholders
 such as `"{host_event_file}"` and `"{case_work_dir}"` before claiming
 host-specific support.
+
+The generic adapter contract pre-claim suite at
+`examples/adapter-contract-runner/run.py` composes those schema, smoke, replay,
+parity, and external conformance checks into one command. Future bindings can
+pass the same `--binding-command-template` through the runner before making any
+host-specific support claim.
