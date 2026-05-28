@@ -1,8 +1,8 @@
 {
   "event": "operator_stop",
   "source": "generic-shell-host-binding",
-  "confidence": "medium",
-  "summary": "The generic shell host received an operator stop request for this session.",
+  "confidence": "high",
+  "summary": "The operator asked the current host session to stop and prepare pickup.",
   "task_type": "discovery",
   "drivers": ["unknown_repo_area"],
   "next_action": "Claim the generated handoff, read the preserved packet, and confirm the next bounded slice."

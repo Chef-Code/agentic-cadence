@@ -84,3 +84,6 @@ jobs:
 
       - name: Run generic shell host-binding replay contract
         run: python examples/generic-shell-host-binding/run.py --replay-contract --cadence-python python
+
+      - name: Run generic host/shell parity contract
+        run: python examples/generic-host-signal/run.py --parity-contract --cadence-python python

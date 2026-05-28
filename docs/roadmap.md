@@ -41,6 +41,9 @@ The current tree builds on the released 0.1.x line, with additional unreleased r
 - a generic shell host-binding `--replay-contract` mode that compares the same
   bundled host-event payloads across fixture, file-backed, and stdin-backed
   paths.
+- a generic host/shell `--parity-contract` mode that compares the
+  adapter-template host-signal fixtures against the generic shell replay
+  contract.
 
 ## Known Edges
 
@@ -91,6 +94,8 @@ A mature Agentic Cadence system should provide:
 - Use the generic shell host-binding `--replay-contract` helper to refine
   `examples/adapter-template` before adding
   host-specific adapter claims.
+- Use the generic host/shell `--parity-contract` helper to keep the
+  adapter-template host-signal fixtures and shell host-event fixtures aligned.
 - Use the generic host-signal fixtures as the compatibility bridge while
   comparing future host bindings against the same public CLI mapping behavior.
 - Keep the generic host-signal smoke example green as the adapter contract is
@@ -98,6 +103,7 @@ A mature Agentic Cadence system should provide:
 - Compare the first real host binding against
   `examples/adapter-template/host-binding-mapping.md` and the generic
   host-signal smoke plus
+  `examples/generic-host-signal/run.py --parity-contract` and
   `examples/generic-shell-host-binding/run.py --replay-contract` before
   adding host-specific claims.
 - Keep the generic shell host-binding example aligned with the mapping example,

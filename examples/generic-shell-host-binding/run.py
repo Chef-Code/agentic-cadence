@@ -338,6 +338,7 @@ def run_adapter_for_payload(
         "host_event_file": event_label,
         "host_event": host_event.get("event") if isinstance(host_event, dict) else None,
         "mapped_signal_kind": signal_payload.get("kind") if isinstance(signal_payload, dict) else None,
+        "mapped_signal_confidence": signal_payload.get("confidence") if isinstance(signal_payload, dict) else None,
         "adapter_result": adapter_output.get("result"),
         "cadence_called": bool(packets),
         "observed_guardrail": observed_guardrail,
@@ -492,6 +493,7 @@ def normalized_replay_behavior(scenario: dict[str, Any]) -> dict[str, Any]:
     return {
         "host_event": scenario.get("host_event"),
         "mapped_signal_kind": scenario.get("mapped_signal_kind"),
+        "mapped_signal_confidence": scenario.get("mapped_signal_confidence"),
         "adapter_result": scenario.get("adapter_result"),
         "cadence_called": require_replay_boolean(scenario.get("cadence_called"), "cadence_called"),
         "observed_guardrail": scenario.get("observed_guardrail"),
