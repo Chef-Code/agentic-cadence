@@ -1946,7 +1946,7 @@ Risk: medium
                 result["warnings"],
             )
 
-    def test_repo_business_memory_parses_without_malformed_line_warnings(self):
+    def test_repo_business_memory_parses_without_warnings(self):
         source_text = (ROOT / "docs" / "cadence" / "business-memory.md").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as tmp:
             init_repo(tmp)
@@ -1954,10 +1954,7 @@ Risk: medium
 
             result = discover_candidates(cwd=Path(tmp), intent="hybrid", elect=True)
 
-            malformed_warnings = [
-                warning for warning in result["warnings"] if "malformed business memory line" in warning
-            ]
-            self.assertEqual(malformed_warnings, [])
+            self.assertEqual(result["warnings"], [])
             self.assertTrue(
                 any(
                     candidate["evidence"]["heading"] == "Agent-Neutral Public Identity"
