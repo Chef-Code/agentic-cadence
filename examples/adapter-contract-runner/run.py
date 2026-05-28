@@ -44,8 +44,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--work-dir", type=Path, help="Disposable work directory.")
     parser.add_argument("--replace-existing", action="store_true", help="Remove an existing --work-dir before running.")
     parser.add_argument("--binding-command-template", help="External binding command template for conformance.")
-    parser.add_argument("--cadence-command", help="Installed Cadence command to pass to child contracts.")
-    parser.add_argument("--cadence-python", help="Run Cadence in child contracts as '<python> -m codex_cadence'.")
+    cadence_group = parser.add_mutually_exclusive_group()
+    cadence_group.add_argument("--cadence-command", help="Installed Cadence command to pass to child contracts.")
+    cadence_group.add_argument("--cadence-python", help="Run Cadence in child contracts as '<python> -m codex_cadence'.")
     return parser
 
 

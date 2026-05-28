@@ -1,4 +1,6 @@
 import ast
+import contextlib
+import io
 import importlib.util
 import subprocess
 import sys
@@ -153,6 +155,14 @@ class AdapterContractRunnerTests(unittest.TestCase):
         external_command = next(command for label, command in calls if label == "external_host_binding_conformance")
         self.assertIn("--binding-command-template", external_command)
         self.assertEqual(external_command[external_command.index("--binding-command-template") + 1], template)
+
+    def test_adapter_contract_runner_rejects_conflicting_cadence_flags(self):
+        module = load_runner_module()
+        parser = module.build_parser()
+
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                parser.parse_args(["--cadence-command", "agentic-cadence", "--cadence-python", sys.executable])
 
     def test_adapter_contract_runner_reports_child_failure(self):
         module = load_runner_module()
