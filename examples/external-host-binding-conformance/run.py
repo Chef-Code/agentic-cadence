@@ -144,7 +144,7 @@ def format_binding_command_template(
         "case_slug": case_slug,
         "cadence_python": portable_path(args.cadence_python) if args.cadence_python else "",
         "cadence_command": args.cadence_command or "",
-        "cadence_args": shlex.join(portable_cadence_args(args)),
+        "cadence_args": join_binding_command_args(portable_cadence_args(args)),
         "python": portable_path(sys.executable),
         "repo_root": portable_path(ROOT),
     }
@@ -167,6 +167,12 @@ def split_binding_command_template(command_line: str) -> list[str]:
     if os.name == "nt":
         return split_windows_command_line(command_line)
     return shlex.split(command_line, posix=True)
+
+
+def join_binding_command_args(args: list[str]) -> str:
+    if os.name == "nt":
+        return subprocess.list2cmdline(args)
+    return shlex.join(args)
 
 
 def split_windows_command_line(command_line: str) -> list[str]:

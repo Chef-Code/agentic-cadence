@@ -122,6 +122,14 @@ class ExternalHostBindingConformanceTests(unittest.TestCase):
         self.assertEqual(command[2], r"C:\tmp\event.json")
         self.assertEqual(command[4], r"C:\tmp\work")
 
+    def test_external_conformance_cadence_args_placeholder_round_trips_spaces(self):
+        module = load_conformance_module()
+        cadence_python = "C:/Program Files/Python/python.exe" if os.name == "nt" else "/tmp/Python With Spaces/python"
+        joined = module.join_binding_command_args(["--cadence-python", cadence_python])
+        command = module.split_binding_command_template(f"binding {joined}")
+
+        self.assertEqual(command, ["binding", "--cadence-python", cadence_python])
+
     def test_external_conformance_refuses_symlink_work_dir_replacement(self):
         module = load_conformance_module()
         with tempfile.TemporaryDirectory() as tmp:
