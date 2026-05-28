@@ -383,6 +383,47 @@ class AdapterContractRunnerTests(unittest.TestCase):
                 self.assertIn(token, binding_evidence_command.group(0))
         self.assertIn("compact evidence summary", checklist)
 
+    def test_pr_workflow_uploads_compact_adapter_evidence_artifact(self):
+        workflow = (ROOT / ".github" / "workflows" / "pr.yml").read_text(encoding="utf-8")
+        runner_step_name = "Run generic adapter contract pre-claim suite"
+        upload_step_name = "Upload generic adapter contract evidence"
+        run_step = (
+            "python examples/adapter-contract-runner/run.py --cadence-python python "
+            "--evidence-summary | tee adapter-contract-evidence.json"
+        )
+        runner_step = workflow[workflow.index(runner_step_name) : workflow.index(upload_step_name)]
+        upload_step = workflow[workflow.index(upload_step_name) : workflow.index("  package:")]
+
+        for token in (
+            run_step,
+            "shell: bash",
+        ):
+            with self.subTest(runner_step_token=token):
+                self.assertIn(token, runner_step)
+
+        for token in (
+            "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+            "name: generic-adapter-contract-evidence",
+            "path: adapter-contract-evidence.json",
+            "if-no-files-found: error",
+        ):
+            with self.subTest(upload_step_token=token):
+                self.assertIn(token, upload_step)
+
+        self.assertLess(workflow.index(run_step), workflow.index(upload_step_name))
+        self.assertLess(workflow.index(upload_step_name), workflow.index("  package:"))
+
+        documented_paths = (
+            ROOT / "README.md",
+            ROOT / "docs" / "adapter-claim-checklist.md",
+            ROOT / "docs" / "adapters.md",
+        )
+        for path in documented_paths:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(documented_artifact=path.relative_to(ROOT)):
+                self.assertIn("generic-adapter-contract-evidence", text)
+                self.assertIn("adapter-contract-evidence.json", text)
+
 
 if __name__ == "__main__":
     unittest.main()

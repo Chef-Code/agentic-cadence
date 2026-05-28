@@ -106,6 +106,9 @@ claim. Its `--evidence-summary` mode emits compact PR evidence with required
 contract coverage, observed contract labels, pass status, and binding-template
 placeholder coverage while omitting nested packet payloads. The runner still
 does not ship or claim Claude, Gemini, or other named host support.
+The PR workflow stores that compact output as `adapter-contract-evidence.json`
+inside the `generic-adapter-contract-evidence` artifact for reviewer
+inspection.
 
 Before a PR documents a named non-Codex host binding, use
 `docs/adapter-claim-checklist.md`. The checklist keeps the claim tied to the

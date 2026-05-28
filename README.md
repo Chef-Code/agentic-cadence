@@ -97,6 +97,10 @@ Future bindings can pass the same quoted binding command template through the
 runner, with or without `--evidence-summary`, and the runner still reports that
 it does not ship Claude or Gemini adapter support.
 
+PR checks upload the compact JSON as the `generic-adapter-contract-evidence`
+artifact containing `adapter-contract-evidence.json`, so reviewers can inspect
+the generic contract coverage without expanding nested packet payloads in logs.
+
 Before documenting a named non-Codex host binding, follow
 `docs/adapter-claim-checklist.md` and include the required generic contract
 evidence in the PR.
