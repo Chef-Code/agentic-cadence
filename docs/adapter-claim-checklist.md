@@ -95,12 +95,17 @@ to that same command:
 python examples/adapter-contract-runner/run.py --cadence-python python --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}' --evidence-summary
 ```
 
+On repository PR checks, the generic baseline compact summary is also uploaded
+as the `generic-adapter-contract-evidence` artifact containing
+`adapter-contract-evidence.json`.
+
 ## PR Evidence
 
 Before asking for review, include:
 
 - the exact commands above and their results;
 - the compact evidence summary from `--evidence-summary`;
+- the PR-check `generic-adapter-contract-evidence` artifact when available;
 - the host-binding mapping evidence;
 - the files that implement the named binding;
 - documentation that says what is supported and what is not supported;

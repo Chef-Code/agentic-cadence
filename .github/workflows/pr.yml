@@ -38,7 +38,15 @@ jobs:
         run: python scripts/ci_smoke.py
 
       - name: Run generic adapter contract pre-claim suite
-        run: python examples/adapter-contract-runner/run.py --cadence-python python
+        shell: bash
+        run: python examples/adapter-contract-runner/run.py --cadence-python python --evidence-summary | tee adapter-contract-evidence.json
+
+      - name: Upload generic adapter contract evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: generic-adapter-contract-evidence
+          path: adapter-contract-evidence.json
+          if-no-files-found: error
 
   package:
     name: Package install and first-run examples (${{ matrix.os }})
