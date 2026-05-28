@@ -12,6 +12,7 @@ import json
 import os
 import shutil
 import stat
+import string
 import subprocess
 import sys
 from pathlib import Path
@@ -212,6 +213,25 @@ def run_preclaim_contracts(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def binding_template_field_names(template: Any) -> set[str]:
+    if not isinstance(template, str):
+        return set()
+
+    try:
+        parsed_fields = [
+            field_name
+            for _literal, field_name, _format_spec, _conversion in string.Formatter().parse(template)
+            if field_name
+        ]
+    except ValueError:
+        return set()
+
+    return {
+        field_name.split(".", 1)[0].split("[", 1)[0]
+        for field_name in parsed_fields
+    }
+
+
 def compact_evidence_summary(summary: dict[str, Any]) -> dict[str, Any]:
     contracts = [
         {
@@ -222,7 +242,9 @@ def compact_evidence_summary(summary: dict[str, Any]) -> dict[str, Any]:
     ]
     observed_labels = [contract["label"] for contract in contracts]
     template = summary.get("binding_command_template")
-    template_text = template if isinstance(template, str) else ""
+    template_fields = binding_template_field_names(template)
+    all_required_contracts_observed = all(label in observed_labels for label in REQUIRED_CONTRACT_LABELS)
+    observed_contracts_passed = all(str(contract.get("result", "")).endswith("_passed") for contract in contracts)
 
     return {
         "result": summary.get("result"),
@@ -236,13 +258,14 @@ def compact_evidence_summary(summary: dict[str, Any]) -> dict[str, Any]:
             "mapping_evidence_path": MAPPING_EVIDENCE_PATH,
             "required_contract_labels": REQUIRED_CONTRACT_LABELS,
             "observed_contract_labels": observed_labels,
-            "all_required_contracts_observed": all(label in observed_labels for label in REQUIRED_CONTRACT_LABELS),
+            "all_required_contracts_observed": all_required_contracts_observed,
             "all_contracts_passed": summary.get("result") == "adapter_contract_preclaim_passed"
-            and all(str(contract.get("result", "")).endswith("_passed") for contract in contracts),
+            and all_required_contracts_observed
+            and observed_contracts_passed,
             "binding_template_placeholders": {
-                "host_event_file": "{host_event_file}" in template_text,
-                "case_work_dir": "{case_work_dir}" in template_text,
-                "cadence_args": "{cadence_args}" in template_text,
+                "host_event_file": "host_event_file" in template_fields,
+                "case_work_dir": "case_work_dir" in template_fields,
+                "cadence_args": "cadence_args" in template_fields,
             },
         },
     }
