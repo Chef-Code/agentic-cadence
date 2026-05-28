@@ -90,6 +90,10 @@ Use it before any future host-specific binding claim. Future bindings can pass
 the same quoted binding command template through the runner, and the runner
 still reports that it does not ship Claude or Gemini adapter support.
 
+Before documenting a named non-Codex host binding, follow
+`docs/adapter-claim-checklist.md` and include the required generic contract
+evidence in the PR.
+
 ## Protocol At A Glance
 
 ![Four-step Agentic Cadence handoff flow from old context to signed handoff, clean square, and fresh agent.](docs/assets/handoff-flow.svg)

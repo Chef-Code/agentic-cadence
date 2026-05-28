@@ -34,6 +34,23 @@ def load_public_release_audit():
 
 
 class CiChecksTests(unittest.TestCase):
+    def tracked_public_claim_surfaces(self):
+        result = subprocess.run(
+            ["git", "ls-files"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
+
+        public_suffixes = {".md", ".toml", ".yaml", ".yml"}
+        return tuple(
+            relative
+            for relative in result.stdout.splitlines()
+            if Path(relative).suffix.lower() in public_suffixes
+        )
+
     def test_protocol_validator_accepts_current_repo(self):
         result = subprocess.run(
             [sys.executable, str(ROOT / "scripts" / "validate_protocol.py")],
@@ -227,12 +244,94 @@ class CiChecksTests(unittest.TestCase):
         ):
             with self.subTest(location="docs/adapters.md", token=token):
                 self.assertIn(token, adapters)
-        combined_docs = f"{readme}\n{adapters}\n{roadmap}"
-        self.assertNotRegex(
-            combined_docs,
-            r"(?mi)^(?!\s*(?:[-*]\s*)?No\b).*(?:Claude|Gemini).*\badapters?(?:\s+support)?\s+(?:is|are)\s+(?:shipped|supported)\b",
+        public_claim_surfaces = self.tracked_public_claim_surfaces()
+        for expected in (
+            "README.md",
+            "SKILL.md",
+            "docs/protocol.md",
+            "docs/public-release.md",
+            "docs/cadence/business-memory.md",
+            "examples/adapter-template/README.md",
+            "examples/adapter-template/host-binding-mapping.md",
+            ".github/workflows/pr.yml",
+        ):
+            with self.subTest(surface=expected):
+                self.assertIn(expected, public_claim_surfaces)
+
+        unsupported_named_host_claim = (
+            r"(?mi)^(?!\s*(?:[-*]\s*)?No\b).*(?:Claude|Gemini).*\badapters?"
+            r"(?:\s+support)?\s+(?:is|are)\s+(?:shipped|supported)\b"
         )
-        self.assertNotIn("keep clean-square evidence tied to the repository snapshot that produced it", combined_docs)
+        stale_clean_square_claim = "keep clean-square evidence tied to the repository snapshot that produced it"
+        for relative in public_claim_surfaces:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+            with self.subTest(file=relative, claim="unsupported named host"):
+                self.assertNotRegex(text, unsupported_named_host_claim)
+            with self.subTest(file=relative, claim="stale clean-square evidence wording"):
+                self.assertNotIn(stale_clean_square_claim, text)
+
+    def test_adapter_claim_checklist_docs_define_preclaim_gate(self):
+        checklist_path = ROOT / "docs" / "adapter-claim-checklist.md"
+        self.assertTrue(checklist_path.exists(), "missing adapter claim checklist")
+
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        adapters = (ROOT / "docs" / "adapters.md").read_text(encoding="utf-8")
+        roadmap = (ROOT / "docs" / "roadmap.md").read_text(encoding="utf-8")
+        checklist = checklist_path.read_text(encoding="utf-8")
+
+        for doc_name, text in (
+            ("README", readme),
+            ("adapter docs", adapters),
+            ("roadmap", roadmap),
+        ):
+            with self.subTest(doc=doc_name):
+                self.assertIn("docs/adapter-claim-checklist.md", text)
+
+        for token in (
+            "# Adapter Claim Checklist",
+            "No Claude or Gemini adapter is shipped",
+            "python examples/adapter-smoke/run.py --cadence-python python",
+            "examples/adapter-template/host_signal_contract.py",
+            "examples/generic-host-signal/run.py --cadence-python python",
+            "examples/generic-host-signal/run.py --parity-contract --cadence-python python",
+            "examples/generic-shell-host-binding/run.py --replay-contract --cadence-python python",
+            "examples/external-host-binding-conformance/run.py --cadence-python python",
+            "examples/adapter-contract-runner/run.py --cadence-python python",
+            "--binding-command-template",
+            "{host_event_file}",
+            "{case_work_dir}",
+            "{cadence_args}",
+            "must forward `{cadence_args}`",
+            "examples/adapter-template/host-binding-mapping.md",
+            "preserve CLI JSON packets",
+            "stop_current_session",
+            "PLAY_ON",
+            "do not claim named host support",
+        ):
+            with self.subTest(token=token):
+                self.assertIn(token, checklist)
+
+        normalized_checklist = re.sub(r"\s+", " ", checklist)
+        binding_requirements = (
+            r"--cadence-python\s+python",
+            r"--binding-command-template",
+            r"python\s+path/to/external-binding\.py",
+            r"--host-event-file\s+[`'\"]?\{host_event_file\}[`'\"]?",
+            r"--work-dir\s+[`'\"]?\{case_work_dir\}[`'\"]?",
+            r"\{cadence_args\}",
+        )
+        for runner in (
+            "examples/external-host-binding-conformance/run.py",
+            "examples/adapter-contract-runner/run.py",
+        ):
+            with self.subTest(binding_template=runner):
+                command = re.search(
+                    rf"python\s+{re.escape(runner)}\b[^`]*--binding-command-template[^`]*",
+                    normalized_checklist,
+                )
+                self.assertIsNotNone(command)
+                for requirement in binding_requirements:
+                    self.assertRegex(command.group(0), requirement)
 
     def test_roadmap_captures_current_edges_and_target_state(self):
         roadmap_path = ROOT / "docs" / "roadmap.md"

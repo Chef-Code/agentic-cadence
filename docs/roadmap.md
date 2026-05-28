@@ -119,6 +119,8 @@ A mature Agentic Cadence system should provide:
   `examples/generic-host-signal/run.py --parity-contract` and
   `examples/generic-shell-host-binding/run.py --replay-contract` before
   adding host-specific claims.
+- Use `docs/adapter-claim-checklist.md` as the PR gate before documenting any
+  named non-Codex host adapter support.
 - Keep the generic shell host-binding example aligned with the mapping example,
   including its file-backed `--host-event-file` and stdin-backed
   `--host-event-stdin` paths, as the executable pattern for future host
