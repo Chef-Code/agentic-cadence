@@ -2,6 +2,7 @@ import ast
 import contextlib
 import io
 import importlib.util
+import json
 import subprocess
 import sys
 import tempfile
@@ -156,6 +157,99 @@ class AdapterContractRunnerTests(unittest.TestCase):
         self.assertIn("--binding-command-template", external_command)
         self.assertEqual(external_command[external_command.index("--binding-command-template") + 1], template)
 
+    def test_adapter_contract_runner_builds_compact_evidence_summary(self):
+        module = load_runner_module()
+        template = (
+            'python path/to/external-binding.py --host-event-file "{host_event_file}" '
+            '--work-dir "{case_work_dir}" {cadence_args}'
+        )
+        full_summary = {
+            "result": "adapter_contract_preclaim_passed",
+            "work_dir": "work",
+            "binding_command_mode": "template",
+            "binding_command_template": template,
+            "contract_note": "generic only; no named host support claim",
+            "contracts": [
+                {
+                    "label": "host_signal_schema",
+                    "command": ["python", "examples/adapter-template/host_signal_contract.py"],
+                    "result": "host_signal_contract_schema_passed",
+                    "summary": {"result": "host_signal_contract_schema_passed", "large": {"packet": "omitted"}},
+                },
+                {
+                    "label": "generic_host_signal_smoke",
+                    "command": ["python", "examples/generic-host-signal/run.py"],
+                    "result": "generic_host_signal_smoke_passed",
+                    "summary": {"result": "generic_host_signal_smoke_passed"},
+                },
+            ],
+        }
+
+        evidence = module.compact_evidence_summary(full_summary)
+
+        self.assertEqual(evidence["result"], "adapter_contract_preclaim_passed")
+        self.assertEqual(evidence["evidence_mode"], "compact")
+        self.assertEqual(evidence["binding_command_mode"], "template")
+        self.assertEqual(evidence["binding_command_template"], template)
+        self.assertEqual(
+            evidence["contracts"],
+            [
+                {"label": "host_signal_schema", "result": "host_signal_contract_schema_passed"},
+                {"label": "generic_host_signal_smoke", "result": "generic_host_signal_smoke_passed"},
+            ],
+        )
+        self.assertTrue(evidence["checklist_evidence"]["all_contracts_passed"])
+        self.assertEqual(
+            evidence["checklist_evidence"]["binding_template_placeholders"],
+            {
+                "host_event_file": True,
+                "case_work_dir": True,
+                "cadence_args": True,
+            },
+        )
+        self.assertEqual(
+            evidence["checklist_evidence"]["mapping_evidence_path"],
+            "examples/adapter-template/host-binding-mapping.md",
+        )
+        self.assertIn("generic_only", evidence["checklist_evidence"])
+        for contract in evidence["contracts"]:
+            self.assertNotIn("command", contract)
+            self.assertNotIn("summary", contract)
+
+    def test_adapter_contract_runner_evidence_summary_cli_omits_nested_packets(self):
+        module = load_runner_module()
+        full_summary = {
+            "result": "adapter_contract_preclaim_passed",
+            "work_dir": "work",
+            "binding_command_mode": "default_generic_shell",
+            "binding_command_template": None,
+            "contract_note": "generic only; no named host support claim",
+            "contracts": [
+                {
+                    "label": "generic_shell_replay",
+                    "command": ["python", "examples/generic-shell-host-binding/run.py"],
+                    "result": "generic_shell_host_binding_replay_contract_passed",
+                    "summary": {"result": "generic_shell_host_binding_replay_contract_passed", "packets": {"large": True}},
+                },
+            ],
+        }
+
+        with mock.patch.object(module, "run_preclaim_contracts", return_value=full_summary):
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                exit_code = module.main(["--evidence-summary"])
+
+        self.assertEqual(exit_code, 0)
+        output = json.loads(stdout.getvalue())
+        self.assertEqual(output["evidence_mode"], "compact")
+        self.assertEqual(
+            output["contracts"],
+            [{"label": "generic_shell_replay", "result": "generic_shell_host_binding_replay_contract_passed"}],
+        )
+        serialized = json.dumps(output)
+        self.assertNotIn("packets", serialized)
+        self.assertNotIn('"command": [', serialized)
+
     def test_adapter_contract_runner_rejects_conflicting_cadence_flags(self):
         module = load_runner_module()
         parser = module.build_parser()
@@ -218,6 +312,17 @@ class AdapterContractRunnerTests(unittest.TestCase):
 
         ignore_text = (ROOT / ".gitignore").read_text(encoding="utf-8")
         self.assertIn("examples/adapter-contract-runner/work/", ignore_text)
+
+        checklist = (ROOT / "docs" / "adapter-claim-checklist.md").read_text(encoding="utf-8")
+        self.assertIn("examples/adapter-contract-runner/run.py --cadence-python python --evidence-summary", checklist)
+        self.assertIn(
+            "examples/adapter-contract-runner/run.py --cadence-python python "
+            "--binding-command-template 'python path/to/external-binding.py "
+            '--host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}\' '
+            "--evidence-summary",
+            checklist,
+        )
+        self.assertIn("compact evidence summary", checklist)
 
 
 if __name__ == "__main__":

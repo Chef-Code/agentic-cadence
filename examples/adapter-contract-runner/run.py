@@ -26,6 +26,14 @@ SCHEMA_SCRIPT = ROOT / "examples" / "adapter-template" / "host_signal_contract.p
 GENERIC_HOST_SIGNAL_SCRIPT = ROOT / "examples" / "generic-host-signal" / "run.py"
 GENERIC_SHELL_BINDING_SCRIPT = ROOT / "examples" / "generic-shell-host-binding" / "run.py"
 EXTERNAL_CONFORMANCE_SCRIPT = ROOT / "examples" / "external-host-binding-conformance" / "run.py"
+MAPPING_EVIDENCE_PATH = "examples/adapter-template/host-binding-mapping.md"
+REQUIRED_CONTRACT_LABELS = [
+    "host_signal_schema",
+    "generic_host_signal_smoke",
+    "generic_shell_replay",
+    "generic_host_shell_parity",
+    "external_host_binding_conformance",
+]
 
 
 def run(command: list[str], *, timeout_seconds: float = 600.0) -> subprocess.CompletedProcess[str]:
@@ -44,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--work-dir", type=Path, help="Disposable work directory.")
     parser.add_argument("--replace-existing", action="store_true", help="Remove an existing --work-dir before running.")
     parser.add_argument("--binding-command-template", help="External binding command template for conformance.")
+    parser.add_argument(
+        "--evidence-summary",
+        action="store_true",
+        help="Emit compact PR evidence JSON without nested child packets.",
+    )
     cadence_group = parser.add_mutually_exclusive_group()
     cadence_group.add_argument("--cadence-command", help="Installed Cadence command to pass to child contracts.")
     cadence_group.add_argument("--cadence-python", help="Run Cadence in child contracts as '<python> -m codex_cadence'.")
@@ -199,6 +212,42 @@ def run_preclaim_contracts(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def compact_evidence_summary(summary: dict[str, Any]) -> dict[str, Any]:
+    contracts = [
+        {
+            "label": contract.get("label"),
+            "result": contract.get("result"),
+        }
+        for contract in summary.get("contracts", [])
+    ]
+    observed_labels = [contract["label"] for contract in contracts]
+    template = summary.get("binding_command_template")
+    template_text = template if isinstance(template, str) else ""
+
+    return {
+        "result": summary.get("result"),
+        "evidence_mode": "compact",
+        "binding_command_mode": summary.get("binding_command_mode"),
+        "binding_command_template": template,
+        "contract_note": summary.get("contract_note"),
+        "contracts": contracts,
+        "checklist_evidence": {
+            "generic_only": True,
+            "mapping_evidence_path": MAPPING_EVIDENCE_PATH,
+            "required_contract_labels": REQUIRED_CONTRACT_LABELS,
+            "observed_contract_labels": observed_labels,
+            "all_required_contracts_observed": all(label in observed_labels for label in REQUIRED_CONTRACT_LABELS),
+            "all_contracts_passed": summary.get("result") == "adapter_contract_preclaim_passed"
+            and all(str(contract.get("result", "")).endswith("_passed") for contract in contracts),
+            "binding_template_placeholders": {
+                "host_event_file": "{host_event_file}" in template_text,
+                "case_work_dir": "{case_work_dir}" in template_text,
+                "cadence_args": "{cadence_args}" in template_text,
+            },
+        },
+    }
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -207,7 +256,8 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         print(f"adapter contract runner failed: {exc}", file=sys.stderr)
         return 1
-    print(json.dumps(summary, indent=2, sort_keys=True))
+    output = compact_evidence_summary(summary) if args.evidence_summary else summary
+    print(json.dumps(output, indent=2, sort_keys=True))
     return 0
 
 
