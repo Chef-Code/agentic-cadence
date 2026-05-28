@@ -20,6 +20,9 @@ from codex_cadence.candidates import (
 )
 
 
+ROOT = Path(__file__).resolve().parents[1]
+
+
 def git(cwd, *args):
     return subprocess.run(["git", *args], cwd=cwd, text=True, capture_output=True, check=True)
 
@@ -1941,6 +1944,26 @@ Risk: medium
             self.assertIn(
                 "business memory entry 'Checkout Context Gap' missing Workflow; preserving as unclassified signal",
                 result["warnings"],
+            )
+
+    def test_repo_business_memory_parses_without_malformed_line_warnings(self):
+        source_text = (ROOT / "docs" / "cadence" / "business-memory.md").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            init_repo(tmp)
+            write_business_memory(tmp, source_text)
+
+            result = discover_candidates(cwd=Path(tmp), intent="hybrid", elect=True)
+
+            malformed_warnings = [
+                warning for warning in result["warnings"] if "malformed business memory line" in warning
+            ]
+            self.assertEqual(malformed_warnings, [])
+            self.assertTrue(
+                any(
+                    candidate["evidence"]["heading"] == "Agent-Neutral Public Identity"
+                    for candidate in result["candidates"]
+                    if candidate["source"] == "business_memory"
+                )
             )
 
     def test_business_memory_classification_terms_do_not_match_inside_words(self):
