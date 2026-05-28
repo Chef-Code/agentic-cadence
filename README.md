@@ -79,6 +79,17 @@ quoted path placeholders such as `"{host_event_file}"` and
 `"{case_work_dir}"` to prove they match the generic fixture behavior without
 claiming Claude or Gemini adapter support.
 
+The generic adapter contract pre-claim suite composes the schema, smoke,
+replay, parity, and external conformance contracts into one command:
+
+```bash
+python examples/adapter-contract-runner/run.py --cadence-python python
+```
+
+Use it before any future host-specific binding claim. Future bindings can pass
+the same quoted binding command template through the runner, and the runner
+still reports that it does not ship Claude or Gemini adapter support.
+
 ## Protocol At A Glance
 
 ![Four-step Agentic Cadence handoff flow from old context to signed handoff, clean square, and fresh agent.](docs/assets/handoff-flow.svg)

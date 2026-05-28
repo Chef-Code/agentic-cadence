@@ -37,6 +37,9 @@ jobs:
       - name: CLI smoke lifecycle
         run: python scripts/ci_smoke.py
 
+      - name: Run generic adapter contract pre-claim suite
+        run: python examples/adapter-contract-runner/run.py --cadence-python python
+
   package:
     name: Package install and first-run examples (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

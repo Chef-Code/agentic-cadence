@@ -24,6 +24,7 @@ examples/adapter-smoke/work/
 examples/generic-host-signal/work/
 examples/generic-shell-host-binding/work/
 examples/external-host-binding-conformance/work/
+examples/adapter-contract-runner/work/
 dist/
 build/
 *.egg-info/

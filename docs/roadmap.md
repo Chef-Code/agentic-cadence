@@ -49,6 +49,10 @@ The current tree builds on the released 0.1.x line, with additional unreleased r
 - a generic external host-binding conformance harness that compares a supplied
   binding command against the generic shell replay baseline before any named
   host adapter is claimed.
+- a generic adapter contract pre-claim runner at
+  `examples/adapter-contract-runner/run.py` that composes the schema, smoke,
+  replay, parity, and external conformance contracts before any named host
+  adapter claim.
 
 ## Known Edges
 
@@ -110,6 +114,7 @@ A mature Agentic Cadence system should provide:
 - Compare the first real host binding against
   `examples/adapter-template/host-binding-mapping.md` and the generic
   host-signal smoke plus
+  `examples/adapter-contract-runner/run.py`,
   `examples/external-host-binding-conformance/run.py`,
   `examples/generic-host-signal/run.py --parity-contract` and
   `examples/generic-shell-host-binding/run.py --replay-contract` before
