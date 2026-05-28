@@ -23,6 +23,7 @@ examples/first-run/work/
 examples/adapter-smoke/work/
 examples/generic-host-signal/work/
 examples/generic-shell-host-binding/work/
+examples/external-host-binding-conformance/work/
 dist/
 build/
 *.egg-info/
