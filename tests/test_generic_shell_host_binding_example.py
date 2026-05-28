@@ -381,6 +381,7 @@ class GenericShellHostBindingExampleTests(unittest.TestCase):
 
         context_pressure = cases["context-pressure.json"]["normalized_behavior"]
         self.assertEqual(context_pressure["host_event"], "context_pressure")
+        self.assertEqual(context_pressure["mapped_signal_confidence"], "high")
         self.assertEqual(context_pressure["observed_guardrail"], "context")
         self.assertEqual(context_pressure["packet_keys"], ["prepare_handoff", "status"])
         self.assertEqual(context_pressure["prepared_handoff_status"], "READY")
@@ -388,6 +389,7 @@ class GenericShellHostBindingExampleTests(unittest.TestCase):
 
         operator_stop = cases["operator-stop.json"]["normalized_behavior"]
         self.assertEqual(operator_stop["host_event"], "operator_stop")
+        self.assertEqual(operator_stop["mapped_signal_confidence"], "high")
         self.assertEqual(operator_stop["observed_guardrail"], "operator_stop")
         self.assertEqual(operator_stop["packet_keys"], ["prepare_handoff", "status"])
         self.assertEqual(operator_stop["prepared_handoff_status"], "READY")

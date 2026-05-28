@@ -31,14 +31,19 @@ python examples/adapter-smoke/run.py --cadence-python python
 It proves the adapter path through CLI JSON packets without importing Cadence internals. Current packets may still contain Codex-compatible packet labels retained by the 0.1.x command surface; adapters should preserve those packets rather than rewriting them.
 
 The generic host-signal smoke example exercises the adapter-local signal
-fixtures before a real host binding exists:
+fixtures before a real host binding exists. Its parity contract compares that
+fixture behavior with the generic shell host-binding replay contract:
 
 ```bash
 python examples/generic-host-signal/run.py --cadence-python python
+python examples/generic-host-signal/run.py --parity-contract --cadence-python python
 ```
 
 It verifies no-signal, `context_pressure`, and `operator_stop` behavior through
 the copyable adapter template without claiming Claude or Gemini adapter support.
+The parity contract verifies that the shell host-event mapping stays aligned
+with the adapter-template host-signal fixtures for normalized
+adapter/CLI-observed behavior.
 
 The generic shell host-binding example adds file-backed and stdin-backed shell
 integration paths for one external host event, plus a replay contract that
@@ -54,8 +59,8 @@ The file or stdin payload must contain a `context_pressure` or `operator_stop`
 host-event object, or JSON `null` when no handoff is needed. This still
 exercises the adapter template and public CLI boundary; it does not ship a real
 Claude or Gemini adapter. The replay contract verifies that the same payload
-produces the same normalized public behavior through bundled fixture,
-file-backed, and stdin-backed paths.
+produces the same normalized adapter/CLI-observed behavior through bundled
+fixture, file-backed, and stdin-backed paths.
 
 ## Protocol At A Glance
 

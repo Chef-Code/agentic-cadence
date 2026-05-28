@@ -42,6 +42,7 @@ generic smoke and shell host-binding examples:
 
 ```bash
 python examples/generic-host-signal/run.py --cadence-python python
+python examples/generic-host-signal/run.py --parity-contract --cadence-python python
 python examples/generic-shell-host-binding/run.py --cadence-python python
 python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-file /path/to/host-event.json
 some-host-signal-command | python examples/generic-shell-host-binding/run.py --cadence-python python --host-event-stdin
@@ -62,3 +63,8 @@ The replay contract is the strictest generic shell check. It feeds the bundled
 fixture, file-backed, and stdin-backed paths, then compares their normalized
 adapter and public CLI behavior. Use it as an example-level contract before
 claiming that a future host-specific binding matches the generic mapping.
+
+The host/shell parity contract compares the generic host-signal smoke with the
+generic shell replay contract. Use it to catch drift between the adapter-template
+host-signal fixtures and the shell host-event fixtures before adding
+host-specific detection.

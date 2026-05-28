@@ -56,6 +56,11 @@ copyable adapter template as a subprocess, drives Cadence through the public
 CLI, and verifies the no-signal, `context_pressure`, and `operator_stop`
 mapping behavior before any real host adapter exists.
 
+The same example exposes `--parity-contract` to compare its normalized
+adapter/CLI-observed behavior against the generic shell host-binding replay
+contract. That parity check keeps the adapter-template host-signal fixtures
+and shell host-event fixtures aligned without adding a named host adapter.
+
 The host-binding mapping example at
 `examples/adapter-template/host-binding-mapping.md` shows how a future host
 binding can translate host-observed events into the same fixture fields and
@@ -121,11 +126,14 @@ The generic host-signal smoke contract is also executable from a source clone:
 
 ```bash
 python examples/generic-host-signal/run.py --cadence-python python
+python examples/generic-host-signal/run.py --parity-contract --cadence-python python
 ```
 
 It is intentionally narrower than the full adapter smoke: it focuses on the
 host/session signal fixture mapping and the adapter template's preserved
-`status` and `prepare-handoff` packets.
+`status` and `prepare-handoff` packets. The parity contract additionally
+compares that behavior with the generic shell host-binding replay contract so
+the two generic fixture families do not drift.
 
 The generic shell host-binding example is executable from a source clone:
 
@@ -165,8 +173,9 @@ The template includes placeholder hooks for context-pressure detection, generic 
 The current adapter work is documentation, executable smoke fixtures, a copyable
 template, host-signal fixtures, a host-binding mapping example, and a generic
 shell host-binding pattern with fixture, file, and stdin input modes plus the
-replay-contract verifier. It is not a full host integration. A small host
-adapter package should prove that it can:
+replay-contract verifier. It also includes a generic host/shell parity
+contract. It is not a full host integration. A small host adapter package
+should prove that it can:
 
 - call the CLI without private imports;
 - pass an explicit runtime root;
