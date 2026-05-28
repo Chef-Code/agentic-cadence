@@ -116,13 +116,22 @@ def reject_symlink_path_components(path: Path) -> None:
     for part in path.parts[1:]:
         current = current / part
         try:
-            is_symlink = current.is_symlink()
+            redirect_kind = redirecting_path_kind(current)
         except OSError as exc:
             raise RuntimeError(f"could not inspect work directory path component {current}: {exc}") from exc
-        if is_symlink:
+        if redirect_kind:
             if current == path:
-                raise RuntimeError(f"refusing to use symlink work directory: {current}")
-            raise RuntimeError(f"refusing to use work directory through symlink path component: {current}")
+                raise RuntimeError(f"refusing to use {redirect_kind} work directory: {current}")
+            raise RuntimeError(f"refusing to use work directory through {redirect_kind} path component: {current}")
+
+
+def redirecting_path_kind(path: Path) -> str | None:
+    if path.is_symlink():
+        return "symlink"
+    is_junction = getattr(path, "is_junction", None)
+    if is_junction is not None and is_junction():
+        return "junction"
+    return None
 
 
 def remove_readonly(func: Any, path: str, _exc_info: Any) -> None:

@@ -93,9 +93,9 @@ The generic external host-binding conformance harness at
 `examples/external-host-binding-conformance/run.py` compares a supplied binding
 command against that generic shell replay baseline. By default it uses the
 generic shell host-binding example as the sample external command; future host
-bindings can pass `--binding-command-template` with `{host_event_file}` and
-`{case_work_dir}` placeholders. This is a pre-claim acceptance harness, not a
-Claude, Gemini, or other named host adapter.
+bindings can pass `--binding-command-template` with quoted path placeholders
+such as `"{host_event_file}"` and `"{case_work_dir}"`. This is a pre-claim
+acceptance harness, not a Claude, Gemini, or other named host adapter.
 
 ## Required Behavior
 

@@ -28,6 +28,23 @@ def load_conformance_module():
 
 
 class ExternalHostBindingConformanceTests(unittest.TestCase):
+    def make_windows_junction(self, target: Path, junction: Path) -> None:
+        if os.name != "nt":
+            self.skipTest("Windows junctions are unavailable")
+        if not hasattr(junction, "is_junction"):
+            self.skipTest("Path.is_junction is unavailable")
+
+        result = subprocess.run(
+            ["cmd", "/c", "mklink", "/J", str(junction), str(target)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            detail = result.stderr.strip() or result.stdout.strip()
+            self.skipTest(f"directory junctions are unavailable: {detail}")
+        if not junction.is_junction():
+            self.skipTest("created path is not reported as a junction")
+
     def test_external_conformance_uses_public_boundaries_only(self):
         self.assertTrue(CONFORMANCE_SCRIPT.exists(), "missing external host-binding conformance harness")
         source = CONFORMANCE_SCRIPT.read_text(encoding="utf-8")
@@ -160,6 +177,22 @@ class ExternalHostBindingConformanceTests(unittest.TestCase):
 
             self.assertTrue(sentinel.exists())
 
+    def test_external_conformance_refuses_junction_work_dir_replacement(self):
+        module = load_conformance_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            target = tmp_path / "target"
+            target.mkdir()
+            sentinel = target / "keep.txt"
+            sentinel.write_text("keep", encoding="utf-8")
+            junction = tmp_path / "work-junction"
+            self.make_windows_junction(target, junction)
+
+            with self.assertRaisesRegex(RuntimeError, "junction work directory"):
+                module.prepare_work_dir(junction, replace_existing=True)
+
+            self.assertTrue(sentinel.exists())
+
     def test_external_conformance_refuses_parent_traversal_work_dir_replacement(self):
         module = load_conformance_module()
         with tempfile.TemporaryDirectory() as tmp:
@@ -204,6 +237,30 @@ class ExternalHostBindingConformanceTests(unittest.TestCase):
                 module.DEFAULT_WORK_DIR = default_work
                 with self.assertRaisesRegex(RuntimeError, "symlink path component"):
                     module.prepare_work_dir(link / "external-dir", replace_existing=True)
+            finally:
+                module.DEFAULT_WORK_DIR = original_default
+
+            self.assertTrue(sentinel.exists())
+
+    def test_external_conformance_refuses_junction_parent_work_dir_replacement(self):
+        module = load_conformance_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            default_work = tmp_path / "work"
+            outside = tmp_path / "outside"
+            external_dir = outside / "external-dir"
+            default_work.mkdir()
+            external_dir.mkdir(parents=True)
+            sentinel = external_dir / "keep.txt"
+            sentinel.write_text("keep", encoding="utf-8")
+            junction = default_work / "junction"
+            self.make_windows_junction(outside, junction)
+
+            original_default = module.DEFAULT_WORK_DIR
+            try:
+                module.DEFAULT_WORK_DIR = default_work
+                with self.assertRaisesRegex(RuntimeError, "junction path component"):
+                    module.prepare_work_dir(junction / "external-dir", replace_existing=True)
             finally:
                 module.DEFAULT_WORK_DIR = original_default
 
