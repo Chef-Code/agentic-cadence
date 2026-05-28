@@ -35,12 +35,15 @@ fixtures before a real host binding exists. Its parity contract compares that
 fixture behavior with the generic shell host-binding replay contract:
 
 ```bash
+python examples/adapter-template/host_signal_contract.py
 python examples/generic-host-signal/run.py --cadence-python python
 python examples/generic-host-signal/run.py --parity-contract --cadence-python python
 ```
 
 It verifies no-signal, `context_pressure`, and `operator_stop` behavior through
 the copyable adapter template without claiming Claude or Gemini adapter support.
+The schema contract validates that the checked-in host-signal fixtures and
+shell host-event payloads have the expected fields and normalized meanings.
 The parity contract verifies that the shell host-event mapping stays aligned
 with the adapter-template host-signal fixtures for normalized
 adapter/CLI-observed behavior.

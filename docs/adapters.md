@@ -50,6 +50,12 @@ The copyable template also includes generic JSON host-signal fixtures under
 `--host-signal-file` without claiming to be a Claude, Gemini, or other real
 host adapter.
 
+The schema helper at `examples/adapter-template/host_signal_contract.py`
+validates those host-signal fixtures against the generic shell host-event
+payloads before running subprocess smoke examples. It checks exact fixture
+fields and normalized meanings while still treating `source` as adapter-local
+provenance.
+
 The generic host-signal smoke example at `examples/generic-host-signal/run.py`
 uses those fixtures as a host-neutral compatibility bridge. It invokes the
 copyable adapter template as a subprocess, drives Cadence through the public
@@ -125,6 +131,7 @@ Current packets may still contain Codex-compatible packet labels retained by the
 The generic host-signal smoke contract is also executable from a source clone:
 
 ```bash
+python examples/adapter-template/host_signal_contract.py
 python examples/generic-host-signal/run.py --cadence-python python
 python examples/generic-host-signal/run.py --parity-contract --cadence-python python
 ```

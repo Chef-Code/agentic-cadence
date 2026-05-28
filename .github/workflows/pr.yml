@@ -76,6 +76,9 @@ jobs:
       - name: Run adapter smoke example
         run: python examples/adapter-smoke/run.py --cadence-python python
 
+      - name: Run host signal contract schema
+        run: python examples/adapter-template/host_signal_contract.py
+
       - name: Run generic host-signal smoke example
         run: python examples/generic-host-signal/run.py --cadence-python python
 

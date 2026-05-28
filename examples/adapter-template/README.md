@@ -109,6 +109,16 @@ to exercise the signal contract before wiring a real agent host:
 - `no-signal.json`: JSON `null`, which returns `no_handoff_needed` without
   calling Cadence
 
+Validate the fixture schema and its generic shell host-event pairings first:
+
+```bash
+python examples/adapter-template/host_signal_contract.py
+```
+
+The schema helper checks exact fields and normalized meanings for the checked-in
+host-signal fixtures and generic shell host-event payloads. It remains an
+example-level contract and does not ship a Claude or Gemini adapter.
+
 Pass a fixture with `--host-signal-file`:
 
 ```bash
