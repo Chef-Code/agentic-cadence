@@ -70,8 +70,10 @@ def run_json(command: list[str], *, timeout_seconds: float = 360.0) -> dict[str,
 
 
 def prepare_work_dir(path: Path, *, replace_existing: bool) -> None:
-    path = path.resolve()
-    if path.exists():
+    path = path.expanduser().absolute()
+    if path.exists() or path.is_symlink():
+        if path.is_symlink():
+            raise RuntimeError(f"refusing to remove symlink work directory: {path}")
         if not path.is_dir():
             raise RuntimeError(f"work directory path is not a directory: {path}")
         if not replace_existing:
@@ -83,7 +85,7 @@ def prepare_work_dir(path: Path, *, replace_existing: bool) -> None:
 
 
 def ensure_safe_replacement_target(path: Path) -> None:
-    default_work_dir = DEFAULT_WORK_DIR.resolve()
+    default_work_dir = DEFAULT_WORK_DIR.absolute()
     if path == default_work_dir or path.is_relative_to(default_work_dir):
         return
 
@@ -151,12 +153,36 @@ def format_binding_command_template(
     except KeyError as exc:
         raise RuntimeError(f"unknown binding command template placeholder: {exc.args[0]}") from exc
     try:
-        command = shlex.split(formatted, posix=True)
+        command = split_binding_command_template(formatted)
     except ValueError as exc:
         raise RuntimeError(f"binding command template could not be parsed: {exc}") from exc
     if not command:
         raise RuntimeError("binding command template produced an empty command")
     return command
+
+
+def split_binding_command_template(command_line: str) -> list[str]:
+    if not command_line.strip():
+        return []
+    if os.name == "nt":
+        return split_windows_command_line(command_line)
+    return shlex.split(command_line, posix=True)
+
+
+def split_windows_command_line(command_line: str) -> list[str]:
+    import ctypes
+
+    argc = ctypes.c_int()
+    shell32 = ctypes.windll.shell32
+    shell32.CommandLineToArgvW.argtypes = [ctypes.c_wchar_p, ctypes.POINTER(ctypes.c_int)]
+    shell32.CommandLineToArgvW.restype = ctypes.POINTER(ctypes.c_wchar_p)
+    argv = shell32.CommandLineToArgvW(command_line, ctypes.byref(argc))
+    if not argv:
+        raise ValueError("Windows command line parser failed")
+    try:
+        return [argv[index] for index in range(argc.value)]
+    finally:
+        ctypes.windll.kernel32.LocalFree(argv)
 
 
 def external_binding_command(
@@ -191,16 +217,36 @@ def require_boolean(value: Any, field: str) -> bool:
     return value
 
 
-def normalized_scenario_behavior(scenario: dict[str, Any]) -> dict[str, Any]:
-    packets = scenario.get("packets")
+def normalized_scenario_behavior(
+    scenario: dict[str, Any],
+    *,
+    expected_behavior: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    packets = scenario.get("packets", {})
     if not isinstance(packets, dict):
-        packets = {}
+        raise RuntimeError("packets must be a JSON object")
 
     prepare_packet = packets.get("prepare_handoff")
     handoff = prepare_packet.get("handoff") if isinstance(prepare_packet, dict) else None
+    clean_square = prepare_packet.get("clean_square") if isinstance(prepare_packet, dict) else None
+    estimate_input = handoff.get("estimate_input") if isinstance(handoff, dict) else None
+    message = handoff.get("message") if isinstance(handoff, dict) else None
     prepare_stop_current_session = (
         require_boolean(prepare_packet.get("stop_current_session"), "prepare_handoff.stop_current_session")
         if isinstance(prepare_packet, dict)
+        else None
+    )
+    cadence_called = require_boolean(scenario.get("cadence_called"), "cadence_called")
+    if cadence_called != bool(packets):
+        raise RuntimeError("cadence_called must match whether packets were returned")
+    stop_current_session = require_boolean(scenario.get("stop_current_session"), "stop_current_session")
+    if prepare_stop_current_session is not None and stop_current_session != prepare_stop_current_session:
+        raise RuntimeError("stop_current_session must match prepare_handoff.stop_current_session")
+
+    expected_next_action = expected_behavior.get("observed_next_action") if expected_behavior else None
+    observed_next_action = (
+        expected_next_action
+        if isinstance(message, str) and isinstance(expected_next_action, str) and expected_next_action in message
         else None
     )
 
@@ -209,13 +255,13 @@ def normalized_scenario_behavior(scenario: dict[str, Any]) -> dict[str, Any]:
         "mapped_signal_kind": scenario.get("mapped_signal_kind"),
         "mapped_signal_confidence": scenario.get("mapped_signal_confidence"),
         "adapter_result": scenario.get("adapter_result"),
-        "cadence_called": require_boolean(scenario.get("cadence_called"), "cadence_called"),
-        "observed_guardrail": scenario.get("observed_guardrail"),
-        "observed_summary": scenario.get("observed_summary"),
-        "observed_task_type": scenario.get("observed_task_type"),
-        "observed_drivers": scenario.get("observed_drivers"),
-        "observed_next_action": scenario.get("observed_next_action"),
-        "stop_current_session": require_boolean(scenario.get("stop_current_session"), "stop_current_session"),
+        "cadence_called": cadence_called,
+        "observed_guardrail": handoff.get("guardrail") if isinstance(handoff, dict) else None,
+        "observed_summary": clean_square.get("summary") if isinstance(clean_square, dict) else None,
+        "observed_task_type": estimate_input.get("task_type") if isinstance(estimate_input, dict) else None,
+        "observed_drivers": estimate_input.get("drivers") if isinstance(estimate_input, dict) else None,
+        "observed_next_action": observed_next_action,
+        "stop_current_session": stop_current_session,
         "packet_keys": sorted(packets),
         "prepared_handoff_status": handoff.get("status") if isinstance(handoff, dict) else None,
         "prepare_stop_current_session": prepare_stop_current_session,
@@ -287,11 +333,11 @@ def conformance_case(
     external_payload = run_json(command)
     external_scenario = extract_external_scenario(external_payload, event_name)
 
+    normalized_behavior = normalized_shell_replay_behavior(shell_case_by_event(shell_replay_summary, event_name))
     path_results = {
-        "generic_shell_baseline": normalized_shell_replay_behavior(shell_case_by_event(shell_replay_summary, event_name)),
-        "external_binding": normalized_scenario_behavior(external_scenario),
+        "generic_shell_baseline": normalized_behavior,
+        "external_binding": normalized_scenario_behavior(external_scenario, expected_behavior=normalized_behavior),
     }
-    normalized_behavior = path_results["generic_shell_baseline"]
     if path_results["external_binding"] != normalized_behavior:
         raise RuntimeError(
             f"{event_name} diverged from generic shell baseline: "
@@ -308,7 +354,7 @@ def conformance_case(
 
 
 def run_conformance(args: argparse.Namespace) -> dict[str, Any]:
-    work_dir = (args.work_dir or DEFAULT_WORK_DIR).resolve()
+    work_dir = (args.work_dir or DEFAULT_WORK_DIR).expanduser().absolute()
     replace_existing = args.replace_existing or args.work_dir is None
     prepare_work_dir(work_dir, replace_existing=replace_existing)
     child_cadence_args = cadence_args(args)

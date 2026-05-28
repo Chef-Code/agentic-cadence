@@ -1,5 +1,7 @@
 import ast
+import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -15,6 +17,14 @@ SHELL_BINDING_SCRIPT = ROOT / "examples" / "generic-shell-host-binding" / "run.p
 
 def portable_path(path: Path | str) -> str:
     return Path(path).as_posix()
+
+
+def load_conformance_module():
+    spec = importlib.util.spec_from_file_location("external_host_binding_conformance_run", CONFORMANCE_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 class ExternalHostBindingConformanceTests(unittest.TestCase):
@@ -100,6 +110,83 @@ class ExternalHostBindingConformanceTests(unittest.TestCase):
         summary = json.loads(result.stdout)
         self.assertEqual(summary["binding_command_mode"], "template")
         self.assertEqual(summary["result"], "external_host_binding_conformance_passed")
+
+    @unittest.skipUnless(os.name == "nt", "native Windows command-line parsing is Windows-only")
+    def test_external_conformance_accepts_unquoted_windows_template_paths(self):
+        module = load_conformance_module()
+        command = module.split_binding_command_template(
+            r"C:\Tools\binding.exe --host-event-file C:\tmp\event.json --work-dir C:\tmp\work"
+        )
+
+        self.assertEqual(command[0], r"C:\Tools\binding.exe")
+        self.assertEqual(command[2], r"C:\tmp\event.json")
+        self.assertEqual(command[4], r"C:\tmp\work")
+
+    def test_external_conformance_refuses_symlink_work_dir_replacement(self):
+        module = load_conformance_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            target = tmp_path / "target"
+            target.mkdir()
+            sentinel = target / "keep.txt"
+            sentinel.write_text("keep", encoding="utf-8")
+            link = tmp_path / "work-link"
+            try:
+                os.symlink(target, link, target_is_directory=True)
+            except (NotImplementedError, OSError) as exc:
+                self.skipTest(f"directory symlinks are unavailable: {exc}")
+
+            with self.assertRaisesRegex(RuntimeError, "symlink work directory"):
+                module.prepare_work_dir(link, replace_existing=True)
+
+            self.assertTrue(sentinel.exists())
+
+    def test_external_conformance_derives_observed_fields_from_packets(self):
+        module = load_conformance_module()
+        scenario = {
+            "host_event": "context_pressure",
+            "mapped_signal_kind": "context_pressure",
+            "mapped_signal_confidence": "high",
+            "adapter_result": "handoff_prepared",
+            "cadence_called": False,
+            "observed_guardrail": "context",
+            "observed_summary": "self-reported summary",
+            "observed_task_type": "execution",
+            "observed_drivers": ["multiple_files"],
+            "observed_next_action": "self-reported next action",
+            "stop_current_session": False,
+            "packets": {},
+        }
+
+        normalized = module.normalized_scenario_behavior(
+            scenario,
+            expected_behavior={"observed_next_action": "expected next action"},
+        )
+
+        self.assertIsNone(normalized["observed_guardrail"])
+        self.assertIsNone(normalized["observed_summary"])
+        self.assertIsNone(normalized["observed_task_type"])
+        self.assertIsNone(normalized["observed_drivers"])
+        self.assertIsNone(normalized["observed_next_action"])
+
+    def test_external_conformance_rejects_malformed_packet_shape(self):
+        module = load_conformance_module()
+        with self.assertRaisesRegex(RuntimeError, "packets must be a JSON object"):
+            module.normalized_scenario_behavior(
+                {
+                    "cadence_called": False,
+                    "stop_current_session": False,
+                    "packets": [],
+                }
+            )
+        with self.assertRaisesRegex(RuntimeError, "cadence_called must match"):
+            module.normalized_scenario_behavior(
+                {
+                    "cadence_called": True,
+                    "stop_current_session": False,
+                    "packets": {},
+                }
+            )
 
     def test_external_conformance_rejects_mismatched_binding(self):
         mismatch_script = textwrap.dedent(
