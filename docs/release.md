@@ -13,6 +13,7 @@ PyPI publication is a separate release decision. Do not publish to a package ind
 - Confirm `README.md` describes the current support status and installation path.
 - Confirm `CHANGELOG.md` has a dated entry for the release version.
 - Confirm package metadata in `pyproject.toml` matches the intended version and project name.
+- Confirm package keywords describe shipped support only. Future host adapter names belong in documentation until a named adapter ships.
 - Confirm public-release guardrails still cover private-history, workflow pinning, and CODEOWNERS-sensitive paths.
 - Run a dedicated secret scanner against the current tree and reachable history. `public_release_audit.py` is repo-specific and is not a substitute for generic secret scanning.
 - Confirm any GitHub release notes match the merged changelog entry.

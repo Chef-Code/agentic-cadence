@@ -10,9 +10,10 @@ The protocol should stay small and inspectable. Host adapters can render differe
 
 ## Current State
 
-The current tree builds on the released 0.1.x line, with additional unreleased release-readiness and adapter-contract work on `main`. It includes:
+The current tree builds on the released 0.1.x line, with additional unreleased release-readiness, adapter-contract, and public-identity guardrail work on `main`. It includes:
 
 - a packaged `agentic-cadence` CLI with Codex-compatible command aliases;
+- package metadata that keeps `agentic-cadence` as the public identity, retains Codex-era compatibility aliases, and does not advertise Claude or Gemini as shipped support keywords;
 - local Cadence state with `PLAY_ON`, `HUDDLE`, and `TIMEOUT`;
 - handoff creation, preparation, approval, claim, completion, and failure flows;
 - repo snapshots and clean-square validation for old-session shutdown;
@@ -53,6 +54,8 @@ The current tree builds on the released 0.1.x line, with additional unreleased r
   `examples/adapter-contract-runner/run.py` that composes the schema, smoke,
   replay, parity, and external conformance contracts before any named host
   adapter claim and can emit compact PR evidence with `--evidence-summary`.
+- PR checks upload the compact adapter contract evidence summary as the
+  `generic-adapter-contract-evidence` artifact for reviewer inspection.
 
 ## Known Edges
 

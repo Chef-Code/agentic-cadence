@@ -14,6 +14,8 @@ The first implementation is used with Codex, and the protocol is intentionally a
 
 Agentic Cadence is an early public protocol and tooling release. The current baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, release dry-run verification, and public-release history auditing.
 
+The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
+
 PyPI publication is not part of this baseline. Treat package-index publication, signed version tags, and broader adapter support as follow-on release work.
 
 See the current [technical roadmap](docs/roadmap.md) for known edges and target state.
