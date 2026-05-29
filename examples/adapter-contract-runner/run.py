@@ -29,6 +29,7 @@ GENERIC_SHELL_BINDING_SCRIPT = ROOT / "examples" / "generic-shell-host-binding" 
 EXTERNAL_CONFORMANCE_SCRIPT = ROOT / "examples" / "external-host-binding-conformance" / "run.py"
 MAPPING_EVIDENCE_PATH = "examples/adapter-template/host-binding-mapping.md"
 EVIDENCE_SCHEMA_VERSION = "generic-adapter-contract-evidence.v1"
+EVIDENCE_SCHEMA_PATH = "examples/adapter-contract-runner/generic-adapter-contract-evidence.v1.schema.json"
 REQUIRED_CONTRACT_LABELS = [
     "host_signal_schema",
     "generic_host_signal_smoke",
@@ -233,6 +234,101 @@ def binding_template_field_names(template: Any) -> set[str]:
     }
 
 
+def load_evidence_schema() -> dict[str, Any]:
+    return json.loads((ROOT / EVIDENCE_SCHEMA_PATH).read_text(encoding="utf-8"))
+
+
+def compare_keys(
+    errors: list[str],
+    *,
+    actual: Any,
+    expected: list[str],
+    label: str,
+) -> None:
+    if not isinstance(actual, dict):
+        errors.append(f"{label} must be an object")
+        return
+
+    actual_keys = sorted(actual)
+    if actual_keys != expected:
+        for key in expected:
+            if key not in actual:
+                errors.append(f"missing {label} key: {key}")
+        unexpected = [key for key in actual_keys if key not in expected]
+        if unexpected:
+            errors.append(f"{label} unexpected keys: {unexpected}")
+
+
+def validate_compact_evidence_against_schema(evidence: dict[str, Any]) -> list[str]:
+    schema = load_evidence_schema()
+    errors: list[str] = []
+
+    top_level_keys = schema["top_level_keys"]
+    compare_keys(errors, actual=evidence, expected=top_level_keys, label="top-level")
+
+    if evidence.get("schema_version") != schema["schema_version"]:
+        errors.append(f"schema_version must be {schema['schema_version']}")
+    if evidence.get("evidence_mode") != "compact":
+        errors.append("evidence_mode must be compact")
+    if evidence.get("binding_command_mode") not in {"default_generic_shell", "template"}:
+        errors.append("binding_command_mode must be default_generic_shell or template")
+    if evidence.get("binding_command_template") is not None and not isinstance(
+        evidence.get("binding_command_template"),
+        str,
+    ):
+        errors.append("binding_command_template must be null or string")
+    if not isinstance(evidence.get("contract_note"), str):
+        errors.append("contract_note must be a string")
+
+    contracts = evidence.get("contracts")
+    if not isinstance(contracts, list):
+        errors.append("contracts must be a list")
+    else:
+        allowed_labels = set(schema["required_contract_labels"])
+        contract_keys = schema["contract_entry_keys"]
+        for index, contract in enumerate(contracts):
+            if not isinstance(contract, dict):
+                errors.append(f"contracts[{index}] must be an object")
+                continue
+            if sorted(contract) != contract_keys:
+                errors.append(f"contracts[{index}] keys must be {contract_keys}")
+            label = contract.get("label")
+            if label not in allowed_labels:
+                errors.append(f"contracts[{index}].label must be one of {schema['required_contract_labels']}")
+            result = contract.get("result")
+            if not isinstance(result, str):
+                errors.append(f"contracts[{index}].result must be a string")
+
+    checklist = evidence.get("checklist_evidence")
+    checklist_keys = schema["checklist_evidence_keys"]
+    compare_keys(errors, actual=checklist, expected=checklist_keys, label="checklist_evidence")
+    if isinstance(checklist, dict):
+        if checklist.get("generic_only") is not True:
+            errors.append("checklist_evidence.generic_only must be true")
+        if checklist.get("mapping_evidence_path") != schema["mapping_evidence_path"]:
+            errors.append(f"checklist_evidence.mapping_evidence_path must be {schema['mapping_evidence_path']}")
+        if checklist.get("required_contract_labels") != schema["required_contract_labels"]:
+            errors.append("checklist_evidence.required_contract_labels must match the schema fixture")
+        observed_labels = checklist.get("observed_contract_labels")
+        if not isinstance(observed_labels, list) or not all(isinstance(label, str) for label in observed_labels):
+            errors.append("checklist_evidence.observed_contract_labels must be a string list")
+        for key in ("all_required_contracts_observed", "all_contracts_passed"):
+            if not isinstance(checklist.get(key), bool):
+                errors.append(f"checklist_evidence.{key} must be boolean")
+        placeholders = checklist.get("binding_template_placeholders")
+        if not isinstance(placeholders, dict):
+            errors.append("checklist_evidence.binding_template_placeholders must be an object")
+        elif sorted(placeholders) != schema["binding_template_placeholder_keys"]:
+            errors.append(
+                "checklist_evidence.binding_template_placeholders keys must be "
+                f"{schema['binding_template_placeholder_keys']}"
+            )
+        elif not all(isinstance(value, bool) for value in placeholders.values()):
+            errors.append("checklist_evidence.binding_template_placeholders values must be boolean")
+
+    return errors
+
+
 def compact_evidence_summary(summary: dict[str, Any]) -> dict[str, Any]:
     contracts = [
         {
@@ -282,6 +378,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"adapter contract runner failed: {exc}", file=sys.stderr)
         return 1
     output = compact_evidence_summary(summary) if args.evidence_summary else summary
+    if args.evidence_summary:
+        schema_errors = validate_compact_evidence_against_schema(output)
+        if schema_errors:
+            print("adapter contract evidence schema validation failed:", file=sys.stderr)
+            for error in schema_errors:
+                print(f"- {error}", file=sys.stderr)
+            return 1
     print(json.dumps(output, indent=2, sort_keys=True))
     return 0
 

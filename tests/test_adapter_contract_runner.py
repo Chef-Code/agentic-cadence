@@ -291,6 +291,56 @@ class AdapterContractRunnerTests(unittest.TestCase):
             },
         )
 
+    def test_adapter_contract_runner_validates_compact_evidence_against_checked_in_schema(self):
+        module = load_runner_module()
+        expected_results = {
+            "host_signal_schema": "host_signal_contract_schema_passed",
+            "generic_host_signal_smoke": "generic_host_signal_smoke_passed",
+            "generic_shell_replay": "generic_shell_host_binding_replay_contract_passed",
+            "generic_host_shell_parity": "generic_host_signal_shell_parity_contract_passed",
+            "external_host_binding_conformance": "external_host_binding_conformance_passed",
+        }
+        full_summary = {
+            "result": "adapter_contract_preclaim_passed",
+            "work_dir": "work",
+            "binding_command_mode": "default_generic_shell",
+            "binding_command_template": None,
+            "contract_note": "generic only; no named host support claim",
+            "contracts": [
+                {
+                    "label": label,
+                    "command": ["python", f"examples/{label}/run.py"],
+                    "result": result,
+                    "summary": {"result": result, "packets": {"omitted": True}},
+                }
+                for label, result in expected_results.items()
+            ],
+        }
+        evidence = module.compact_evidence_summary(full_summary)
+        schema_path = ROOT / module.EVIDENCE_SCHEMA_PATH
+
+        self.assertTrue(schema_path.is_file())
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        self.assertEqual(schema["schema_version"], module.EVIDENCE_SCHEMA_VERSION)
+        self.assertEqual(schema["artifact_name"], "generic-adapter-contract-evidence")
+        self.assertEqual(schema["artifact_file"], "adapter-contract-evidence.json")
+        self.assertEqual(schema["top_level_keys"], sorted(evidence))
+        self.assertEqual(schema["checklist_evidence_keys"], sorted(evidence["checklist_evidence"]))
+        self.assertEqual(schema["contract_entry_keys"], ["label", "result"])
+        self.assertEqual(schema["required_contract_labels"], module.REQUIRED_CONTRACT_LABELS)
+        self.assertEqual(module.validate_compact_evidence_against_schema(evidence), [])
+
+        missing_schema = dict(evidence)
+        missing_schema.pop("schema_version")
+        self.assertIn("missing top-level key: schema_version", module.validate_compact_evidence_against_schema(missing_schema))
+
+        nested_packet = dict(evidence)
+        nested_packet["contracts"] = [dict(evidence["contracts"][0], summary={"packets": {"large": True}})]
+        self.assertIn(
+            "contracts[0] keys must be ['label', 'result']",
+            module.validate_compact_evidence_against_schema(nested_packet),
+        )
+
     def test_adapter_contract_runner_evidence_summary_cli_omits_nested_packets(self):
         module = load_runner_module()
         full_summary = {
@@ -446,12 +496,14 @@ class AdapterContractRunnerTests(unittest.TestCase):
             ROOT / "docs" / "adapter-claim-checklist.md",
             ROOT / "docs" / "adapters.md",
         )
+        schema_path = "examples/adapter-contract-runner/generic-adapter-contract-evidence.v1.schema.json"
         for path in documented_paths:
             text = path.read_text(encoding="utf-8")
             with self.subTest(documented_artifact=path.relative_to(ROOT)):
                 self.assertIn("generic-adapter-contract-evidence", text)
                 self.assertIn("adapter-contract-evidence.json", text)
                 self.assertIn("generic-adapter-contract-evidence.v1", text)
+                self.assertIn(schema_path, text)
 
 
 if __name__ == "__main__":
