@@ -106,6 +106,12 @@ That compact artifact includes
 `schema_version: "generic-adapter-contract-evidence.v1"` so reviewer tooling can
 rely on a named evidence shape. The checked-in project-specific schema fixture lives at
 `examples/adapter-contract-runner/generic-adapter-contract-evidence.v1.schema.json`.
+After downloading the artifact file, reviewers can validate that compact shape
+without rerunning the suite:
+
+```bash
+python examples/adapter-contract-runner/run.py --validate-evidence-file adapter-contract-evidence.json
+```
 
 Before documenting a named non-Codex host binding, follow
 `docs/adapter-claim-checklist.md` and include the required generic contract

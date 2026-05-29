@@ -102,6 +102,11 @@ as the `generic-adapter-contract-evidence` artifact containing
 on a stable evidence shape when checking contract coverage. Reviewer tooling can
 validate that shape against the project-specific schema fixture at
 `examples/adapter-contract-runner/generic-adapter-contract-evidence.v1.schema.json`.
+After downloading the artifact file, validate it without rerunning the suite:
+
+```bash
+python examples/adapter-contract-runner/run.py --validate-evidence-file adapter-contract-evidence.json
+```
 
 ## PR Evidence
 

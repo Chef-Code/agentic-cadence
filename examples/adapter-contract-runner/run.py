@@ -55,10 +55,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--work-dir", type=Path, help="Disposable work directory.")
     parser.add_argument("--replace-existing", action="store_true", help="Remove an existing --work-dir before running.")
     parser.add_argument("--binding-command-template", help="External binding command template for conformance.")
-    parser.add_argument(
+    evidence_group = parser.add_mutually_exclusive_group()
+    evidence_group.add_argument(
         "--evidence-summary",
         action="store_true",
         help="Emit compact PR evidence JSON without nested child packets.",
+    )
+    evidence_group.add_argument(
+        "--validate-evidence-file",
+        type=Path,
+        help="Validate a compact adapter-contract evidence JSON file without rerunning contracts.",
     )
     cadence_group = parser.add_mutually_exclusive_group()
     cadence_group.add_argument("--cadence-command", help="Installed Cadence command to pass to child contracts.")
@@ -269,6 +275,8 @@ def validate_compact_evidence_against_schema(evidence: dict[str, Any]) -> list[s
 
     if evidence.get("schema_version") != schema["schema_version"]:
         errors.append(f"schema_version must be {schema['schema_version']}")
+    if evidence.get("result") != schema["result"]:
+        errors.append(f"result must be {schema['result']}")
     if evidence.get("evidence_mode") != schema["evidence_mode"]:
         errors.append(f"evidence_mode must be {schema['evidence_mode']}")
     if evidence.get("binding_command_mode") not in schema["binding_command_modes"]:
@@ -349,6 +357,56 @@ def validate_compact_evidence_against_schema(evidence: dict[str, Any]) -> list[s
     return errors
 
 
+def load_compact_evidence_file(path: Path) -> tuple[dict[str, Any] | None, list[str]]:
+    try:
+        evidence_bytes = path.read_bytes()
+    except OSError as exc:
+        return None, [f"{path} could not be read: {exc}"]
+
+    try:
+        evidence = json.loads(evidence_bytes)
+    except ValueError as exc:
+        return None, [f"{path} is not valid JSON: {exc}"]
+
+    if not isinstance(evidence, dict):
+        return None, [f"{path} must contain a JSON object"]
+
+    return evidence, []
+
+
+def compact_evidence_validation_summary(path: Path, evidence: dict[str, Any]) -> dict[str, Any]:
+    schema = load_evidence_schema()
+    contracts = evidence.get("contracts")
+    checklist = evidence.get("checklist_evidence")
+    return {
+        "result": "adapter_contract_evidence_validation_passed",
+        "evidence_file": str(path),
+        "artifact_name": schema["artifact_name"],
+        "artifact_file": schema["artifact_file"],
+        "schema_version": evidence.get("schema_version"),
+        "contract_count": len(contracts) if isinstance(contracts, list) else 0,
+        "all_required_contracts_observed": (
+            isinstance(checklist, dict) and checklist.get("all_required_contracts_observed") is True
+        ),
+        "all_contracts_passed": isinstance(checklist, dict) and checklist.get("all_contracts_passed") is True,
+    }
+
+
+def validate_evidence_file(path: Path) -> int:
+    evidence, errors = load_compact_evidence_file(path)
+    if evidence is not None:
+        errors.extend(validate_compact_evidence_against_schema(evidence))
+
+    if errors:
+        print("adapter contract evidence validation failed:", file=sys.stderr)
+        for error in errors:
+            print(f"- {error}", file=sys.stderr)
+        return 1
+
+    print(json.dumps(compact_evidence_validation_summary(path, evidence), indent=2, sort_keys=True))
+    return 0
+
+
 def compact_evidence_summary(summary: dict[str, Any]) -> dict[str, Any]:
     contracts = [
         {
@@ -392,6 +450,9 @@ def compact_evidence_summary(summary: dict[str, Any]) -> dict[str, Any]:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.validate_evidence_file:
+        return validate_evidence_file(args.validate_evidence_file)
+
     try:
         summary = run_preclaim_contracts(args)
     except Exception as exc:
