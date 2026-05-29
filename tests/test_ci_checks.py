@@ -20,6 +20,11 @@ NODE20_ACTION_SHAS = (
     "a26af69be951a213d495a4c3e4e4022e16d87065",
     "ea165f8d65b6e75b540449e92b4886f43607fa02",
 )
+NODE24_ACTION_PINS = {
+    "actions/checkout": NODE24_CHECKOUT_SHA,
+    "actions/setup-python": NODE24_SETUP_PYTHON_SHA,
+    "actions/upload-artifact": NODE24_UPLOAD_ARTIFACT_SHA,
+}
 
 
 def load_validate_protocol():
@@ -39,6 +44,34 @@ def load_public_release_audit():
     assert spec.loader is not None
     spec.loader.exec_module(audit)
     return audit
+
+
+def assert_node24_action_pins(test_case: unittest.TestCase, workflow_texts: dict[str, str]) -> None:
+    combined = "\n".join(workflow_texts.values())
+
+    for old_sha in NODE20_ACTION_SHAS:
+        with test_case.subTest(old_sha=old_sha):
+            test_case.assertNotIn(old_sha, combined)
+
+    for name, text in workflow_texts.items():
+        seen_actions: set[str] = set()
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            line_without_comment = line.split("#", 1)[0].strip()
+            match = re.match(r"^(?:-\s*)?uses:\s*(?P<value>\S+)\s*$", line_without_comment)
+            if match is None:
+                continue
+            value = match.group("value").strip("'\"")
+            action, separator, _ref = value.partition("@")
+            if separator != "@" or action not in NODE24_ACTION_PINS:
+                continue
+            seen_actions.add(action)
+            expected = f"{action}@{NODE24_ACTION_PINS[action]}"
+            test_case.assertEqual(value, expected, f"{name}:{line_no} {action} must use the Node 24-compatible pin")
+
+        for action, sha in NODE24_ACTION_PINS.items():
+            with test_case.subTest(workflow=name, action=action):
+                test_case.assertIn(action, seen_actions)
+                test_case.assertIn(f"{action}@{sha}", text)
 
 
 class CiChecksTests(unittest.TestCase):
@@ -936,19 +969,43 @@ class CiChecksTests(unittest.TestCase):
             "pr": (ROOT / ".github" / "workflows" / "pr.yml").read_text(encoding="utf-8"),
             "release": (ROOT / ".github" / "workflows" / "release-dry-run.yml").read_text(encoding="utf-8"),
         }
-        combined = "\n".join(workflow_texts.values())
+        assert_node24_action_pins(self, workflow_texts)
 
-        for old_sha in NODE20_ACTION_SHAS:
-            with self.subTest(old_sha=old_sha):
-                self.assertNotIn(old_sha, combined)
+    def test_node24_action_pin_guard_rejects_drift_in_each_matching_action_use(self):
+        expected = f"actions/checkout@{NODE24_CHECKOUT_SHA}"
+        workflow_text = "\n".join(
+            (
+                f"      - uses: {expected}",
+                f"      - uses: actions/setup-python@{NODE24_SETUP_PYTHON_SHA}",
+                f"      - uses: actions/upload-artifact@{NODE24_UPLOAD_ARTIFACT_SHA}",
+                f"      - uses: {expected}",
+            )
+        )
+        occurrences = [match.start() for match in re.finditer(re.escape(expected), workflow_text)]
+        self.assertGreaterEqual(len(occurrences), 2, f"expected checkout pin appears at least twice: {expected}")
+        second = occurrences[1]
+        drifted_workflow_text = (
+            workflow_text[:second]
+            + "actions/checkout@1111111111111111111111111111111111111111"
+            + workflow_text[second + len(expected) :]
+        )
 
-        for name, text in workflow_texts.items():
-            with self.subTest(workflow=name, action="checkout"):
-                self.assertIn(f"actions/checkout@{NODE24_CHECKOUT_SHA}", text)
-            with self.subTest(workflow=name, action="setup-python"):
-                self.assertIn(f"actions/setup-python@{NODE24_SETUP_PYTHON_SHA}", text)
-            with self.subTest(workflow=name, action="upload-artifact"):
-                self.assertIn(f"actions/upload-artifact@{NODE24_UPLOAD_ARTIFACT_SHA}", text)
+        with self.assertRaises(AssertionError):
+            assert_node24_action_pins(self, {"synthetic": drifted_workflow_text})
+
+    def test_node24_action_pin_guard_rejects_drift_with_inline_comment(self):
+        expected = f"actions/checkout@{NODE24_CHECKOUT_SHA}"
+        drifted_workflow_text = "\n".join(
+            (
+                "      - uses: actions/checkout@1111111111111111111111111111111111111111 # drifted checkout",
+                f"      - uses: actions/setup-python@{NODE24_SETUP_PYTHON_SHA}",
+                f"      - uses: actions/upload-artifact@{NODE24_UPLOAD_ARTIFACT_SHA}",
+                f"      - uses: {expected}",
+            )
+        )
+
+        with self.assertRaises(AssertionError):
+            assert_node24_action_pins(self, {"synthetic": drifted_workflow_text})
 
     def test_codeowners_covers_public_release_guardrails(self):
         codeowners = ROOT / ".github" / "CODEOWNERS"
