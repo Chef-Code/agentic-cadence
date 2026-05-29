@@ -1,0 +1,9 @@
+{
+  "event": "ci_loop",
+  "source": "generic-shell-host-binding",
+  "confidence": "high",
+  "summary": "The host reports CI-loop exhaustion and asks for a fresh session before continuing verification work.",
+  "task_type": "execution",
+  "drivers": ["ci_verification"],
+  "next_action": "Claim the generated handoff and continue CI verification from the preserved packet."
+}

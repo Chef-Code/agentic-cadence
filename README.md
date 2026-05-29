@@ -42,8 +42,9 @@ python examples/generic-host-signal/run.py --cadence-python python
 python examples/generic-host-signal/run.py --parity-contract --cadence-python python
 ```
 
-It verifies no-signal, `context_pressure`, and `operator_stop` behavior through
-the copyable adapter template without claiming Claude or Gemini adapter support.
+It verifies no-signal, `context_pressure`, `reviewer_loop`, `ci_loop`, and
+`operator_stop` behavior through the copyable adapter template without claiming
+Claude or Gemini adapter support.
 The schema contract validates that the checked-in host-signal fixtures and
 shell host-event payloads have the expected fields and normalized meanings.
 The parity contract verifies that the shell host-event mapping stays aligned
@@ -60,12 +61,12 @@ some-host-signal-command | python examples/generic-shell-host-binding/run.py --c
 python examples/generic-shell-host-binding/run.py --replay-contract --cadence-python python
 ```
 
-The file or stdin payload must contain a `context_pressure` or `operator_stop`
-host-event object, or JSON `null` when no handoff is needed. This still
-exercises the adapter template and public CLI boundary; it does not ship a real
-Claude or Gemini adapter. The replay contract verifies that the same payload
-produces the same normalized adapter/CLI-observed behavior through bundled
-fixture, file-backed, and stdin-backed paths.
+The file or stdin payload must contain a `context_pressure`, `reviewer_loop`,
+`ci_loop`, or `operator_stop` host-event object, or JSON `null` when no handoff
+is needed. This still exercises the adapter template and public CLI boundary;
+it does not ship a real Claude or Gemini adapter. The replay contract verifies
+that the same payload produces the same normalized adapter/CLI-observed
+behavior through bundled fixture, file-backed, and stdin-backed paths.
 
 The generic external host-binding conformance harness compares a supplied
 binding command against the same generic shell replay baseline before any named

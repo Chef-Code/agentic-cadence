@@ -34,11 +34,15 @@ EXTERNAL_SCENARIO_SLUG = "external-host-event"
 SCENARIOS = (
     ("no-event.json", None),
     ("context-pressure.json", "context"),
+    ("reviewer-loop.json", "reviewer_loop"),
+    ("ci-loop.json", "ci_loop"),
     ("operator-stop.json", "operator_stop"),
 )
-ALLOWED_EVENTS = {"context_pressure", "operator_stop"}
+ALLOWED_EVENTS = {"context_pressure", "reviewer_loop", "ci_loop", "operator_stop"}
 EVENT_GUARDRAILS = {
     "context_pressure": "context",
+    "reviewer_loop": "reviewer_loop",
+    "ci_loop": "ci_loop",
     "operator_stop": "operator_stop",
 }
 ALLOWED_CONFIDENCE = {"low", "medium", "high"}

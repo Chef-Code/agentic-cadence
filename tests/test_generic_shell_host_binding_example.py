@@ -192,45 +192,44 @@ class GenericShellHostBindingExampleTests(unittest.TestCase):
         self.assertIn("not a real host adapter", summary["host_binding_note"])
         self.assertEqual(
             [scenario["host_event_file"] for scenario in summary["scenarios"]],
-            ["no-event.json", "context-pressure.json", "operator-stop.json"],
+            [
+                "no-event.json",
+                "context-pressure.json",
+                "reviewer-loop.json",
+                "ci-loop.json",
+                "operator-stop.json",
+            ],
         )
+        scenarios = {scenario["host_event_file"]: scenario for scenario in summary["scenarios"]}
 
-        no_event = summary["scenarios"][0]
+        no_event = scenarios["no-event.json"]
         self.assertIsNone(no_event["host_event"])
         self.assertIsNone(no_event["mapped_signal_kind"])
         self.assertEqual(no_event["adapter_result"], "no_handoff_needed")
         self.assertFalse(no_event["cadence_called"])
         self.assertEqual(no_event["packets"], {})
 
-        context_pressure = summary["scenarios"][1]
-        context_event = self.load_event("context-pressure.json")
-        self.assertEqual(context_pressure["host_event"], "context_pressure")
-        self.assertEqual(context_pressure["mapped_signal_kind"], "context_pressure")
-        self.assertEqual(context_pressure["adapter_result"], "handoff_prepared")
-        self.assertTrue(context_pressure["cadence_called"])
-        self.assertTrue(context_pressure["stop_current_session"])
-        self.assertTrue(context_pressure["packets"]["prepare_handoff"]["stop_current_session"])
-        self.assertEqual(context_pressure["packets"]["prepare_handoff"]["handoff"]["status"], "READY")
-        self.assertEqual(context_pressure["observed_guardrail"], "context")
-        self.assertEqual(context_pressure["observed_summary"], context_event["summary"])
-        self.assertEqual(context_pressure["observed_task_type"], context_event["task_type"])
-        self.assertEqual(context_pressure["observed_drivers"], context_event["drivers"])
-        self.assertEqual(context_pressure["observed_next_action"], context_event["next_action"])
-
-        operator_stop = summary["scenarios"][2]
-        operator_event = self.load_event("operator-stop.json")
-        self.assertEqual(operator_stop["host_event"], "operator_stop")
-        self.assertEqual(operator_stop["mapped_signal_kind"], "operator_stop")
-        self.assertEqual(operator_stop["adapter_result"], "handoff_prepared")
-        self.assertTrue(operator_stop["cadence_called"])
-        self.assertTrue(operator_stop["stop_current_session"])
-        self.assertTrue(operator_stop["packets"]["prepare_handoff"]["stop_current_session"])
-        self.assertEqual(operator_stop["packets"]["prepare_handoff"]["handoff"]["status"], "READY")
-        self.assertEqual(operator_stop["observed_guardrail"], "operator_stop")
-        self.assertEqual(operator_stop["observed_summary"], operator_event["summary"])
-        self.assertEqual(operator_stop["observed_task_type"], operator_event["task_type"])
-        self.assertEqual(operator_stop["observed_drivers"], operator_event["drivers"])
-        self.assertEqual(operator_stop["observed_next_action"], operator_event["next_action"])
+        for event_name, event_kind, expected_guardrail in (
+            ("context-pressure.json", "context_pressure", "context"),
+            ("reviewer-loop.json", "reviewer_loop", "reviewer_loop"),
+            ("ci-loop.json", "ci_loop", "ci_loop"),
+            ("operator-stop.json", "operator_stop", "operator_stop"),
+        ):
+            with self.subTest(event_name=event_name):
+                scenario = scenarios[event_name]
+                event = self.load_event(event_name)
+                self.assertEqual(scenario["host_event"], event_kind)
+                self.assertEqual(scenario["mapped_signal_kind"], event_kind)
+                self.assertEqual(scenario["adapter_result"], "handoff_prepared")
+                self.assertTrue(scenario["cadence_called"])
+                self.assertTrue(scenario["stop_current_session"])
+                self.assertTrue(scenario["packets"]["prepare_handoff"]["stop_current_session"])
+                self.assertEqual(scenario["packets"]["prepare_handoff"]["handoff"]["status"], "READY")
+                self.assertEqual(scenario["observed_guardrail"], expected_guardrail)
+                self.assertEqual(scenario["observed_summary"], event["summary"])
+                self.assertEqual(scenario["observed_task_type"], event["task_type"])
+                self.assertEqual(scenario["observed_drivers"], event["drivers"])
+                self.assertEqual(scenario["observed_next_action"], event["next_action"])
 
     def test_generic_shell_binding_reads_external_host_event_file(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -360,7 +359,16 @@ class GenericShellHostBindingExampleTests(unittest.TestCase):
         self.assertIn("fixture, file-backed, and stdin-backed", summary["contract_note"])
 
         cases = {case["host_event_file"]: case for case in summary["contract_cases"]}
-        self.assertEqual(list(cases), ["no-event.json", "context-pressure.json", "operator-stop.json"])
+        self.assertEqual(
+            list(cases),
+            [
+                "no-event.json",
+                "context-pressure.json",
+                "reviewer-loop.json",
+                "ci-loop.json",
+                "operator-stop.json",
+            ],
+        )
         for case in cases.values():
             self.assertTrue(case["consistent"])
             self.assertEqual(case["input_paths"], ["bundled_fixture", "host_event_file", "host_event_stdin"])
@@ -379,21 +387,20 @@ class GenericShellHostBindingExampleTests(unittest.TestCase):
         self.assertFalse(no_event["cadence_called"])
         self.assertEqual(no_event["packet_keys"], [])
 
-        context_pressure = cases["context-pressure.json"]["normalized_behavior"]
-        self.assertEqual(context_pressure["host_event"], "context_pressure")
-        self.assertEqual(context_pressure["mapped_signal_confidence"], "high")
-        self.assertEqual(context_pressure["observed_guardrail"], "context")
-        self.assertEqual(context_pressure["packet_keys"], ["prepare_handoff", "status"])
-        self.assertEqual(context_pressure["prepared_handoff_status"], "READY")
-        self.assertTrue(context_pressure["prepare_stop_current_session"])
-
-        operator_stop = cases["operator-stop.json"]["normalized_behavior"]
-        self.assertEqual(operator_stop["host_event"], "operator_stop")
-        self.assertEqual(operator_stop["mapped_signal_confidence"], "high")
-        self.assertEqual(operator_stop["observed_guardrail"], "operator_stop")
-        self.assertEqual(operator_stop["packet_keys"], ["prepare_handoff", "status"])
-        self.assertEqual(operator_stop["prepared_handoff_status"], "READY")
-        self.assertTrue(operator_stop["prepare_stop_current_session"])
+        for event_name, event_kind, expected_guardrail in (
+            ("context-pressure.json", "context_pressure", "context"),
+            ("reviewer-loop.json", "reviewer_loop", "reviewer_loop"),
+            ("ci-loop.json", "ci_loop", "ci_loop"),
+            ("operator-stop.json", "operator_stop", "operator_stop"),
+        ):
+            with self.subTest(event_name=event_name):
+                normalized = cases[event_name]["normalized_behavior"]
+                self.assertEqual(normalized["host_event"], event_kind)
+                self.assertEqual(normalized["mapped_signal_confidence"], "high")
+                self.assertEqual(normalized["observed_guardrail"], expected_guardrail)
+                self.assertEqual(normalized["packet_keys"], ["prepare_handoff", "status"])
+                self.assertEqual(normalized["prepared_handoff_status"], "READY")
+                self.assertTrue(normalized["prepare_stop_current_session"])
 
     def test_generic_shell_binding_external_host_event_file_errors_are_clear(self):
         with tempfile.TemporaryDirectory() as tmp:

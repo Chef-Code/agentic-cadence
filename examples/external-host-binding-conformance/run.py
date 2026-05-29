@@ -28,7 +28,13 @@ HOST_EVENT_DIR = ROOT / "examples" / "generic-shell-host-binding" / "host-events
 DEFAULT_WORK_DIR = SCRIPT_DIR / "work"
 WORK_DIR_MARKER = ".external-host-binding-conformance-work"
 WINDOWS_JUNCTION_REPARSE_TAG = getattr(stat, "IO_REPARSE_TAG_MOUNT_POINT", 0xA0000003)
-SCENARIOS = ("no-event.json", "context-pressure.json", "operator-stop.json")
+SCENARIOS = (
+    "no-event.json",
+    "context-pressure.json",
+    "reviewer-loop.json",
+    "ci-loop.json",
+    "operator-stop.json",
+)
 
 
 def run(

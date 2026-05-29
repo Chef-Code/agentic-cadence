@@ -10,7 +10,7 @@ The protocol should stay small and inspectable. Host adapters can render differe
 
 ## Current State
 
-The current tree is the released 0.1.3 baseline for the 0.1.x line. It includes:
+The current tree is based on the released 0.1.3 baseline for the 0.1.x line. It includes:
 
 - a packaged `agentic-cadence` CLI with Codex-compatible command aliases;
 - package metadata that keeps `agentic-cadence` as the public identity, retains Codex-era compatibility aliases, and does not advertise Claude or Gemini as shipped support keywords;
@@ -24,11 +24,11 @@ The current tree is the released 0.1.3 baseline for the 0.1.x line. It includes:
 - an executable adapter smoke contract in `examples/adapter-smoke/run.py` that proves a host adapter can drive the public CLI and preserve returned JSON packets.
 - a copyable adapter template in `examples/adapter-template` that shows the public CLI boundary, explicit runtime root, packet preservation, and host-specific pickup hooks.
 - an adapter-local host/session signal contract in `examples/adapter-template`
-  that maps explicit host context-pressure signals to existing
-  `prepare-handoff` arguments without adding a core object model.
+  that maps explicit host context-pressure, reviewer-loop, and CI-loop signals
+  to existing `prepare-handoff` arguments without adding a core object model.
 - generic host-signal fixtures for the adapter template that exercise
-  `context_pressure`, `operator_stop`, and no-signal behavior without claiming
-  to ship a real Claude or Gemini adapter.
+  `context_pressure`, `reviewer_loop`, `ci_loop`, `operator_stop`, and
+  no-signal behavior without claiming to ship a real Claude or Gemini adapter.
 - a generic host-signal smoke example that runs those fixtures through the
   copyable adapter template and public CLI before any real host adapter exists.
 - a host-binding mapping example that shows future adapter authors how to map
@@ -68,10 +68,10 @@ These are the important boundaries that are not solved yet:
 - No Claude or Gemini adapter is shipped. The project has an adapter boundary,
   generic contracts, and reviewer-verifiable compact evidence, not full host
   integrations.
-- There is no automatic real-host context-pressure integration. The adapter
-  template defines the minimal adapter-local signal shape, but
-  `prepare-handoff --guardrail context` still requires explicit input from the
-  caller or host binding.
+- There is no automatic real-host context-pressure integration, and there is no
+  real-host reviewer-loop or CI-loop integration. The adapter template defines
+  the minimal adapter-local signal shape, but `prepare-handoff` still requires
+  explicit input from the caller or host binding.
 - Runtime state is local filesystem state. There is no shared remote backend for teams or cloud agents.
 - Local locks protect local transitions, but there is no distributed lock model for multiple machines.
 - Claimer, approver, and operator values are records, not authenticated identities with role enforcement.

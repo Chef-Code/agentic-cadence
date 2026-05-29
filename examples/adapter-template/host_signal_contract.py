@@ -20,6 +20,8 @@ HOST_EVENT_DIR = ROOT / "examples" / "generic-shell-host-binding" / "host-events
 DEFAULT_CASES = (
     ("no-signal.json", "no-event.json", None),
     ("context-pressure.json", "context-pressure.json", "context_pressure"),
+    ("reviewer-loop.json", "reviewer-loop.json", "reviewer_loop"),
+    ("ci-loop.json", "ci-loop.json", "ci_loop"),
     ("operator-stop.json", "operator-stop.json", "operator_stop"),
 )
 HOST_SIGNAL_FIELDS = {
@@ -40,7 +42,7 @@ HOST_EVENT_FIELDS = {
     "drivers",
     "next_action",
 }
-ALLOWED_KINDS = {"context_pressure", "operator_stop"}
+ALLOWED_KINDS = {"context_pressure", "reviewer_loop", "ci_loop", "operator_stop"}
 ALLOWED_CONFIDENCE = {"low", "medium", "high"}
 ALLOWED_TASK_TYPES = {"execution", "discovery"}
 ALLOWED_DRIVERS = {

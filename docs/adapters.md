@@ -25,8 +25,8 @@ Adapters may render host-specific pickup instructions, map a host/session signal
 
 ## Host/Session Signal Contract
 
-The minimal context-pressure signal contract is adapter-facing behavior, not a
-new core object model. The copyable template demonstrates this with an
+The minimal host stop-signal contract is adapter-facing behavior, not a new
+core object model. The copyable template demonstrates this with an
 adapter-local `HostSessionSignal` inside `examples/adapter-template/adapter.py`.
 It must not be imported from or exported by `codex_cadence`.
 
@@ -34,23 +34,24 @@ For this slice, a host signal carries `kind`, `source`, `confidence`, `summary`,
 `task_type`, `drivers`, and `next_action`. The adapter validates those fields,
 requires `PLAY_ON` through `status`, and maps the CLI-backed fields into the
 existing `prepare-handoff` arguments. `kind` maps to `--guardrail`:
-`context_pressure` becomes `context`, and `operator_stop` becomes
-`operator_stop`. `summary`, `task_type`, `drivers`, and `next_action` map to
-their matching CLI arguments. `source` and `confidence` are adapter-local
-validation/provenance fields for now; the current public CLI does not store
-them as handoff metadata. `drivers` may be empty because the public CLI allows
-no `--driver` values, but any supplied driver must be accepted by the existing
-task sizing model.
+`context_pressure` becomes `context`, `reviewer_loop` becomes `reviewer_loop`,
+`ci_loop` becomes `ci_loop`, and `operator_stop` becomes `operator_stop`.
+`summary`, `task_type`, `drivers`, and `next_action` map to their matching CLI
+arguments. `source` and `confidence` are adapter-local validation/provenance
+fields for now; the current public CLI does not store them as handoff metadata.
+`drivers` may be empty because the public CLI allows no `--driver` values, but
+any supplied driver must be accepted by the existing task sizing model.
 
-This contract does not make Agentic Cadence infer context pressure from
-transcripts, token guesses, or CLI internals. The host observes session state;
-the adapter passes explicit arguments; Cadence enforces the protocol gates.
+This contract does not make Agentic Cadence infer context pressure, reviewer
+loop exhaustion, or CI loop exhaustion from transcripts, token guesses, or CLI
+internals. The host observes session state; the adapter passes explicit
+arguments; Cadence enforces the protocol gates.
 
 The copyable template also includes generic JSON host-signal fixtures under
 `examples/adapter-template/host-signal-fixtures`. They exercise
-`context_pressure`, `operator_stop`, and no-signal behavior through
-`--host-signal-file` without claiming to be a Claude, Gemini, or other real
-host adapter.
+`context_pressure`, `reviewer_loop`, `ci_loop`, `operator_stop`, and no-signal
+behavior through `--host-signal-file` without claiming to be a Claude, Gemini,
+or other real host adapter.
 
 The schema helper at `examples/adapter-template/host_signal_contract.py`
 validates those host-signal fixtures against the generic shell host-event
@@ -61,8 +62,9 @@ provenance.
 The generic host-signal smoke example at `examples/generic-host-signal/run.py`
 uses those fixtures as a host-neutral compatibility bridge. It invokes the
 copyable adapter template as a subprocess, drives Cadence through the public
-CLI, and verifies the no-signal, `context_pressure`, and `operator_stop`
-mapping behavior before any real host adapter exists.
+CLI, and verifies the no-signal, `context_pressure`, `reviewer_loop`,
+`ci_loop`, and `operator_stop` mapping behavior before any real host adapter
+exists.
 
 The same example exposes `--parity-contract` to compare its normalized
 adapter/CLI-observed behavior against the generic shell host-binding replay
@@ -85,11 +87,12 @@ object or JSON `null`. It is a runnable host-binding pattern, not a real host
 adapter.
 
 The same example also exposes `--replay-contract`. That mode replays the
-bundled `no-event`, `context_pressure`, and `operator_stop` payloads through
-the bundled fixture path, file-backed path, and stdin-backed path, then compares
-their normalized adapter/CLI behavior. The comparison ignores timestamps and
-temporary paths while checking the observed event, guardrail, summary, task
-type, drivers, next action, packet keys, handoff status, and stop signal.
+bundled `no-event`, `context_pressure`, `reviewer_loop`, `ci_loop`, and
+`operator_stop` payloads through the bundled fixture path, file-backed path, and
+stdin-backed path, then compares their normalized adapter/CLI behavior. The
+comparison ignores timestamps and temporary paths while checking the observed
+event, guardrail, summary, task type, drivers, next action, packet keys, handoff
+status, and stop signal.
 
 The generic external host-binding conformance harness at
 `examples/external-host-binding-conformance/run.py` compares a supplied binding
@@ -198,10 +201,10 @@ python examples/generic-shell-host-binding/run.py --replay-contract --cadence-py
 ```
 
 The external file or stdin payload must be one host-event JSON object for
-`context_pressure` or `operator_stop`, or JSON `null` when no handoff is
-needed. This is narrower still than a real adapter: it proves that a host
-binding can map host-native event JSON into the generic signal shape before
-handing control to the adapter template and public CLI.
+`context_pressure`, `reviewer_loop`, `ci_loop`, or `operator_stop`, or JSON
+`null` when no handoff is needed. This is narrower still than a real adapter: it
+proves that a host binding can map host-native event JSON into the generic
+signal shape before handing control to the adapter template and public CLI.
 
 Use the replay contract when changing the generic shell host-binding example.
 It verifies that the same host-event payload stays consistent across the
@@ -239,7 +242,10 @@ python examples/adapter-contract-runner/run.py --cadence-python python --binding
 
 The copyable host adapter template lives at `examples/adapter-template`. It is the smallest practical shape for a future host binding: call the public CLI, pass an explicit runtime root, preserve returned JSON packets, stop on `stop_current_session`, and render host-specific pickup text around the preserved packet.
 
-The template includes placeholder hooks for context-pressure detection, generic host-signal fixtures, and pickup rendering. It does not ship a Claude or Gemini adapter; it gives those future adapters a concrete boundary to copy without importing Cadence internals.
+The template includes placeholder hooks for host stop-signal detection, generic
+host-signal fixtures, and pickup rendering. It does not ship a Claude or Gemini
+adapter; it gives those future adapters a concrete boundary to copy without
+importing Cadence internals.
 
 ## Current Adapter Slice
 

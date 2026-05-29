@@ -121,7 +121,13 @@ class ExternalHostBindingConformanceTests(unittest.TestCase):
         self.assertIn("not a real host adapter", summary["contract_note"])
         self.assertEqual(
             [case["host_event_file"] for case in summary["conformance_cases"]],
-            ["no-event.json", "context-pressure.json", "operator-stop.json"],
+            [
+                "no-event.json",
+                "context-pressure.json",
+                "reviewer-loop.json",
+                "ci-loop.json",
+                "operator-stop.json",
+            ],
         )
         for case in summary["conformance_cases"]:
             self.assertTrue(case["consistent"])

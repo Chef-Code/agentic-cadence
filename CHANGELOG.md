@@ -4,6 +4,12 @@ All notable public changes to Agentic Cadence are documented here.
 
 ## Unreleased
 
+### Added
+
+- Generic adapter-contract fixtures now cover `reviewer_loop` and `ci_loop`
+  host/session signals alongside no-signal, `context_pressure`, and
+  `operator_stop` behavior without claiming a named host adapter.
+
 ### Changed
 
 - Roadmap current-state wording now describes the released `0.1.3` baseline

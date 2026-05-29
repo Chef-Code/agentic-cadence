@@ -73,7 +73,7 @@ It is a copyable template helper, not a stable Python API exported by
 
 The template validates the signal before calling `prepare-handoff`:
 
-- `kind`: `context_pressure` or `operator_stop`
+- `kind`: `context_pressure`, `reviewer_loop`, `ci_loop`, or `operator_stop`
 - `source`: non-empty host/source label, up to 64 characters
 - `confidence`: `low`, `medium`, or `high`
 - `summary`: non-empty text passed to `--summary`
@@ -81,7 +81,8 @@ The template validates the signal before calling `prepare-handoff`:
 - `drivers`: zero or more task sizing drivers accepted by the public CLI
 - `next_action`: non-empty text passed to `--next-action`
 
-`kind` maps to `--guardrail`: `context_pressure` uses `context`, and
+`kind` maps to `--guardrail`: `context_pressure` uses `context`,
+`reviewer_loop` uses `reviewer_loop`, `ci_loop` uses `ci_loop`, and
 `operator_stop` uses `operator_stop`. `source` and `confidence` are
 adapter-local validation/provenance fields; the current public CLI does not
 store them as handoff metadata.
@@ -94,8 +95,9 @@ When a signal is present, the adapter still checks `status`, requires
 
 The hooks to replace are:
 
-- `detect_host_session_signal()`: map the host's context pressure or operator
-  stop signal into an adapter-local `HostSessionSignal`.
+- `detect_host_session_signal()`: map the host's context pressure, reviewer
+  loop, CI loop, or operator stop signal into an adapter-local
+  `HostSessionSignal`.
 - `render_pickup_text()`: format the next-agent instructions in the host's
   preferred surface while keeping the raw Cadence packet available.
 
@@ -105,6 +107,8 @@ The `host-signal-fixtures` directory gives adapter authors a host-neutral way
 to exercise the signal contract before wiring a real agent host:
 
 - `context-pressure.json`: maps to `--guardrail context`
+- `reviewer-loop.json`: maps to `--guardrail reviewer_loop`
+- `ci-loop.json`: maps to `--guardrail ci_loop`
 - `operator-stop.json`: maps to `--guardrail operator_stop`
 - `no-signal.json`: JSON `null`, which returns `no_handoff_needed` without
   calling Cadence
