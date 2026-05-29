@@ -4,7 +4,10 @@ All notable public changes to Agentic Cadence are documented here.
 
 ## Unreleased
 
-No unreleased changes.
+### Fixed
+
+- Adapter contract runner now uses a short per-checkout default work directory
+  on Windows to avoid nested Git path-length failures in deep checkouts.
 
 ## 0.1.2 - 2026-05-29
 
