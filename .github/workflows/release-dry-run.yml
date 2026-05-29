@@ -47,10 +47,11 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "$TARGET_REF" ]]; then
-            python scripts/cadence.py release-dry-run --cwd . --version "$RELEASE_VERSION" --tag "$RELEASE_TAG" --target-ref "$TARGET_REF" | tee release-dry-run.json
+            python scripts/cadence.py release-dry-run --cwd . --version "$RELEASE_VERSION" --tag "$RELEASE_TAG" --target-ref "$TARGET_REF" | tee "$RUNNER_TEMP/release-dry-run.json"
           else
-            python scripts/cadence.py release-dry-run --cwd . --version "$RELEASE_VERSION" --tag "$RELEASE_TAG" | tee release-dry-run.json
+            python scripts/cadence.py release-dry-run --cwd . --version "$RELEASE_VERSION" --tag "$RELEASE_TAG" | tee "$RUNNER_TEMP/release-dry-run.json"
           fi
+          cp "$RUNNER_TEMP/release-dry-run.json" release-dry-run.json
 
       - name: Prepare release artifacts
         id: inspect

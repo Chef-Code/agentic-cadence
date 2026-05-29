@@ -575,6 +575,17 @@ def validate_release_dry_run_workflow(errors: list[str]) -> None:
         if upload_index > enforce_index:
             errors.append(f"{relative} must upload artifacts before enforcing failure")
 
+    dry_run_block = indented_block_after(text, "      - name: Run release dry run")
+    if not dry_run_block:
+        errors.append(f"{relative} missing release dry-run step")
+    else:
+        if "tee release-dry-run.json" in dry_run_block:
+            errors.append(f"{relative} must write dry-run output outside the checkout before artifact copy")
+        if 'tee "$RUNNER_TEMP/release-dry-run.json"' not in dry_run_block:
+            errors.append(f"{relative} must tee release dry-run output into RUNNER_TEMP")
+        if 'cp "$RUNNER_TEMP/release-dry-run.json" release-dry-run.json' not in dry_run_block:
+            errors.append(f"{relative} must copy the dry-run artifact into the checkout after evaluation")
+
     enforce_block = indented_block_after(text, "      - name: Enforce release dry-run result")
     if not enforce_block:
         errors.append(f"{relative} missing enforcement step")
