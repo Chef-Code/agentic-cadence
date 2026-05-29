@@ -140,7 +140,7 @@ class CiChecksTests(unittest.TestCase):
         self.assertIn("setuptools>=77", pyproject["build-system"]["requires"])
         project = pyproject["project"]
         self.assertEqual(project["name"], "agentic-cadence")
-        self.assertEqual(project["version"], "0.1.1")
+        self.assertEqual(project["version"], "0.1.2")
         self.assertEqual(project["requires-python"], ">=3.11")
         self.assertEqual(project["readme"], "README.md")
         self.assertEqual(project["license"], "MIT")
@@ -438,6 +438,13 @@ class CiChecksTests(unittest.TestCase):
 
         for token in (
             "# Changelog",
+            "## Unreleased",
+            "No unreleased changes.",
+            "## 0.1.2 - 2026-05-29",
+            "Adapter contract and release-readiness baseline.",
+            "generic-adapter-contract-evidence",
+            "`--validate-evidence-file`",
+            "No Claude or Gemini adapter is shipped",
             "## 0.1.1 - 2026-05-26",
             "Adapter smoke contract release",
             "Linux and Windows CI coverage",
