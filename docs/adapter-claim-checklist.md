@@ -76,6 +76,10 @@ Run the composite pre-claim suite. First run the generic baseline:
 python examples/adapter-contract-runner/run.py --cadence-python python
 ```
 
+On Windows, the runner defaults its disposable work directory to a short
+per-checkout path under the system temp root to avoid nested Git path-length
+failures. Use `--work-dir` when you need a specific disposable work directory.
+
 For PR evidence, emit the compact evidence summary after the suite passes:
 
 ```bash

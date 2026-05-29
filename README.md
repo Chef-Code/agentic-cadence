@@ -88,6 +88,10 @@ replay, parity, and external conformance contracts into one command:
 python examples/adapter-contract-runner/run.py --cadence-python python
 ```
 
+On Windows, the runner uses a short per-checkout disposable directory under the
+system temp root by default to avoid nested Git path-length failures. Pass
+`--work-dir` if you need to choose a specific disposable work directory.
+
 Use it before any future host-specific binding claim. For PR evidence, add the
 compact evidence summary:
 

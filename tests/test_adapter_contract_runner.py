@@ -1,5 +1,6 @@
 import ast
 import contextlib
+import hashlib
 import io
 import importlib.util
 import json
@@ -143,6 +144,72 @@ class AdapterContractRunnerTests(unittest.TestCase):
         self.assertTrue(any("host_signal_contract.py" in " ".join(command) for _label, command in calls))
         self.assertTrue(any("--replay-contract" in command for _label, command in calls))
         self.assertTrue(any("--parity-contract" in command for _label, command in calls))
+
+    def test_adapter_contract_runner_uses_short_temp_default_work_dir_on_windows(self):
+        module = load_runner_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            temp_root = Path(tmp)
+            checkout_tag = hashlib.sha256(
+                str(module.ROOT.resolve()).encode("utf-8")
+            ).hexdigest()[:8]
+            with mock.patch.object(module, "is_windows_platform", return_value=True), mock.patch.object(
+                module.tempfile,
+                "gettempdir",
+                return_value=str(temp_root),
+            ):
+                self.assertEqual(
+                    module.default_work_dir(),
+                    temp_root / f"ac-adapter-contract-work-{checkout_tag}",
+                )
+
+    def test_adapter_contract_runner_namespaces_windows_default_work_dir_by_checkout(self):
+        module = load_runner_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            temp_root = Path(tmp)
+            first_checkout = temp_root / "first"
+            second_checkout = temp_root / "second"
+
+            with mock.patch.object(module, "is_windows_platform", return_value=True), mock.patch.object(
+                module.tempfile,
+                "gettempdir",
+                return_value=str(temp_root),
+            ):
+                with mock.patch.object(module, "ROOT", first_checkout):
+                    first_default = module.default_work_dir()
+                with mock.patch.object(module, "ROOT", second_checkout):
+                    second_default = module.default_work_dir()
+
+            self.assertNotEqual(first_default, second_default)
+            self.assertEqual(first_default.parent, temp_root)
+            self.assertEqual(second_default.parent, temp_root)
+
+    def test_adapter_contract_runner_uses_computed_default_work_dir(self):
+        module = load_runner_module()
+        expected_results = {
+            "host_signal_schema": "host_signal_contract_schema_passed",
+            "generic_host_signal_smoke": "generic_host_signal_smoke_passed",
+            "generic_shell_replay": "generic_shell_host_binding_replay_contract_passed",
+            "generic_host_shell_parity": "generic_host_signal_shell_parity_contract_passed",
+            "external_host_binding_conformance": "external_host_binding_conformance_passed",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            computed_default = Path(tmp) / "computed-default"
+            args = module.build_parser().parse_args(["--cadence-python", sys.executable])
+
+            def fake_run_json_contract(label, command):
+                return {
+                    "label": label,
+                    "command": command,
+                    "result": expected_results[label],
+                    "summary": {"result": expected_results[label]},
+                }
+
+            with mock.patch.object(module, "default_work_dir", return_value=computed_default, create=True):
+                with mock.patch.object(module, "run_json_contract", side_effect=fake_run_json_contract):
+                    summary = module.run_preclaim_contracts(args)
+
+            self.assertEqual(Path(summary["work_dir"]), computed_default.resolve())
+            self.assertTrue((computed_default / module.WORK_DIR_MARKER).is_file())
 
     def test_adapter_contract_runner_forwards_binding_command_template(self):
         module = load_runner_module()

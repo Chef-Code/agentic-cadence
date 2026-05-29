@@ -224,6 +224,10 @@ contract in one command:
 python examples/adapter-contract-runner/run.py --cadence-python python
 ```
 
+On Windows, the composite runner defaults to a short per-checkout disposable
+work directory under the system temp root to avoid nested Git path-length
+failures. Use `--work-dir` to override that location.
+
 For a future binding, pass a command template and quote path placeholders:
 
 ```bash

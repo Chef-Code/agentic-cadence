@@ -8,6 +8,7 @@ claims. It is not a real host adapter.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import shutil
@@ -15,6 +16,7 @@ import stat
 import string
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_WORK_DIR = SCRIPT_DIR / "work"
+WINDOWS_DEFAULT_WORK_DIR_NAME = "ac-adapter-contract-work"
 WORK_DIR_MARKER = ".adapter-contract-runner-work"
 SCHEMA_SCRIPT = ROOT / "examples" / "adapter-template" / "host_signal_contract.py"
 GENERIC_HOST_SIGNAL_SCRIPT = ROOT / "examples" / "generic-host-signal" / "run.py"
@@ -52,7 +55,11 @@ def run(command: list[str], *, timeout_seconds: float = 600.0) -> subprocess.Com
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the generic pre-claim adapter-contract suite.")
-    parser.add_argument("--work-dir", type=Path, help="Disposable work directory.")
+    parser.add_argument(
+        "--work-dir",
+        type=Path,
+        help="Disposable work directory. Defaults to a short temp path on Windows to avoid path-length failures.",
+    )
     parser.add_argument("--replace-existing", action="store_true", help="Remove an existing --work-dir before running.")
     parser.add_argument("--binding-command-template", help="External binding command template for conformance.")
     evidence_group = parser.add_mutually_exclusive_group()
@@ -77,11 +84,24 @@ def remove_readonly(func: Any, path: str, _exc_info: Any) -> None:
     func(path)
 
 
+def is_windows_platform() -> bool:
+    return os.name == "nt"
+
+
+def default_work_dir() -> Path:
+    if is_windows_platform():
+        checkout_tag = hashlib.sha256(
+            str(ROOT.resolve(strict=False)).encode("utf-8")
+        ).hexdigest()[:8]
+        return Path(tempfile.gettempdir()) / f"{WINDOWS_DEFAULT_WORK_DIR_NAME}-{checkout_tag}"
+    return DEFAULT_WORK_DIR
+
+
 def ensure_safe_replacement_target(path: Path) -> None:
     path = path.resolve(strict=False)
-    default_work_dir = DEFAULT_WORK_DIR.resolve(strict=False)
-    if path == default_work_dir or path.is_relative_to(default_work_dir):
-        return
+    for default_root in {DEFAULT_WORK_DIR.resolve(strict=False), default_work_dir().resolve(strict=False)}:
+        if path == default_root or path.is_relative_to(default_root):
+            return
 
     blocked_paths = {
         Path(path.anchor).resolve(),
@@ -201,7 +221,7 @@ def run_json_contract(label: str, command: list[str]) -> dict[str, Any]:
 
 def run_preclaim_contracts(args: argparse.Namespace) -> dict[str, Any]:
     work_dir = prepare_work_dir(
-        args.work_dir or DEFAULT_WORK_DIR,
+        args.work_dir or default_work_dir(),
         replace_existing=args.replace_existing or args.work_dir is None,
     )
     contracts = [
