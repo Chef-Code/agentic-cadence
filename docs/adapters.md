@@ -112,7 +112,8 @@ The PR workflow stores that compact output as `adapter-contract-evidence.json`
 inside the `generic-adapter-contract-evidence` artifact for reviewer
 inspection. The compact artifact declares
 `schema_version: "generic-adapter-contract-evidence.v1"` as its stable reviewer
-contract.
+contract, with its checked-in project-specific schema fixture at
+`examples/adapter-contract-runner/generic-adapter-contract-evidence.v1.schema.json`.
 
 Before a PR documents a named non-Codex host binding, use
 `docs/adapter-claim-checklist.md`. The checklist keeps the claim tied to the

@@ -104,7 +104,8 @@ artifact containing `adapter-contract-evidence.json`, so reviewers can inspect
 the generic contract coverage without expanding nested packet payloads in logs.
 That compact artifact includes
 `schema_version: "generic-adapter-contract-evidence.v1"` so reviewer tooling can
-rely on a named evidence shape.
+rely on a named evidence shape. The checked-in project-specific schema fixture lives at
+`examples/adapter-contract-runner/generic-adapter-contract-evidence.v1.schema.json`.
 
 Before documenting a named non-Codex host binding, follow
 `docs/adapter-claim-checklist.md` and include the required generic contract

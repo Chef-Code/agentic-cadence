@@ -1,0 +1,54 @@
+{
+  "artifact_file": "adapter-contract-evidence.json",
+  "artifact_name": "generic-adapter-contract-evidence",
+  "binding_command_modes": [
+    "default_generic_shell",
+    "template"
+  ],
+  "binding_template_placeholder_keys": [
+    "cadence_args",
+    "case_work_dir",
+    "host_event_file"
+  ],
+  "checklist_required_true_keys": [
+    "all_required_contracts_observed",
+    "all_contracts_passed"
+  ],
+  "checklist_evidence_keys": [
+    "all_contracts_passed",
+    "all_required_contracts_observed",
+    "binding_template_placeholders",
+    "generic_only",
+    "mapping_evidence_path",
+    "observed_contract_labels",
+    "required_contract_labels"
+  ],
+  "contract_entry_keys": [
+    "label",
+    "result"
+  ],
+  "contract_labels_must_match_required": true,
+  "contract_result_suffix": "_passed",
+  "evidence_mode": "compact",
+  "mapping_evidence_path": "examples/adapter-template/host-binding-mapping.md",
+  "observed_contract_labels_must_match_contracts": true,
+  "schema_kind": "project-specific-compact-evidence-schema",
+  "required_contract_labels": [
+    "host_signal_schema",
+    "generic_host_signal_smoke",
+    "generic_shell_replay",
+    "generic_host_shell_parity",
+    "external_host_binding_conformance"
+  ],
+  "schema_version": "generic-adapter-contract-evidence.v1",
+  "top_level_keys": [
+    "binding_command_mode",
+    "binding_command_template",
+    "checklist_evidence",
+    "contract_note",
+    "contracts",
+    "evidence_mode",
+    "result",
+    "schema_version"
+  ]
+}
