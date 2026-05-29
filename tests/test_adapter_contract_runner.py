@@ -266,6 +266,10 @@ class AdapterContractRunnerTests(unittest.TestCase):
         self.assertFalse(evidence["checklist_evidence"]["all_required_contracts_observed"])
         self.assertFalse(evidence["checklist_evidence"]["all_contracts_passed"])
         self.assertEqual(evidence["checklist_evidence"]["observed_contract_labels"], ["host_signal_schema"])
+        errors = module.validate_compact_evidence_against_schema(evidence)
+        self.assertIn("contracts labels must exactly match required_contract_labels", errors)
+        self.assertIn("checklist_evidence.all_required_contracts_observed must be true", errors)
+        self.assertIn("checklist_evidence.all_contracts_passed must be true", errors)
 
     def test_adapter_contract_runner_evidence_summary_parses_format_placeholders(self):
         module = load_runner_module()
@@ -328,6 +332,12 @@ class AdapterContractRunnerTests(unittest.TestCase):
         self.assertEqual(schema["checklist_evidence_keys"], sorted(evidence["checklist_evidence"]))
         self.assertEqual(schema["contract_entry_keys"], ["label", "result"])
         self.assertEqual(schema["required_contract_labels"], module.REQUIRED_CONTRACT_LABELS)
+        self.assertTrue(schema["contract_labels_must_match_required"])
+        self.assertTrue(schema["observed_contract_labels_must_match_contracts"])
+        self.assertEqual(
+            schema["checklist_required_true_keys"],
+            ["all_required_contracts_observed", "all_contracts_passed"],
+        )
         self.assertEqual(module.validate_compact_evidence_against_schema(evidence), [])
 
         missing_schema = dict(evidence)
@@ -340,6 +350,18 @@ class AdapterContractRunnerTests(unittest.TestCase):
             "contracts[0] keys must be ['label', 'result']",
             module.validate_compact_evidence_against_schema(nested_packet),
         )
+        duplicate_contract = json.loads(json.dumps(evidence))
+        duplicate_contract["contracts"][1]["label"] = "host_signal_schema"
+        self.assertIn(
+            "contracts labels must exactly match required_contract_labels",
+            module.validate_compact_evidence_against_schema(duplicate_contract),
+        )
+        observed_mismatch = json.loads(json.dumps(evidence))
+        observed_mismatch["checklist_evidence"]["observed_contract_labels"] = list(reversed(schema["required_contract_labels"]))
+        self.assertIn(
+            "checklist_evidence.observed_contract_labels must match contracts labels",
+            module.validate_compact_evidence_against_schema(observed_mismatch),
+        )
 
     def test_adapter_contract_runner_evidence_summary_cli_omits_nested_packets(self):
         module = load_runner_module()
@@ -351,11 +373,18 @@ class AdapterContractRunnerTests(unittest.TestCase):
             "contract_note": "generic only; no named host support claim",
             "contracts": [
                 {
-                    "label": "generic_shell_replay",
-                    "command": ["python", "examples/generic-shell-host-binding/run.py"],
-                    "result": "generic_shell_host_binding_replay_contract_passed",
-                    "summary": {"result": "generic_shell_host_binding_replay_contract_passed", "packets": {"large": True}},
-                },
+                    "label": label,
+                    "command": ["python", f"examples/{label}/run.py"],
+                    "result": result,
+                    "summary": {"result": result, "packets": {"large": True}},
+                }
+                for label, result in {
+                    "host_signal_schema": "host_signal_contract_schema_passed",
+                    "generic_host_signal_smoke": "generic_host_signal_smoke_passed",
+                    "generic_shell_replay": "generic_shell_host_binding_replay_contract_passed",
+                    "generic_host_shell_parity": "generic_host_signal_shell_parity_contract_passed",
+                    "external_host_binding_conformance": "external_host_binding_conformance_passed",
+                }.items()
             ],
         }
 
@@ -369,8 +398,14 @@ class AdapterContractRunnerTests(unittest.TestCase):
         self.assertEqual(output["evidence_mode"], "compact")
         self.assertEqual(output["schema_version"], "generic-adapter-contract-evidence.v1")
         self.assertEqual(
-            output["contracts"],
-            [{"label": "generic_shell_replay", "result": "generic_shell_host_binding_replay_contract_passed"}],
+            [contract["label"] for contract in output["contracts"]],
+            [
+                "host_signal_schema",
+                "generic_host_signal_smoke",
+                "generic_shell_replay",
+                "generic_host_shell_parity",
+                "external_host_binding_conformance",
+            ],
         )
         self.assertEqual({frozenset(contract) for contract in output["contracts"]}, {frozenset({"label", "result"})})
         serialized = json.dumps(output)

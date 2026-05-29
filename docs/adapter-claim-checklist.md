@@ -100,7 +100,7 @@ as the `generic-adapter-contract-evidence` artifact containing
 `adapter-contract-evidence.json`. The compact artifact declares
 `schema_version: "generic-adapter-contract-evidence.v1"` so reviewers can rely
 on a stable evidence shape when checking contract coverage. Reviewer tooling can
-validate that shape against
+validate that shape against the project-specific schema fixture at
 `examples/adapter-contract-runner/generic-adapter-contract-evidence.v1.schema.json`.
 
 ## PR Evidence

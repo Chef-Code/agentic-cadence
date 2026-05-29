@@ -250,11 +250,12 @@ def compare_keys(
         return
 
     actual_keys = sorted(actual)
-    if actual_keys != expected:
+    expected_keys = sorted(expected)
+    if actual_keys != expected_keys:
         for key in expected:
             if key not in actual:
                 errors.append(f"missing {label} key: {key}")
-        unexpected = [key for key in actual_keys if key not in expected]
+        unexpected = [key for key in actual_keys if key not in expected_keys]
         if unexpected:
             errors.append(f"{label} unexpected keys: {unexpected}")
 
@@ -268,10 +269,10 @@ def validate_compact_evidence_against_schema(evidence: dict[str, Any]) -> list[s
 
     if evidence.get("schema_version") != schema["schema_version"]:
         errors.append(f"schema_version must be {schema['schema_version']}")
-    if evidence.get("evidence_mode") != "compact":
-        errors.append("evidence_mode must be compact")
-    if evidence.get("binding_command_mode") not in {"default_generic_shell", "template"}:
-        errors.append("binding_command_mode must be default_generic_shell or template")
+    if evidence.get("evidence_mode") != schema["evidence_mode"]:
+        errors.append(f"evidence_mode must be {schema['evidence_mode']}")
+    if evidence.get("binding_command_mode") not in schema["binding_command_modes"]:
+        errors.append(f"binding_command_mode must be one of {schema['binding_command_modes']}")
     if evidence.get("binding_command_template") is not None and not isinstance(
         evidence.get("binding_command_template"),
         str,
@@ -285,6 +286,13 @@ def validate_compact_evidence_against_schema(evidence: dict[str, Any]) -> list[s
         errors.append("contracts must be a list")
     else:
         allowed_labels = set(schema["required_contract_labels"])
+        contract_labels = [
+            contract.get("label")
+            for contract in contracts
+            if isinstance(contract, dict)
+        ]
+        if schema.get("contract_labels_must_match_required") and contract_labels != schema["required_contract_labels"]:
+            errors.append("contracts labels must exactly match required_contract_labels")
         contract_keys = schema["contract_entry_keys"]
         for index, contract in enumerate(contracts):
             if not isinstance(contract, dict):
@@ -298,6 +306,8 @@ def validate_compact_evidence_against_schema(evidence: dict[str, Any]) -> list[s
             result = contract.get("result")
             if not isinstance(result, str):
                 errors.append(f"contracts[{index}].result must be a string")
+            elif not result.endswith(schema["contract_result_suffix"]):
+                errors.append(f"contracts[{index}].result must end with {schema['contract_result_suffix']}")
 
     checklist = evidence.get("checklist_evidence")
     checklist_keys = schema["checklist_evidence_keys"]
@@ -312,9 +322,19 @@ def validate_compact_evidence_against_schema(evidence: dict[str, Any]) -> list[s
         observed_labels = checklist.get("observed_contract_labels")
         if not isinstance(observed_labels, list) or not all(isinstance(label, str) for label in observed_labels):
             errors.append("checklist_evidence.observed_contract_labels must be a string list")
-        for key in ("all_required_contracts_observed", "all_contracts_passed"):
-            if not isinstance(checklist.get(key), bool):
-                errors.append(f"checklist_evidence.{key} must be boolean")
+        elif schema.get("observed_contract_labels_must_match_contracts"):
+            contract_labels = []
+            if isinstance(contracts, list):
+                contract_labels = [
+                    contract.get("label")
+                    for contract in contracts
+                    if isinstance(contract, dict)
+                ]
+            if observed_labels != contract_labels:
+                errors.append("checklist_evidence.observed_contract_labels must match contracts labels")
+        for key in schema["checklist_required_true_keys"]:
+            if checklist.get(key) is not True:
+                errors.append(f"checklist_evidence.{key} must be true")
         placeholders = checklist.get("binding_template_placeholders")
         if not isinstance(placeholders, dict):
             errors.append("checklist_evidence.binding_template_placeholders must be an object")
