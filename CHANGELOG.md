@@ -4,6 +4,11 @@ All notable public changes to Agentic Cadence are documented here.
 
 ## Unreleased
 
+### Changed
+
+- Roadmap current-state wording now describes the released `0.1.3` baseline
+  instead of stale unreleased main-only work.
+
 ## 0.1.3 - 2026-05-29
 
 Adapter contract runner Windows path-depth fix.
