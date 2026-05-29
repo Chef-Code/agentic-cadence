@@ -4,6 +4,8 @@ Agentic Cadence should stay agent-neutral. The core protocol defines handoffs, C
 
 The current implementation is Codex-compatible because it ships the `agentic-cadence` command plus legacy `codex-cadence` and `codex-transmission` command names. That compatibility surface is a first host binding, not a reason to make the protocol Codex-only.
 
+The public package metadata stays centered on `agentic-cadence` and shipped compatibility aliases. Future host names such as Claude and Gemini belong in adapter-roadmap documentation and pre-claim evidence, not in package keywords or support claims until a named adapter actually ships.
+
 ## Adapter Boundary
 
 Adapters should consume CLI JSON packets and invoke the public command surface. Adapters do not directly write Cadence runtime files, mutate handoff records, or infer continuation permission outside the protocol gates.

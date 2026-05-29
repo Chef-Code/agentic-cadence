@@ -1946,7 +1946,7 @@ Risk: medium
                 result["warnings"],
             )
 
-    def test_repo_business_memory_parses_without_warnings(self):
+    def test_repo_business_memory_current_entries_are_closed_and_parse_without_warnings(self):
         source_text = (ROOT / "docs" / "cadence" / "business-memory.md").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as tmp:
             init_repo(tmp)
@@ -1955,13 +1955,8 @@ Risk: medium
             result = discover_candidates(cwd=Path(tmp), intent="hybrid", elect=True)
 
             self.assertEqual(result["warnings"], [])
-            self.assertTrue(
-                any(
-                    candidate["evidence"]["heading"] == "Agent-Neutral Public Identity"
-                    for candidate in result["candidates"]
-                    if candidate["source"] == "business_memory"
-                )
-            )
+            self.assertEqual(result["sources"]["business_memory"], 0)
+            self.assertFalse(any(candidate["source"] == "business_memory" for candidate in result["candidates"]))
 
     def test_business_memory_classification_terms_do_not_match_inside_words(self):
         with tempfile.TemporaryDirectory() as tmp:

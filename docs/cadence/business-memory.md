@@ -26,6 +26,8 @@ Entry schema:
 
 ## Agent-Neutral Public Identity
 
+Status: fulfilled
+Fulfilled By: PR #29
 Kind: direction
 Workflow: Public package readiness
 Time Saved: high
