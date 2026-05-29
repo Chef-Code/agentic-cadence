@@ -648,12 +648,19 @@ class AdapterContractRunnerTests(unittest.TestCase):
     def test_pr_workflow_uploads_compact_adapter_evidence_artifact(self):
         workflow = (ROOT / ".github" / "workflows" / "pr.yml").read_text(encoding="utf-8")
         runner_step_name = "Run generic adapter contract pre-claim suite"
+        validate_step_name = "Validate generic adapter contract evidence"
         upload_step_name = "Upload generic adapter contract evidence"
         run_step = (
             "python examples/adapter-contract-runner/run.py --cadence-python python "
             "--evidence-summary | tee adapter-contract-evidence.json"
         )
-        runner_step = workflow[workflow.index(runner_step_name) : workflow.index(upload_step_name)]
+        validate_step = (
+            "python examples/adapter-contract-runner/run.py "
+            "--validate-evidence-file adapter-contract-evidence.json"
+        )
+        self.assertIn(validate_step_name, workflow)
+        runner_step = workflow[workflow.index(runner_step_name) : workflow.index(validate_step_name)]
+        validation_step = workflow[workflow.index(validate_step_name) : workflow.index(upload_step_name)]
         upload_step = workflow[workflow.index(upload_step_name) : workflow.index("  package:")]
 
         for token in (
@@ -662,6 +669,13 @@ class AdapterContractRunnerTests(unittest.TestCase):
         ):
             with self.subTest(runner_step_token=token):
                 self.assertIn(token, runner_step)
+
+        for token in (
+            validate_step,
+            "shell: bash",
+        ):
+            with self.subTest(validation_step_token=token):
+                self.assertIn(token, validation_step)
 
         for token in (
             "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
@@ -673,6 +687,8 @@ class AdapterContractRunnerTests(unittest.TestCase):
                 self.assertIn(token, upload_step)
 
         self.assertLess(workflow.index(run_step), workflow.index(upload_step_name))
+        self.assertLess(workflow.index(run_step), workflow.index(validate_step_name))
+        self.assertLess(workflow.index(validate_step), workflow.index(upload_step_name))
         self.assertLess(workflow.index(upload_step_name), workflow.index("  package:"))
 
         canonical_docs = (
