@@ -29,6 +29,34 @@ def load_runner_module():
     return module
 
 
+def compact_evidence_fixture(module):
+    expected_results = {
+        "host_signal_schema": "host_signal_contract_schema_passed",
+        "generic_host_signal_smoke": "generic_host_signal_smoke_passed",
+        "generic_shell_replay": "generic_shell_host_binding_replay_contract_passed",
+        "generic_host_shell_parity": "generic_host_signal_shell_parity_contract_passed",
+        "external_host_binding_conformance": "external_host_binding_conformance_passed",
+    }
+    return module.compact_evidence_summary(
+        {
+            "result": "adapter_contract_preclaim_passed",
+            "work_dir": "work",
+            "binding_command_mode": "default_generic_shell",
+            "binding_command_template": None,
+            "contract_note": "generic only; no named host support claim",
+            "contracts": [
+                {
+                    "label": label,
+                    "command": ["python", f"examples/{label}/run.py"],
+                    "result": result,
+                    "summary": {"result": result, "packets": {"omitted": True}},
+                }
+                for label, result in expected_results.items()
+            ],
+        }
+    )
+
+
 class AdapterContractRunnerTests(unittest.TestCase):
     def test_adapter_contract_runner_uses_public_subprocess_boundaries_only(self):
         self.assertTrue(RUNNER_SCRIPT.exists(), "missing adapter contract runner")
@@ -328,6 +356,7 @@ class AdapterContractRunnerTests(unittest.TestCase):
         self.assertEqual(schema["schema_version"], module.EVIDENCE_SCHEMA_VERSION)
         self.assertEqual(schema["artifact_name"], "generic-adapter-contract-evidence")
         self.assertEqual(schema["artifact_file"], "adapter-contract-evidence.json")
+        self.assertEqual(schema["result"], "adapter_contract_preclaim_passed")
         self.assertEqual(schema["top_level_keys"], sorted(evidence))
         self.assertEqual(schema["checklist_evidence_keys"], sorted(evidence["checklist_evidence"]))
         self.assertEqual(schema["contract_entry_keys"], ["label", "result"])
@@ -361,6 +390,12 @@ class AdapterContractRunnerTests(unittest.TestCase):
         self.assertIn(
             "checklist_evidence.observed_contract_labels must match contracts labels",
             module.validate_compact_evidence_against_schema(observed_mismatch),
+        )
+        failed_result = json.loads(json.dumps(evidence))
+        failed_result["result"] = "adapter_contract_preclaim_failed"
+        self.assertIn(
+            "result must be adapter_contract_preclaim_passed",
+            module.validate_compact_evidence_against_schema(failed_result),
         )
 
     def test_adapter_contract_runner_evidence_summary_cli_omits_nested_packets(self):
@@ -411,6 +446,120 @@ class AdapterContractRunnerTests(unittest.TestCase):
         serialized = json.dumps(output)
         self.assertNotIn("packets", serialized)
         self.assertNotIn('"command": [', serialized)
+
+    def test_adapter_contract_runner_validates_evidence_file_without_rerunning_contracts(self):
+        module = load_runner_module()
+        evidence = compact_evidence_fixture(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_file = Path(tmp) / "adapter-contract-evidence.json"
+            evidence_file.write_text(json.dumps(evidence), encoding="utf-8")
+
+            stdout = io.StringIO()
+            with mock.patch.object(module, "run_preclaim_contracts") as run_contracts:
+                with contextlib.redirect_stdout(stdout):
+                    exit_code = module.main(["--validate-evidence-file", str(evidence_file)])
+
+        self.assertEqual(exit_code, 0)
+        run_contracts.assert_not_called()
+        summary = json.loads(stdout.getvalue())
+        self.assertEqual(summary["result"], "adapter_contract_evidence_validation_passed")
+        self.assertEqual(summary["schema_version"], "generic-adapter-contract-evidence.v1")
+        self.assertEqual(summary["contract_count"], 5)
+        self.assertEqual(summary["evidence_file"], str(evidence_file))
+
+    def test_adapter_contract_runner_validates_utf16_evidence_file_from_powershell_redirection(self):
+        module = load_runner_module()
+        evidence = compact_evidence_fixture(module)
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_file = Path(tmp) / "adapter-contract-evidence.json"
+            evidence_file.write_text(json.dumps(evidence), encoding="utf-16")
+
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                exit_code = module.main(["--validate-evidence-file", str(evidence_file)])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            json.loads(stdout.getvalue())["result"],
+            "adapter_contract_evidence_validation_passed",
+        )
+
+    def test_adapter_contract_runner_rejects_malformed_evidence_file_json(self):
+        module = load_runner_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_file = Path(tmp) / "adapter-contract-evidence.json"
+            evidence_file.write_text("{not-json", encoding="utf-8")
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = module.main(["--validate-evidence-file", str(evidence_file)])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("adapter contract evidence validation failed:", stderr.getvalue())
+        self.assertIn("not valid JSON", stderr.getvalue())
+
+    def test_adapter_contract_runner_rejects_wrong_evidence_file_schema_version(self):
+        module = load_runner_module()
+        evidence = compact_evidence_fixture(module)
+        evidence["schema_version"] = "generic-adapter-contract-evidence.v0"
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_file = Path(tmp) / "adapter-contract-evidence.json"
+            evidence_file.write_text(json.dumps(evidence), encoding="utf-8")
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = module.main(["--validate-evidence-file", str(evidence_file)])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("schema_version must be generic-adapter-contract-evidence.v1", stderr.getvalue())
+
+    def test_adapter_contract_runner_rejects_evidence_file_failed_result(self):
+        module = load_runner_module()
+        evidence = compact_evidence_fixture(module)
+        evidence["result"] = "adapter_contract_preclaim_failed"
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_file = Path(tmp) / "adapter-contract-evidence.json"
+            evidence_file.write_text(json.dumps(evidence), encoding="utf-8")
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = module.main(["--validate-evidence-file", str(evidence_file)])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("result must be adapter_contract_preclaim_passed", stderr.getvalue())
+
+    def test_adapter_contract_runner_rejects_evidence_file_missing_contracts(self):
+        module = load_runner_module()
+        evidence = compact_evidence_fixture(module)
+        evidence["contracts"] = evidence["contracts"][:-1]
+        evidence["checklist_evidence"]["observed_contract_labels"] = [
+            contract["label"] for contract in evidence["contracts"]
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_file = Path(tmp) / "adapter-contract-evidence.json"
+            evidence_file.write_text(json.dumps(evidence), encoding="utf-8")
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = module.main(["--validate-evidence-file", str(evidence_file)])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("contracts labels must exactly match required_contract_labels", stderr.getvalue())
+
+    def test_adapter_contract_runner_rejects_evidence_file_failing_contract_booleans(self):
+        module = load_runner_module()
+        evidence = compact_evidence_fixture(module)
+        evidence["checklist_evidence"]["all_contracts_passed"] = False
+        with tempfile.TemporaryDirectory() as tmp:
+            evidence_file = Path(tmp) / "adapter-contract-evidence.json"
+            evidence_file.write_text(json.dumps(evidence), encoding="utf-8")
+
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
+                exit_code = module.main(["--validate-evidence-file", str(evidence_file)])
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("checklist_evidence.all_contracts_passed must be true", stderr.getvalue())
 
     def test_adapter_contract_runner_rejects_conflicting_cadence_flags(self):
         module = load_runner_module()
@@ -539,6 +688,10 @@ class AdapterContractRunnerTests(unittest.TestCase):
                 self.assertIn("adapter-contract-evidence.json", text)
                 self.assertIn("generic-adapter-contract-evidence.v1", text)
                 self.assertIn(schema_path, text)
+                self.assertIn(
+                    "python examples/adapter-contract-runner/run.py --validate-evidence-file adapter-contract-evidence.json",
+                    text,
+                )
 
 
 if __name__ == "__main__":

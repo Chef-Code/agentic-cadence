@@ -32,6 +32,7 @@
   "evidence_mode": "compact",
   "mapping_evidence_path": "examples/adapter-template/host-binding-mapping.md",
   "observed_contract_labels_must_match_contracts": true,
+  "result": "adapter_contract_preclaim_passed",
   "schema_kind": "project-specific-compact-evidence-schema",
   "required_contract_labels": [
     "host_signal_schema",

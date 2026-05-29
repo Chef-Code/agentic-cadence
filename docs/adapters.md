@@ -114,6 +114,12 @@ inspection. The compact artifact declares
 `schema_version: "generic-adapter-contract-evidence.v1"` as its stable reviewer
 contract, with its checked-in project-specific schema fixture at
 `examples/adapter-contract-runner/generic-adapter-contract-evidence.v1.schema.json`.
+After downloading the artifact file, reviewers can validate the compact shape
+without rerunning the suite:
+
+```bash
+python examples/adapter-contract-runner/run.py --validate-evidence-file adapter-contract-evidence.json
+```
 
 Before a PR documents a named non-Codex host binding, use
 `docs/adapter-claim-checklist.md`. The checklist keeps the claim tied to the
