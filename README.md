@@ -102,6 +102,9 @@ it does not ship Claude or Gemini adapter support.
 PR checks upload the compact JSON as the `generic-adapter-contract-evidence`
 artifact containing `adapter-contract-evidence.json`, so reviewers can inspect
 the generic contract coverage without expanding nested packet payloads in logs.
+That compact artifact includes
+`schema_version: "generic-adapter-contract-evidence.v1"` so reviewer tooling can
+rely on a named evidence shape.
 
 Before documenting a named non-Codex host binding, follow
 `docs/adapter-claim-checklist.md` and include the required generic contract
