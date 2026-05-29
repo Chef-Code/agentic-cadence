@@ -818,6 +818,9 @@ class CiChecksTests(unittest.TestCase):
                 self.assertIn(token, text)
 
         self.assertLess(text.index("Upload release dry-run artifacts"), text.index("Enforce release dry-run result"))
+        self.assertIn('tee "$RUNNER_TEMP/release-dry-run.json"', text)
+        self.assertIn('cp "$RUNNER_TEMP/release-dry-run.json" release-dry-run.json', text)
+        self.assertNotIn("tee release-dry-run.json", text)
         self.assertIn("required: true", text[text.index("version:") : text.index("target_ref:")])
         self.assertIn("required: true", text[text.index("tag:") : text.index("target_ref:")])
         self.assertIn("required: false", text[text.index("target_ref:") : text.index("jobs:")])
@@ -1268,6 +1271,11 @@ class CiChecksTests(unittest.TestCase):
                     1,
                 ),
                 "must upload artifacts before enforcing failure",
+            ),
+            (
+                "workspace_packet_tee",
+                lambda text: text.replace('tee "$RUNNER_TEMP/release-dry-run.json"', "tee release-dry-run.json"),
+                "must write dry-run output outside the checkout before artifact copy",
             ),
             (
                 "git_push",
