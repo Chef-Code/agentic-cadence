@@ -157,3 +157,28 @@ some-host-signal-command | python examples/generic-shell-host-binding/run.py --c
 ```
 
 This remains a generic binding contract, not a Claude or Gemini adapter.
+
+## Generic Contract Runner And Reviewer Evidence
+
+The composite generic adapter contract runner combines the schema helper,
+generic host-signal smoke, generic shell replay, host/shell parity, and external
+host-binding conformance checks before any named host adapter claim:
+
+```bash
+python examples/adapter-contract-runner/run.py --cadence-python python
+```
+
+For PR evidence, emit the compact artifact shape:
+
+```bash
+python examples/adapter-contract-runner/run.py --cadence-python python --evidence-summary
+```
+
+Repository PR checks upload that compact JSON as the
+`generic-adapter-contract-evidence` artifact containing
+`adapter-contract-evidence.json`. Use `docs/adapter-claim-checklist.md` as the
+canonical reviewer procedure for the schema fixture and `--validate-evidence-file`
+check.
+
+This remains generic adapter evidence only and does not ship a Claude, Gemini,
+or other named host adapter.

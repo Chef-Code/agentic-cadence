@@ -114,6 +114,8 @@ inspection. The compact artifact declares
 `schema_version: "generic-adapter-contract-evidence.v1"` as its stable reviewer
 contract, with its checked-in project-specific schema fixture at
 `examples/adapter-contract-runner/generic-adapter-contract-evidence.v1.schema.json`.
+That fixture pins the accepted top-level result, compact evidence mode,
+required contract labels, observed-label parity, and required pass booleans.
 After downloading the artifact file, reviewers can validate the compact shape
 without rerunning the suite:
 
@@ -242,8 +244,11 @@ template, host-signal fixtures, a host-binding mapping example, and a generic
 shell host-binding pattern with fixture, file, and stdin input modes plus the
 replay-contract verifier. It also includes a generic host/shell parity
 contract, an external host-binding conformance harness, and a composite generic
-adapter contract pre-claim runner. It is not a full host integration. A small
-host adapter package should prove that it can:
+adapter contract pre-claim runner with compact PR evidence, a checked-in
+project-specific schema fixture, and a reviewer-side `--validate-evidence-file`
+verifier for the downloaded `adapter-contract-evidence.json` artifact. It is
+not a full host integration. A small host adapter package should prove that it
+can:
 
 - call the CLI without private imports;
 - pass an explicit runtime root;

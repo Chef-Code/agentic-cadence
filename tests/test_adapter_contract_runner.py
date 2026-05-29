@@ -675,15 +675,15 @@ class AdapterContractRunnerTests(unittest.TestCase):
         self.assertLess(workflow.index(run_step), workflow.index(upload_step_name))
         self.assertLess(workflow.index(upload_step_name), workflow.index("  package:"))
 
-        documented_paths = (
+        canonical_docs = (
             ROOT / "README.md",
             ROOT / "docs" / "adapter-claim-checklist.md",
             ROOT / "docs" / "adapters.md",
         )
         schema_path = "examples/adapter-contract-runner/generic-adapter-contract-evidence.v1.schema.json"
-        for path in documented_paths:
+        for path in canonical_docs:
             text = path.read_text(encoding="utf-8")
-            with self.subTest(documented_artifact=path.relative_to(ROOT)):
+            with self.subTest(canonical_evidence_doc=path.relative_to(ROOT)):
                 self.assertIn("generic-adapter-contract-evidence", text)
                 self.assertIn("adapter-contract-evidence.json", text)
                 self.assertIn("generic-adapter-contract-evidence.v1", text)
@@ -692,6 +692,19 @@ class AdapterContractRunnerTests(unittest.TestCase):
                     "python examples/adapter-contract-runner/run.py --validate-evidence-file adapter-contract-evidence.json",
                     text,
                 )
+
+    def test_adapter_evidence_current_state_docs_point_to_canonical_checklist(self):
+        pointer_docs = (
+            ROOT / "docs" / "roadmap.md",
+            ROOT / "examples" / "adapter-template" / "README.md",
+            ROOT / "examples" / "adapter-template" / "host-binding-mapping.md",
+        )
+        for path in pointer_docs:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(pointer_doc=path.relative_to(ROOT)):
+                self.assertIn("generic-adapter-contract-evidence", text)
+                self.assertIn("adapter-contract-evidence.json", text)
+                self.assertIn("docs/adapter-claim-checklist.md", text)
 
 
 if __name__ == "__main__":

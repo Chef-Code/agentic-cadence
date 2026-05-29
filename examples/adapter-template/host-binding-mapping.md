@@ -92,3 +92,9 @@ pass the same `--binding-command-template` through the runner before making any
 host-specific support claim. Add `--evidence-summary` when preparing PR
 evidence so the reviewer can see required contract coverage and binding
 placeholder coverage without nested packet payloads.
+
+Repository PR checks upload that compact JSON as the
+`generic-adapter-contract-evidence` artifact containing
+`adapter-contract-evidence.json`. Use `docs/adapter-claim-checklist.md` as the
+canonical reviewer procedure for the schema fixture and `--validate-evidence-file`
+check.

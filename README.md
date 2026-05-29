@@ -12,7 +12,7 @@ The first implementation is used with Codex, and the protocol is intentionally a
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The current baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, release dry-run verification, and public-release history auditing.
+Agentic Cadence is an early public protocol and tooling release. The current baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -104,7 +104,9 @@ artifact containing `adapter-contract-evidence.json`, so reviewers can inspect
 the generic contract coverage without expanding nested packet payloads in logs.
 That compact artifact includes
 `schema_version: "generic-adapter-contract-evidence.v1"` so reviewer tooling can
-rely on a named evidence shape. The checked-in project-specific schema fixture lives at
+rely on a named evidence shape. The checked-in project-specific schema fixture
+also pins the accepted top-level result, compact evidence mode, required
+contract labels, observed-label parity, and required pass booleans. It lives at
 `examples/adapter-contract-runner/generic-adapter-contract-evidence.v1.schema.json`.
 After downloading the artifact file, reviewers can validate that compact shape
 without rerunning the suite:

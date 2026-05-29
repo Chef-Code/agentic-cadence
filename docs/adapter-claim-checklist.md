@@ -102,6 +102,8 @@ as the `generic-adapter-contract-evidence` artifact containing
 on a stable evidence shape when checking contract coverage. Reviewer tooling can
 validate that shape against the project-specific schema fixture at
 `examples/adapter-contract-runner/generic-adapter-contract-evidence.v1.schema.json`.
+That fixture also pins the accepted top-level result, compact evidence mode,
+required contract labels, observed-label parity, and required pass booleans.
 After downloading the artifact file, validate it without rerunning the suite:
 
 ```bash

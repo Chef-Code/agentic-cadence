@@ -55,13 +55,19 @@ The current tree builds on the released 0.1.x line, with additional unreleased r
   replay, parity, and external conformance contracts before any named host
   adapter claim and can emit compact PR evidence with `--evidence-summary`.
 - PR checks upload the compact adapter contract evidence summary as the
-  `generic-adapter-contract-evidence` artifact for reviewer inspection.
+  `generic-adapter-contract-evidence` artifact containing
+  `adapter-contract-evidence.json` for reviewer inspection.
+- `docs/adapter-claim-checklist.md` is the canonical reviewer procedure for
+  compact adapter evidence, including the schema fixture and
+  `--validate-evidence-file` check.
 
 ## Known Edges
 
 These are the important boundaries that are not solved yet:
 
-- No Claude or Gemini adapter is shipped. The project has an adapter boundary and smoke contract, not full host integrations.
+- No Claude or Gemini adapter is shipped. The project has an adapter boundary,
+  generic contracts, and reviewer-verifiable compact evidence, not full host
+  integrations.
 - There is no automatic real-host context-pressure integration. The adapter
   template defines the minimal adapter-local signal shape, but
   `prepare-handoff --guardrail context` still requires explicit input from the
@@ -125,6 +131,9 @@ A mature Agentic Cadence system should provide:
 - Include `examples/adapter-contract-runner/run.py --evidence-summary` output
   in future adapter-claim PRs so reviewers can inspect contract coverage
   without expanding nested packet payloads.
+- Validate downloaded PR evidence with
+  the `docs/adapter-claim-checklist.md` procedure before treating compact
+  adapter evidence as reviewer-ready.
 - Use `docs/adapter-claim-checklist.md` as the PR gate before documenting any
   named non-Codex host adapter support.
 - Keep the generic shell host-binding example aligned with the mapping example,
