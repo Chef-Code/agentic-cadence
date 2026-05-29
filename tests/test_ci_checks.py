@@ -412,6 +412,7 @@ class CiChecksTests(unittest.TestCase):
             "## Roadmap",
             "## Non-Goals For 0.1.x",
             "## Open Questions",
+            "released 0.1.3 baseline",
             "No Claude or Gemini adapter is shipped",
             "Runtime state is local filesystem state",
             "There is no automatic real-host context-pressure integration",
@@ -423,6 +424,7 @@ class CiChecksTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIn(token, roadmap)
+        self.assertNotIn("additional unreleased", roadmap)
 
     def test_readme_visual_identity_assets_exist(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

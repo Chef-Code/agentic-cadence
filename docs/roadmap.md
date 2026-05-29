@@ -10,7 +10,7 @@ The protocol should stay small and inspectable. Host adapters can render differe
 
 ## Current State
 
-The current tree builds on the released 0.1.x line, with additional unreleased release-readiness, adapter-contract, and public-identity guardrail work on `main`. It includes:
+The current tree is the released 0.1.3 baseline for the 0.1.x line. It includes:
 
 - a packaged `agentic-cadence` CLI with Codex-compatible command aliases;
 - package metadata that keeps `agentic-cadence` as the public identity, retains Codex-era compatibility aliases, and does not advertise Claude or Gemini as shipped support keywords;
