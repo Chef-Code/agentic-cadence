@@ -190,6 +190,20 @@ class AdapterContractRunnerTests(unittest.TestCase):
 
         evidence = module.compact_evidence_summary(full_summary)
 
+        self.assertEqual(evidence["schema_version"], "generic-adapter-contract-evidence.v1")
+        self.assertEqual(
+            set(evidence),
+            {
+                "schema_version",
+                "result",
+                "evidence_mode",
+                "binding_command_mode",
+                "binding_command_template",
+                "contract_note",
+                "contracts",
+                "checklist_evidence",
+            },
+        )
         self.assertEqual(evidence["result"], "adapter_contract_preclaim_passed")
         self.assertEqual(evidence["evidence_mode"], "compact")
         self.assertEqual(evidence["binding_command_mode"], "template")
@@ -200,6 +214,18 @@ class AdapterContractRunnerTests(unittest.TestCase):
         )
         self.assertTrue(evidence["checklist_evidence"]["all_contracts_passed"])
         self.assertTrue(evidence["checklist_evidence"]["all_required_contracts_observed"])
+        self.assertEqual(
+            set(evidence["checklist_evidence"]),
+            {
+                "generic_only",
+                "mapping_evidence_path",
+                "required_contract_labels",
+                "observed_contract_labels",
+                "all_required_contracts_observed",
+                "all_contracts_passed",
+                "binding_template_placeholders",
+            },
+        )
         self.assertEqual(evidence["checklist_evidence"]["required_contract_labels"], list(expected_results))
         self.assertEqual(evidence["checklist_evidence"]["observed_contract_labels"], list(expected_results))
         self.assertEqual(
@@ -291,10 +317,12 @@ class AdapterContractRunnerTests(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         output = json.loads(stdout.getvalue())
         self.assertEqual(output["evidence_mode"], "compact")
+        self.assertEqual(output["schema_version"], "generic-adapter-contract-evidence.v1")
         self.assertEqual(
             output["contracts"],
             [{"label": "generic_shell_replay", "result": "generic_shell_host_binding_replay_contract_passed"}],
         )
+        self.assertEqual({frozenset(contract) for contract in output["contracts"]}, {frozenset({"label", "result"})})
         serialized = json.dumps(output)
         self.assertNotIn("packets", serialized)
         self.assertNotIn('"command": [', serialized)
@@ -423,6 +451,7 @@ class AdapterContractRunnerTests(unittest.TestCase):
             with self.subTest(documented_artifact=path.relative_to(ROOT)):
                 self.assertIn("generic-adapter-contract-evidence", text)
                 self.assertIn("adapter-contract-evidence.json", text)
+                self.assertIn("generic-adapter-contract-evidence.v1", text)
 
 
 if __name__ == "__main__":

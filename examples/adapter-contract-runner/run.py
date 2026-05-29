@@ -28,6 +28,7 @@ GENERIC_HOST_SIGNAL_SCRIPT = ROOT / "examples" / "generic-host-signal" / "run.py
 GENERIC_SHELL_BINDING_SCRIPT = ROOT / "examples" / "generic-shell-host-binding" / "run.py"
 EXTERNAL_CONFORMANCE_SCRIPT = ROOT / "examples" / "external-host-binding-conformance" / "run.py"
 MAPPING_EVIDENCE_PATH = "examples/adapter-template/host-binding-mapping.md"
+EVIDENCE_SCHEMA_VERSION = "generic-adapter-contract-evidence.v1"
 REQUIRED_CONTRACT_LABELS = [
     "host_signal_schema",
     "generic_host_signal_smoke",
@@ -247,6 +248,7 @@ def compact_evidence_summary(summary: dict[str, Any]) -> dict[str, Any]:
     observed_contracts_passed = all(str(contract.get("result", "")).endswith("_passed") for contract in contracts)
 
     return {
+        "schema_version": EVIDENCE_SCHEMA_VERSION,
         "result": summary.get("result"),
         "evidence_mode": "compact",
         "binding_command_mode": summary.get("binding_command_mode"),

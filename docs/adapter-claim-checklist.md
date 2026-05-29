@@ -97,7 +97,9 @@ python examples/adapter-contract-runner/run.py --cadence-python python --binding
 
 On repository PR checks, the generic baseline compact summary is also uploaded
 as the `generic-adapter-contract-evidence` artifact containing
-`adapter-contract-evidence.json`.
+`adapter-contract-evidence.json`. The compact artifact declares
+`schema_version: "generic-adapter-contract-evidence.v1"` so reviewers can rely
+on a stable evidence shape when checking contract coverage.
 
 ## PR Evidence
 
