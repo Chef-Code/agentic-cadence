@@ -41,6 +41,10 @@ jobs:
         shell: bash
         run: python examples/adapter-contract-runner/run.py --cadence-python python --evidence-summary | tee adapter-contract-evidence.json
 
+      - name: Validate generic adapter contract evidence
+        shell: bash
+        run: python examples/adapter-contract-runner/run.py --validate-evidence-file adapter-contract-evidence.json
+
       - name: Upload generic adapter contract evidence
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
