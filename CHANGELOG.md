@@ -4,10 +4,21 @@ All notable public changes to Agentic Cadence are documented here.
 
 ## Unreleased
 
+## 0.1.3 - 2026-05-29
+
+Adapter contract runner Windows path-depth fix.
+
 ### Fixed
 
 - Adapter contract runner now uses a short per-checkout default work directory
   on Windows to avoid nested Git path-length failures in deep checkouts.
+
+### Release Notes
+
+- This release is intended for local clone-based use with `pip install .`.
+- PyPI publication is not part of the `0.1.3` baseline.
+- No Claude or Gemini adapter is shipped; the adapter contract remains generic
+  pre-claim evidence for future host bindings.
 
 ## 0.1.2 - 2026-05-29
 
