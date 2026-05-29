@@ -300,7 +300,7 @@ REQUIRED_TOKENS = {
         "python scripts/enforce_release_dry_run_result.py",
         "release-dry-run.json",
         "release-notes.md",
-        "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+        "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
         "ready_to_release",
         "operator_confirmation_required",
     ),

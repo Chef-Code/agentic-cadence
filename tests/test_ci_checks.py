@@ -12,6 +12,14 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+NODE24_CHECKOUT_SHA = "de0fac2e4500dabe0009e67214ff5f5447ce83dd"
+NODE24_SETUP_PYTHON_SHA = "a309ff8b426b58ec0e2a45f0f869d46889d02405"
+NODE24_UPLOAD_ARTIFACT_SHA = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+NODE20_ACTION_SHAS = (
+    "34e114876b0b11c390a56381ad16ebd13914f8d5",
+    "a26af69be951a213d495a4c3e4e4022e16d87065",
+    "ea165f8d65b6e75b540449e92b4886f43607fa02",
+)
 
 
 def load_validate_protocol():
@@ -922,6 +930,25 @@ class CiChecksTests(unittest.TestCase):
                         f"{workflow.relative_to(ROOT)}:{line_no} must pin actions to a full commit SHA",
                     )
                     self.assertNotRegex(value, r"@v\d+$")
+
+    def test_pr_and_release_workflows_use_node24_compatible_action_pins(self):
+        workflow_texts = {
+            "pr": (ROOT / ".github" / "workflows" / "pr.yml").read_text(encoding="utf-8"),
+            "release": (ROOT / ".github" / "workflows" / "release-dry-run.yml").read_text(encoding="utf-8"),
+        }
+        combined = "\n".join(workflow_texts.values())
+
+        for old_sha in NODE20_ACTION_SHAS:
+            with self.subTest(old_sha=old_sha):
+                self.assertNotIn(old_sha, combined)
+
+        for name, text in workflow_texts.items():
+            with self.subTest(workflow=name, action="checkout"):
+                self.assertIn(f"actions/checkout@{NODE24_CHECKOUT_SHA}", text)
+            with self.subTest(workflow=name, action="setup-python"):
+                self.assertIn(f"actions/setup-python@{NODE24_SETUP_PYTHON_SHA}", text)
+            with self.subTest(workflow=name, action="upload-artifact"):
+                self.assertIn(f"actions/upload-artifact@{NODE24_UPLOAD_ARTIFACT_SHA}", text)
 
     def test_codeowners_covers_public_release_guardrails(self):
         codeowners = ROOT / ".github" / "CODEOWNERS"
