@@ -13,7 +13,7 @@ license-files = ["LICENSE"]
 authors = [
   { name = "Chef-Code" },
 ]
-keywords = ["agentic", "agents", "automation", "handoff", "workflow", "codex", "claude", "gemini"]
+keywords = ["agentic", "agents", "automation", "handoff", "workflow", "codex"]
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Environment :: Console",
