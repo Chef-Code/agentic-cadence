@@ -678,7 +678,7 @@ class AdapterContractRunnerTests(unittest.TestCase):
                 self.assertIn(token, validation_step)
 
         for token in (
-            "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02",
+            "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
             "name: generic-adapter-contract-evidence",
             "path: adapter-contract-evidence.json",
             "if-no-files-found: error",
