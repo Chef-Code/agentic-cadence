@@ -1457,6 +1457,63 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["executor_started"])
             self.assertFalse(output["epoch_started"])
 
+    def test_loop_tick_requires_approval_for_low_confidence_without_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            (Path(repo) / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--discovery-mode",
+                "off",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "approval_required")
+            self.assertEqual(output["reason"], "repo confidence is low")
+            self.assertTrue(output["operator_confirmation_required"])
+            self.assertEqual(output["elected_next"], [])
+            self.assertEqual(output["snapshot"]["repo_confidence"], "low")
+            self.assertIn("dirty_worktree", output["snapshot"]["repo_confidence_drivers"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+
+    def test_loop_tick_requires_approval_for_red_ci_signal(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--active-pr",
+                "49",
+                "--ci-status",
+                "red",
+                "--discovery-mode",
+                "off",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "approval_required")
+            self.assertEqual(output["reason"], "repo confidence is low")
+            self.assertTrue(output["operator_confirmation_required"])
+            self.assertEqual(output["snapshot"]["ci"], "red")
+            self.assertEqual(output["snapshot"]["active_pr"], 49)
+            self.assertEqual(output["snapshot"]["repo_confidence"], "low")
+            self.assertIn("red_ci", output["snapshot"]["repo_confidence_drivers"])
+            self.assertEqual(output["elected_next"], [])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+
     def test_loop_tick_blocks_when_cadence_state_disallows_work(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)

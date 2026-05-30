@@ -306,9 +306,10 @@ Likely files: `codex_cadence/cli.py`, `codex_cadence/candidates.py`,
 `codex_cadence/store.py`, tests, examples.
 
 Validation: fixture repo tests cover no-candidate, executor-contract-required,
-dirty-worktree approval-required, and stop-brake blocked paths. Full slice
-completion still needs executor success/failure, active epoch conflict, stale
-snapshot rejection, validation collection, and completion/failure paths.
+dirty-worktree approval-required with and without elected candidates, red-CI
+approval-required, and stop-brake blocked paths. Full slice completion still
+needs executor success/failure, active epoch conflict, stale snapshot rejection,
+validation collection, and completion/failure paths.
 
 Codex can implement directly if the command remains generic and does not push
 or merge.

@@ -916,10 +916,10 @@ def loop_tick_recommendation(
 ) -> tuple[str, str, bool, bool]:
     if not cadence["can_start_work"]:
         return "blocked", f"cadence state is {cadence['state']}", False, False
-    if not elected_next:
-        return "no_candidates", "no elected candidate", False, False
     if snapshot["repo_confidence"] == "low":
         return "approval_required", "repo confidence is low", True, False
+    if not elected_next:
+        return "no_candidates", "no elected candidate", False, False
     return "requires_executor_contract", "executor contract is not implemented", False, True
 
 

@@ -124,6 +124,21 @@ class RepoStateTests(unittest.TestCase):
             self.assertEqual(snapshot["repo_confidence"], "low")
             self.assertIn("known_failures", snapshot["repo_confidence_drivers"])
 
+    def test_red_ci_lowers_confidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            init_repo(repo)
+            (repo / "README.md").write_text("hello\n", encoding="utf-8")
+            git(repo, "add", "README.md")
+            git(repo, "commit", "-m", "initial")
+
+            snapshot = snapshot_repo(repo, repo="local/test", active_pr=49, ci_status="red")
+
+            self.assertEqual(snapshot["ci"], "red")
+            self.assertEqual(snapshot["active_pr"], 49)
+            self.assertEqual(snapshot["repo_confidence"], "low")
+            self.assertIn("red_ci", snapshot["repo_confidence_drivers"])
+
     def test_snapshot_validation_requires_readiness_evidence(self):
         snapshot = valid_snapshot()
         snapshot.pop("readiness_evidence")
