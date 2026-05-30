@@ -225,7 +225,7 @@ gh pr view 9 --json number,title,state,isDraft,mergeable,mergeStateStatus,review
 agentic-cadence pr-readiness --pr-json-file pr.json --required-check "Python and protocol checks" --pr-template-file .github/pull_request_template.md
 ```
 
-The packet reports blockers, waiting checks, duplicate check groups, skipped Codex Review jobs, missing body sections, missing PR-template sections, and the recommended next action. `--pr-template-file` reads a local Markdown template and checks that its headings are represented in the saved PR body; it does not rewrite the PR.
+The packet reports blockers, waiting checks, duplicate check groups, skipped Codex Review jobs, missing body sections, missing PR-template sections, readiness evidence freshness, and the recommended next action. Saved PR JSON is labeled `saved_input`; when `--max-pr-json-age-minutes` is supplied and the file mtime is older than that limit, the packet is labeled `stale`, waits, and recommends `refresh_pr_evidence`. `--pr-template-file` reads a local Markdown template and checks that its headings are represented in the saved PR body; it does not rewrite the PR.
 
 ## PR Body Preflight
 

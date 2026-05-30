@@ -1,7 +1,7 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-05-29
+Last updated: 2026-05-30
 Baseline: released 0.1.3 tree
 Current unattended-operation confidence: 10%
 
@@ -119,9 +119,11 @@ the next session after a handoff.
 
 ## What Would Break First
 
-The first likely failure in a real unattended run is stale or missing live
-state. Repo snapshots are local git snapshots. PR readiness reads saved input
-files. Cadence does not fetch or reconcile live PR, review, or CI state.
+The first likely failure in a real unattended run is still missing live
+synchronization. Repo snapshots are local git snapshots, and PR readiness reads
+saved input files. Cadence now labels local-only, saved-input, stale, and
+caller-asserted live-like evidence, but it still does not fetch or reconcile
+live PR, review, or CI state.
 
 The next likely failures are:
 

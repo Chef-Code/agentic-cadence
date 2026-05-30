@@ -1,7 +1,7 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-05-29
+Last updated: 2026-05-30
 Baseline: released 0.1.3 tree
 Current unattended-operation confidence: 10%
 
@@ -259,15 +259,21 @@ runtime-root policy when an adapter bypasses the CLI.
 Goal: make local-only state, saved PR state, stale state, and live state
 explicit in packets and docs.
 
-Current evidence: `pr-readiness` evaluates saved JSON files and does not call
-GitHub; repo snapshots do not fetch open PRs or live review threads.
+Status: implemented as an immediate stabilization slice.
 
-Likely files: `codex_cadence/repo_state.py`,
-`codex_cadence/pr_readiness.py`, CLI tests, docs.
+Current evidence: repo snapshots now include `readiness_evidence` with
+`freshness: local_only` and limitations for unfetched PR/review state.
+`pr-readiness` packets now include `readiness_evidence` for `saved_input`,
+`stale`, and caller-asserted `live_like` evidence. The CLI still evaluates
+saved JSON files only and does not call GitHub.
 
-Validation: fixtures for missing, saved, stale, and live-like evidence.
+Implementation files: `codex_cadence/repo_state.py`,
+`codex_cadence/pr_readiness.py`, `codex_cadence/cli.py`, tests, docs.
 
-Codex can implement directly.
+Validation: fixtures cover local-only repo snapshots, saved PR evidence, stale
+saved PR evidence with refresh recommendation, and live-like evaluator labels.
+
+Follow-up: live GitHub fetching and reconciliation remain future work.
 
 ## Short-Term Goals
 

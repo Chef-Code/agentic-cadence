@@ -39,6 +39,11 @@ class RepoStateTests(unittest.TestCase):
             self.assertEqual(snapshot["repo_confidence"], "high")
             self.assertEqual(snapshot["repo_confidence_drivers"], [])
             self.assertIsInstance(snapshot["head"], str)
+            self.assertEqual(snapshot["readiness_evidence"]["source"], "local_git")
+            self.assertEqual(snapshot["readiness_evidence"]["freshness"], "local_only")
+            self.assertFalse(snapshot["readiness_evidence"]["live"])
+            self.assertFalse(snapshot["readiness_evidence"]["stale"])
+            self.assertIn("open_prs_not_fetched", snapshot["readiness_evidence"]["limitations"])
 
     def test_dirty_unborn_repo_snapshots_low_confidence(self):
         with tempfile.TemporaryDirectory() as tmp:

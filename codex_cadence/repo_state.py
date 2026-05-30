@@ -112,6 +112,20 @@ def confidence(
     return ("low" if drivers else "high", drivers)
 
 
+def local_repo_readiness_evidence() -> dict[str, Any]:
+    return {
+        "source": "local_git",
+        "freshness": "local_only",
+        "live": False,
+        "stale": False,
+        "limitations": [
+            "open_prs_not_fetched",
+            "review_threads_not_fetched",
+            "ci_status_operator_supplied",
+        ],
+    }
+
+
 def snapshot_repo(
     cwd: str | Path,
     repo: str | None = None,
@@ -143,6 +157,7 @@ def snapshot_repo(
         "known_failures": failures,
         "repo_confidence": repo_confidence,
         "repo_confidence_drivers": drivers,
+        "readiness_evidence": local_repo_readiness_evidence(),
         "captured_at": utc_now(),
     }
 
