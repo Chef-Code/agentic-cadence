@@ -288,6 +288,22 @@ class PrReadinessTests(unittest.TestCase):
         self.assertFalse(packet["readiness_evidence"]["stale"])
         self.assertIn("caller_asserted_live_source", packet["readiness_evidence"]["limitations"])
 
+    def test_live_like_pr_evidence_ignores_saved_json_age_policy(self):
+        packet = evaluate_pr_readiness(
+            base_pr(),
+            required_checks=["Python and protocol checks"],
+            evidence_source="live_pr_json",
+            evidence_captured_at="2026-05-30T00:00:00Z",
+            max_evidence_age_minutes=30,
+            now="2026-05-30T01:00:00Z",
+        )
+
+        self.assertTrue(packet["ready_to_merge"])
+        self.assertEqual(packet["decision"], "ready")
+        self.assertEqual(packet["readiness_evidence"]["freshness"], "live_like")
+        self.assertFalse(packet["readiness_evidence"]["stale"])
+        self.assertEqual(packet["waiting"], [])
+
     def test_failed_required_check_missing_template_and_changes_requested_block(self):
         packet = evaluate_pr_readiness(
             base_pr(

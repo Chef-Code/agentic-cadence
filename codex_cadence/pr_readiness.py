@@ -213,7 +213,7 @@ def _pr_readiness_evidence(
     waiting: list[dict[str, Any]] = []
     if captured is not None:
         age_minutes = (checked - captured).total_seconds() / 60
-        if age_minutes < 0:
+        if source == "saved_pr_json" and age_minutes < 0:
             stale = True
             waiting.append(
                 _issue(
@@ -224,7 +224,11 @@ def _pr_readiness_evidence(
                     age_minutes=round(age_minutes, 2),
                 )
             )
-        elif max_age_minutes is not None and age_minutes > max_age_minutes:
+        elif (
+            source == "saved_pr_json"
+            and max_age_minutes is not None
+            and age_minutes > max_age_minutes
+        ):
             stale = True
             waiting.append(
                 _issue(
