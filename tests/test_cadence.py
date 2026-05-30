@@ -1374,6 +1374,171 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(output["intent"], "merge_readiness")
 
+    def test_loop_tick_reports_no_candidates_without_starting_execution(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "no_candidates")
+            self.assertEqual(output["reason"], "no elected candidate")
+            self.assertTrue(output["read_only"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+            self.assertEqual(output["elected_next"], [])
+            self.assertEqual(output["snapshot"]["repo"], "local/test")
+            self.assertTrue(Path(output["snapshot"]["path"]).exists())
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_loop_tick_stops_at_executor_contract_for_elected_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "requires_executor_contract")
+            self.assertEqual(output["reason"], "executor contract is not implemented")
+            self.assertTrue(output["executor_contract_required"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+            self.assertEqual(output["cadence"]["state"], "PLAY_ON")
+            self.assertEqual(output["snapshot"]["repo_confidence"], "high")
+            self.assertEqual(output["elected_next"][0]["source"], "text_marker")
+            self.assertEqual(output["candidate_discovery"]["elected_next"][0]["source"], "text_marker")
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_loop_tick_requires_approval_for_low_confidence_repo(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            (Path(repo) / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "merge_readiness",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "approval_required")
+            self.assertEqual(output["reason"], "repo confidence is low")
+            self.assertTrue(output["operator_confirmation_required"])
+            self.assertEqual(output["snapshot"]["repo_confidence"], "low")
+            self.assertIn("dirty_worktree", output["snapshot"]["repo_confidence_drivers"])
+            self.assertEqual(output["elected_next"][0]["source"], "git_status")
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+
+    def test_loop_tick_requires_approval_for_low_confidence_without_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            (Path(repo) / "dirty.txt").write_text("dirty\n", encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--discovery-mode",
+                "off",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "approval_required")
+            self.assertEqual(output["reason"], "repo confidence is low")
+            self.assertTrue(output["operator_confirmation_required"])
+            self.assertEqual(output["elected_next"], [])
+            self.assertEqual(output["snapshot"]["repo_confidence"], "low")
+            self.assertIn("dirty_worktree", output["snapshot"]["repo_confidence_drivers"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+
+    def test_loop_tick_requires_approval_for_red_ci_signal(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--active-pr",
+                "49",
+                "--ci-status",
+                "red",
+                "--discovery-mode",
+                "off",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "approval_required")
+            self.assertEqual(output["reason"], "repo confidence is low")
+            self.assertTrue(output["operator_confirmation_required"])
+            self.assertEqual(output["snapshot"]["ci"], "red")
+            self.assertEqual(output["snapshot"]["active_pr"], 49)
+            self.assertEqual(output["snapshot"]["repo_confidence"], "low")
+            self.assertIn("red_ci", output["snapshot"]["repo_confidence_drivers"])
+            self.assertEqual(output["elected_next"], [])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+
+    def test_loop_tick_blocks_when_cadence_state_disallows_work(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            result, _brake = run_cli(tmp, "set-brake", "PARK", "--reason", "operator stop")
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "blocked")
+            self.assertEqual(output["reason"], "cadence state is TIMEOUT")
+            self.assertEqual(output["cadence"]["state"], "TIMEOUT")
+            self.assertFalse(output["cadence"]["can_start_work"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+
     def test_epoch_cli_lifecycle(self):
         with tempfile.TemporaryDirectory() as tmp:
             snapshot_path = Path(tmp) / "snapshot.json"

@@ -206,6 +206,16 @@ agentic-cadence --root examples/first-run/work/runtime discover-candidates --cwd
 
 Business-memory candidates are discovery-only. They can seed investigation, but they cannot directly execute changes, commit, push, merge, or bypass Cadence governance.
 
+## Loop Tick
+
+`loop-tick` runs one read-only Phase 1 loop-controller tick. It snapshots local repo state, discovers and elects candidate work, checks Cadence state, and emits a structured next-action packet.
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime loop-tick --cwd examples/first-run/work/repo --repo local/demo --intent repo_health
+```
+
+The command does not start an executor, start or complete an epoch, create a branch, commit, push, open a PR, spend review, or merge. It stops with `recommended_next_action` set to `blocked`, `no_candidates`, `approval_required`, or `requires_executor_contract`.
+
 ## Context Handoff Preparation
 
 `prepare-handoff` packages the old-session side of a context handoff into one deterministic local command. It checks Cadence state, snapshots the repo, writes a signed ready handoff, validates it, records clean-square, and returns a packet with `stop_current_session: true`.

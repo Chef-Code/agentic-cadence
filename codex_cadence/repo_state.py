@@ -99,12 +99,15 @@ def confidence(
     known_failures: list[str],
     unborn_head: bool = False,
     detached_head: bool = False,
+    ci_status: str = "unknown",
 ) -> tuple[str, list[str]]:
     drivers = []
     if dirty:
         drivers.append("dirty_worktree")
     if known_failures:
         drivers.append("known_failures")
+    if ci_status == "red":
+        drivers.append("red_ci")
     if unborn_head:
         drivers.append("unborn_head")
     if detached_head:
@@ -143,6 +146,7 @@ def snapshot_repo(
         failures,
         unborn_head=head is None,
         detached_head=head is not None and branch is None,
+        ci_status=ci_status,
     )
     return {
         "repo": repo,

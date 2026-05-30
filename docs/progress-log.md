@@ -33,6 +33,50 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-05-30 - Read-only single-tick loop Phase 1
+
+Summary:
+- Added `loop-tick`, a read-only Phase 1 loop-controller command.
+- The command captures and persists a local repo snapshot, runs deterministic
+  candidate discovery with election enabled, checks Cadence state, and emits a
+  structured next-action packet.
+- The command stops at `blocked`, `no_candidates`, `approval_required`, or
+  `requires_executor_contract`, and reports that executor, epoch, and PR
+  actions were not started.
+
+Completed slices:
+- Single-Tick Loop Orchestrator: Partial.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: the command stitches existing read-only primitives together, but it
+  still cannot execute code, start/complete work epochs, create PRs, ingest live
+  review state, or resume continuously.
+
+Evidence:
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_loop_tick_reports_no_candidates_without_starting_execution tests.test_cadence.CadenceCliTests.test_loop_tick_stops_at_executor_contract_for_elected_candidate tests.test_cadence.CadenceCliTests.test_loop_tick_requires_approval_for_low_confidence_repo tests.test_cadence.CadenceCliTests.test_loop_tick_requires_approval_for_low_confidence_without_candidates tests.test_cadence.CadenceCliTests.test_loop_tick_requires_approval_for_red_ci_signal tests.test_cadence.CadenceCliTests.test_loop_tick_blocks_when_cadence_state_disallows_work`
+- `python -m unittest tests.test_cadence`
+- `python -m unittest tests.test_cadence tests.test_repo_state tests.test_candidates tests.test_epochs`
+- `python -m unittest discover -s tests` passed 492 tests with 4 skips.
+- `python scripts/validate_protocol.py`
+- `git diff --check`
+
+New risks or blockers:
+- `requires_executor_contract` is now the explicit next stop for an elected
+  candidate on a clean repo.
+- No executor evidence schema, validation runner, PR automation, or continuous
+  mode exists yet.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
 ## 2026-05-30 - Current documentation refresh
 
 Summary:
@@ -55,7 +99,7 @@ Confidence change:
 Evidence:
 - `gh pr view 47 --json number,state,mergedAt,mergeCommit,statusCheckRollup,reviewDecision,reviews,comments`
 - `git diff --check`
-- `python scripts\validate_protocol.py`
+- `python scripts/validate_protocol.py`
 - Local Windows `python -m unittest discover -s tests` passed 485 tests with 4
   skips.
 
@@ -107,7 +151,7 @@ Evidence:
 - `python -m unittest tests.test_repo_state tests.test_pr_readiness tests.test_cadence`
 - Local Windows `python -m unittest discover -s tests` passed 485 tests with 4
   skips.
-- `python scripts\validate_protocol.py`
+- `python scripts/validate_protocol.py`
 - `git diff --check`
 
 New risks or blockers:
@@ -146,7 +190,7 @@ Confidence change:
 Evidence:
 - `python -m unittest tests.test_cadence`
 - `python -m unittest discover -s tests`
-- `python scripts\validate_protocol.py`
+- `python scripts/validate_protocol.py`
 - `git diff --check`
 - New CLI tests cover blocked unignored repo-local runtime roots, allowed
   ignored repo-local runtime roots, explicit operator override, cross-command
