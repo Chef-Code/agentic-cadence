@@ -48,8 +48,7 @@ runtime can do these things end-to-end:
 - prepare a signed handoff packet and clean-square evidence;
 - approve, claim, complete, or fail handoffs;
 - evaluate saved PR JSON and saved PR body/template files for readiness,
-  including freshness labels for saved, stale, and caller-asserted live-like
-  evidence.
+  including `saved_input`, `stale`, and caller-asserted `live_like` evidence.
 
 This repository also includes validation and review guardrails that prove the
 baseline is testable:
@@ -188,8 +187,8 @@ Reasoning:
 - The handoff and task/epoch model is useful.
 - Candidate discovery is deterministic and conservative.
 - Adapter contracts are tested at the public CLI boundary.
-- Readiness packets now distinguish local-only, saved, stale, and
-  caller-asserted live-like evidence.
+- Readiness packets now distinguish `local_only`, `saved_input`, `stale`, and
+  caller-asserted `live_like` evidence.
 - The implementation executor, PR automation, live review sync, continuous
   loop runner, and resume orchestration are not built.
 

@@ -56,7 +56,8 @@ Evidence:
 - `gh pr view 47 --json number,state,mergedAt,mergeCommit,statusCheckRollup,reviewDecision,reviews,comments`
 - `git diff --check`
 - `python scripts\validate_protocol.py`
-- `python -m unittest discover -s tests` passed 485 tests with 4 skips.
+- Local Windows `python -m unittest discover -s tests` passed 485 tests with 4
+  skips.
 
 New risks or blockers:
 - None beyond the existing missing loop runner, executor contract, live GitHub
@@ -104,7 +105,8 @@ Evidence:
   checks, package install/first-run examples on Ubuntu and Windows, and
   CodeRabbit status success.
 - `python -m unittest tests.test_repo_state tests.test_pr_readiness tests.test_cadence`
-- `python -m unittest discover -s tests` passed 485 tests with 4 skips.
+- Local Windows `python -m unittest discover -s tests` passed 485 tests with 4
+  skips.
 - `python scripts\validate_protocol.py`
 - `git diff --check`
 
