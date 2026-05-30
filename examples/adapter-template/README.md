@@ -193,5 +193,12 @@ binding command template:
 python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json
 ```
 
+For a future named host claim, pass the same binding command template that
+produced the compact evidence:
+
+```bash
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json --claim-host ExampleHost --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
+```
+
 This remains generic adapter evidence only and does not ship a Claude, Gemini,
 or other named host adapter.

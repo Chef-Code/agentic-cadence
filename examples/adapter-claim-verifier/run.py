@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -51,13 +50,30 @@ def blocker(code: str, message: str) -> dict[str, str]:
     }
 
 
-def required_placeholder_flags(evidence: dict[str, Any] | None) -> dict[str, bool]:
+def false_placeholder_flags() -> dict[str, bool]:
+    return {
+        placeholder: False
+        for placeholder in REQUIRED_TEMPLATE_PLACEHOLDERS
+    }
+
+
+def declared_placeholder_flags(evidence: dict[str, Any] | None) -> dict[str, bool]:
     checklist = evidence.get("checklist_evidence") if isinstance(evidence, dict) else None
     placeholders = checklist.get("binding_template_placeholders") if isinstance(checklist, dict) else None
     if not isinstance(placeholders, dict):
         placeholders = {}
     return {
         placeholder: placeholders.get(placeholder) is True
+        for placeholder in REQUIRED_TEMPLATE_PLACEHOLDERS
+    }
+
+
+def computed_placeholder_flags(runner: Any, template: Any) -> dict[str, bool]:
+    if not isinstance(template, str):
+        return false_placeholder_flags()
+    field_names = runner.binding_template_field_names(template)
+    return {
+        placeholder: placeholder in field_names
         for placeholder in REQUIRED_TEMPLATE_PLACEHOLDERS
     }
 
@@ -95,7 +111,7 @@ def invalid_evidence_packet(
         "binding_command_mode": None,
         "binding_command_template": None,
         "binding_command_template_matches_evidence": None,
-        "required_placeholders": required_placeholder_flags(None),
+        "required_placeholders": false_placeholder_flags(),
         "observed_contract_labels": [],
         "blockers": [
             blocker("invalid_adapter_contract_evidence", error)
@@ -107,6 +123,7 @@ def invalid_evidence_packet(
 
 def evaluate_claim(
     *,
+    runner: Any,
     evidence_file: Path,
     evidence: dict[str, Any],
     claim_host: str | None,
@@ -114,14 +131,26 @@ def evaluate_claim(
 ) -> dict[str, Any]:
     binding_mode = evidence.get("binding_command_mode")
     evidence_template = evidence.get("binding_command_template")
-    placeholders = required_placeholder_flags(evidence)
+    placeholders = computed_placeholder_flags(runner, evidence_template)
+    declared_placeholders = declared_placeholder_flags(evidence)
     blockers: list[dict[str, str]] = []
     template_matches_evidence = None
+    if declared_placeholders != placeholders:
+        blockers.append(
+            blocker(
+                "binding_template_placeholder_evidence_mismatch",
+                "Compact evidence placeholder flags must match the binding command template.",
+            )
+        )
 
-    if claim_host is None:
+    if claim_host is None and not blockers:
         claim_decision = "generic_only"
         named_host_claim_allowed = False
         recommended_next_action = "keep_pr_generic"
+    elif claim_host is None:
+        claim_decision = "evidence_invalid"
+        named_host_claim_allowed = False
+        recommended_next_action = "fix_adapter_contract_evidence"
     elif not claim_host:
         blockers.append(
             blocker(
@@ -155,7 +184,14 @@ def evaluate_claim(
                         f"Binding command template must include {{{placeholder}}}.",
                     )
                 )
-        if supplied_binding_command_template is not None:
+        if supplied_binding_command_template is None or not supplied_binding_command_template.strip():
+            blockers.append(
+                blocker(
+                    "binding_command_template_required",
+                    "Named host claims require the reviewer-supplied --binding-command-template for comparison.",
+                )
+            )
+        else:
             template_matches_evidence = supplied_binding_command_template == evidence_template
             if not template_matches_evidence:
                 blockers.append(
@@ -215,6 +251,7 @@ def verify_claim(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         )
 
     packet = evaluate_claim(
+        runner=runner,
         evidence_file=args.evidence_file,
         evidence=evidence,
         claim_host=claim_host,

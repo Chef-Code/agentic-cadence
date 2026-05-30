@@ -127,6 +127,75 @@ class AdapterClaimVerifierTests(unittest.TestCase):
             {blocker["code"] for blocker in packet["blockers"]},
         )
 
+    def test_claim_verifier_blocks_named_claim_without_supplied_template(self):
+        template = (
+            'python path/to/external-binding.py --host-event-file "{host_event_file}" '
+            '--work-dir "{case_work_dir}" {cadence_args}'
+        )
+        tmp, evidence_file = self.write_evidence(compact_evidence_fixture(binding_template=template))
+        with tmp:
+            exit_code, packet, stderr = self.run_verifier(
+                ["--evidence-file", str(evidence_file), "--claim-host", "ExampleHost"]
+            )
+
+        self.assertEqual(exit_code, 1, stderr)
+        self.assertEqual(packet["claim_decision"], "must_remain_generic")
+        self.assertFalse(packet["named_host_claim_allowed"])
+        self.assertIn("binding_command_template_required", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_claim_verifier_recomputes_template_placeholders_from_evidence_template(self):
+        evidence = compact_evidence_fixture(
+            binding_template='python binding.py --work-dir "{case_work_dir}" {cadence_args}'
+        )
+        evidence["checklist_evidence"]["binding_template_placeholders"] = {
+            "cadence_args": True,
+            "case_work_dir": True,
+            "host_event_file": True,
+        }
+        tmp, evidence_file = self.write_evidence(evidence)
+        with tmp:
+            exit_code, packet, stderr = self.run_verifier(
+                [
+                    "--evidence-file",
+                    str(evidence_file),
+                    "--claim-host",
+                    "ExampleHost",
+                    "--binding-command-template",
+                    'python binding.py --work-dir "{case_work_dir}" {cadence_args}',
+                ]
+            )
+
+        self.assertEqual(exit_code, 1, stderr)
+        self.assertEqual(packet["claim_decision"], "must_remain_generic")
+        self.assertFalse(packet["required_placeholders"]["host_event_file"])
+        blocker_codes = {blocker["code"] for blocker in packet["blockers"]}
+        self.assertIn("binding_template_placeholder_evidence_mismatch", blocker_codes)
+        self.assertIn("binding_template_missing_host_event_file_placeholder", blocker_codes)
+
+    def test_claim_verifier_reports_schema_invalid_evidence_as_json_packet(self):
+        evidence = compact_evidence_fixture()
+        evidence["schema_version"] = "generic-adapter-contract-evidence.v0"
+        tmp, evidence_file = self.write_evidence(evidence)
+        with tmp:
+            exit_code, packet, stderr = self.run_verifier(["--evidence-file", str(evidence_file)])
+
+        self.assertEqual(exit_code, 1, stderr)
+        self.assertEqual(packet["result"], "adapter_claim_verification_failed")
+        self.assertEqual(packet["claim_decision"], "evidence_invalid")
+        self.assertEqual(packet["recommended_next_action"], "fix_adapter_contract_evidence")
+        self.assertIn("invalid_adapter_contract_evidence", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_claim_verifier_blocks_blank_claim_host(self):
+        tmp, evidence_file = self.write_evidence(compact_evidence_fixture())
+        with tmp:
+            exit_code, packet, stderr = self.run_verifier(
+                ["--evidence-file", str(evidence_file), "--claim-host", "   "]
+            )
+
+        self.assertEqual(exit_code, 1, stderr)
+        self.assertEqual(packet["claim_decision"], "must_remain_generic")
+        self.assertIn("claim_host_missing", {blocker["code"] for blocker in packet["blockers"]})
+
     def test_claim_verifier_allows_named_claim_with_template_evidence(self):
         template = (
             'python path/to/external-binding.py --host-event-file "{host_event_file}" '
@@ -202,6 +271,14 @@ class AdapterClaimVerifierTests(unittest.TestCase):
         self.assertIn(
             "python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json",
             workflow,
+        )
+        self.assertLess(
+            workflow.index("Validate generic adapter contract evidence"),
+            workflow.index("Verify generic adapter claim boundary"),
+        )
+        self.assertLess(
+            workflow.index("Verify generic adapter claim boundary"),
+            workflow.index("Upload generic adapter contract evidence"),
         )
 
 

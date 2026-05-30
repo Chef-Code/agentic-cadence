@@ -138,7 +138,7 @@ A future named host adapter claim must use compact evidence from the proposed
 binding template, then pass the same template to the verifier:
 
 ```bash
-python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json --claim-host <host> --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json --claim-host ExampleHost --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
 ```
 
 The verifier can say whether the evidence boundary permits a named claim or the

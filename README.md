@@ -132,7 +132,7 @@ Before documenting a named non-Codex host binding, run it against compact
 evidence emitted from the proposed binding command template:
 
 ```bash
-python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json --claim-host <host> --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json --claim-host ExampleHost --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
 ```
 
 It only checks the compact evidence boundary. A named adapter PR still needs the
