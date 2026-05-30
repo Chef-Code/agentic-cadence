@@ -43,6 +43,9 @@ runtime can do these things end-to-end:
   status;
 - discover candidate work from local deterministic inputs;
 - elect conservative next candidates when allowed;
+- run one read-only `loop-tick` that snapshots local repo state,
+  discovers/elects candidates, checks Cadence state, and emits a next-action
+  packet;
 - size tasks and enforce pickup policy;
 - start, check, complete, or fail bounded epochs;
 - prepare a signed handoff packet and clean-square evidence;
@@ -91,6 +94,7 @@ Agentic Cadence cannot currently:
 | Handoff lifecycle | Implemented | `codex_cadence/handoff_loop.py`, `codex_cadence/cli.py` |
 | PR body/readiness checks | Implemented from saved inputs | `codex_cadence/pr_readiness.py` |
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
+| Single loop tick | Partial, read-only | `loop-tick` emits next action and stops before execution |
 | Continuous loop runner | Not built | Planned slice |
 | Executor adapter contract | Not built | Planned slice |
 | Autonomous implementation | Not built | Requires executor contract |
@@ -104,19 +108,20 @@ Agentic Cadence cannot currently:
 
 No.
 
-It can inspect and suggest. It can govern handoff and continuation decisions.
-It can evaluate saved PR evidence. It cannot perform the core build loop by
+It can inspect and suggest. It can run a read-only loop tick that produces a
+structured next action. It can govern handoff and continuation decisions. It
+can evaluate saved PR evidence. It cannot perform the core build loop by
 itself.
 
 The current loop stops after:
 
 ```text
-inspect repo -> discover/elect candidate -> prepare governed next action
+inspect repo -> discover/elect candidate -> emit blocked/no_candidates/approval_required/requires_executor_contract
 ```
 
-At that point, a human or external agent still has to implement code changes,
-run checks, commit, push, open or update a PR, fetch review feedback, and start
-the next session after a handoff.
+At `requires_executor_contract`, a human or external agent still has to
+implement code changes, run checks, commit, push, open or update a PR, fetch
+review feedback, and start the next session after a handoff.
 
 ## What Would Break First
 
@@ -184,13 +189,15 @@ Current rating: 10%.
 Reasoning:
 
 - Safety and governance primitives are real.
+- A read-only `loop-tick` now stitches snapshot, candidate election, Cadence
+  state, and next-action reporting into one packet.
 - The handoff and task/epoch model is useful.
 - Candidate discovery is deterministic and conservative.
 - Adapter contracts are tested at the public CLI boundary.
 - Readiness packets now distinguish `local_only`, `saved_input`, `stale`, and
   caller-asserted `live_like` evidence.
-- The implementation executor, PR automation, live review sync, continuous
-  loop runner, and resume orchestration are not built.
+- The implementation executor, epoch execution flow, PR automation, live review
+  sync, continuous loop runner, and resume orchestration are not built.
 
 The rating should stay low until a controlled loop can make a real change in a
 fixture repo, validate it, record evidence, and stop cleanly.

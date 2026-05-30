@@ -25,10 +25,11 @@ loop. Two smaller stabilization slices are already merged:
   blockers; negative max-age values are rejected; caller-asserted `live_like`
   evidence is not gated by saved-JSON age policy.
 
-These changes reduce state-awareness footguns, but they do not add the missing
-loop runner, executor contract, live GitHub synchronization, branch/commit/push
-or PR creation, or automatic resume orchestration. Current unattended-operation
-confidence remains 10%.
+These changes reduce state-awareness footguns. The current tree also includes
+the Phase 1 read-only `loop-tick` command for the first slice, but it still
+does not add the missing executor contract, live GitHub synchronization,
+branch/commit/push or PR creation, or automatic resume orchestration. Current
+unattended-operation confidence remains 10%.
 
 ## Slice Status Key
 
@@ -39,7 +40,7 @@ confidence remains 10%.
 
 ## 1. Single-Tick Loop Orchestrator
 
-Status: Not started
+Status: Partial
 
 Goal: add one command that runs exactly one bounded loop cycle:
 
@@ -61,7 +62,13 @@ Current evidence:
 - candidate discovery exists;
 - epoch governance exists;
 - self-check continuation rules exist;
-- no command stitches them into one loop tick.
+- `loop-tick` captures and persists a snapshot, runs candidate discovery with
+  election enabled, checks Cadence state, and emits `blocked`,
+  `no_candidates`, `approval_required`, or `requires_executor_contract`;
+- `loop-tick` is explicitly read-only and reports `executor_started: false`,
+  `epoch_started: false`, and `pr_action_started: false`;
+- no command yet starts an epoch, hands work to an executor, records validation,
+  completes or fails the epoch, or chooses PR/handoff follow-up after execution.
 
 Why it matters: this moves Cadence from advisor to controller without requiring
 full autonomy.
@@ -84,9 +91,9 @@ Validation needed:
 
 - success fixture;
 - executor failure fixture;
-- dirty worktree stops before execution;
-- stop brake prevents execution;
-- approval-required path;
+- dirty worktree stops before execution: complete for Phase 1;
+- stop brake prevents execution: complete for Phase 1;
+- approval-required path: complete for Phase 1;
 - active epoch conflict;
 - stale snapshot rejection.
 

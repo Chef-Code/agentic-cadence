@@ -28,6 +28,39 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-05-30 - Split single-tick orchestration into a read-only first phase
+
+Decision:
+- Add `loop-tick` as a Phase 1 read-only loop-controller command before adding
+  executor, epoch mutation, validation, or PR side effects.
+- The command emits `blocked`, `no_candidates`, `approval_required`, or
+  `requires_executor_contract` and records that executor, epoch, and PR actions
+  were not started.
+
+Why:
+- The project needs evidence that snapshot, candidate election, Cadence state,
+  and next-action reporting can be stitched together before execution is added.
+- Keeping Phase 1 read-only preserves the current safety boundary while making
+  the next missing contract explicit.
+
+Alternatives considered:
+- Start epochs and call an executor in the first loop tick. Deferred because
+  the executor evidence contract is not defined yet.
+- Build continuous mode first. Rejected because repeated execution should
+  compose a proven bounded tick.
+
+Consequences:
+- Cadence can now produce a single governed next-action packet from local repo
+  state.
+- Confidence remains low because no code is implemented, validated, committed,
+  pushed, reviewed, or resumed by the loop.
+
+Open questions:
+- What exact executor evidence schema should satisfy
+  `requires_executor_contract`?
+- Should the next phase start an empty administrative epoch or wait until the
+  executor contract exists?
+
 ## 2026-05-30 - Label evidence freshness before adding live sync
 
 Decision:

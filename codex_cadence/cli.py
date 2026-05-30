@@ -223,24 +223,43 @@ def plan_task(args: argparse.Namespace) -> int:
     return 0
 
 
-def snapshot_repo_command(args: argparse.Namespace) -> int:
-    root = args.root
+def capture_repo_snapshot(
+    root: Path,
+    *,
+    cwd: str | Path,
+    repo: str | None,
+    active_pr: int | None,
+    known_failures: list[str],
+    ci_status: str,
+) -> dict[str, Any]:
     ensure_layout(root)
     snapshot = snapshot_repo(
-        Path(args.cwd),
-        repo=args.repo,
-        active_pr=args.active_pr,
-        known_failures=args.known_failure or [],
-        ci_status=args.ci_status,
+        Path(cwd),
+        repo=repo,
+        active_pr=active_pr,
+        known_failures=known_failures,
+        ci_status=ci_status,
     )
     stamp = snapshot["captured_at"].replace(":", "").replace("-", "")
-    snapshot_id = f"{stamp}-{slugify(args.repo or snapshot.get('branch') or 'repo')}-{secrets.token_hex(4)}"
+    snapshot_id = f"{stamp}-{slugify(repo or snapshot.get('branch') or 'repo')}-{secrets.token_hex(4)}"
     snapshot["id"] = snapshot_id
     target = snapshot_path(root, snapshot_id)
     if target.exists():
         raise FileExistsError(f"snapshot already exists: {snapshot_id}")
     snapshot["path"] = str(target)
     atomic_write_json(target, snapshot)
+    return snapshot
+
+
+def snapshot_repo_command(args: argparse.Namespace) -> int:
+    snapshot = capture_repo_snapshot(
+        args.root,
+        cwd=args.cwd,
+        repo=args.repo,
+        active_pr=args.active_pr,
+        known_failures=args.known_failure or [],
+        ci_status=args.ci_status,
+    )
     emit(snapshot)
     return 0
 
@@ -890,6 +909,93 @@ def discover_candidates_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def loop_tick_recommendation(
+    cadence: dict[str, Any],
+    snapshot: dict[str, Any],
+    elected_next: list[dict[str, Any]],
+) -> tuple[str, str, bool, bool]:
+    if not cadence["can_start_work"]:
+        return "blocked", f"cadence state is {cadence['state']}", False, False
+    if not elected_next:
+        return "no_candidates", "no elected candidate", False, False
+    if snapshot["repo_confidence"] == "low":
+        return "approval_required", "repo confidence is low", True, False
+    return "requires_executor_contract", "executor contract is not implemented", False, True
+
+
+def loop_tick_command(args: argparse.Namespace) -> int:
+    if args.discovery_mode == "expanded":
+        raise ValueError("expanded discovery mode is reserved for v2")
+    if args.discovery_mode != "off" and not args.intent:
+        raise ValueError("intent is required unless --discovery-mode off is used")
+    root = args.root
+    brake = read_brake(root)
+    cadence = cadence_state(brake)
+    known_failures = args.known_failure or []
+    snapshot = capture_repo_snapshot(
+        root,
+        cwd=args.cwd,
+        repo=args.repo,
+        active_pr=args.active_pr,
+        known_failures=known_failures,
+        ci_status=args.ci_status,
+    )
+    budget = CandidateBudget(
+        max_candidates=args.max_candidates,
+        max_candidates_per_source=args.max_candidates_per_source,
+        max_text_marker_candidates=args.max_text_marker_candidates,
+        max_doc_marker_candidates=args.max_doc_marker_candidates,
+        max_business_memory_candidates=args.max_business_memory_candidates,
+        max_proposals=args.max_proposals,
+        max_product_evolution_candidates_in_hybrid=args.max_product_evolution_candidates_in_hybrid,
+    )
+    discovery = discover_candidates(
+        cwd=Path(args.cwd),
+        intent=args.intent,
+        discovery_mode=args.discovery_mode,
+        proposal_allowance=args.proposal_allowance,
+        known_failures=known_failures,
+        review_findings_file=Path(args.review_findings_file) if args.review_findings_file else None,
+        review_threads_file=Path(args.review_threads_file) if args.review_threads_file else None,
+        elect=True,
+        max_tasks=args.max_tasks,
+        budget=budget,
+    )
+    elected_next = discovery["elected_next"]
+    recommended_next_action, reason, operator_confirmation_required, executor_contract_required = loop_tick_recommendation(
+        cadence,
+        snapshot,
+        elected_next,
+    )
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "packet": "loop_tick",
+        "tick_id": f"loop-tick-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}",
+        "mode": "single_tick",
+        "read_only": True,
+        "executor_started": False,
+        "epoch_started": False,
+        "pr_action_started": False,
+        "operator_confirmation_required": operator_confirmation_required,
+        "executor_contract_required": executor_contract_required,
+        "recommended_next_action": recommended_next_action,
+        "reason": reason,
+        "brake": brake,
+        "cadence": cadence,
+        "snapshot": snapshot,
+        "candidate_discovery": discovery,
+        "elected_next": elected_next,
+        "limitations": [
+            "phase1_read_only",
+            "executor_contract_not_implemented",
+            "git_pr_automation_not_implemented",
+            "live_pr_review_sync_not_implemented",
+        ],
+    }
+    emit(payload)
+    return 0
+
+
 def pr_readiness_command(args: argparse.Namespace) -> int:
     pr_json_file = Path(args.pr_json_file)
     pr = load_pr_json(pr_json_file)
@@ -1026,6 +1132,27 @@ def build_parser() -> argparse.ArgumentParser:
     discover_parser.add_argument("--max-proposals", type=int, default=3)
     discover_parser.add_argument("--max-product-evolution-candidates-in-hybrid", type=int, default=1)
     discover_parser.set_defaults(func=discover_candidates_command, requires_root=False)
+
+    loop_tick_parser = subparsers.add_parser("loop-tick", help="Run one read-only governed loop tick")
+    loop_tick_parser.add_argument("--cwd", default=".")
+    loop_tick_parser.add_argument("--repo")
+    loop_tick_parser.add_argument("--active-pr", type=int)
+    loop_tick_parser.add_argument("--ci-status", choices=("unknown", "green", "red", "pending"), default="unknown")
+    loop_tick_parser.add_argument("--intent", choices=DISCOVERY_INTENTS)
+    loop_tick_parser.add_argument("--discovery-mode", choices=DISCOVERY_MODES, default="local")
+    loop_tick_parser.add_argument("--proposal-allowance", choices=PROPOSAL_ALLOWANCES, default="none")
+    loop_tick_parser.add_argument("--known-failure", action="append", default=[])
+    loop_tick_parser.add_argument("--review-findings-file")
+    loop_tick_parser.add_argument("--review-threads-file")
+    loop_tick_parser.add_argument("--max-tasks", type=int, default=1)
+    loop_tick_parser.add_argument("--max-candidates", type=int, default=25)
+    loop_tick_parser.add_argument("--max-candidates-per-source", type=int, default=10)
+    loop_tick_parser.add_argument("--max-text-marker-candidates", type=int, default=10)
+    loop_tick_parser.add_argument("--max-doc-marker-candidates", type=int, default=5)
+    loop_tick_parser.add_argument("--max-business-memory-candidates", type=int, default=5)
+    loop_tick_parser.add_argument("--max-proposals", type=int, default=3)
+    loop_tick_parser.add_argument("--max-product-evolution-candidates-in-hybrid", type=int, default=1)
+    loop_tick_parser.set_defaults(func=loop_tick_command)
 
     readiness_parser = subparsers.add_parser("pr-readiness", help="Evaluate a saved PR JSON readiness packet")
     readiness_parser.add_argument("--pr-json-file", required=True)

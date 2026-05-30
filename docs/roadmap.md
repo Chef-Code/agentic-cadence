@@ -291,15 +291,24 @@ Goal: add one bounded command that performs snapshot, candidate discovery,
 policy check, epoch start, executor handoff, validation collection,
 epoch completion/failure, and next decision.
 
-Current evidence: the building blocks exist separately in repo snapshots,
-candidate discovery, epochs, and handoff preparation.
+Status: partial. Phase 1 implements a read-only `loop-tick` command.
+
+Current evidence: `loop-tick` captures and persists a local repo snapshot,
+runs deterministic candidate discovery with election enabled, checks Cadence
+state, and emits `blocked`, `no_candidates`, `approval_required`, or
+`requires_executor_contract`. It sets `executor_started`, `epoch_started`, and
+`pr_action_started` to false. It does not yet start an epoch, hand work to an
+executor, run validation, complete or fail epochs, or drive PR/handoff
+decisions after execution.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/candidates.py`,
 `codex_cadence/epochs.py`, `codex_cadence/model.py`,
 `codex_cadence/store.py`, tests, examples.
 
-Validation: fixture repo tests for success, failure, dirty worktree,
-approval-required, and stop-brake paths.
+Validation: fixture repo tests cover no-candidate, executor-contract-required,
+dirty-worktree approval-required, and stop-brake blocked paths. Full slice
+completion still needs executor success/failure, active epoch conflict, stale
+snapshot rejection, validation collection, and completion/failure paths.
 
 Codex can implement directly if the command remains generic and does not push
 or merge.
