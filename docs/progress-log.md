@@ -33,6 +33,44 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-05-30 - Current documentation refresh
+
+Summary:
+- Updated the living documentation set and adjacent README/protocol text to
+  reflect the merged PR #47 baseline.
+- Clarified that readiness/freshness labels are stabilization evidence, not a
+  completed loop-runner, executor, live-sync, PR-automation, or resume slice.
+- Recorded verified PR #47 merge/check evidence without increasing the
+  unattended-operation confidence rating.
+
+Completed slices:
+- None. This was documentation alignment only.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: no implementation capability changed. The current tree is still a
+  governed protocol toolkit rather than an unattended autonomous builder.
+
+Evidence:
+- `gh pr view 47 --json number,state,mergedAt,mergeCommit,statusCheckRollup,reviewDecision,reviews,comments`
+- `git diff --check`
+- `python scripts\validate_protocol.py`
+- `python -m unittest discover -s tests` passed 485 tests with 4 skips.
+
+New risks or blockers:
+- None beyond the existing missing loop runner, executor contract, live GitHub
+  synchronization, PR automation, and automatic resume orchestration.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
 ## 2026-05-30 - Readiness and freshness labels
 
 Summary:
@@ -42,8 +80,12 @@ Summary:
   limitations for unfetched PR and review state.
 - Labeled PR readiness inputs as `saved_input`, `stale`, or caller-asserted
   `live_like` evidence.
-- Added `--max-pr-json-age-minutes` so stale saved PR JSON waits and
-  recommends `refresh_pr_evidence`.
+- Added `--max-pr-json-age-minutes` so stale or future-dated saved PR JSON
+  waits and recommends `refresh_pr_evidence` before acting on stale blockers.
+- Enforced snapshot readiness evidence during validation and rejected negative
+  saved-PR max-age values at the CLI boundary.
+- Clarified that caller-asserted `live_like` evidence is labeled, but is not
+  gated by saved-JSON age policy.
 
 Completed slices:
 - Readiness and freshness labels.
@@ -57,8 +99,12 @@ Confidence change:
   autonomous resume capability.
 
 Evidence:
+- PR #47 merged as `aca95c6`.
+- GitHub reported PR checks green before merge, including Python/protocol
+  checks, package install/first-run examples on Ubuntu and Windows, and
+  CodeRabbit status success.
 - `python -m unittest tests.test_repo_state tests.test_pr_readiness tests.test_cadence`
-- `python -m unittest discover -s tests`
+- `python -m unittest discover -s tests` passed 485 tests with 4 skips.
 - `python scripts\validate_protocol.py`
 - `git diff --check`
 
@@ -72,6 +118,7 @@ Docs updated:
 - `docs/protocol.md`
 - `docs/roadmap.md`
 - `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
 - `docs/progress-log.md`
 - `docs/decision-log.md`
 

@@ -47,7 +47,9 @@ runtime can do these things end-to-end:
 - start, check, complete, or fail bounded epochs;
 - prepare a signed handoff packet and clean-square evidence;
 - approve, claim, complete, or fail handoffs;
-- evaluate saved PR JSON and saved PR body/template files for readiness.
+- evaluate saved PR JSON and saved PR body/template files for readiness,
+  including freshness labels for saved, stale, and caller-asserted live-like
+  evidence.
 
 This repository also includes validation and review guardrails that prove the
 baseline is testable:
@@ -123,7 +125,9 @@ The first likely failure in a real unattended run is still missing live
 synchronization. Repo snapshots are local git snapshots, and PR readiness reads
 saved input files. Cadence now labels `local_only`, `saved_input`, `stale`, and
 caller-asserted `live_like` evidence, but it still does not fetch or reconcile
-live PR, review, or CI state.
+live PR, review, or CI state. Snapshot validation rejects missing or malformed
+local readiness evidence, and stale saved PR evidence waits before acting on
+blockers, but those checks only prevent overtrust in local files.
 
 The next likely failures are:
 
@@ -184,6 +188,8 @@ Reasoning:
 - The handoff and task/epoch model is useful.
 - Candidate discovery is deterministic and conservative.
 - Adapter contracts are tested at the public CLI boundary.
+- Readiness packets now distinguish local-only, saved, stale, and
+  caller-asserted live-like evidence.
 - The implementation executor, PR automation, live review sync, continuous
   loop runner, and resume orchestration are not built.
 

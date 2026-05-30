@@ -259,19 +259,27 @@ runtime-root policy when an adapter bypasses the CLI.
 Goal: make local-only state, saved PR state, stale state, and live state
 explicit in packets and docs.
 
-Status: implemented as an immediate stabilization slice.
+Status: implemented and merged in PR #47 as an immediate stabilization slice.
 
 Current evidence: repo snapshots now include `readiness_evidence` with
 `freshness: local_only` and limitations for unfetched PR/review state.
 `pr-readiness` packets now include `readiness_evidence` for `saved_input`,
-`stale`, and caller-asserted `live_like` evidence. The CLI still evaluates
-saved JSON files only and does not call GitHub.
+`stale`, and caller-asserted `live_like` evidence. Snapshot validation now
+requires local snapshot readiness evidence. Saved PR JSON can be age-gated with
+`--max-pr-json-age-minutes`; stale or future-dated saved evidence waits before
+acting on PR blockers and recommends `refresh_pr_evidence`. Negative age limits
+are rejected. Caller-asserted `live_like` evidence is not gated by saved-JSON
+age policy. The CLI still evaluates saved JSON files only and does not call
+GitHub.
 
 Implementation files: `codex_cadence/repo_state.py`,
 `codex_cadence/pr_readiness.py`, `codex_cadence/cli.py`, tests, docs.
 
-Validation: fixtures cover local-only repo snapshots, saved PR evidence, stale
-saved PR evidence with refresh recommendation, and live-like evaluator labels.
+Validation: fixtures cover local-only repo snapshots, snapshot validation
+rejection for missing or malformed readiness evidence, saved PR evidence,
+stale and future-dated saved PR evidence with refresh recommendation before
+stale blockers, non-negative CLI age limits, and live-like evaluator labels
+that remain outside saved-JSON age policy.
 
 Follow-up: live GitHub fetching and reconciliation remain future work.
 
