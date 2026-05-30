@@ -68,6 +68,16 @@ def slugify(value: str) -> str:
     return (slug or "handoff")[:48].strip("-") or "handoff"
 
 
+def non_negative_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a non-negative integer") from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return parsed
+
+
 def cadence_state(brake: dict[str, Any]) -> dict[str, Any]:
     legacy_brake = brake["status"]
     state_by_brake = {
@@ -881,14 +891,18 @@ def discover_candidates_command(args: argparse.Namespace) -> int:
 
 
 def pr_readiness_command(args: argparse.Namespace) -> int:
-    pr = load_pr_json(Path(args.pr_json_file))
+    pr_json_file = Path(args.pr_json_file)
+    pr = load_pr_json(pr_json_file)
     required_body_sections = list(args.required_body_section or [])
     if args.pr_template_file:
         required_body_sections.extend(load_template_sections(Path(args.pr_template_file)))
+    evidence_captured_at = datetime.fromtimestamp(pr_json_file.stat().st_mtime, timezone.utc)
     payload = evaluate_pr_readiness(
         pr,
         required_checks=args.required_check or [],
         required_body_sections=required_body_sections,
+        evidence_captured_at=evidence_captured_at,
+        max_evidence_age_minutes=args.max_pr_json_age_minutes,
     )
     emit(payload)
     return 0
@@ -1018,6 +1032,7 @@ def build_parser() -> argparse.ArgumentParser:
     readiness_parser.add_argument("--required-check", action="append", default=[])
     readiness_parser.add_argument("--required-body-section", action="append", default=[])
     readiness_parser.add_argument("--pr-template-file")
+    readiness_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
     readiness_parser.set_defaults(func=pr_readiness_command, requires_root=False)
 
     body_preflight_parser = subparsers.add_parser("pr-body-preflight", help="Evaluate a draft PR body before publishing")

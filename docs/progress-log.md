@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-05-29
+Last updated: 2026-05-30
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,48 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-05-30 - Readiness and freshness labels
+
+Summary:
+- Added `readiness_evidence` metadata to repo snapshots and PR-readiness
+  packets.
+- Labeled repo snapshots as `local_only` local-git evidence with explicit
+  limitations for unfetched PR and review state.
+- Labeled PR readiness inputs as `saved_input`, `stale`, or caller-asserted
+  `live_like` evidence.
+- Added `--max-pr-json-age-minutes` so stale saved PR JSON waits and
+  recommends `refresh_pr_evidence`.
+
+Completed slices:
+- Readiness and freshness labels.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: this makes evidence freshness explicit and prevents stale saved PR
+  JSON from looking ready when an age limit is supplied, but it does not add
+  live GitHub synchronization, an executor, loop runner, PR creation, or
+  autonomous resume capability.
+
+Evidence:
+- `python -m unittest tests.test_repo_state tests.test_pr_readiness tests.test_cadence`
+- `python -m unittest discover -s tests`
+- `python scripts\validate_protocol.py`
+- `git diff --check`
+
+New risks or blockers:
+- Live PR, review, and CI synchronization is still not implemented.
+- Caller-asserted `live_like` evidence is labeled, not independently verified
+  by Cadence.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
 
 ## 2026-05-29 - Runtime-root safety guard
 

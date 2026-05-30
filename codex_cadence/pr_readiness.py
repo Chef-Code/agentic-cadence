@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ WARNING_MERGE_STATE_STATUSES = {"HAS_HOOKS"}
 MARKDOWN_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(?P<title>.*?)(?:\s+#+)?\s*$")
 SETEXT_HEADING_RE = re.compile(r"^\s{0,3}(=+|-+)\s*$")
 FENCE_RE = re.compile(r"^\s{0,3}(?P<marker>`{3,}|~{3,})")
+PR_EVIDENCE_SOURCES = {"saved_pr_json", "live_pr_json"}
 
 
 def load_pr_json(path: Path) -> dict[str, Any]:
@@ -170,6 +172,97 @@ def _issue(code: str, message: str, **extra: Any) -> dict[str, Any]:
     issue = {"code": code, "message": message}
     issue.update(extra)
     return issue
+
+
+def _parse_utc(value: datetime | str | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = value.strip()
+        if not text:
+            return None
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _format_utc(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _pr_readiness_evidence(
+    *,
+    source: str,
+    captured_at: datetime | str | None,
+    max_age_minutes: int | None,
+    now: datetime | str | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    if source not in PR_EVIDENCE_SOURCES:
+        allowed_sources = ", ".join(sorted(PR_EVIDENCE_SOURCES))
+        raise ValueError(f"PR evidence source must be one of {allowed_sources}")
+    live = source == "live_pr_json"
+    captured = _parse_utc(captured_at)
+    checked = _parse_utc(now) or datetime.now(timezone.utc)
+    age_minutes = None
+    stale = False
+    waiting: list[dict[str, Any]] = []
+    if captured is not None:
+        age_minutes = (checked - captured).total_seconds() / 60
+        if source == "saved_pr_json" and age_minutes < 0:
+            stale = True
+            waiting.append(
+                _issue(
+                    "pr_evidence_from_future",
+                    "PR evidence timestamp is in the future; refresh evidence before acting on readiness",
+                    captured_at=_format_utc(captured),
+                    checked_at=_format_utc(checked),
+                    age_minutes=round(age_minutes, 2),
+                )
+            )
+        elif (
+            source == "saved_pr_json"
+            and max_age_minutes is not None
+            and age_minutes > max_age_minutes
+        ):
+            stale = True
+            waiting.append(
+                _issue(
+                    "pr_evidence_stale",
+                    "saved PR evidence is stale; refresh PR JSON before acting on readiness",
+                    captured_at=_format_utc(captured),
+                    age_minutes=round(age_minutes, 2),
+                    max_age_minutes=max_age_minutes,
+                )
+            )
+    if stale:
+        freshness = "stale"
+        limitations = ["does_not_call_github", "refresh_saved_pr_json_before_merge"]
+    elif live:
+        freshness = "live_like"
+        limitations = ["caller_asserted_live_source", "does_not_verify_source_freshness"]
+    else:
+        freshness = "saved_input"
+        limitations = [
+            "does_not_call_github",
+            "depends_on_saved_status_check_rollup",
+            "depends_on_saved_review_decision",
+        ]
+    return {
+        "source": source,
+        "freshness": freshness,
+        "live": live,
+        "stale": stale,
+        "captured_at": _format_utc(captured),
+        "checked_at": _format_utc(checked),
+        "age_minutes": round(age_minutes, 2) if age_minutes is not None else None,
+        "max_age_minutes": max_age_minutes,
+        "limitations": limitations,
+    }, waiting
 
 
 def _summarize_checks(
@@ -390,12 +483,22 @@ def evaluate_pr_readiness(
     *,
     required_checks: list[str] | None = None,
     required_body_sections: list[str] | None = None,
+    evidence_source: str = "saved_pr_json",
+    evidence_captured_at: datetime | str | None = None,
+    max_evidence_age_minutes: int | None = None,
+    now: datetime | str | None = None,
 ) -> dict[str, Any]:
     required_check_names = [name for name in (required_checks or []) if name.strip()]
     required_sections = [section for section in (required_body_sections or []) if section.strip()]
+    readiness_evidence, evidence_waiting = _pr_readiness_evidence(
+        source=evidence_source,
+        captured_at=evidence_captured_at,
+        max_age_minutes=max_evidence_age_minutes,
+        now=now,
+    )
 
     blockers: list[dict[str, Any]] = []
-    waiting: list[dict[str, Any]] = []
+    waiting: list[dict[str, Any]] = list(evidence_waiting)
     warnings: list[dict[str, Any]] = []
     checks_value = pr.get("statusCheckRollup")
     if "statusCheckRollup" not in pr:
@@ -463,7 +566,14 @@ def evaluate_pr_readiness(
     waiting.extend(check_waiting)
     warnings.extend(check_warnings)
 
-    if blockers:
+    has_stale_evidence = any(
+        item["code"] in {"pr_evidence_from_future", "pr_evidence_stale"}
+        for item in waiting
+    )
+    if has_stale_evidence:
+        decision = "waiting"
+        action = "refresh_pr_evidence"
+    elif blockers:
         decision = "blocked"
         action = "address_blockers"
     elif waiting:
@@ -484,6 +594,7 @@ def evaluate_pr_readiness(
         "duplicate_check_groups": duplicate_check_groups,
         "review_summary": review,
         "template_summary": template,
+        "readiness_evidence": readiness_evidence,
         "pr": {
             "number": pr.get("number"),
             "title": pr.get("title"),

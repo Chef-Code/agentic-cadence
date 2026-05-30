@@ -193,6 +193,7 @@ class PrReadinessTests(unittest.TestCase):
                 "duplicate_check_groups",
                 "review_summary",
                 "template_summary",
+                "readiness_evidence",
                 "pr",
             },
         )
@@ -215,6 +216,93 @@ class PrReadinessTests(unittest.TestCase):
         ])
         self.assertIn("duplicate_successful_checks", {warning["code"] for warning in packet["warnings"]})
         self.assertIn("codex_review_skipped", {warning["code"] for warning in packet["warnings"]})
+        self.assertEqual(packet["readiness_evidence"]["source"], "saved_pr_json")
+        self.assertEqual(packet["readiness_evidence"]["freshness"], "saved_input")
+        self.assertFalse(packet["readiness_evidence"]["live"])
+        self.assertFalse(packet["readiness_evidence"]["stale"])
+        self.assertIn("does_not_call_github", packet["readiness_evidence"]["limitations"])
+
+    def test_stale_saved_pr_evidence_waits_for_refresh(self):
+        packet = evaluate_pr_readiness(
+            base_pr(),
+            required_checks=["Python and protocol checks"],
+            evidence_source="saved_pr_json",
+            evidence_captured_at="2026-05-30T00:00:00Z",
+            max_evidence_age_minutes=30,
+            now="2026-05-30T01:00:00Z",
+        )
+
+        self.assertFalse(packet["ready_to_merge"])
+        self.assertEqual(packet["decision"], "waiting")
+        self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
+        self.assertEqual(packet["readiness_evidence"]["freshness"], "stale")
+        self.assertTrue(packet["readiness_evidence"]["stale"])
+        self.assertEqual({item["code"] for item in packet["waiting"]}, {"pr_evidence_stale"})
+
+    def test_stale_saved_pr_evidence_refreshes_before_acting_on_blockers(self):
+        packet = evaluate_pr_readiness(
+            base_pr(reviewDecision="CHANGES_REQUESTED"),
+            required_checks=["Python and protocol checks"],
+            evidence_source="saved_pr_json",
+            evidence_captured_at="2026-05-30T00:00:00Z",
+            max_evidence_age_minutes=30,
+            now="2026-05-30T01:00:00Z",
+        )
+
+        self.assertFalse(packet["ready_to_merge"])
+        self.assertEqual(packet["decision"], "waiting")
+        self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
+        self.assertEqual(packet["readiness_evidence"]["freshness"], "stale")
+        self.assertEqual({item["code"] for item in packet["waiting"]}, {"pr_evidence_stale"})
+        self.assertIn("review_changes_requested", {item["code"] for item in packet["blockers"]})
+
+    def test_future_pr_evidence_waits_for_refresh(self):
+        packet = evaluate_pr_readiness(
+            base_pr(),
+            required_checks=["Python and protocol checks"],
+            evidence_source="saved_pr_json",
+            evidence_captured_at="2026-05-30T02:00:00Z",
+            max_evidence_age_minutes=30,
+            now="2026-05-30T01:00:00Z",
+        )
+
+        self.assertFalse(packet["ready_to_merge"])
+        self.assertEqual(packet["decision"], "waiting")
+        self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
+        self.assertEqual(packet["readiness_evidence"]["freshness"], "stale")
+        self.assertTrue(packet["readiness_evidence"]["stale"])
+        self.assertLess(packet["readiness_evidence"]["age_minutes"], 0)
+        self.assertEqual({item["code"] for item in packet["waiting"]}, {"pr_evidence_from_future"})
+
+    def test_live_like_pr_evidence_is_labeled_without_calling_github(self):
+        packet = evaluate_pr_readiness(
+            base_pr(),
+            required_checks=["Python and protocol checks"],
+            evidence_source="live_pr_json",
+        )
+
+        self.assertTrue(packet["ready_to_merge"])
+        self.assertEqual(packet["readiness_evidence"]["source"], "live_pr_json")
+        self.assertEqual(packet["readiness_evidence"]["freshness"], "live_like")
+        self.assertTrue(packet["readiness_evidence"]["live"])
+        self.assertFalse(packet["readiness_evidence"]["stale"])
+        self.assertIn("caller_asserted_live_source", packet["readiness_evidence"]["limitations"])
+
+    def test_live_like_pr_evidence_ignores_saved_json_age_policy(self):
+        packet = evaluate_pr_readiness(
+            base_pr(),
+            required_checks=["Python and protocol checks"],
+            evidence_source="live_pr_json",
+            evidence_captured_at="2026-05-30T00:00:00Z",
+            max_evidence_age_minutes=30,
+            now="2026-05-30T01:00:00Z",
+        )
+
+        self.assertTrue(packet["ready_to_merge"])
+        self.assertEqual(packet["decision"], "ready")
+        self.assertEqual(packet["readiness_evidence"]["freshness"], "live_like")
+        self.assertFalse(packet["readiness_evidence"]["stale"])
+        self.assertEqual(packet["waiting"], [])
 
     def test_failed_required_check_missing_template_and_changes_requested_block(self):
         packet = evaluate_pr_readiness(
@@ -533,6 +621,63 @@ class PrReadinessTests(unittest.TestCase):
             self.assertTrue(packet["ready_to_merge"])
             self.assertEqual(packet["pr"]["number"], 330)
             self.assertEqual(packet["decision"], "ready")
+            self.assertEqual(packet["readiness_evidence"]["freshness"], "saved_input")
+            self.assertEqual(packet["readiness_evidence"]["source"], "saved_pr_json")
+
+    def test_cli_marks_stale_saved_pr_json_when_max_age_is_supplied(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pr_json = Path(tmp) / "pr.json"
+            pr_json.write_text(json.dumps(base_pr()), encoding="utf-8")
+            old_timestamp = 946684800
+            os.utime(pr_json, (old_timestamp, old_timestamp))
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "pr-readiness",
+                    "--pr-json-file",
+                    str(pr_json),
+                    "--required-check",
+                    "Python and protocol checks",
+                    "--max-pr-json-age-minutes",
+                    "1",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            packet = json.loads(result.stdout)
+            self.assertFalse(packet["ready_to_merge"])
+            self.assertEqual(packet["decision"], "waiting")
+            self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
+            self.assertEqual(packet["readiness_evidence"]["freshness"], "stale")
+            self.assertEqual({item["code"] for item in packet["waiting"]}, {"pr_evidence_stale"})
+
+    def test_cli_rejects_negative_pr_json_max_age(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pr_json = Path(tmp) / "pr.json"
+            pr_json.write_text(json.dumps(base_pr()), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "pr-readiness",
+                    "--pr-json-file",
+                    str(pr_json),
+                    "--max-pr-json-age-minutes",
+                    "-1",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("non-negative integer", result.stderr)
 
     def test_cli_pr_readiness_does_not_require_runtime_root_or_gh(self):
         with tempfile.TemporaryDirectory() as tmp:

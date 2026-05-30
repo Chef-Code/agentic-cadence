@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-05-29
+Last updated: 2026-05-30
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption
@@ -27,6 +27,40 @@ Consequences:
 Open questions:
 - Remaining unknowns.
 ```
+
+## 2026-05-30 - Label evidence freshness before adding live sync
+
+Decision:
+- Add packet-level `readiness_evidence` labels before implementing any live
+  GitHub synchronization.
+- Use `local_only` for repo snapshots, `saved_input` for saved PR JSON,
+  `stale` for saved PR JSON that exceeds an explicit age limit, and
+  `live_like` only when a caller asserts live-origin evidence to the evaluator.
+
+Why:
+- The current system evaluates local git snapshots and saved PR JSON. Without
+  labels, downstream automation can overtrust local-only or stale state.
+- Freshness labels make current limitations machine-readable while preserving
+  deterministic, local-only behavior.
+
+Alternatives considered:
+- Add live GitHub fetching first. Deferred because live sync needs a separate
+  credential, rate-limit, and failure policy.
+- Treat all saved PR JSON as stale by default. Rejected because existing
+  deterministic local workflows would become noisy without an operator-supplied
+  age policy.
+
+Consequences:
+- Loop automation can distinguish current local-only capability from later
+  live synchronization.
+- Operators can opt into stale saved-PR detection with
+  `--max-pr-json-age-minutes`.
+- `live_like` remains caller-asserted until Cadence owns the live fetch.
+
+Open questions:
+- What age threshold should controlled-demo policy require for saved PR JSON?
+- Should future live sync preserve the same label schema or introduce signed
+  source provenance?
 
 ## 2026-05-29 - Fail closed on unignored repo-local runtime roots
 

@@ -112,6 +112,20 @@ def confidence(
     return ("low" if drivers else "high", drivers)
 
 
+def local_repo_readiness_evidence() -> dict[str, Any]:
+    return {
+        "source": "local_git",
+        "freshness": "local_only",
+        "live": False,
+        "stale": False,
+        "limitations": [
+            "open_prs_not_fetched",
+            "review_threads_not_fetched",
+            "ci_status_operator_supplied",
+        ],
+    }
+
+
 def snapshot_repo(
     cwd: str | Path,
     repo: str | None = None,
@@ -143,12 +157,33 @@ def snapshot_repo(
         "known_failures": failures,
         "repo_confidence": repo_confidence,
         "repo_confidence_drivers": drivers,
+        "readiness_evidence": local_repo_readiness_evidence(),
         "captured_at": utc_now(),
     }
 
 
 def _is_string_list(value: Any) -> bool:
     return isinstance(value, list) and all(isinstance(item, str) for item in value)
+
+
+def _validate_local_readiness_evidence(value: Any) -> str | None:
+    if not isinstance(value, dict):
+        return "snapshot readiness_evidence is required"
+    if value.get("source") != "local_git":
+        return "snapshot readiness_evidence source must be local_git"
+    if value.get("freshness") != "local_only":
+        return "snapshot readiness_evidence freshness must be local_only"
+    if value.get("live") is not False:
+        return "snapshot readiness_evidence live must be false"
+    if value.get("stale") is not False:
+        return "snapshot readiness_evidence stale must be false"
+    if not _is_string_list(value.get("limitations")):
+        return "snapshot readiness_evidence limitations must be a list of strings"
+    limitations = set(value["limitations"])
+    required_limitations = {"open_prs_not_fetched", "review_threads_not_fetched"}
+    if not required_limitations.issubset(limitations):
+        return "snapshot readiness_evidence limitations must include unfetched PR and review state"
+    return None
 
 
 def validate_repo_snapshot(
@@ -200,4 +235,9 @@ def validate_repo_snapshot(
         isinstance(snapshot["unresolved_review_threads"], bool) or not isinstance(snapshot["unresolved_review_threads"], int)
     ):
         return False, "snapshot unresolved_review_threads must be an integer or null"
+    readiness_evidence_error = _validate_local_readiness_evidence(
+        snapshot.get("readiness_evidence")
+    )
+    if readiness_evidence_error is not None:
+        return False, readiness_evidence_error
     return True, None
