@@ -36,12 +36,17 @@ Decision:
 - Use `local_only` for repo snapshots, `saved_input` for saved PR JSON,
   `stale` for saved PR JSON that exceeds an explicit age limit, and
   `live_like` only when a caller asserts live-origin evidence to the evaluator.
+- Apply stale and future-timestamp gating only to saved PR JSON. Do not apply
+  saved-file age policy to caller-asserted `live_like` evaluator inputs.
+- Enforce local snapshot readiness evidence during snapshot validation.
 
 Why:
 - The current system evaluates local git snapshots and saved PR JSON. Without
   labels, downstream automation can overtrust local-only or stale state.
 - Freshness labels make current limitations machine-readable while preserving
   deterministic, local-only behavior.
+- Saved-file age policy should not create false stale labels for evaluator
+  inputs that are explicitly asserted to be live-like by their caller.
 
 Alternatives considered:
 - Add live GitHub fetching first. Deferred because live sync needs a separate
@@ -55,6 +60,9 @@ Consequences:
   live synchronization.
 - Operators can opt into stale saved-PR detection with
   `--max-pr-json-age-minutes`.
+- Negative saved-PR age limits are rejected at the CLI boundary.
+- Stale or future-dated saved PR evidence waits and recommends refresh before
+  acting on PR blockers.
 - `live_like` remains caller-asserted until Cadence owns the live fetch.
 
 Open questions:

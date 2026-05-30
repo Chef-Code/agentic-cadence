@@ -1,7 +1,7 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-05-29
+Last updated: 2026-05-30
 Baseline: released 0.1.3 tree
 
 This document tracks the smallest implementation slices expected to move
@@ -9,6 +9,26 @@ Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
 in constrained controlled operation with pre-approved unattended ticks.
 
 Each slice should ship with tests, evidence, and updates to the living docs.
+
+## Current Baseline After PR #47
+
+The five 50% confidence slices below remain the work needed for a controlled
+loop. Two smaller stabilization slices are already merged:
+
+- Runtime-root safety guard: root-using CLI commands reject unignored
+  repo-local runtime roots unless the operator explicitly allows them, while
+  ignored repo-local runtime roots remain allowed.
+- Readiness and freshness labels: repo snapshots and PR-readiness packets
+  include `readiness_evidence`; snapshot validation enforces local snapshot
+  evidence; saved PR JSON can be `saved_input` or `stale`; stale or
+  future-dated saved PR evidence waits and recommends refresh before acting on
+  blockers; negative max-age values are rejected; caller-asserted `live_like`
+  evidence is not gated by saved-JSON age policy.
+
+These changes reduce state-awareness footguns, but they do not add the missing
+loop runner, executor contract, live GitHub synchronization, branch/commit/push
+or PR creation, or automatic resume orchestration. Current unattended-operation
+confidence remains 10%.
 
 ## Slice Status Key
 
@@ -230,6 +250,9 @@ Current evidence:
 
 - `pr-body-preflight` exists;
 - `pr-readiness` exists for saved PR JSON;
+- saved PR-readiness evidence is labeled as `saved_input`, `stale`, or
+  caller-asserted `live_like`, with stale saved evidence waiting before
+  blockers when an age policy is supplied;
 - release dry-run follows operator-confirmation pattern;
 - no branch, commit, push, or PR creation command exists.
 
@@ -255,7 +278,7 @@ Validation needed:
 - mocked `gh pr create`;
 - mocked failed push;
 - mocked pending/failing/passing checks;
-- stale PR evidence rejection.
+- freshness labels preserved when saved PR evidence is reused.
 
 Codex implementation rule: Codex can implement dry-run packets directly. Live
 push or PR creation behavior requires operator approval.
@@ -272,6 +295,8 @@ Current evidence:
 - candidate discovery can ingest saved review findings;
 - candidate discovery can ingest saved GitHub review-thread files;
 - PR readiness reports blockers;
+- PR readiness labels stale saved PR state so it is not treated as merge-ready
+  when an explicit age policy says it must be refreshed;
 - no live sync or automatic response loop exists.
 
 Why it matters: unattended operation fails quickly if Cadence cannot react to
