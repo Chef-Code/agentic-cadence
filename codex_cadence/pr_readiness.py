@@ -213,7 +213,18 @@ def _pr_readiness_evidence(
     waiting: list[dict[str, Any]] = []
     if captured is not None:
         age_minutes = (checked - captured).total_seconds() / 60
-        if max_age_minutes is not None and age_minutes > max_age_minutes:
+        if age_minutes < 0:
+            stale = True
+            waiting.append(
+                _issue(
+                    "pr_evidence_from_future",
+                    "PR evidence timestamp is in the future; refresh evidence before acting on readiness",
+                    captured_at=_format_utc(captured),
+                    checked_at=_format_utc(checked),
+                    age_minutes=round(age_minutes, 2),
+                )
+            )
+        elif max_age_minutes is not None and age_minutes > max_age_minutes:
             stale = True
             waiting.append(
                 _issue(
@@ -551,13 +562,19 @@ def evaluate_pr_readiness(
     waiting.extend(check_waiting)
     warnings.extend(check_warnings)
 
-    if blockers:
+    has_stale_evidence = any(
+        item["code"] in {"pr_evidence_from_future", "pr_evidence_stale"}
+        for item in waiting
+    )
+    if has_stale_evidence:
+        decision = "waiting"
+        action = "refresh_pr_evidence"
+    elif blockers:
         decision = "blocked"
         action = "address_blockers"
     elif waiting:
         decision = "waiting"
-        has_stale_evidence = any(item["code"] == "pr_evidence_stale" for item in waiting)
-        action = "refresh_pr_evidence" if has_stale_evidence else "wait_for_checks"
+        action = "wait_for_checks"
     else:
         decision = "ready"
         action = "merge_after_operator_confirmation"

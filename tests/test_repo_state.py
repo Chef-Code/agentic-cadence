@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codex_cadence.repo_state import snapshot_repo
+from codex_cadence.repo_state import local_repo_readiness_evidence, snapshot_repo, validate_repo_snapshot
 
 
 def git(cwd, *args):
@@ -20,6 +20,28 @@ def init_repo(path):
     git(path, "init", "-b", "main")
     git(path, "config", "user.email", "test@example.com")
     git(path, "config", "user.name", "Test User")
+
+
+def valid_snapshot(**overrides):
+    snapshot = {
+        "id": "snapshot-1",
+        "repo": "local/test",
+        "cwd": "/tmp/local-test",
+        "branch": "main",
+        "head": "abc123",
+        "ci": "green",
+        "open_prs": [],
+        "active_pr": None,
+        "unresolved_review_threads": None,
+        "dirty_worktree": False,
+        "known_failures": [],
+        "repo_confidence": "high",
+        "repo_confidence_drivers": [],
+        "readiness_evidence": local_repo_readiness_evidence(),
+        "captured_at": "2999-05-22T00:00:00Z",
+    }
+    snapshot.update(overrides)
+    return snapshot
 
 
 class RepoStateTests(unittest.TestCase):
@@ -94,6 +116,25 @@ class RepoStateTests(unittest.TestCase):
             self.assertEqual(snapshot["known_failures"], ["ci"])
             self.assertEqual(snapshot["repo_confidence"], "low")
             self.assertIn("known_failures", snapshot["repo_confidence_drivers"])
+
+    def test_snapshot_validation_requires_readiness_evidence(self):
+        snapshot = valid_snapshot()
+        snapshot.pop("readiness_evidence")
+
+        valid, reason = validate_repo_snapshot(snapshot, expected_repo="local/test", expected_branch="main")
+
+        self.assertFalse(valid)
+        self.assertEqual(reason, "snapshot readiness_evidence is required")
+
+    def test_snapshot_validation_rejects_non_local_readiness_evidence(self):
+        snapshot = valid_snapshot(
+            readiness_evidence={**local_repo_readiness_evidence(), "freshness": "saved_input"}
+        )
+
+        valid, reason = validate_repo_snapshot(snapshot, expected_repo="local/test", expected_branch="main")
+
+        self.assertFalse(valid)
+        self.assertEqual(reason, "snapshot readiness_evidence freshness must be local_only")
 
 
 if __name__ == "__main__":

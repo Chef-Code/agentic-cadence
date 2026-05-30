@@ -24,6 +24,17 @@ def valid_snapshot(**overrides):
         "known_failures": [],
         "repo_confidence": "high",
         "repo_confidence_drivers": [],
+        "readiness_evidence": {
+            "source": "local_git",
+            "freshness": "local_only",
+            "live": False,
+            "stale": False,
+            "limitations": [
+                "open_prs_not_fetched",
+                "review_threads_not_fetched",
+                "ci_status_operator_supplied",
+            ],
+        },
         "captured_at": "2999-05-22T00:00:00Z",
     }
     snapshot.update(overrides)

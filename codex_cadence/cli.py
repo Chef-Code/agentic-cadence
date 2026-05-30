@@ -68,6 +68,16 @@ def slugify(value: str) -> str:
     return (slug or "handoff")[:48].strip("-") or "handoff"
 
 
+def non_negative_int(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a non-negative integer") from exc
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return parsed
+
+
 def cadence_state(brake: dict[str, Any]) -> dict[str, Any]:
     legacy_brake = brake["status"]
     state_by_brake = {
@@ -1022,7 +1032,7 @@ def build_parser() -> argparse.ArgumentParser:
     readiness_parser.add_argument("--required-check", action="append", default=[])
     readiness_parser.add_argument("--required-body-section", action="append", default=[])
     readiness_parser.add_argument("--pr-template-file")
-    readiness_parser.add_argument("--max-pr-json-age-minutes", type=int)
+    readiness_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
     readiness_parser.set_defaults(func=pr_readiness_command, requires_root=False)
 
     body_preflight_parser = subparsers.add_parser("pr-body-preflight", help="Evaluate a draft PR body before publishing")
