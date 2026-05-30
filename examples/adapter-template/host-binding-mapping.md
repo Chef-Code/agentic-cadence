@@ -103,6 +103,15 @@ canonical reviewer procedure for the schema fixture and `--validate-evidence-fil
 check.
 
 Use `examples/adapter-claim-verifier/run.py --evidence-file
-adapter-contract-evidence.json` to confirm generic evidence stays generic. For a
-future named host claim, pass `--claim-host` and the same
-`--binding-command-template` used to generate the compact evidence.
+adapter-contract-evidence.json` to confirm generic evidence stays generic:
+
+```bash
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json
+```
+
+For a future named host claim, pass `--claim-host` and the same
+`--binding-command-template` used to generate the compact evidence:
+
+```bash
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json --claim-host ExampleHost --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
+```

@@ -79,6 +79,13 @@ class AdapterClaimVerifierTests(unittest.TestCase):
         self.assertEqual(private_imports, [])
         self.assertIn("adapter-contract-runner", source)
         self.assertIn("does not implement or claim support", source)
+        runner = load_runner_module()
+        verifier = load_verifier_module()
+        self.assertEqual(
+            verifier.required_template_placeholders(runner),
+            tuple(runner.load_evidence_schema()["binding_template_placeholder_keys"]),
+        )
+        self.assertNotIn("REQUIRED_TEMPLATE_PLACEHOLDERS", source)
 
     def run_verifier(self, args: list[str]) -> tuple[int, dict, str]:
         verifier = load_verifier_module()
@@ -258,6 +265,8 @@ class AdapterClaimVerifierTests(unittest.TestCase):
             ROOT / "docs" / "adapters.md",
             ROOT / "docs" / "adapter-claim-checklist.md",
             ROOT / "docs" / "roadmap.md",
+            ROOT / "examples" / "adapter-template" / "README.md",
+            ROOT / "examples" / "adapter-template" / "host-binding-mapping.md",
         )
         for path in docs:
             text = path.read_text(encoding="utf-8")

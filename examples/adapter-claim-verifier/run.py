@@ -16,11 +16,6 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 RUNNER_SCRIPT = ROOT / "examples" / "adapter-contract-runner" / "run.py"
-REQUIRED_TEMPLATE_PLACEHOLDERS = (
-    "cadence_args",
-    "case_work_dir",
-    "host_event_file",
-)
 
 
 def load_adapter_contract_runner():
@@ -38,9 +33,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--claim-host", help="Named non-Codex host adapter support claim to check.")
     parser.add_argument(
         "--binding-command-template",
-        help="Optional proposed binding command template; when supplied, it must match the evidence file.",
+        help="Proposed binding command template; required when --claim-host is supplied.",
     )
     return parser
+
+
+def required_template_placeholders(runner: Any) -> tuple[str, ...]:
+    schema = runner.load_evidence_schema()
+    placeholders = schema.get("binding_template_placeholder_keys")
+    if not isinstance(placeholders, list) or not all(isinstance(placeholder, str) for placeholder in placeholders):
+        raise RuntimeError("adapter contract evidence schema missing binding_template_placeholder_keys")
+    return tuple(placeholders)
 
 
 def blocker(code: str, message: str) -> dict[str, str]:
@@ -50,31 +53,31 @@ def blocker(code: str, message: str) -> dict[str, str]:
     }
 
 
-def false_placeholder_flags() -> dict[str, bool]:
+def false_placeholder_flags(placeholder_keys: tuple[str, ...]) -> dict[str, bool]:
     return {
         placeholder: False
-        for placeholder in REQUIRED_TEMPLATE_PLACEHOLDERS
+        for placeholder in placeholder_keys
     }
 
 
-def declared_placeholder_flags(evidence: dict[str, Any] | None) -> dict[str, bool]:
+def declared_placeholder_flags(evidence: dict[str, Any] | None, placeholder_keys: tuple[str, ...]) -> dict[str, bool]:
     checklist = evidence.get("checklist_evidence") if isinstance(evidence, dict) else None
     placeholders = checklist.get("binding_template_placeholders") if isinstance(checklist, dict) else None
     if not isinstance(placeholders, dict):
         placeholders = {}
     return {
         placeholder: placeholders.get(placeholder) is True
-        for placeholder in REQUIRED_TEMPLATE_PLACEHOLDERS
+        for placeholder in placeholder_keys
     }
 
 
-def computed_placeholder_flags(runner: Any, template: Any) -> dict[str, bool]:
+def computed_placeholder_flags(runner: Any, template: Any, placeholder_keys: tuple[str, ...]) -> dict[str, bool]:
     if not isinstance(template, str):
-        return false_placeholder_flags()
+        return false_placeholder_flags(placeholder_keys)
     field_names = runner.binding_template_field_names(template)
     return {
         placeholder: placeholder in field_names
-        for placeholder in REQUIRED_TEMPLATE_PLACEHOLDERS
+        for placeholder in placeholder_keys
     }
 
 
@@ -99,6 +102,7 @@ def invalid_evidence_packet(
     *,
     evidence_file: Path,
     claim_host: str | None,
+    placeholder_keys: tuple[str, ...],
     errors: list[str],
 ) -> dict[str, Any]:
     return {
@@ -111,7 +115,7 @@ def invalid_evidence_packet(
         "binding_command_mode": None,
         "binding_command_template": None,
         "binding_command_template_matches_evidence": None,
-        "required_placeholders": false_placeholder_flags(),
+        "required_placeholders": false_placeholder_flags(placeholder_keys),
         "observed_contract_labels": [],
         "blockers": [
             blocker("invalid_adapter_contract_evidence", error)
@@ -127,12 +131,13 @@ def evaluate_claim(
     evidence_file: Path,
     evidence: dict[str, Any],
     claim_host: str | None,
+    placeholder_keys: tuple[str, ...],
     supplied_binding_command_template: str | None,
 ) -> dict[str, Any]:
     binding_mode = evidence.get("binding_command_mode")
     evidence_template = evidence.get("binding_command_template")
-    placeholders = computed_placeholder_flags(runner, evidence_template)
-    declared_placeholders = declared_placeholder_flags(evidence)
+    placeholders = computed_placeholder_flags(runner, evidence_template, placeholder_keys)
+    declared_placeholders = declared_placeholder_flags(evidence, placeholder_keys)
     blockers: list[dict[str, str]] = []
     template_matches_evidence = None
     if declared_placeholders != placeholders:
@@ -233,12 +238,14 @@ def evaluate_claim(
 
 def verify_claim(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
     runner = load_adapter_contract_runner()
+    placeholder_keys = required_template_placeholders(runner)
     claim_host = claim_host_value(args.claim_host)
     evidence, load_errors = runner.load_compact_evidence_file(args.evidence_file)
     if evidence is None:
         return 1, invalid_evidence_packet(
             evidence_file=args.evidence_file,
             claim_host=claim_host,
+            placeholder_keys=placeholder_keys,
             errors=load_errors,
         )
 
@@ -247,6 +254,7 @@ def verify_claim(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         return 1, invalid_evidence_packet(
             evidence_file=args.evidence_file,
             claim_host=claim_host,
+            placeholder_keys=placeholder_keys,
             errors=schema_errors,
         )
 
@@ -255,6 +263,7 @@ def verify_claim(args: argparse.Namespace) -> tuple[int, dict[str, Any]]:
         evidence_file=args.evidence_file,
         evidence=evidence,
         claim_host=claim_host,
+        placeholder_keys=placeholder_keys,
         supplied_binding_command_template=args.binding_command_template,
     )
     return (0 if packet["result"] == "adapter_claim_verification_passed" else 1), packet
