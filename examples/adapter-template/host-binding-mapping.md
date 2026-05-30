@@ -101,3 +101,8 @@ Repository PR checks upload that compact JSON as the
 `adapter-contract-evidence.json`. Use `docs/adapter-claim-checklist.md` as the
 canonical reviewer procedure for the schema fixture and `--validate-evidence-file`
 check.
+
+Use `examples/adapter-claim-verifier/run.py --evidence-file
+adapter-contract-evidence.json` to confirm generic evidence stays generic. For a
+future named host claim, pass `--claim-host` and the same
+`--binding-command-template` used to generate the compact evidence.

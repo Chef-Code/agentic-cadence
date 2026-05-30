@@ -120,6 +120,24 @@ without rerunning the suite:
 python examples/adapter-contract-runner/run.py --validate-evidence-file adapter-contract-evidence.json
 ```
 
+The adapter claim verifier codifies the evidence-only part of the named-host
+claim checklist. With no host name it reports that the uploaded generic baseline
+must remain generic:
+
+```bash
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json
+```
+
+Before documenting a named non-Codex host binding, run it against compact
+evidence emitted from the proposed binding command template:
+
+```bash
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json --claim-host <host> --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
+```
+
+It only checks the compact evidence boundary. A named adapter PR still needs the
+mapping evidence, implementation files, and docs required by the checklist.
+
 Before documenting a named non-Codex host binding, follow
 `docs/adapter-claim-checklist.md` and include the required generic contract
 evidence in the PR.

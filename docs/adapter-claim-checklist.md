@@ -115,6 +115,24 @@ After downloading the artifact file, validate it without rerunning the suite:
 python examples/adapter-contract-runner/run.py --validate-evidence-file adapter-contract-evidence.json
 ```
 
+Run the adapter claim verifier against the downloaded generic baseline. With no
+`--claim-host`, the verifier should report a generic-only decision:
+
+```bash
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json
+```
+
+For a named host claim, run the verifier against compact evidence produced from
+the proposed binding command template. The same template should be supplied so
+reviewers can catch copied or stale evidence:
+
+```bash
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json --claim-host <host> --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
+```
+
+If the verifier returns `must_remain_generic`, keep the PR generic and do not
+claim named host support.
+
 ## PR Evidence
 
 Before asking for review, include:

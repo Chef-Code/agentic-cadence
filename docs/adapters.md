@@ -126,6 +126,25 @@ without rerunning the suite:
 python examples/adapter-contract-runner/run.py --validate-evidence-file adapter-contract-evidence.json
 ```
 
+The adapter claim verifier at `examples/adapter-claim-verifier/run.py` turns the
+compact evidence into an explicit claim decision. The uploaded generic baseline
+should verify as generic-only:
+
+```bash
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json
+```
+
+A future named host adapter claim must use compact evidence from the proposed
+binding template, then pass the same template to the verifier:
+
+```bash
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json --claim-host <host> --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
+```
+
+The verifier can say whether the evidence boundary permits a named claim or the
+PR must remain generic. It does not replace host-binding mapping evidence,
+implementation review, or support-boundary documentation.
+
 Before a PR documents a named non-Codex host binding, use
 `docs/adapter-claim-checklist.md`. The checklist keeps the claim tied to the
 generic schema, smoke, replay, parity, and external conformance evidence instead

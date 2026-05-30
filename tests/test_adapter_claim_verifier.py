@@ -1,0 +1,209 @@
+import ast
+import contextlib
+import io
+import importlib.util
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+RUNNER_SCRIPT = ROOT / "examples" / "adapter-contract-runner" / "run.py"
+VERIFIER_SCRIPT = ROOT / "examples" / "adapter-claim-verifier" / "run.py"
+
+
+def load_module(path: Path, module_name: str):
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def load_runner_module():
+    return load_module(RUNNER_SCRIPT, "adapter_contract_runner_for_claim_verifier_tests")
+
+
+def load_verifier_module():
+    return load_module(VERIFIER_SCRIPT, "adapter_claim_verifier")
+
+
+def compact_evidence_fixture(*, binding_template: str | None = None) -> dict:
+    runner = load_runner_module()
+    expected_results = {
+        "host_signal_schema": "host_signal_contract_schema_passed",
+        "generic_host_signal_smoke": "generic_host_signal_smoke_passed",
+        "generic_shell_replay": "generic_shell_host_binding_replay_contract_passed",
+        "generic_host_shell_parity": "generic_host_signal_shell_parity_contract_passed",
+        "external_host_binding_conformance": "external_host_binding_conformance_passed",
+    }
+    return runner.compact_evidence_summary(
+        {
+            "result": "adapter_contract_preclaim_passed",
+            "work_dir": "work",
+            "binding_command_mode": "template" if binding_template else "default_generic_shell",
+            "binding_command_template": binding_template,
+            "contract_note": "generic only; no named host support claim",
+            "contracts": [
+                {
+                    "label": label,
+                    "command": ["python", f"examples/{label}/run.py"],
+                    "result": result,
+                    "summary": {"result": result, "packets": {"omitted": True}},
+                }
+                for label, result in expected_results.items()
+            ],
+        }
+    )
+
+
+class AdapterClaimVerifierTests(unittest.TestCase):
+    def test_adapter_claim_verifier_uses_public_evidence_boundary_only(self):
+        self.assertTrue(VERIFIER_SCRIPT.exists(), "missing adapter claim verifier")
+        source = VERIFIER_SCRIPT.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+
+        private_imports = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                private_imports.extend(
+                    alias.name
+                    for alias in node.names
+                    if alias.name.startswith(("codex_cadence", "transmission_control"))
+                )
+            if isinstance(node, ast.ImportFrom) and node.module:
+                if node.module.startswith(("codex_cadence", "transmission_control")):
+                    private_imports.append(node.module)
+
+        self.assertEqual(private_imports, [])
+        self.assertIn("adapter-contract-runner", source)
+        self.assertIn("does not implement or claim support", source)
+
+    def run_verifier(self, args: list[str]) -> tuple[int, dict, str]:
+        verifier = load_verifier_module()
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        with contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            exit_code = verifier.main(args)
+        return exit_code, json.loads(stdout.getvalue()), stderr.getvalue()
+
+    def write_evidence(self, evidence: dict) -> tuple[tempfile.TemporaryDirectory, Path]:
+        tmp = tempfile.TemporaryDirectory()
+        path = Path(tmp.name) / "adapter-contract-evidence.json"
+        path.write_text(json.dumps(evidence), encoding="utf-8")
+        return tmp, path
+
+    def test_claim_verifier_keeps_generic_baseline_generic(self):
+        tmp, evidence_file = self.write_evidence(compact_evidence_fixture())
+        with tmp:
+            exit_code, packet, stderr = self.run_verifier(["--evidence-file", str(evidence_file)])
+
+        self.assertEqual(exit_code, 0, stderr)
+        self.assertEqual(packet["result"], "adapter_claim_verification_passed")
+        self.assertEqual(packet["claim_decision"], "generic_only")
+        self.assertFalse(packet["named_host_claim_allowed"])
+        self.assertEqual(packet["recommended_next_action"], "keep_pr_generic")
+        self.assertEqual(packet["binding_command_mode"], "default_generic_shell")
+        self.assertEqual(packet["blockers"], [])
+
+    def test_claim_verifier_blocks_named_claim_without_template_evidence(self):
+        tmp, evidence_file = self.write_evidence(compact_evidence_fixture())
+        with tmp:
+            exit_code, packet, stderr = self.run_verifier(
+                ["--evidence-file", str(evidence_file), "--claim-host", "ExampleHost"]
+            )
+
+        self.assertEqual(exit_code, 1, stderr)
+        self.assertEqual(packet["result"], "adapter_claim_verification_failed")
+        self.assertEqual(packet["claim_decision"], "must_remain_generic")
+        self.assertFalse(packet["named_host_claim_allowed"])
+        self.assertEqual(
+            packet["recommended_next_action"],
+            "keep_pr_generic_or_run_binding_contract_with_template",
+        )
+        self.assertIn(
+            "named_claim_requires_template_binding_evidence",
+            {blocker["code"] for blocker in packet["blockers"]},
+        )
+
+    def test_claim_verifier_allows_named_claim_with_template_evidence(self):
+        template = (
+            'python path/to/external-binding.py --host-event-file "{host_event_file}" '
+            '--work-dir "{case_work_dir}" {cadence_args}'
+        )
+        tmp, evidence_file = self.write_evidence(compact_evidence_fixture(binding_template=template))
+        with tmp:
+            exit_code, packet, stderr = self.run_verifier(
+                [
+                    "--evidence-file",
+                    str(evidence_file),
+                    "--claim-host",
+                    "ExampleHost",
+                    "--binding-command-template",
+                    template,
+                ]
+            )
+
+        self.assertEqual(exit_code, 0, stderr)
+        self.assertEqual(packet["result"], "adapter_claim_verification_passed")
+        self.assertEqual(packet["claim_decision"], "named_host_claim_allowed")
+        self.assertTrue(packet["named_host_claim_allowed"])
+        self.assertTrue(packet["binding_command_template_matches_evidence"])
+        self.assertEqual(packet["claim_host"], "ExampleHost")
+        self.assertEqual(packet["blockers"], [])
+        self.assertEqual(
+            packet["required_placeholders"],
+            {
+                "cadence_args": True,
+                "case_work_dir": True,
+                "host_event_file": True,
+            },
+        )
+
+    def test_claim_verifier_blocks_binding_template_mismatch(self):
+        evidence_template = (
+            'python path/to/external-binding.py --host-event-file "{host_event_file}" '
+            '--work-dir "{case_work_dir}" {cadence_args}'
+        )
+        tmp, evidence_file = self.write_evidence(compact_evidence_fixture(binding_template=evidence_template))
+        with tmp:
+            exit_code, packet, stderr = self.run_verifier(
+                [
+                    "--evidence-file",
+                    str(evidence_file),
+                    "--claim-host",
+                    "ExampleHost",
+                    "--binding-command-template",
+                    'python other.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}',
+                ]
+            )
+
+        self.assertEqual(exit_code, 1, stderr)
+        self.assertEqual(packet["claim_decision"], "must_remain_generic")
+        self.assertIn("binding_command_template_mismatch", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_adapter_claim_verifier_is_documented_and_in_ci(self):
+        docs = (
+            ROOT / "README.md",
+            ROOT / "docs" / "adapters.md",
+            ROOT / "docs" / "adapter-claim-checklist.md",
+            ROOT / "docs" / "roadmap.md",
+        )
+        for path in docs:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(doc=path.relative_to(ROOT)):
+                self.assertIn("examples/adapter-claim-verifier/run.py", text)
+                self.assertIn("--evidence-file adapter-contract-evidence.json", text)
+                self.assertIn("--claim-host", text)
+
+        workflow = (ROOT / ".github" / "workflows" / "pr.yml").read_text(encoding="utf-8")
+        self.assertIn("Verify generic adapter claim boundary", workflow)
+        self.assertIn(
+            "python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json",
+            workflow,
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

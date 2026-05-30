@@ -9,6 +9,9 @@ All notable public changes to Agentic Cadence are documented here.
 - Generic adapter-contract fixtures now cover `reviewer_loop` and `ci_loop`
   host/session signals alongside no-signal, `context_pressure`, and
   `operator_stop` behavior without claiming a named host adapter.
+- Added `examples/adapter-claim-verifier/run.py` to turn compact adapter
+  evidence into a generic-only or named-host-claim decision before any
+  host-specific support claim is documented.
 
 ### Changed
 
