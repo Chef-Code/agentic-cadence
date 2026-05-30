@@ -26,6 +26,18 @@ def run_cli(root, *args):
     return result, output
 
 
+def run_cli_from(cwd, root, *args):
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(root), *args],
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    output = json.loads(result.stdout) if result.stdout.strip() else None
+    return result, output
+
+
 def git(cwd, *args):
     return subprocess.run(
         ["git", *args],
@@ -1057,6 +1069,144 @@ class CadenceCliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(output["ci"], "green")
+
+    def test_snapshot_repo_rejects_unignored_repo_local_runtime_root(self):
+        with tempfile.TemporaryDirectory() as repo_tmp:
+            repo = Path(repo_tmp)
+            init_committed_repo(repo)
+            runtime_root = repo / ".cadence-runtime"
+
+            result, output = run_cli(runtime_root, "snapshot-repo", "--cwd", repo, "--repo", "local/test")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("runtime root is inside target repo but is not ignored", result.stderr)
+            self.assertFalse(runtime_root.exists())
+
+    def test_snapshot_repo_allows_ignored_repo_local_runtime_root(self):
+        with tempfile.TemporaryDirectory() as repo_tmp:
+            repo = Path(repo_tmp)
+            init_committed_repo(repo)
+            (repo / ".gitignore").write_text(".cadence-runtime/\n", encoding="utf-8")
+            git(repo, "add", ".gitignore")
+            git(repo, "commit", "-m", "ignore cadence runtime")
+            runtime_root = repo / ".cadence-runtime"
+
+            result, output = run_cli(runtime_root, "snapshot-repo", "--cwd", repo, "--repo", "local/test")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["repo"], "local/test")
+            self.assertTrue(runtime_root.exists())
+
+    def test_snapshot_repo_allows_parent_ignored_repo_local_runtime_root(self):
+        with tempfile.TemporaryDirectory() as repo_tmp:
+            repo = Path(repo_tmp)
+            init_committed_repo(repo)
+            (repo / ".gitignore").write_text(".codex/\n", encoding="utf-8")
+            git(repo, "add", ".gitignore")
+            git(repo, "commit", "-m", "ignore codex runtime")
+            runtime_root = repo / ".codex" / "cadence"
+
+            result, output = run_cli(runtime_root, "snapshot-repo", "--cwd", repo, "--repo", "local/test")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["repo"], "local/test")
+            self.assertTrue(runtime_root.exists())
+
+    def test_snapshot_repo_allows_explicit_repo_local_runtime_root(self):
+        with tempfile.TemporaryDirectory() as repo_tmp:
+            repo = Path(repo_tmp)
+            init_committed_repo(repo)
+            runtime_root = repo / ".cadence-runtime"
+
+            result, output = run_cli(
+                runtime_root,
+                "--allow-repo-local-root",
+                "snapshot-repo",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["repo"], "local/test")
+            self.assertTrue(runtime_root.exists())
+
+    def test_prepare_handoff_rejects_unignored_repo_local_runtime_root(self):
+        with tempfile.TemporaryDirectory() as repo_tmp:
+            repo = Path(repo_tmp)
+            init_committed_repo(repo)
+            runtime_root = repo / ".cadence-runtime"
+
+            result, output = run_cli(
+                runtime_root,
+                "prepare-handoff",
+                "--title",
+                "Context handoff",
+                "--guardrail",
+                "manual",
+                "--cwd",
+                repo,
+                "--task-type",
+                "execution",
+                "--summary",
+                "Summarize current progress.",
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("runtime root is inside target repo but is not ignored", result.stderr)
+            self.assertFalse(runtime_root.exists())
+
+    def test_status_rejects_unignored_repo_local_runtime_root_from_current_repo(self):
+        with tempfile.TemporaryDirectory() as repo_tmp:
+            repo = Path(repo_tmp)
+            init_committed_repo(repo)
+            runtime_root = repo / ".cadence-runtime"
+
+            result, output = run_cli_from(repo, runtime_root, "status")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("runtime root is inside target repo but is not ignored", result.stderr)
+            self.assertFalse(runtime_root.exists())
+
+    def test_plan_task_does_not_guard_unignored_repo_local_runtime_root(self):
+        with tempfile.TemporaryDirectory() as repo_tmp:
+            repo = Path(repo_tmp)
+            init_committed_repo(repo)
+            runtime_root = repo / ".cadence-runtime"
+
+            result, output = run_cli_from(
+                repo,
+                runtime_root,
+                "plan-task",
+                "--title",
+                "Plan a small task",
+                "--task-type",
+                "execution",
+                "--message",
+                "Implement a small task.",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["title"], "Plan a small task")
+            self.assertFalse(runtime_root.exists())
+
+    def test_discover_candidates_does_not_guard_unignored_repo_local_runtime_root(self):
+        with tempfile.TemporaryDirectory() as repo_tmp:
+            repo = Path(repo_tmp)
+            init_committed_repo(repo)
+            runtime_root = repo / ".cadence-runtime"
+
+            result, output = run_cli(runtime_root, "discover-candidates", "--cwd", repo)
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("intent is required unless --interactive or --discovery-mode off is used", result.stderr)
+            self.assertNotIn("runtime root is inside target repo", result.stderr)
+            self.assertFalse(runtime_root.exists())
 
     def test_discover_candidates_requires_intent_for_local_mode(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

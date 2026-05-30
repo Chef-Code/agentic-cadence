@@ -259,6 +259,8 @@ Runtime state lives outside project repositories by default for new installs:
 
 If the legacy `~/.codex/transmission` root already exists, Agentic Cadence reuses it so queued handoffs and brake state survive the rename. If both legacy and Cadence roots exist, Cadence fails closed until you select one with `--root`, `CODEX_CADENCE_ROOT`, or `CODEX_TRANSMISSION_ROOT`. Commands invoked with `--root X` create the runtime layout at `X` when it is missing.
 
+Root-using commands also guard against accidentally placing runtime state inside the target git checkout. If `--root` points inside the repo selected by `--cwd`, or inside the current repo for commands without `--cwd`, the root must be ignored by git. Otherwise the command fails unless the operator passes the top-level `--allow-repo-local-root` flag before the subcommand. Prefer runtime roots outside project repositories; the override is for explicit operator-owned exceptions.
+
 Cadence exposes these states:
 
 ![Cadence state summary for PLAY_ON, HUDDLE, and TIMEOUT.](docs/assets/cadence-states.svg)

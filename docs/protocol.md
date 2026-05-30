@@ -24,6 +24,8 @@ The default runtime root is:
 
 If the legacy `%USERPROFILE%\.codex\transmission` root already exists, Agentic Cadence must reuse it by default. This preserves queued handoffs, approvals, and legacy brake controls so a rename cannot reset `PARK` or `NEUTRAL` to a fresh `DRIVE` brake. If both legacy and cadence roots exist, Agentic Cadence must fail closed until the operator selects one with `CODEX_CADENCE_ROOT`, `CODEX_TRANSMISSION_ROOT`, or `--root`.
 
+Commands that use the runtime root must reject an unignored repo-local runtime root when the target working directory is inside a git repo. A repo-local root is allowed only when git ignores the root path or when the operator passes `--allow-repo-local-root`. This keeps Cadence state from becoming a self-created dirty-worktree signal. Runtime roots outside the target repo remain the preferred default.
+
 Primary entry points share the package-owned dispatcher in `codex_cadence/cli.py`. `scripts/cadence.py` is a source-tree wrapper for direct checkout execution. Legacy entry points remain compatibility shims during the rename: `scripts/transmission.py` delegates to `transmission_control.cli`, and `transmission_control.*` aliases `codex_cadence.*`. New integrations should use the Cadence names.
 
 Suggested layout:

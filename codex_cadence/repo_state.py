@@ -23,6 +23,61 @@ def run_git(cwd: str | Path, *args: str) -> str:
     return result.stdout.strip()
 
 
+def git_repo_root(cwd: str | Path) -> Path | None:
+    try:
+        return Path(run_git(cwd, "rev-parse", "--show-toplevel")).resolve()
+    except (OSError, RuntimeError):
+        return None
+
+
+def path_is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+    except ValueError:
+        return False
+    return True
+
+
+def git_ignores_path(repo_root: str | Path, path: str | Path) -> bool:
+    root = Path(repo_root).resolve()
+    candidate = Path(path).resolve(strict=False)
+    if not path_is_relative_to(candidate, root):
+        return False
+    relative = candidate.relative_to(root)
+    if not relative.parts:
+        return False
+    candidates = [relative.as_posix()]
+    if not candidates[0].endswith("/"):
+        candidates.append(f"{candidates[0]}/")
+    for candidate in candidates:
+        result = subprocess.run(
+            ["git", "check-ignore", "-q", "--", candidate],
+            cwd=root,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return True
+    return False
+
+
+def runtime_root_safety_issue(root: str | Path, target_cwd: str | Path) -> str | None:
+    repo_root = git_repo_root(target_cwd)
+    if repo_root is None:
+        return None
+    # CLI callers resolve --root first; this keeps direct helper calls safe too.
+    runtime_root = Path(root).resolve(strict=False)
+    if not path_is_relative_to(runtime_root, repo_root):
+        return None
+    if git_ignores_path(repo_root, runtime_root):
+        return None
+    return (
+        "runtime root is inside target repo but is not ignored; use a root outside the repo, "
+        "add the runtime root to .gitignore, or pass --allow-repo-local-root"
+    )
+
+
 def dirty_worktree(cwd: str | Path) -> bool:
     return bool(run_git(cwd, "status", "--porcelain"))
 
