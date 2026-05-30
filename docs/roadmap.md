@@ -60,6 +60,10 @@ The current tree is based on the released 0.1.3 baseline for the 0.1.x line. It 
 - `docs/adapter-claim-checklist.md` is the canonical reviewer procedure for
   compact adapter evidence, including the schema fixture and
   `--validate-evidence-file` check.
+- `examples/adapter-claim-verifier/run.py` turns compact adapter evidence into a
+  generic-only or named-host-claim decision using `--evidence-file adapter-contract-evidence.json`
+  and, for proposed named bindings, `--claim-host` with the matching binding
+  command template.
 
 ## Known Edges
 
@@ -134,6 +138,10 @@ A mature Agentic Cadence system should provide:
 - Validate downloaded PR evidence with
   the `docs/adapter-claim-checklist.md` procedure before treating compact
   adapter evidence as reviewer-ready.
+- Run `examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json`
+  on generic PR evidence, and require
+  `--claim-host` plus the matching `--binding-command-template` before accepting
+  named host adapter claims.
 - Use `docs/adapter-claim-checklist.md` as the PR gate before documenting any
   named non-Codex host adapter support.
 - Keep the generic shell host-binding example aligned with the mapping example,

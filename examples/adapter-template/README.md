@@ -184,5 +184,21 @@ Repository PR checks upload that compact JSON as the
 canonical reviewer procedure for the schema fixture and `--validate-evidence-file`
 check.
 
+The adapter claim verifier at `examples/adapter-claim-verifier/run.py` can check
+the downloaded compact evidence and report whether it must remain generic or can
+support a named-host claim when paired with `--claim-host` and the matching
+binding command template:
+
+```bash
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json
+```
+
+For a future named host claim, pass the same binding command template that
+produced the compact evidence:
+
+```bash
+python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json --claim-host ExampleHost --binding-command-template 'python path/to/external-binding.py --host-event-file "{host_event_file}" --work-dir "{case_work_dir}" {cadence_args}'
+```
+
 This remains generic adapter evidence only and does not ship a Claude, Gemini,
 or other named host adapter.
