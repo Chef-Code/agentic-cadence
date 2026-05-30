@@ -121,8 +121,8 @@ the next session after a handoff.
 
 The first likely failure in a real unattended run is still missing live
 synchronization. Repo snapshots are local git snapshots, and PR readiness reads
-saved input files. Cadence now labels local-only, saved-input, stale, and
-caller-asserted live-like evidence, but it still does not fetch or reconcile
+saved input files. Cadence now labels `local_only`, `saved_input`, `stale`, and
+caller-asserted `live_like` evidence, but it still does not fetch or reconcile
 live PR, review, or CI state.
 
 The next likely failures are:

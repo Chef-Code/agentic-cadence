@@ -65,7 +65,14 @@ class RepoStateTests(unittest.TestCase):
             self.assertEqual(snapshot["readiness_evidence"]["freshness"], "local_only")
             self.assertFalse(snapshot["readiness_evidence"]["live"])
             self.assertFalse(snapshot["readiness_evidence"]["stale"])
-            self.assertIn("open_prs_not_fetched", snapshot["readiness_evidence"]["limitations"])
+            self.assertEqual(
+                set(snapshot["readiness_evidence"]["limitations"]),
+                {
+                    "open_prs_not_fetched",
+                    "review_threads_not_fetched",
+                    "ci_status_operator_supplied",
+                },
+            )
 
     def test_dirty_unborn_repo_snapshots_low_confidence(self):
         with tempfile.TemporaryDirectory() as tmp:
