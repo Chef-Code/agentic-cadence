@@ -27,7 +27,8 @@ provides generic adapter contracts only.
 Document the host-event mapping before claiming support:
 
 - Update or reference `examples/adapter-template/host-binding-mapping.md`.
-- Show how the host reports no signal, `context_pressure`, and `operator_stop`.
+- Show how the host reports no signal, `context_pressure`, `reviewer_loop`,
+  `ci_loop`, and `operator_stop`.
 - Show how host fields map to `kind`, `source`, `confidence`, `summary`,
   `task_type`, `drivers`, and `next_action`.
 - Explain any host event that cannot be represented by the current generic

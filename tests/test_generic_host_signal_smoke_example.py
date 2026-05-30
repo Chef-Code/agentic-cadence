@@ -101,46 +101,44 @@ class GenericHostSignalSmokeExampleTests(unittest.TestCase):
         self.assertEqual(summary["result"], "generic_host_signal_smoke_passed")
         self.assertEqual(
             [scenario["fixture"] for scenario in summary["scenarios"]],
-            ["no-signal.json", "context-pressure.json", "operator-stop.json"],
+            [
+                "no-signal.json",
+                "context-pressure.json",
+                "reviewer-loop.json",
+                "ci-loop.json",
+                "operator-stop.json",
+            ],
         )
+        scenarios = {scenario["fixture"]: scenario for scenario in summary["scenarios"]}
 
-        no_signal = summary["scenarios"][0]
+        no_signal = scenarios["no-signal.json"]
         self.assertEqual(no_signal["adapter_result"], "no_handoff_needed")
         self.assertFalse(no_signal["cadence_called"])
         self.assertFalse(no_signal["stop_current_session"])
         self.assertEqual(no_signal["packets"], {})
 
-        context_pressure = summary["scenarios"][1]
-        context_fixture = json.loads((FIXTURE_DIR / "context-pressure.json").read_text(encoding="utf-8"))
-        self.assertEqual(context_pressure["adapter_result"], "handoff_prepared")
-        self.assertTrue(context_pressure["cadence_called"])
-        self.assertTrue(context_pressure["stop_current_session"])
-        self.assertEqual(context_pressure["observed_guardrail"], "context")
-        for key in ("observed_summary", "observed_task_type", "observed_drivers", "observed_next_action"):
-            self.assertIn(key, context_pressure)
-        self.assertEqual(context_pressure["observed_summary"], context_fixture["summary"])
-        self.assertEqual(context_pressure["observed_task_type"], context_fixture["task_type"])
-        self.assertEqual(context_pressure["observed_drivers"], context_fixture["drivers"])
-        self.assertEqual(context_pressure["observed_next_action"], context_fixture["next_action"])
-        self.assertEqual(context_pressure["packets"]["status"]["cadence"]["state"], "PLAY_ON")
-        self.assertEqual(context_pressure["packets"]["prepare_handoff"]["handoff"]["status"], "READY")
-        self.assertEqual(context_pressure["packets"]["prepare_handoff"]["handoff"]["guardrail"], "context")
-
-        operator_stop = summary["scenarios"][2]
-        operator_fixture = json.loads((FIXTURE_DIR / "operator-stop.json").read_text(encoding="utf-8"))
-        self.assertEqual(operator_stop["adapter_result"], "handoff_prepared")
-        self.assertTrue(operator_stop["cadence_called"])
-        self.assertTrue(operator_stop["stop_current_session"])
-        self.assertEqual(operator_stop["observed_guardrail"], "operator_stop")
-        for key in ("observed_summary", "observed_task_type", "observed_drivers", "observed_next_action"):
-            self.assertIn(key, operator_stop)
-        self.assertEqual(operator_stop["observed_summary"], operator_fixture["summary"])
-        self.assertEqual(operator_stop["observed_task_type"], operator_fixture["task_type"])
-        self.assertEqual(operator_stop["observed_drivers"], operator_fixture["drivers"])
-        self.assertEqual(operator_stop["observed_next_action"], operator_fixture["next_action"])
-        self.assertEqual(operator_stop["packets"]["status"]["cadence"]["state"], "PLAY_ON")
-        self.assertEqual(operator_stop["packets"]["prepare_handoff"]["handoff"]["status"], "READY")
-        self.assertEqual(operator_stop["packets"]["prepare_handoff"]["handoff"]["guardrail"], "operator_stop")
+        for fixture_name, expected_guardrail in {
+            "context-pressure.json": "context",
+            "reviewer-loop.json": "reviewer_loop",
+            "ci-loop.json": "ci_loop",
+            "operator-stop.json": "operator_stop",
+        }.items():
+            with self.subTest(fixture_name=fixture_name):
+                scenario = scenarios[fixture_name]
+                fixture = json.loads((FIXTURE_DIR / fixture_name).read_text(encoding="utf-8"))
+                self.assertEqual(scenario["adapter_result"], "handoff_prepared")
+                self.assertTrue(scenario["cadence_called"])
+                self.assertTrue(scenario["stop_current_session"])
+                self.assertEqual(scenario["observed_guardrail"], expected_guardrail)
+                for key in ("observed_summary", "observed_task_type", "observed_drivers", "observed_next_action"):
+                    self.assertIn(key, scenario)
+                self.assertEqual(scenario["observed_summary"], fixture["summary"])
+                self.assertEqual(scenario["observed_task_type"], fixture["task_type"])
+                self.assertEqual(scenario["observed_drivers"], fixture["drivers"])
+                self.assertEqual(scenario["observed_next_action"], fixture["next_action"])
+                self.assertEqual(scenario["packets"]["status"]["cadence"]["state"], "PLAY_ON")
+                self.assertEqual(scenario["packets"]["prepare_handoff"]["handoff"]["status"], "READY")
+                self.assertEqual(scenario["packets"]["prepare_handoff"]["handoff"]["guardrail"], expected_guardrail)
 
     def test_generic_host_signal_parity_contract_matches_shell_replay(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -169,7 +167,16 @@ class GenericHostSignalSmokeExampleTests(unittest.TestCase):
         self.assertIn("generic shell host-binding replay contract", summary["contract_note"])
 
         cases = {case["signal_fixture"]: case for case in summary["parity_cases"]}
-        self.assertEqual(list(cases), ["no-signal.json", "context-pressure.json", "operator-stop.json"])
+        self.assertEqual(
+            list(cases),
+            [
+                "no-signal.json",
+                "context-pressure.json",
+                "reviewer-loop.json",
+                "ci-loop.json",
+                "operator-stop.json",
+            ],
+        )
         for case in cases.values():
             self.assertTrue(case["consistent"])
             self.assertEqual(case["normalized_behavior"], case["path_results"]["generic_host_signal"])
@@ -182,21 +189,20 @@ class GenericHostSignalSmokeExampleTests(unittest.TestCase):
         self.assertFalse(no_signal["cadence_called"])
         self.assertEqual(no_signal["packet_keys"], [])
 
-        context_pressure = cases["context-pressure.json"]["normalized_behavior"]
-        self.assertEqual(context_pressure["signal_kind"], "context_pressure")
-        self.assertEqual(context_pressure["signal_confidence"], "high")
-        self.assertEqual(context_pressure["observed_guardrail"], "context")
-        self.assertEqual(context_pressure["packet_keys"], ["prepare_handoff", "status"])
-        self.assertEqual(context_pressure["prepared_handoff_status"], "READY")
-        self.assertTrue(context_pressure["prepare_stop_current_session"])
-
-        operator_stop = cases["operator-stop.json"]["normalized_behavior"]
-        self.assertEqual(operator_stop["signal_kind"], "operator_stop")
-        self.assertEqual(operator_stop["signal_confidence"], "high")
-        self.assertEqual(operator_stop["observed_guardrail"], "operator_stop")
-        self.assertEqual(operator_stop["packet_keys"], ["prepare_handoff", "status"])
-        self.assertEqual(operator_stop["prepared_handoff_status"], "READY")
-        self.assertTrue(operator_stop["prepare_stop_current_session"])
+        for fixture_name, kind, expected_guardrail in (
+            ("context-pressure.json", "context_pressure", "context"),
+            ("reviewer-loop.json", "reviewer_loop", "reviewer_loop"),
+            ("ci-loop.json", "ci_loop", "ci_loop"),
+            ("operator-stop.json", "operator_stop", "operator_stop"),
+        ):
+            with self.subTest(fixture_name=fixture_name):
+                normalized = cases[fixture_name]["normalized_behavior"]
+                self.assertEqual(normalized["signal_kind"], kind)
+                self.assertEqual(normalized["signal_confidence"], "high")
+                self.assertEqual(normalized["observed_guardrail"], expected_guardrail)
+                self.assertEqual(normalized["packet_keys"], ["prepare_handoff", "status"])
+                self.assertEqual(normalized["prepared_handoff_status"], "READY")
+                self.assertTrue(normalized["prepare_stop_current_session"])
 
     def test_generic_host_signal_parity_contract_preserves_env_python_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -268,10 +274,14 @@ class GenericHostSignalSmokeExampleTests(unittest.TestCase):
 
         table_rows = [line for line in mapping.splitlines() if line.startswith("| The ")]
         context_row = next(row for row in table_rows if '`kind: "context_pressure"`' in row)
+        reviewer_row = next(row for row in table_rows if '`kind: "reviewer_loop"`' in row)
+        ci_row = next(row for row in table_rows if '`kind: "ci_loop"`' in row)
         operator_row = next(row for row in table_rows if '`kind: "operator_stop"`' in row)
         no_signal_row = next(row for row in table_rows if "no stop or handoff signal" in row)
         self.assertIn("`--guardrail context`", context_row)
         self.assertNotIn("`--guardrail operator_stop`", context_row)
+        self.assertIn("`--guardrail reviewer_loop`", reviewer_row)
+        self.assertIn("`--guardrail ci_loop`", ci_row)
         self.assertIn("`--guardrail operator_stop`", operator_row)
         self.assertNotIn("`--guardrail context`", operator_row)
         self.assertIn("no Cadence call", no_signal_row)

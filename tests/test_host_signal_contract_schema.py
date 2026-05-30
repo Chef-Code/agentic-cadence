@@ -46,18 +46,31 @@ class HostSignalContractSchemaTests(unittest.TestCase):
         self.assertIn("not a real host adapter", summary["contract_note"])
         self.assertEqual(
             [case["host_signal_fixture"] for case in summary["contract_cases"]],
-            ["no-signal.json", "context-pressure.json", "operator-stop.json"],
+            [
+                "no-signal.json",
+                "context-pressure.json",
+                "reviewer-loop.json",
+                "ci-loop.json",
+                "operator-stop.json",
+            ],
         )
         for case in summary["contract_cases"]:
             self.assertTrue(case["schema_valid"])
             self.assertTrue(case["fixture_pair_aligned"])
             self.assertEqual(case["normalized_host_signal"], case["normalized_host_event"])
-        self.assertIsNone(summary["contract_cases"][0]["expected_kind"])
-        self.assertIsNone(summary["contract_cases"][0]["normalized_host_signal"])
-        self.assertEqual(summary["contract_cases"][1]["expected_kind"], "context_pressure")
-        self.assertEqual(summary["contract_cases"][1]["normalized_host_signal"]["kind"], "context_pressure")
-        self.assertEqual(summary["contract_cases"][2]["expected_kind"], "operator_stop")
-        self.assertEqual(summary["contract_cases"][2]["normalized_host_signal"]["kind"], "operator_stop")
+        cases = {case["host_signal_fixture"]: case for case in summary["contract_cases"]}
+        self.assertIsNone(cases["no-signal.json"]["expected_kind"])
+        self.assertIsNone(cases["no-signal.json"]["normalized_host_signal"])
+        expected_kinds = {
+            "context-pressure.json": "context_pressure",
+            "reviewer-loop.json": "reviewer_loop",
+            "ci-loop.json": "ci_loop",
+            "operator-stop.json": "operator_stop",
+        }
+        for filename, kind in expected_kinds.items():
+            with self.subTest(filename=filename):
+                self.assertEqual(cases[filename]["expected_kind"], kind)
+                self.assertEqual(cases[filename]["normalized_host_signal"]["kind"], kind)
 
     def test_contract_rejects_extra_or_missing_host_signal_fields(self):
         contract = load_contract_module()

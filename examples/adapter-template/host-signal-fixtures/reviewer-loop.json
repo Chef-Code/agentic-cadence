@@ -1,0 +1,11 @@
+{
+  "kind": "reviewer_loop",
+  "source": "generic-host-fixture",
+  "confidence": "high",
+  "summary": "The host reports reviewer-loop exhaustion and asks for a fresh session before continuing review follow-up.",
+  "task_type": "execution",
+  "drivers": [
+    "reviewer_feedback"
+  ],
+  "next_action": "Claim the generated handoff and continue reviewer follow-up from the preserved packet."
+}

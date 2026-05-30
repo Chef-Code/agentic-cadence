@@ -21,11 +21,11 @@ from typing import Any, Literal
 JsonPacket = dict[str, Any]
 DEFAULT_CADENCE_TIMEOUT_SECONDS = 120.0
 
-SignalKind = Literal["context_pressure", "operator_stop"]
+SignalKind = Literal["context_pressure", "reviewer_loop", "ci_loop", "operator_stop"]
 SignalConfidence = Literal["low", "medium", "high"]
 SignalTaskType = Literal["execution", "discovery"]
 
-SIGNAL_KINDS = {"context_pressure", "operator_stop"}
+SIGNAL_KINDS = {"context_pressure", "reviewer_loop", "ci_loop", "operator_stop"}
 SIGNAL_CONFIDENCES = {"low", "medium", "high"}
 SIGNAL_TASK_TYPES = {"execution", "discovery"}
 # Keep this adapter import-free; tests guard parity with the public CLI's task sizing model.
@@ -43,6 +43,8 @@ SIGNAL_TASK_DRIVERS = {
 }
 SIGNAL_GUARDRAILS = {
     "context_pressure": "context",
+    "reviewer_loop": "reviewer_loop",
+    "ci_loop": "ci_loop",
     "operator_stop": "operator_stop",
 }
 MAX_SIGNAL_SOURCE_LENGTH = 64
@@ -82,11 +84,12 @@ def detect_host_session_signal(
     drivers: Sequence[str],
     next_action: str,
 ) -> HostSessionSignal | None:
-    """Map the host's context-pressure signal into an adapter-local signal.
+    """Map the host's stop or handoff signal into an adapter-local signal.
 
     Replace this placeholder with the host-specific signal. Examples include a
-    context-window warning, an explicit operator stop request, or another host
-    signal that says the current agent window should prepare pickup work and stop.
+    context-window warning, reviewer or CI loop exhaustion, an explicit operator
+    stop request, or another host signal that says the current agent window
+    should prepare pickup work and stop.
     """
 
     return HostSessionSignal(

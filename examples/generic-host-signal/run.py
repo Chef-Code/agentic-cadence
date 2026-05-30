@@ -30,11 +30,15 @@ SHELL_BINDING_SCRIPT = ROOT / "examples" / "generic-shell-host-binding" / "run.p
 SCENARIOS = (
     ("no-signal.json", None),
     ("context-pressure.json", "context"),
+    ("reviewer-loop.json", "reviewer_loop"),
+    ("ci-loop.json", "ci_loop"),
     ("operator-stop.json", "operator_stop"),
 )
 SHELL_EVENT_BY_FIXTURE = {
     "no-signal.json": "no-event.json",
     "context-pressure.json": "context-pressure.json",
+    "reviewer-loop.json": "reviewer-loop.json",
+    "ci-loop.json": "ci-loop.json",
     "operator-stop.json": "operator-stop.json",
 }
 

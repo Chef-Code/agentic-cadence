@@ -121,7 +121,13 @@ class ExternalHostBindingConformanceTests(unittest.TestCase):
         self.assertIn("not a real host adapter", summary["contract_note"])
         self.assertEqual(
             [case["host_event_file"] for case in summary["conformance_cases"]],
-            ["no-event.json", "context-pressure.json", "operator-stop.json"],
+            [
+                "no-event.json",
+                "context-pressure.json",
+                "reviewer-loop.json",
+                "ci-loop.json",
+                "operator-stop.json",
+            ],
         )
         for case in summary["conformance_cases"]:
             self.assertTrue(case["consistent"])
@@ -388,6 +394,98 @@ class ExternalHostBindingConformanceTests(unittest.TestCase):
 
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("context-pressure.json diverged from generic shell baseline", result.stderr)
+
+    def test_external_conformance_rejects_new_signal_mismatches_after_existing_cases_pass(self):
+        mismatch_script = textwrap.dedent(
+            """
+            import argparse
+            import json
+            import subprocess
+            import sys
+            from pathlib import Path
+
+            parser = argparse.ArgumentParser()
+            parser.add_argument("--host-event-file", required=True)
+            parser.add_argument("--work-dir", required=True)
+            parser.add_argument("--mismatch-event", required=True)
+            parser.add_argument("--shell-binding-script", required=True)
+            parser.add_argument("--cadence-python", required=True)
+            args = parser.parse_args()
+
+            host_event_file = args.host_event_file
+            if Path(host_event_file).name == args.mismatch_event:
+                print(json.dumps({
+                    "scenario": {
+                        "host_event_file": host_event_file,
+                        "host_event": None,
+                        "mapped_signal_kind": None,
+                        "mapped_signal_confidence": None,
+                        "adapter_result": "no_handoff_needed",
+                        "cadence_called": False,
+                        "observed_guardrail": None,
+                        "observed_summary": None,
+                        "observed_task_type": None,
+                        "observed_drivers": None,
+                        "observed_next_action": None,
+                        "stop_current_session": False,
+                        "packets": {}
+                    }
+                }))
+                raise SystemExit(0)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    args.shell_binding_script,
+                    "--host-event-file",
+                    host_event_file,
+                    "--work-dir",
+                    args.work_dir,
+                    "--cadence-python",
+                    args.cadence_python,
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            sys.stdout.write(result.stdout)
+            sys.stderr.write(result.stderr)
+            raise SystemExit(result.returncode)
+            """
+        ).strip()
+        for mismatch_event in ("reviewer-loop.json", "ci-loop.json"):
+            with self.subTest(mismatch_event=mismatch_event), tempfile.TemporaryDirectory() as tmp:
+                tmp_path = Path(tmp)
+                script = tmp_path / "signal_mismatch_binding.py"
+                script.write_text(mismatch_script, encoding="utf-8")
+                template = (
+                    f'"{portable_path(sys.executable)}" "{portable_path(script)}" '
+                    '--host-event-file "{host_event_file}" '
+                    '--work-dir "{case_work_dir}" '
+                    f'--mismatch-event "{mismatch_event}" '
+                    f'--shell-binding-script "{portable_path(SHELL_BINDING_SCRIPT)}" '
+                    f'--cadence-python "{portable_path(sys.executable)}"'
+                )
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(CONFORMANCE_SCRIPT),
+                        "--work-dir",
+                        str(tmp_path / "work"),
+                        "--binding-command-template",
+                        template,
+                        "--cadence-python",
+                        sys.executable,
+                    ],
+                    cwd=ROOT,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=360,
+                )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(f"{mismatch_event} diverged from generic shell baseline", result.stderr)
 
     def test_external_conformance_is_documented_and_in_ci(self):
         readme = (ROOT / "README.md").read_text(encoding="utf-8")

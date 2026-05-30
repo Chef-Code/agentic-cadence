@@ -105,6 +105,8 @@ class AdapterTemplateExampleTests(unittest.TestCase):
         template = load_template_module()
         cases = {
             "context-pressure.json": ("context", "execution", ["multiple_files"]),
+            "reviewer-loop.json": ("reviewer_loop", "execution", ["reviewer_feedback"]),
+            "ci-loop.json": ("ci_loop", "execution", ["ci_verification"]),
             "operator-stop.json": ("operator_stop", "discovery", ["unknown_repo_area"]),
         }
 
@@ -446,7 +448,12 @@ class AdapterTemplateExampleTests(unittest.TestCase):
     def test_adapter_template_maps_signal_kind_to_guardrail(self):
         template = load_template_module()
 
-        for kind, guardrail in (("context_pressure", "context"), ("operator_stop", "operator_stop")):
+        for kind, guardrail in (
+            ("context_pressure", "context"),
+            ("reviewer_loop", "reviewer_loop"),
+            ("ci_loop", "ci_loop"),
+            ("operator_stop", "operator_stop"),
+        ):
             with self.subTest(kind=kind):
                 calls = []
 
@@ -503,7 +510,7 @@ class AdapterTemplateExampleTests(unittest.TestCase):
         template = load_template_module()
 
         cases = [
-            ("kind", "ci_loop", "kind"),
+            ("kind", "memory_pressure", "kind"),
             ("kind", [], "kind"),
             ("source", "", "source"),
             ("source", "x" * 65, "source"),
@@ -597,6 +604,8 @@ class AdapterTemplateExampleTests(unittest.TestCase):
         self.assertIn("adapter-local `HostSessionSignal`", adapters)
         self.assertIn("without adding a core object model", roadmap)
         self.assertTrue((TEMPLATE_FIXTURES / "context-pressure.json").exists())
+        self.assertTrue((TEMPLATE_FIXTURES / "reviewer-loop.json").exists())
+        self.assertTrue((TEMPLATE_FIXTURES / "ci-loop.json").exists())
         self.assertTrue((TEMPLATE_FIXTURES / "operator-stop.json").exists())
         self.assertTrue((TEMPLATE_FIXTURES / "no-signal.json").exists())
         self.assertIn("--host-signal-file", readme)
