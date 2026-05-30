@@ -28,6 +28,36 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-05-29 - Fail closed on unignored repo-local runtime roots
+
+Decision:
+- Commands that use the Cadence runtime root reject an unignored root inside
+  the target git repo unless the operator passes `--allow-repo-local-root`.
+- Gitignored repo-local runtime roots remain allowed.
+
+Why:
+- Cadence stores runtime state on disk, and candidate discovery treats dirty
+  worktree state as repo evidence.
+- A repo-local runtime root that is not ignored can create the dirty state that
+  Cadence then reports back to the operator.
+
+Alternatives considered:
+- Allow all repo-local roots and document the risk. Rejected because the
+  failure mode is easy to trigger and undermines state awareness.
+- Ban all repo-local roots. Rejected because ignored repo-local state can be a
+  valid local operator workflow, and explicit overrides are useful for tests or
+  controlled environments.
+
+Consequences:
+- Runtime roots outside project repositories remain the preferred default.
+- Operators can still make an explicit repo-local choice with
+  `--allow-repo-local-root`.
+- Future adapters must preserve this policy or document an equivalent guard.
+
+Open questions:
+- Should adapter conformance tests eventually include runtime-root policy
+  checks outside the CLI entry point?
+
 ## 2026-05-29 - Treat documentation as part of the operating model
 
 Decision:

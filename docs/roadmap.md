@@ -236,17 +236,23 @@ The smallest slices expected to move confidence toward 50% are tracked in
 
 Goal: prevent Cadence runtime state from accidentally dirtying the target repo.
 
-Current evidence: runtime state is filesystem-based and candidate discovery
-reacts to dirty worktree state. A repo-local runtime root can become a
-self-created dirty-worktree signal unless it is outside the repo or ignored.
+Status: implemented as an immediate stabilization slice.
 
-Likely files: `codex_cadence/store.py`, `codex_cadence/repo_state.py`,
+Current evidence: root-using CLI commands now reject an unignored runtime root
+inside the target git repo unless the operator passes
+`--allow-repo-local-root`. Gitignored repo-local roots are allowed. Runtime
+state is filesystem-based and candidate discovery reacts to dirty worktree
+state, so this guard prevents a self-created dirty-worktree signal.
+
+Implementation files: `codex_cadence/store.py`, `codex_cadence/repo_state.py`,
 `codex_cadence/cli.py`, tests, docs.
 
-Validation: temp-repo tests for default external runtime, explicitly allowed
-repo-local runtime, ignored runtime, and blocked unignored runtime.
+Validation: temp-repo tests cover explicitly allowed repo-local runtime,
+ignored repo-local runtime, blocked unignored repo-local runtime,
+cross-command runtime-root guarding, and no-root planning/discovery commands.
 
-Codex can implement directly.
+Follow-up: future adapter conformance tests should prove equivalent
+runtime-root policy when an adapter bypasses the CLI.
 
 ### Readiness and freshness labels
 

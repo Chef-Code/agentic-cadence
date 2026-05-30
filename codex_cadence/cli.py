@@ -38,7 +38,7 @@ from codex_cadence.pr_readiness import (
     load_template_sections,
 )
 from codex_cadence.release import evaluate_release_dry_run
-from codex_cadence.repo_state import snapshot_repo, validate_repo_snapshot
+from codex_cadence.repo_state import runtime_root_safety_issue, snapshot_repo, validate_repo_snapshot
 from codex_cadence.store import (
     BRAKE_STATUSES,
     HANDOFF_STATES,
@@ -922,6 +922,11 @@ def release_dry_run_command(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Agentic Cadence")
     parser.add_argument("--root", type=Path, help="Agentic Cadence state root")
+    parser.add_argument(
+        "--allow-repo-local-root",
+        action="store_true",
+        help="Allow an unignored runtime root inside the target git repo",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     init_parser = subparsers.add_parser("init", help="Create the runtime layout")
@@ -964,7 +969,7 @@ def build_parser() -> argparse.ArgumentParser:
     plan_parser.add_argument("--branch")
     plan_parser.add_argument("--message")
     plan_parser.add_argument("--message-file")
-    plan_parser.set_defaults(func=plan_task)
+    plan_parser.set_defaults(func=plan_task, requires_root=False)
 
     snapshot_parser = subparsers.add_parser("snapshot-repo", help="Capture repo state for epoch decisions")
     snapshot_parser.add_argument("--cwd", default=".")
@@ -1006,7 +1011,7 @@ def build_parser() -> argparse.ArgumentParser:
     discover_parser.add_argument("--max-business-memory-candidates", type=int, default=5)
     discover_parser.add_argument("--max-proposals", type=int, default=3)
     discover_parser.add_argument("--max-product-evolution-candidates-in-hybrid", type=int, default=1)
-    discover_parser.set_defaults(func=discover_candidates_command)
+    discover_parser.set_defaults(func=discover_candidates_command, requires_root=False)
 
     readiness_parser = subparsers.add_parser("pr-readiness", help="Evaluate a saved PR JSON readiness packet")
     readiness_parser.add_argument("--pr-json-file", required=True)
@@ -1101,8 +1106,14 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
-        if getattr(args, "requires_root", True) or args.root is not None:
+        requires_root = getattr(args, "requires_root", True)
+        if requires_root or args.root is not None:
             args.root = (args.root if args.root is not None else default_root()).expanduser().resolve()
+            if requires_root and not args.allow_repo_local_root:
+                target_cwd = Path(getattr(args, "cwd", Path.cwd()))
+                issue = runtime_root_safety_issue(args.root, target_cwd)
+                if issue:
+                    raise ValueError(issue)
         return args.func(args)
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)

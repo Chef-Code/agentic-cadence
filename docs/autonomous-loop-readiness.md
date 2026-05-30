@@ -130,8 +130,9 @@ The next likely failures are:
 3. review comments and failing checks are not automatically synchronized back
    into the candidate loop;
 4. context pressure is only known when a host explicitly reports it;
-5. runtime state can dirty the repo if an operator places the runtime root
-   inside the target checkout without ignoring it.
+5. CLI root-using commands now block unignored repo-local runtime roots unless
+   an operator explicitly allows them; residual risk remains for manual
+   filesystem changes or future adapters that bypass the CLI guard.
 
 ## Minimum Realistic Demo Loop
 
