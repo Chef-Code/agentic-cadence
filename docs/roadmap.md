@@ -319,16 +319,20 @@ or merge.
 Goal: define how Cadence emits a task packet and receives structured executor
 evidence.
 
-Current evidence: adapter templates and generic host-binding contracts exist,
-but no executor contract applies code changes or returns implementation
-evidence.
+Current evidence: adapter templates and generic host-binding contracts exist.
+The first generic executor contract now defines and validates
+`generic-executor-task.v1` and `generic-executor-result.v1`; `loop-tick
+--emit-executor-task` can attach a bounded task packet for operator approval,
+and `validate-executor-result` can validate local evidence. No real executor
+applies code changes yet.
 
 Likely files: `docs/adapters.md`, `examples/adapter-template`,
 `examples/adapter-contract-runner`, `codex_cadence/model.py`,
 `codex_cadence/cli.py`, tests.
 
-Validation: fake executor success, failure, timeout, invalid evidence, and
-disallowed-path cases.
+Validation: fake executor success, failure, stopped/timeout-shaped evidence,
+malformed timestamp order, dirty success rejection, invalid task paths, and
+disallowed changed files.
 
 Codex can implement the generic contract directly. Named host adapters require
 operator approval.

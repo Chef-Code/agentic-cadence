@@ -102,7 +102,7 @@ generic, bounded, and does not push, merge, or release.
 
 ## 2. Generic Executor Adapter Contract
 
-Status: Not started
+Status: Partial
 
 Goal: define a generic contract for how Cadence asks an implementation executor
 to perform a task and how that executor returns evidence.
@@ -130,6 +130,7 @@ Minimum result evidence should include:
 - summary;
 - confidence;
 - blockers;
+- dirty-worktree status;
 - resulting head SHA when available.
 
 Current evidence:
@@ -137,7 +138,13 @@ Current evidence:
 - adapter template exists;
 - generic host-signal contract exists;
 - adapter contract runner exists;
-- no implementation executor contract exists.
+- `generic-executor-task.v1` and `generic-executor-result.v1` validation
+  helpers exist;
+- `loop-tick --emit-executor-task` can attach a generic executor task packet
+  for operator approval without starting execution;
+- `validate-executor-result` can validate local result evidence against the
+  task packet;
+- no real executor or named host adapter exists.
 
 Why it matters: Cadence cannot implement work until execution is a formal,
 bounded, inspectable boundary.
@@ -157,12 +164,12 @@ Suggested implementation size: medium
 
 Validation needed:
 
-- fake executor succeeds;
-- fake executor fails;
-- executor times out;
-- executor returns malformed evidence;
-- executor changes disallowed path;
-- executor leaves dirty state unexpectedly.
+- done: fake executor success, failure, and stopped/timeout-shaped evidence;
+- done: malformed timestamp order;
+- done: disallowed changed path;
+- done: dirty successful result rejection;
+- remaining: real executor timeout behavior, external executor invocation,
+  branch/commit handling, and epoch completion/failure integration.
 
 Codex implementation rule: Codex can implement the generic contract directly.
 Named host adapters require explicit operator approval.

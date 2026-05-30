@@ -33,6 +33,48 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-05-30 - Generic executor contract Phase 1
+
+Summary:
+- Added a generic executor task/result contract without selecting a named host
+  adapter.
+- `loop-tick --emit-executor-task` can attach a bounded executor task packet for
+  operator approval while keeping `executor_started`, `epoch_started`, and
+  `pr_action_started` false.
+- Added `validate-executor-result` to validate local executor result evidence
+  against a task packet without running an executor.
+
+Completed slices:
+- Generic Executor Adapter Contract: Partial.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: the missing executor boundary is now explicit and testable, but no
+  real executor, epoch execution flow, branch/commit/PR automation, or live
+  review sync exists yet.
+
+Evidence:
+- `python -m unittest tests.test_executor_contract`
+- `python -m unittest tests.test_executor_contract tests.test_cadence`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_loop_tick_can_emit_generic_executor_task_without_starting_execution`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_reports_valid_evidence`
+- `python scripts/validate_protocol.py`
+- `python -m unittest discover -s tests`
+
+New risks or blockers:
+- Real executor invocation, timeout handling, branch/commit behavior, epoch
+  completion/failure integration, and audit logging remain unimplemented.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/adapters.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/decision-log.md`
+
 ## 2026-05-30 - Read-only single-tick loop Phase 1
 
 Summary:
@@ -232,8 +274,8 @@ Evidence:
 - Current implemented commands and docs show local state inspection,
   candidate discovery, task sizing, handoffs, PR readiness from saved inputs,
   release dry-run, and generic adapter contracts.
-- Current gaps remain: no executor contract, no continuous loop runner, no
-  branch/commit/push/PR creation, no live GitHub sync, no automatic
+- At that point, gaps remained: no executor contract, no continuous loop
+  runner, no branch/commit/push/PR creation, no live GitHub sync, no automatic
   session-resume orchestration.
 
 New risks or blockers:

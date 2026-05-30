@@ -18,10 +18,35 @@ The stable surface for early adapters is:
 - `agentic-cadence claim-handoff`
 - `agentic-cadence complete-handoff`
 - `agentic-cadence discover-candidates`
+- `agentic-cadence loop-tick --emit-executor-task`
+- `agentic-cadence validate-executor-result`
 - `agentic-cadence pr-readiness`
 - `agentic-cadence pr-body-preflight`
 
 Adapters may render host-specific pickup instructions, map a host/session signal into explicit command arguments, and choose the runtime root for that host. They must preserve the packet fields returned by Cadence commands, especially `stop_current_session`.
+
+## Generic Executor Contract
+
+The executor contract is generic. It does not select Codex, Claude, Gemini, or
+any other named implementation host.
+
+`loop-tick --emit-executor-task` can attach a
+`generic-executor-task.v1` packet when an elected task is available and local
+repo confidence is not low. The packet records task identity, repo path,
+branch/head snapshot, allowed repo-relative paths, required checks, positive
+time/task limits, stop conditions, and the expected result evidence path.
+Cadence still sets `executor_started: false`.
+
+Executor result evidence uses `generic-executor-result.v1` and is checked by
+`validate-executor-result`. The evidence must report executor id, timestamps,
+status, files changed, commands run, validation results, summary, confidence,
+blockers, dirty-worktree status, and resulting head SHA when available.
+Successful evidence must not report a dirty worktree, and changed files must
+stay within the task packet's allowed paths.
+
+This contract only defines the boundary between Cadence and an external
+executor. It does not run a shell command, create a branch, commit, push, open a
+PR, spend review, merge, or claim named host support.
 
 ## Host/Session Signal Contract
 

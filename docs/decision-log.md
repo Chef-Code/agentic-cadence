@@ -28,6 +28,40 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-05-30 - Keep executor integration behind a generic task/result contract
+
+Decision:
+- Add a generic executor task packet and result evidence validator before
+  integrating any real executor or named host adapter.
+- `loop-tick --emit-executor-task` may emit a bounded task packet for operator
+  approval, but it must still set `executor_started: false`.
+- `validate-executor-result` validates local result evidence without running an
+  executor or mutating repo state.
+
+Why:
+- The project needs a formal boundary for implementation work before Cadence can
+  safely start epochs, invoke executors, or record execution outcomes.
+- Keeping the contract generic avoids smuggling in named host adapter support
+  before there is explicit operator approval and verifier evidence.
+
+Alternatives considered:
+- Build a real executor adapter immediately. Deferred because branch, commit,
+  PR, audit, and rollback controls are not ready.
+- Let `loop-tick` call an external command directly. Rejected for this slice
+  because the evidence shape and approval boundary need to be stable first.
+
+Consequences:
+- Cadence can now produce and validate the packets needed for a controlled
+  external execution demo.
+- The loop still cannot implement code by itself, and confidence remains low
+  until a real executor flow is tested against a fixture repo.
+
+Open questions:
+- Which external executor should be integrated first, and under what approval
+  policy?
+- Should executor result validation become part of epoch completion or a
+  separate audit record first?
+
 ## 2026-05-30 - Split single-tick orchestration into a read-only first phase
 
 Decision:
@@ -173,10 +207,10 @@ Why:
 - The repo has real governance primitives: handoffs, task sizing, epochs,
   candidate discovery, PR readiness from saved inputs, release dry-run, and
   adapter contracts.
-- The repo does not have the central autonomous loop: no executor contract, no
-  implementation runner, no live PR/review sync, no branch/commit/push/PR
-  creation, no automatic context-pressure sensing, and no new-session launch
-  or resume orchestration.
+- At that point, the repo did not have the central autonomous loop: no executor
+  contract, no implementation runner, no live PR/review sync, no
+  branch/commit/push/PR creation, no automatic context-pressure sensing, and no
+  new-session launch or resume orchestration.
 
 Alternatives considered:
 - Higher rating because many safety primitives exist. Rejected because the
