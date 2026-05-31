@@ -43,6 +43,7 @@ def newest_wheel() -> Path:
 
 
 def verify_console_commands(venv: Path) -> None:
+    """Verify installed console entry points and audit replay startup."""
     run([str(venv_command(venv, "agentic-cadence")), "--help"])
     run([str(venv_command(venv, "codex-cadence")), "--help"])
     run([str(venv_command(venv, "codex-transmission")), "--help"])

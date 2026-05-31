@@ -1108,6 +1108,7 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
 
 
 def audit_replay_command(args: argparse.Namespace) -> int:
+    """Emit a read-only audit replay packet for the runtime root."""
     payload = replay_audit_log(args.root)
     emit(payload)
     return 0 if payload["valid"] else 1

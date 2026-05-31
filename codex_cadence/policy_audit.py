@@ -28,6 +28,7 @@ def audit_events_path(root: Path) -> Path:
 
 
 def audit_replay_blocker(code: str, message: str, line: int | None = None) -> dict[str, Any]:
+    """Build a stable audit replay blocker object."""
     blocker: dict[str, Any] = {"code": code, "message": message}
     if line is not None:
         blocker["line"] = line
@@ -35,6 +36,7 @@ def audit_replay_blocker(code: str, message: str, line: int | None = None) -> di
 
 
 def audit_replay_recommendation(blockers: list[dict[str, Any]]) -> str:
+    """Choose the command-local recommendation for replay blockers."""
     if not blockers:
         return "use_audit_replay_evidence"
     codes = {blocker.get("code") for blocker in blockers}
@@ -53,6 +55,7 @@ def audit_replay_packet(
     events_by_type: dict[str, int],
     blockers: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """Build the top-level audit-replay.v1 packet."""
     target = audit_events_path(root).expanduser().resolve(strict=False)
     records_seen = records_valid + records_invalid
     return {
@@ -73,6 +76,7 @@ def audit_replay_packet(
 
 
 def required_string(record: dict[str, Any], field: str, line: int) -> list[dict[str, Any]]:
+    """Validate a required non-empty string audit field."""
     if field not in record or record[field] is None or record[field] == "":
         return [audit_replay_blocker("audit_required_field_missing", f"{field} is required", line)]
     if not isinstance(record[field], str):
@@ -81,6 +85,7 @@ def required_string(record: dict[str, Any], field: str, line: int) -> list[dict[
 
 
 def required_bool(record: dict[str, Any], field: str, line: int) -> list[dict[str, Any]]:
+    """Validate a required boolean audit field."""
     if field not in record or record[field] is None:
         return [audit_replay_blocker("audit_required_field_missing", f"{field} is required", line)]
     if not isinstance(record[field], bool):
@@ -89,6 +94,7 @@ def required_bool(record: dict[str, Any], field: str, line: int) -> list[dict[st
 
 
 def checksum_blocker(record: dict[str, Any], field: str, line: int, *, required: bool) -> list[dict[str, Any]]:
+    """Validate checksum syntax for a present or required audit field."""
     if field not in record or record[field] is None or record[field] == "":
         if required:
             return [audit_replay_blocker("audit_required_field_missing", f"{field} is required", line)]
@@ -99,12 +105,14 @@ def checksum_blocker(record: dict[str, Any], field: str, line: int, *, required:
 
 
 def required_checksum_present(record: dict[str, Any], field: str, line: int) -> list[dict[str, Any]]:
+    """Validate that an event-required checksum field is present."""
     if field not in record or record[field] is None or record[field] == "":
         return [audit_replay_blocker("audit_required_field_missing", f"{field} is required", line)]
     return []
 
 
 def present_checksum_blockers(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate every present audit checksum field once."""
     blockers: list[dict[str, Any]] = []
     for field in sorted(key for key in record if key.endswith("_checksum")):
         blockers.extend(checksum_blocker(record, field, line, required=False))
@@ -112,6 +120,7 @@ def present_checksum_blockers(record: dict[str, Any], line: int) -> list[dict[st
 
 
 def validate_loop_tick_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate loop_tick_decision audit-record fields."""
     blockers: list[dict[str, Any]] = []
     for field in ("tick_id", "action", "reason", "repo", "branch", "head", "snapshot_id"):
         blockers.extend(required_string(record, field, line))
@@ -121,6 +130,7 @@ def validate_loop_tick_audit_record(record: dict[str, Any], line: int) -> list[d
 
 
 def validate_executor_result_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate executor_result_validation audit-record fields."""
     blockers: list[dict[str, Any]] = []
     for field in ("action", "reason", "task_file", "result_file"):
         blockers.extend(required_string(record, field, line))
@@ -134,6 +144,7 @@ def validate_executor_result_audit_record(record: dict[str, Any], line: int) -> 
 
 
 def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict[str, Any]]]:
+    """Validate one decoded audit record and return its countable event."""
     if not isinstance(record, dict):
         return None, [audit_replay_blocker("audit_record_not_object", "audit record must be a JSON object", line)]
 
@@ -175,10 +186,12 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
 
 
 def reject_json_constant(value: str) -> None:
+    """Reject non-standard JSON constants accepted by Python's parser."""
     raise ValueError(f"non-standard JSON constant is not allowed: {value}")
 
 
 def replay_audit_log(root: Path) -> dict[str, Any]:
+    """Replay the local audit JSONL log without mutating runtime state."""
     target = audit_events_path(root).expanduser().resolve(strict=False)
     if not target.exists():
         return audit_replay_packet(
