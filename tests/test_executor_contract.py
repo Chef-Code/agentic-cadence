@@ -202,6 +202,63 @@ class ExecutorContractTests(unittest.TestCase):
                     self.assertFalse(valid)
                     self.assertEqual(reason, expected_reason)
 
+    def test_task_packet_rejects_missing_or_blank_repo_name(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = [
+                None,
+                "",
+                "   ",
+            ]
+
+            for repo_name in cases:
+                with self.subTest(repo_name=repo_name):
+                    packet = valid_task_packet(Path(tmp))
+                    if repo_name is None:
+                        packet["repo"].pop("name")
+                    else:
+                        packet["repo"]["name"] = repo_name
+
+                    valid, reason = validate_executor_task_packet(packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, "executor task repo.name is required")
+
+    def test_task_packet_rejects_relative_or_unresolvable_repo_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = [
+                (
+                    ".",
+                    ".",
+                    "executor task snapshot cwd and repo.path must be absolute local paths",
+                ),
+                (
+                    "..",
+                    "..",
+                    "executor task snapshot cwd and repo.path must be absolute local paths",
+                ),
+                (
+                    "~",
+                    "~",
+                    "executor task snapshot cwd and repo.path must be absolute local paths",
+                ),
+                (
+                    "bad\0path",
+                    str(Path(tmp)),
+                    "executor task snapshot cwd and repo.path must be absolute local paths",
+                ),
+            ]
+
+            for snapshot_cwd, repo_path, expected_reason in cases:
+                with self.subTest(snapshot_cwd=snapshot_cwd, repo_path=repo_path):
+                    packet = valid_task_packet(Path(tmp))
+                    packet["snapshot"]["cwd"] = snapshot_cwd
+                    packet["repo"]["path"] = repo_path
+
+                    valid, reason = validate_executor_task_packet(packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
+
     def test_task_packet_rejects_snapshot_branch_or_head_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp:
             cases = [
@@ -233,7 +290,7 @@ class ExecutorContractTests(unittest.TestCase):
                     "executor task snapshot repo_confidence must not be low",
                 ),
                 (
-                    {"dirty_worktree": True, "repo_confidence": "low", "repo_confidence_drivers": ["dirty_worktree"]},
+                    {"dirty_worktree": True, "repo_confidence": "high"},
                     "executor task snapshot dirty_worktree must be false",
                 ),
             ]

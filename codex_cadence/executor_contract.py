@@ -92,8 +92,11 @@ def _normalized_filesystem_path(value: Any) -> str | None:
     if not _non_empty_string(value):
         return None
     try:
-        return os.path.normcase(str(Path(value).expanduser().resolve(strict=False)))
-    except (OSError, RuntimeError):
+        path = Path(value)
+        if not path.is_absolute():
+            return None
+        return os.path.normcase(str(path.expanduser().resolve(strict=False)))
+    except (OSError, RuntimeError, ValueError):
         return None
 
 
@@ -343,7 +346,7 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
     repo = packet.get("repo")
     if not isinstance(repo, dict):
         return False, "executor task repo must be a JSON object"
-    for field in ("path", "branch", "head"):
+    for field in ("name", "path", "branch", "head"):
         if not _non_empty_string(repo.get(field)):
             return False, f"executor task repo.{field} is required"
     snapshot = packet.get("snapshot")
@@ -352,9 +355,13 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
     valid_snapshot, snapshot_reason = validate_repo_snapshot(snapshot)
     if not valid_snapshot:
         return False, f"executor task snapshot is invalid: {snapshot_reason}"
-    if _non_empty_string(repo.get("name")) and snapshot.get("repo") != repo["name"]:
+    if snapshot.get("repo") != repo["name"]:
         return False, "executor task snapshot repo must match repo.name"
-    if _normalized_filesystem_path(snapshot.get("cwd")) != _normalized_filesystem_path(repo.get("path")):
+    snapshot_cwd = _normalized_filesystem_path(snapshot.get("cwd"))
+    repo_path = _normalized_filesystem_path(repo.get("path"))
+    if snapshot_cwd is None or repo_path is None:
+        return False, "executor task snapshot cwd and repo.path must be absolute local paths"
+    if snapshot_cwd != repo_path:
         return False, "executor task snapshot cwd must match repo.path"
     if snapshot.get("branch") != repo["branch"]:
         return False, "executor task snapshot branch must match repo.branch"
