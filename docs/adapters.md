@@ -1,6 +1,9 @@
 # Agent Adapter Direction
 
-Agentic Cadence should stay agent-neutral. The core protocol defines handoffs, Cadence state, clean-square evidence, and continuation gates. Adapters translate a specific coding agent host into that protocol without changing the protocol model.
+Agentic Cadence should stay agent-neutral. The core protocol defines handoffs,
+Cadence state, clean-square evidence, continuation gates, and future
+agent-team orchestration boundaries. Adapters translate a specific coding agent
+host into that protocol without changing the protocol model.
 
 The current implementation is Codex-compatible because it ships the `agentic-cadence` command plus legacy `codex-cadence` and `codex-transmission` command names. That compatibility surface is a first host binding, not a reason to make the protocol Codex-only.
 
@@ -8,7 +11,14 @@ The public package metadata stays centered on `agentic-cadence` and shipped comp
 
 ## Adapter Boundary
 
-Adapters should consume CLI JSON packets and invoke the public command surface. Adapters do not directly write Cadence runtime files, mutate handoff records, or infer continuation permission outside the protocol gates.
+Adapters should consume CLI JSON packets and invoke the public command surface.
+Adapters do not directly write Cadence runtime files, mutate handoff records,
+or infer continuation permission outside the protocol gates.
+
+Future adapters may bind a host to a role in an agent pool, but that role must
+remain explicit. A Builder Agent, Reviewer Agent, QA Agent, Documentation
+Agent, Release Agent, or Handoff Agent should receive only the permissions and
+handoff contract for that role.
 
 The stable surface for early adapters is:
 
@@ -25,6 +35,28 @@ The stable surface for early adapters is:
 
 Adapters may render host-specific pickup instructions, map a host/session signal into explicit command arguments, and choose the runtime root for that host. They must preserve the packet fields returned by Cadence commands, especially `stop_current_session`.
 
+## Agent Roles
+
+Agent roles are future orchestration boundaries, not shipped support claims.
+The current CLI does not assign role identities or enforce separation between
+roles. Documentation and adapter design should still preserve the boundary:
+
+- Planning Agent: decomposes or elects bounded work from roadmap, issue, and
+  repository evidence.
+- Architecture Agent: checks proposed work against system design and policy.
+- Builder Agent: implements one bounded task on a branch.
+- Reviewer Agent: reviews a pull request and should be separate from the
+  Builder Agent when policy allows.
+- QA Agent: runs validation and turns failures into bounded feedback.
+- Documentation Agent: updates living documentation when behavior or design
+  changes.
+- Release Agent: evaluates merge or release readiness under policy.
+- Handoff Agent: packages state for another session or role.
+
+Adapters must not blur these roles to bypass Cadence governance. For example,
+a builder adapter should not self-attest final review, and a reviewer adapter
+should not silently mutate the implementation branch.
+
 ## Generic Executor Contract
 
 The executor contract is generic. It does not select Codex, Claude, Gemini, or
@@ -32,12 +64,13 @@ any other named implementation host.
 
 `loop-tick --emit-executor-task` can attach a
 `generic-executor-task.v1` packet when an elected task is available and local
-repo confidence is not low. The packet records task identity, repo path,
-branch/head snapshot, allowed repo-relative paths, required checks, positive
-time/task limits, stop conditions, and the expected result evidence path.
-Task-packet validation checks the embedded local repo snapshot, requires its
-repo/cwd/branch/head to match the packet repo anchor, and rejects dirty or
-low-confidence snapshots. Cadence still sets `executor_started: false`.
+repo confidence is not low. The packet records task identity, repo name,
+absolute repo path, branch/head snapshot, allowed repo-relative paths, required
+checks, positive time/task limits, stop conditions, and the expected result
+evidence path. Task-packet validation checks the embedded local repo snapshot,
+requires non-empty repo identity, requires absolute local cwd/path anchors,
+requires repo/cwd/branch/head to match the packet repo anchor, and rejects dirty
+or low-confidence snapshots. Cadence still sets `executor_started: false`.
 
 Executor result evidence uses `generic-executor-result.v1` and is checked by
 `validate-executor-result`. The evidence must report executor id, timestamps,

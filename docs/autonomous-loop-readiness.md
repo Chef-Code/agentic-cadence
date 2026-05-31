@@ -1,16 +1,18 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-05-30
+Last updated: 2026-05-31
 Baseline: released 0.1.3 tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
-build continuously" experience.
+build continuously" experience. The first usable path is a governed
+single-agent loop. The larger direction is GitHub-native orchestration for
+multiple cooperating agents.
 
 ## What The Magic Button Means
 
-The target loop is:
+The Phase 1 target loop is:
 
 ```text
 inspect repo
@@ -26,6 +28,17 @@ inspect repo
 -> hand off when needed
 -> resume in a fresh session
 -> continue safely
+```
+
+The mature target is an orchestrator loop:
+
+```text
+roadmap/backlog
+-> task decomposition/election
+-> role-aware agent assignment
+-> branch/PR/CI/review
+-> docs/handoff/merge decision
+-> next governed task
 ```
 
 The loop must also stop safely when policy, CI, review, dirty worktree,
@@ -48,6 +61,9 @@ runtime can do these things end-to-end:
   packet;
 - emit a generic executor task packet for operator approval without starting an
   executor;
+- validate that executor task packets are anchored to the embedded local repo
+  snapshot by requiring matching repo name, absolute cwd/path, branch, head,
+  clean worktree, and non-low repo confidence;
 - validate local generic executor result evidence against a task packet;
 - size tasks and enforce pickup policy;
 - start, check, complete, or fail bounded epochs;
@@ -55,6 +71,11 @@ runtime can do these things end-to-end:
 - approve, claim, complete, or fail handoffs;
 - evaluate saved PR JSON and saved PR body/template files for readiness,
   including `saved_input`, `stale`, and caller-asserted `live_like` evidence.
+
+These capabilities are still single-agent Phase 1 primitives, but they are not
+throwaway work. They are the same primitives a future orchestrator needs for
+task ownership, bounded effort, review separation, handoff contracts, and
+merge decisions.
 
 This repository also includes validation and review guardrails that prove the
 baseline is testable:
@@ -72,6 +93,10 @@ Agentic Cadence cannot currently:
 
 - implement code changes by itself;
 - choose a task and hand it to a real executor;
+- decompose work across an agent pool;
+- assign role-specific agents such as Planning, Architecture, Builder,
+  Reviewer, QA, Documentation, Release, or Handoff agents;
+- enforce that the reviewer is separate from the builder;
 - create a branch;
 - commit changes;
 - push to a remote;
@@ -97,8 +122,9 @@ Agentic Cadence cannot currently:
 | PR body/readiness checks | Implemented from saved inputs | `codex_cadence/pr_readiness.py` |
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
 | Single loop tick | Partial, read-only | `loop-tick` emits next action and stops before execution |
+| Agent-team orchestration | Not built | No agent pool, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
-| Executor adapter contract | Partial generic contract | Task/result packet validation exists, but no real executor |
+| Executor adapter contract | Partial generic contract | Task/result packet validation exists, including snapshot trust-anchor checks, but no real executor |
 | Autonomous implementation | Not built | Requires real executor integration |
 | Live GitHub sync | Not built | Planned slice |
 | Branch/commit/push/PR creation | Not built | Planned slice |
@@ -112,9 +138,10 @@ No.
 
 It can inspect and suggest. It can run a read-only loop tick that produces a
 structured next action. It can emit a generic executor task packet for operator
-approval and validate local executor result evidence. It can govern handoff and
-continuation decisions. It can evaluate saved PR evidence. It cannot perform
-the core build loop by itself.
+approval, validate the packet's local snapshot trust anchor, and validate local
+executor result evidence. It can govern handoff and continuation decisions. It
+can evaluate saved PR evidence. It cannot perform the core build loop by
+itself, and it cannot yet coordinate a team of role-specific agents.
 
 The current loop stops after:
 
@@ -130,22 +157,24 @@ start the next session after a handoff.
 
 ## What Would Break First
 
-The first likely failure in a real unattended run is still missing live
-synchronization. Repo snapshots are local git snapshots, and PR readiness reads
-saved input files. Cadence now labels `local_only`, `saved_input`, `stale`, and
-caller-asserted `live_like` evidence, but it still does not fetch or reconcile
-live PR, review, or CI state. Snapshot validation rejects missing or malformed
-local readiness evidence, and stale saved PR evidence waits before acting on
-blockers, but those checks only prevent overtrust in local files.
+The first hard stop in a real unattended run is still execution. Cadence can
+emit a bounded executor task packet and reject malformed, dirty, low-confidence,
+relative-path, or mismatched snapshot anchors, but it does not invoke a real
+executor or apply code changes.
 
 The next likely failures are:
 
-1. no real executor exists to safely implement the emitted task packet;
-2. no branch/commit/push/PR workflow exists;
+1. no branch/commit/push/PR workflow exists;
+2. missing live synchronization. Repo snapshots are local git snapshots, and PR
+   readiness reads saved input files. Cadence labels `local_only`,
+   `saved_input`, `stale`, and caller-asserted `live_like` evidence, but it
+   still does not fetch or reconcile live PR, review, or CI state;
 3. review comments and failing checks are not automatically synchronized back
    into the candidate loop;
 4. context pressure is only known when a host explicitly reports it;
-5. CLI root-using commands now block unignored repo-local runtime roots unless
+5. no agent-role identity or review-separation model exists, so Cadence cannot
+   prove that a Builder Agent and Reviewer Agent are distinct actors;
+6. CLI root-using commands now block unignored repo-local runtime roots unless
    an operator explicitly allows them; residual risk remains for manual
    filesystem changes or future adapters that bypass the CLI guard.
 
@@ -198,6 +227,9 @@ Reasoning:
   state, and next-action reporting into one packet.
 - The generic executor task/result contract is now explicit and testable, but
   it is not wired to a real executor.
+- Executor task packets now fail closed on malformed local snapshots, missing
+  repo identity, relative or unnormalizable cwd/path anchors, repo/cwd/branch/head
+  mismatches, dirty worktrees, and low-confidence repo state.
 - The handoff and task/epoch model is useful.
 - Candidate discovery is deterministic and conservative.
 - Adapter contracts are tested at the public CLI boundary.

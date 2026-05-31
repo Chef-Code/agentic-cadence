@@ -33,6 +33,87 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-05-31 - Agent-team orchestration vision alignment
+
+Summary:
+- Reframed Agentic Cadence as a GitHub-native governance and orchestration
+  layer for autonomous software teams.
+- Clarified that the current single-agent workflow remains Phase 1 rather than
+  wasted work or the final product shape.
+- Added future role language for Planning, Architecture, Builder, Reviewer,
+  QA, Documentation, Release, and Handoff agents.
+- Reinterpreted handoff as a general coordination primitive across sessions
+  and roles.
+
+Completed slices:
+- None. This was documentation and roadmap alignment only.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: the vision is clearer, but no new implementation capability was
+  added.
+
+Evidence:
+- `python -m unittest tests.test_executor_contract tests.test_cadence`
+- `python scripts/validate_protocol.py`
+- `git diff --check`
+
+New risks or blockers:
+- The future agent-team model will require GitHub-native issue/task ownership,
+  role identity, review separation, live synchronization, distributed locking,
+  and audit semantics before it can be claimed as implemented.
+
+Docs updated:
+- `README.md`
+- `docs/agent-team-orchestration.md`
+- `docs/protocol.md`
+- `docs/adapters.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
+## 2026-05-31 - Current documentation refresh after PR #51
+
+Summary:
+- Updated the living documentation set and adjacent README/protocol text to
+  reflect the merged executor task trust-anchor baseline.
+- Clarified that the generic executor contract now validates task-packet repo
+  identity and absolute local cwd/path anchors, but still does not run a real
+  executor or perform branch/PR automation.
+- Kept the unattended-operation confidence rating at 10%.
+
+Completed slices:
+- None. This was documentation alignment only.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: documentation now reflects the stronger task-packet boundary, but no
+  new implementation capability was added beyond the merged PR #51 baseline.
+
+Evidence:
+- PR #51 merged as `321a355`.
+- `python -m unittest tests.test_executor_contract tests.test_cadence`
+- `python scripts/validate_protocol.py`
+- `git diff --check`
+
+New risks or blockers:
+- None beyond the existing missing real executor invocation, policy/audit log,
+  branch/commit/PR automation, live GitHub sync, and automatic resume loop.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/adapters.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
 ## 2026-05-31 - Executor task trust-anchor validation
 
 Summary:
@@ -40,8 +121,9 @@ Summary:
   snapshot before accepting the packet as a task/result trust anchor.
 - Task packets now fail validation when snapshot repo/cwd/branch/head does not
   match the packet repo anchor.
-- Task packets now fail validation when the embedded snapshot is dirty or
-  low-confidence.
+- Task packets now fail validation when the packet repo name is missing or
+  blank, the cwd/path anchor is relative or unnormalizable, or the embedded
+  snapshot is dirty or low-confidence.
 
 Completed slices:
 - Generic Executor Adapter Contract: Partial.
@@ -58,6 +140,7 @@ Evidence:
 - `python scripts/validate_protocol.py`
 - `git diff --check`
 - `python -m unittest discover -s tests`
+- PR #51 merged as `321a355`.
 
 New risks or blockers:
 - Real executor invocation, timeout handling, branch/commit behavior, epoch
@@ -96,8 +179,8 @@ Evidence:
 - `git diff --check`
 
 New risks or blockers:
-- Task-packet snapshot trust-boundary validation remains a follow-up before
-  treating task packets as a stronger standalone trust anchor.
+- Task-packet snapshot trust-boundary validation was the follow-up and is now
+  tracked by the later 2026-05-31 executor task trust-anchor validation entry.
 
 Docs updated:
 - `docs/protocol.md`

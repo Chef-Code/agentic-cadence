@@ -6,9 +6,12 @@ Baseline: released 0.1.3 tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
-protocol toolkit toward the north-star "press start and build continuously"
-experience. It should be updated whenever implementation, validation, or
-review evidence changes the project reality.
+protocol toolkit toward GitHub-native orchestration for autonomous software
+teams. The first usable path is a bounded single-agent loop, but the larger
+product direction is an orchestrator that coordinates multiple cooperating
+agents through issues, branches, pull requests, reviews, CI, documentation,
+handoffs, and merge decisions. This document should be updated whenever
+implementation, validation, or review evidence changes the project reality.
 
 ## Documentation Governance
 
@@ -23,6 +26,7 @@ review behavior must evaluate whether these living documents need updates:
 - `docs/implementation-slices.md`
 - `docs/progress-log.md`
 - `docs/decision-log.md`
+- `docs/agent-team-orchestration.md`
 
 If documentation remains unchanged in a meaningful implementation PR, the PR
 author should be able to explain why no documentation update was necessary.
@@ -30,35 +34,44 @@ Evidence takes precedence over aspiration.
 
 ## North Star
 
-Agentic Cadence should become an agent-neutral governance and loop-control
-layer for long-running coding-agent work. The intended mature experience is:
+Agentic Cadence should become an agent-neutral governance and orchestration
+layer for autonomous software teams. It should start by governing one bounded
+agent, but its primitives should scale toward an agent pool with role-aware
+planning, architecture review, implementation, QA, documentation, release, and
+handoff responsibilities.
+
+The intended mature experience is:
 
 1. point Agentic Cadence at a repository;
 2. inspect current repo, CI, PR, review, policy, and handoff state;
-3. identify the best bounded next task;
-4. prepare an implementation task for a coding agent;
-5. run the task inside explicit policy limits;
+3. identify, decompose, or elect the best bounded next task;
+4. assign work to the appropriate agent role under policy;
+5. run each task inside explicit branch, path, command, time, and review
+   limits;
 6. validate changes with configured checks;
 7. open or update a pull request;
-8. trigger and ingest reviews;
+8. trigger and ingest separate review;
 9. turn CI or review feedback into follow-up tasks;
-10. monitor context pressure and policy limits;
-11. create a handoff when needed;
-12. let a fresh session claim, verify, resume, and continue safely.
+10. update living documentation when behavior or architecture changes;
+11. monitor context pressure, role boundaries, and policy limits;
+12. create a handoff when a session, role, or work boundary requires it;
+13. let the next role or fresh session claim, verify, resume, and continue
+    safely.
 
 The project should keep the core protocol small and inspectable. Host adapters
 may render different user experiences, but they should share the same core
 concepts: Cadence state, handoffs, clean-square evidence, task sizing, epoch
-governance, approval gates, PR readiness, audit records, and release
-guardrails.
+governance, approval gates, PR readiness, review separation, audit records,
+agent roles, handoff contracts, and release guardrails.
 
 ## Current Readiness
 
-Agentic Cadence is not currently a magic-button autonomous builder. The 0.1.3
-baseline is a local CLI and protocol substrate that can govern and document
-agentic work, but it cannot independently implement code, push branches, open
-pull requests, resolve review feedback, launch fresh sessions, or continue in
-an unattended loop.
+Agentic Cadence is not currently a magic-button autonomous builder or an
+agent-team orchestrator. The 0.1.3 baseline is a local CLI and protocol
+substrate that can govern and document agentic work, but it cannot
+independently implement code, push branches, open pull requests, assign agent
+roles, resolve review feedback, launch fresh sessions, coordinate an agent
+pool, or continue in an unattended loop.
 
 Current confidence for unattended continuous operation is 10%.
 
@@ -81,6 +94,12 @@ It includes:
 - read-only candidate discovery from local repo signals, saved review
   findings, saved GitHub review-thread files, text markers, and business
   memory;
+- read-only `loop-tick` orchestration that emits a governed next-action packet
+  without starting execution, epoch mutation, PR actions, review spend, merge,
+  release, or publication;
+- generic executor task/result packet validation, including local snapshot
+  trust-anchor checks for repo name, absolute cwd/path, branch, head, dirty
+  worktree, and low-confidence state;
 - deterministic PR body preflight and PR readiness checks from saved local
   inputs;
 - release dry-run checks that require operator confirmation before tag or
@@ -90,6 +109,12 @@ It includes:
 - generic adapter smoke, host-signal, shell-binding, conformance, contract
   runner, evidence, and claim-verifier examples;
 - package install and first-run examples in CI on Ubuntu and Windows.
+
+These are Phase 1 foundations. They should be preserved because the same
+primitives also support future multi-agent coordination: task election maps to
+work ownership, epochs bound agent effort, handoffs become role-transfer
+contracts, PR readiness supports merge decisions, and review feedback becomes
+bounded follow-up work.
 
 ## Adapter Contract Baseline
 
@@ -140,7 +165,11 @@ host adapter claims remain gated by generic evidence:
 The following capabilities are not implemented as of this baseline:
 
 - continuous loop runner;
-- implementation executor contract;
+- GitHub-native issue/task ownership and assignment workflow;
+- agent pool, role registry, and role-aware permission model;
+- task decomposition across Planning, Architecture, Builder, Reviewer, QA,
+  Documentation, Release, and Handoff agents;
+- real executor invocation or named executor adapter integration;
 - autonomous code modification;
 - branch, commit, push, and PR creation workflow;
 - live GitHub PR, check, comment, and review-thread synchronization;
@@ -165,8 +194,11 @@ These are the important boundaries that are not solved yet:
   for teams or cloud agents.
 - Local locks protect local transitions, but there is no distributed lock model
   for multiple machines.
-- Claimer, approver, and operator values are records, not authenticated
-  identities with role enforcement.
+- Claimer, approver, operator, and future agent-role values are records, not
+  authenticated identities with role enforcement.
+- Current flows mostly assume one active implementation agent. Future work must
+  avoid baking that assumption into packet schemas, audit records, review
+  gates, or GitHub automation.
 - Review integration is deterministic and local. Candidate discovery can
   ingest saved review findings and saved GitHub review-thread files, while
   `pr-readiness` reads saved PR data; Cadence does not fetch, synchronize, or
@@ -183,6 +215,12 @@ A mature Agentic Cadence system should provide:
 
 - a reliable bounded loop controller that can inspect state, select work,
   delegate execution, collect evidence, and stop safely;
+- GitHub-native coordination where issues or recorded decisions define work,
+  branches isolate implementation, pull requests expose changes, reviews and CI
+  gate quality, docs stay aligned, and merges advance stable `main`;
+- an orchestrator that can coordinate an agent pool through explicit Planning,
+  Architecture, Builder, Reviewer, QA, Documentation, Release, and Handoff
+  roles;
 - thin, tested host adapters added only after generic adapter contracts are
   stable;
 - explicit host/session signals for context pressure, reviewer loops, CI loops,
@@ -191,6 +229,10 @@ A mature Agentic Cadence system should provide:
   expectations;
 - role-aware approval and claim semantics tied to real users or agent
   identities;
+- enforceable review separation so the reviewing role is distinct from the
+  building role when possible;
+- handoff contracts that transfer state across sessions and across roles, not
+  only when one context window is exhausted;
 - configurable policy for task sizing, pickup approval, review spend, command
   execution, PR behavior, and release authority;
 - first-class PR review synchronization that fetches review threads, tracks
@@ -200,16 +242,16 @@ A mature Agentic Cadence system should provide:
 
 ## 50% Confidence Target
 
-The next target is not full autonomy. The practical 50% confidence target is a
-bounded controlled loop that can run unattended only inside a pre-approved tick
-on a low-risk repository, stop cleanly, and leave enough evidence for an
-operator to understand what happened.
+The next target is not full autonomy or full agent-team orchestration. The
+practical 50% confidence target is a bounded controlled loop that can run
+unattended only inside a pre-approved tick on a low-risk repository, stop
+cleanly, and leave enough evidence for an operator to understand what happened.
 
 Target constraints:
 
 - one repository;
 - one branch or pull request at a time;
-- one bounded loop tick per invocation;
+- one bounded loop tick per invocation, usually with one implementation agent;
 - generic executor adapter, not a named host adapter;
 - explicit policy for allowed paths, commands, runtime, checks, and approval
   points;
@@ -326,8 +368,9 @@ The first generic executor contract now defines and validates
 --emit-executor-task` can attach a bounded task packet for operator approval,
 and `validate-executor-result` can validate local evidence. Task-packet
 validation now treats the embedded local repo snapshot as a trust anchor by
-validating snapshot shape/readiness, requiring repo/cwd/branch/head
-consistency, and rejecting dirty or low-confidence snapshots. No real executor
+validating snapshot shape/readiness, requiring non-empty repo identity,
+absolute cwd/path consistency, branch/head consistency, and rejecting dirty,
+low-confidence, relative-path, or mismatched snapshots. No real executor
 applies code changes yet.
 
 Likely files: `docs/adapters.md`, `examples/adapter-template`,
@@ -415,6 +458,22 @@ Codex can implement directly.
 
 ## Long-Term Goals
 
+### GitHub-native agent-team orchestration
+
+Goal: coordinate multiple bounded agents through GitHub-native work ownership,
+branch isolation, PR review, CI, documentation updates, handoff contracts, and
+merge decisions.
+
+Current evidence: Phase 1 governance primitives exist locally, but no agent
+pool, role registry, issue assignment workflow, distributed lock, live GitHub
+sync, or role-aware permission system exists.
+
+Risk: high.
+
+Codex should ask before implementing role assignment, autonomous merge, shared
+runtime, or live GitHub write permissions. Documentation can describe these as
+future design targets when it preserves the current limitations.
+
 ### Controlled continuous build mode
 
 Goal: run repeated bounded loop ticks under policy with explicit stop,
@@ -476,16 +535,22 @@ new blockers.
 - No claim that Claude or Gemini adapters are shipped.
 - No hidden writes to Cadence runtime files outside the public CLI.
 - No remote backend or distributed lock promise.
+- No claim that agent-team orchestration, role assignment, or autonomous merge
+  is implemented.
 - No PyPI publication.
 - No replacement for generic secret scanning or external security review.
 
 ## Open Questions
 
 - What repository should be used for the first controlled demo loop?
-- What executor evidence schema is sufficient for 50% confidence?
+- What additional executor evidence and policy controls are sufficient for 50%
+  confidence once a real executor is invoked?
 - Which commands and paths should be allowed by the default local policy?
 - How much PR automation can be enabled before human approval becomes
   mandatory?
+- What issue/task identity should bind a future agent role claim to a specific
+  branch and pull request?
+- What evidence proves that review separation was preserved when possible?
 - Which host should receive the first named adapter after the generic contract
   proves stable?
 - What identity model is strong enough for approvals without making local use

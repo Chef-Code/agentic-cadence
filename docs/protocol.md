@@ -6,13 +6,46 @@ Reference implementation: `codex_cadence/cli.py`
 
 ## Concepts
 
-Agentic Cadence has five core concepts:
+Agentic Cadence has five core concepts today:
 
 - `handoff`: a durable message that lets a new coding-agent session continue from a precise point.
 - `signature`: a machine-detectable marker that tells automation a handoff is ready.
 - `cadence state`: the operator-facing football state that controls whether automation may continue.
 - `brake`: the legacy persisted state behind Cadence state, retained for compatibility.
 - `clean-square`: the shutdown routine for the old session after a handoff is safely written.
+
+Future orchestration concepts include:
+
+- `orchestrator`: the future policy authority that decides whether to continue, stop, retry, split, review, or hand off work.
+- `agent role`: a bounded responsibility such as planning, architecture, build, review, QA, documentation, release, or handoff.
+- `handoff contract`: the explicit state package that transfers work between sessions or between roles.
+
+The current implementation mainly exercises the single-agent Phase 1 path. The
+protocol should not assume that only one agent exists forever.
+
+## GitHub-Native Orchestration Model
+
+The long-term coordination surface is GitHub-native: issues or recorded
+decisions define work, assignees or role claims establish ownership, branches
+isolate implementation, pull requests expose changes, reviews and CI gate
+quality, documentation keeps the repository aligned, and merges advance stable
+`main`.
+
+Cadence should govern that workflow rather than bypass it. Future agent-team
+orchestration must preserve these invariants:
+
+- no agent edits `main` directly;
+- every implementation happens on a branch;
+- every meaningful change produces a pull request;
+- validation runs before merge;
+- review is separate from implementation when possible;
+- handoff is explicit when work crosses a session or role boundary;
+- small bounded slices are preferred over large ambiguous work.
+
+Current commands do not implement role assignment, live GitHub synchronization,
+branch creation, PR creation, or merge authority. Protocol language that
+mentions agent roles or an agent pool is a design target unless a command
+explicitly documents otherwise.
 
 ## Runtime State
 
@@ -97,6 +130,13 @@ Allowed statuses:
 6. The old session runs clean-square and stops active work.
 7. The new session marks the handoff completed or failed.
 
+In the team-orchestration model, the same lifecycle also applies across roles:
+a Planning Agent can hand a decomposed task to a Builder Agent, a Builder Agent
+can hand a PR to a Reviewer Agent, a QA Agent can hand failures back to a
+Builder Agent, and a Documentation Agent can record architecture or behavior
+changes after merge. Role handoffs must be explicit and verifiable, not
+implicit transcript memory.
+
 ## Prepare Handoff
 
 `prepare-handoff` is the deterministic old-session orchestration command for context handoff. It must check Cadence state, capture a repo snapshot, create a signed ready handoff, validate that handoff, record clean-square, and emit a JSON packet with `stop_current_session: true`.
@@ -154,7 +194,7 @@ The packet must include the brake and Cadence state, the persisted snapshot, the
 
 ## Generic Executor Contract
 
-The generic executor contract is an agent-neutral boundary, not a named host adapter. `loop-tick --emit-executor-task` may include an `executor_task` packet with `schema_version: generic-executor-task.v1`, task identity, task type `execution` or `discovery`, bucket `XS`, `S`, `M`, `L`, or `XL`, repo path, branch/head snapshot, allowed repo-relative paths, required checks, positive time/task limits, stop conditions, an expected result-evidence path, and permissions that forbid commit, push, and PR creation. Task-packet validation must validate the embedded local repo snapshot, require snapshot repo/cwd/branch/head to match the task packet repo anchor, reject dirty snapshots, and reject low-confidence snapshots. Emitting this packet must set `executor_started: false`; Cadence must not execute the task.
+The generic executor contract is an agent-neutral boundary, not a named host adapter. `loop-tick --emit-executor-task` may include an `executor_task` packet with `schema_version: generic-executor-task.v1`, task identity, task type `execution` or `discovery`, bucket `XS`, `S`, `M`, `L`, or `XL`, repo name, absolute repo path, branch/head snapshot, allowed repo-relative paths, required checks, positive time/task limits, stop conditions, an expected result-evidence path, and permissions that forbid commit, push, and PR creation. Task-packet validation must validate the embedded local repo snapshot, require non-empty repo identity, require absolute local cwd/path anchors, require snapshot repo/cwd/branch/head to match the task packet repo anchor, reject dirty snapshots, and reject low-confidence snapshots. Emitting this packet must set `executor_started: false`; Cadence must not execute the task.
 
 Executor result evidence uses `schema_version: generic-executor-result.v1` and `packet: executor_result`. It must include executor id, start/end timestamps, status `succeeded`, `failed`, `blocked`, or `stopped`, files changed, commands run, validation results, summary, confidence, blockers, dirty-worktree status, and resulting head SHA for successful results. `validate-executor-result` reads a task packet and result evidence from local JSON files and emits an `executor_result_validation` packet. Successful evidence must include command and validation evidence, must show every task-packet `required_checks` entry in both `commands_run` with exit code `0` and `validation_results` with matching `command` and `status: passed`, and all validation results in successful evidence must pass. Result evidence must respect disabled permissions: it rejects reported `git commit`, `git push`, or `gh pr create` invocations while those permissions are false, including absolute-path, common git/gh global-option, and shell-wrapper forms, and it rejects head changes when commits are forbidden. Invalid evidence exits nonzero. It must not run an executor, modify files, commit, push, open PRs, spend review, merge, or infer named-host support.
 

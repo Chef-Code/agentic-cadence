@@ -4,11 +4,22 @@
 
 ![Agentic Cadence banner showing a signed handoff, clean square validation, and fresh agent continuation.](docs/assets/agentic-cadence-banner.svg)
 
-Durable handoff and governed continuation for coding agents that outlive one chat window.
+GitHub-native governance and orchestration for coding agents that must work
+without losing the repository's coordination discipline.
 
-Agentic Cadence helps an agent stop cleanly, hand off context to a fresh session, and continue only when the repository and Cadence state allow it.
+Agentic Cadence helps one agent today by stopping cleanly, handing off context
+to a fresh session, and continuing only when the repository and Cadence state
+allow it. That single-agent workflow remains Phase 1.
 
-The first implementation is used with Codex, and the protocol is intentionally agent-neutral so future adapters can support Claude, Gemini, and other coding agents without changing the core handoff model.
+The larger product direction is GitHub-native orchestration for autonomous
+software teams. Cadence should eventually coordinate multiple bounded agents
+through issues, branches, pull requests, reviews, CI, documentation, handoff
+contracts, and merge decisions without duplicating work or corrupting
+repository state.
+
+The first implementation is used with Codex, and the protocol is intentionally
+agent-neutral so future adapters can support Claude, Gemini, and other coding
+agents without changing the core governance model.
 
 ## Current Status
 
@@ -18,7 +29,30 @@ The public package identity is `agentic-cadence`. The legacy `codex-cadence` and
 
 PyPI publication is not part of this baseline. Treat package-index publication, signed version tags, and broader adapter support as follow-on release work.
 
-See the current [technical roadmap](docs/roadmap.md) for known edges and target state.
+See the current [technical roadmap](docs/roadmap.md) for known edges and target
+state. See [agent-team orchestration](docs/agent-team-orchestration.md) for the
+expanded product vision.
+
+## Vision
+
+Agentic Cadence is a governance and orchestration layer for autonomous software
+teams. It can start with one agent, but its primitives should scale toward an
+agent pool with clear roles: planning, architecture, building, review, QA,
+documentation, release, and handoff.
+
+The system should preserve the same coordination rules disciplined human teams
+use on GitHub:
+
+- no direct edits to `main`;
+- issue, task, or decision-backed work;
+- branch isolation for implementation;
+- pull requests for meaningful changes;
+- validation before merge;
+- review separation when possible;
+- explicit context handoff;
+- living documentation that changes with the repo;
+- small bounded slices instead of ambiguous work;
+- orchestrator decisions to continue, stop, retry, split, review, or hand off.
 
 ## Future Agent Adapters
 
@@ -216,7 +250,7 @@ agentic-cadence --root examples/first-run/work/runtime loop-tick --cwd examples/
 
 The command does not start an executor, start or complete an epoch, create a branch, commit, push, open a PR, spend review, or merge. Without executor-task emission, it stops with `recommended_next_action` set to `blocked`, `no_candidates`, `approval_required`, or `requires_executor_contract`.
 
-When an elected task exists, `--emit-executor-task` can attach a generic executor task packet for operator approval. The packet includes allowed paths, required checks, stop conditions, limits, and the expected result-evidence path, but Cadence still does not run the executor:
+When an elected task exists, `--emit-executor-task` can attach a generic executor task packet for operator approval. The packet includes repo identity, an absolute repo path, allowed paths, required checks, stop conditions, limits, and the expected result-evidence path. Cadence validates the embedded local snapshot as a trust anchor before accepting the packet, but it still does not run the executor:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime loop-tick --cwd examples/first-run/work/repo --repo local/demo --intent repo_health --emit-executor-task --allowed-path . --required-check "python -m unittest discover -s tests" > loop-tick.json
