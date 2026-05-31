@@ -174,6 +174,10 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
     return event if not blockers else None, blockers
 
 
+def reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON constant is not allowed: {value}")
+
+
 def replay_audit_log(root: Path) -> dict[str, Any]:
     target = audit_events_path(root).expanduser().resolve(strict=False)
     if not target.exists():
@@ -216,8 +220,8 @@ def replay_audit_log(root: Path) -> dict[str, Any]:
                     blockers.append(audit_replay_blocker("audit_line_blank", "audit line is blank", lines_seen))
                     continue
                 try:
-                    record = json.loads(text)
-                except json.JSONDecodeError:
+                    record = json.loads(text, parse_constant=reject_json_constant)
+                except (json.JSONDecodeError, ValueError):
                     records_invalid += 1
                     blockers.append(
                         audit_replay_blocker("audit_line_invalid_json", "audit line is not valid JSON", lines_seen)

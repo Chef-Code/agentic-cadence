@@ -243,6 +243,32 @@ class AuditReplayCliTests(unittest.TestCase):
             self.assertEqual([blocker["line"] for blocker in output["blockers"]], [2, 3])
             self.assertEqual(output["recommended_next_action"], "inspect_audit_log")
 
+    def test_non_standard_json_constants_are_invalid_lines(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_audit_lines(
+                root,
+                [
+                    (
+                        '{"schema_version":"cadence-audit.v1","recorded_at":"2999-05-22T00:00:00Z",'
+                        '"event":"loop_tick_decision","tick_id":"loop-tick-1","action":"no_candidates",'
+                        '"reason":"no elected candidate","repo":"local/test","branch":"main","head":"abc123",'
+                        '"snapshot_id":"snapshot-1","operator_confirmation_required":false,'
+                        f'"payload_checksum":"{GOOD_CHECKSUM}","extra":NaN}}'
+                    )
+                ],
+            )
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["records_seen"], 1)
+            self.assertEqual(output["records_valid"], 0)
+            self.assertEqual(output["records_invalid"], 1)
+            self.assertEqual(blocker_codes(output), ["audit_line_invalid_json"])
+            self.assertEqual(output["blockers"][0]["line"], 1)
+
     def test_record_shape_schema_event_and_checksum_blockers_are_stable(self):
         cases = [
             ("array", [], "audit_record_not_object"),
