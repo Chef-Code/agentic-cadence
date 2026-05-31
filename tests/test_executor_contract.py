@@ -214,6 +214,28 @@ class ExecutorContractTests(unittest.TestCase):
                 "executor result missing required check command: python -m unittest tests.test_executor_contract",
             )
 
+    def test_result_evidence_rejects_success_without_any_validation_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            task_packet["required_checks"] = []
+            evidence = valid_result(commands_run=[], validation_results=[])
+
+            valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor result successful status requires validation evidence")
+
+    def test_result_evidence_rejects_success_without_any_command_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            task_packet["required_checks"] = []
+            evidence = valid_result(commands_run=[])
+
+            valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor result successful status requires command evidence")
+
     def test_result_evidence_rejects_success_when_required_check_fails_or_is_skipped(self):
         with tempfile.TemporaryDirectory() as tmp:
             task_packet = valid_task_packet(Path(tmp))
@@ -337,6 +359,111 @@ class ExecutorContractTests(unittest.TestCase):
                     ),
                     "executor result commands_run[0] violates disabled PR creation permission",
                 ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "git status && git commit -m change",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled commit permission",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "git -C . commit -m change",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled commit permission",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "git -c user.name=bot commit -m change",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled commit permission",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "git status; git push origin HEAD",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "git --no-pager push origin HEAD",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": 'bash -lc "gh pr create --fill"',
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled PR creation permission",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "gh --repo owner/repo pr create --fill",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled PR creation permission",
+                ),
             ]
 
             for evidence, expected_reason in cases:
@@ -345,6 +472,22 @@ class ExecutorContractTests(unittest.TestCase):
 
                     self.assertFalse(valid)
                     self.assertEqual(reason, expected_reason)
+
+    def test_result_evidence_rejects_success_without_resulting_head(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            cases = [
+                valid_result(resulting_head=None),
+                valid_result(),
+            ]
+            del cases[1]["resulting_head"]
+
+            for evidence in cases:
+                with self.subTest(keys=sorted(evidence.keys())):
+                    valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, "executor result resulting_head is required when status is succeeded")
 
     def test_result_evidence_rejects_malformed_timestamp_order(self):
         with tempfile.TemporaryDirectory() as tmp:

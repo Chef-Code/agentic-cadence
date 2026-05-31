@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shlex
 from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -13,6 +14,42 @@ EXECUTOR_TASK_SCHEMA_VERSION = "generic-executor-task.v1"
 EXECUTOR_RESULT_SCHEMA_VERSION = "generic-executor-result.v1"
 EXECUTOR_STATUSES = ("succeeded", "failed", "blocked", "stopped")
 EXECUTOR_CONFIDENCE_VALUES = ("high", "medium", "low")
+_SHELL_COMMANDS = {"bash", "dash", "sh", "zsh"}
+_POWERSHELL_COMMANDS = {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}
+_CMD_COMMANDS = {"cmd", "cmd.exe"}
+_GIT_OPTIONS_WITH_VALUE = {
+    "-c",
+    "--config-env",
+    "--exec-path",
+    "--git-dir",
+    "--namespace",
+    "--super-prefix",
+    "--work-tree",
+}
+_GIT_OPTIONS_WITH_EQUALS = (
+    "-c",
+    "--config-env=",
+    "--exec-path=",
+    "--git-dir=",
+    "--namespace=",
+    "--super-prefix=",
+    "--work-tree=",
+)
+_GH_OPTIONS_WITH_VALUE = {
+    "-r",
+    "--config-dir",
+    "--editor",
+    "--git-protocol",
+    "--hostname",
+    "--repo",
+}
+_GH_OPTIONS_WITH_EQUALS = (
+    "--config-dir=",
+    "--editor=",
+    "--git-protocol=",
+    "--hostname=",
+    "--repo=",
+)
 
 
 def _non_empty_string(value: Any) -> bool:
@@ -57,9 +94,114 @@ def _normalized_command(command: str) -> str:
     return " ".join(command.strip().lower().split())
 
 
+def _command_tokens(command: str) -> list[str]:
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        return [token.lower() for token in lexer]
+    except ValueError:
+        return _normalized_command(command).split()
+
+
+def _option_uses_value(token: str, options_with_value: set[str], options_with_equals: tuple[str, ...]) -> bool:
+    if token in options_with_value:
+        return True
+    return any(token.startswith(prefix) and token != prefix for prefix in options_with_equals)
+
+
+def _next_git_subcommand(tokens: list[str], index: int) -> str | None:
+    current = index + 1
+    while current < len(tokens):
+        token = tokens[current]
+        if token == "--":
+            current += 1
+            break
+        if token in {"&&", "||", ";", "|"}:
+            return None
+        if _option_uses_value(token, _GIT_OPTIONS_WITH_VALUE, _GIT_OPTIONS_WITH_EQUALS):
+            current += 2 if token in _GIT_OPTIONS_WITH_VALUE else 1
+            continue
+        if token.startswith("-"):
+            current += 1
+            continue
+        return token
+    return tokens[current] if current < len(tokens) else None
+
+
+def _git_invokes(tokens: list[str], subcommand: str) -> bool:
+    for index, token in enumerate(tokens):
+        if token == "git" and _next_git_subcommand(tokens, index) == subcommand:
+            return True
+    return False
+
+
+def _next_gh_subcommands(tokens: list[str], index: int, count: int) -> list[str]:
+    current = index + 1
+    subcommands: list[str] = []
+    while current < len(tokens) and len(subcommands) < count:
+        token = tokens[current]
+        if token in {"&&", "||", ";", "|"}:
+            break
+        if _option_uses_value(token, _GH_OPTIONS_WITH_VALUE, _GH_OPTIONS_WITH_EQUALS):
+            current += 2 if token in _GH_OPTIONS_WITH_VALUE else 1
+            continue
+        if token.startswith("-"):
+            current += 1
+            continue
+        subcommands.append(token)
+        current += 1
+    return subcommands
+
+
+def _gh_invokes(tokens: list[str], subcommands: list[str]) -> bool:
+    for index, token in enumerate(tokens):
+        if token == "gh" and _next_gh_subcommands(tokens, index, len(subcommands)) == subcommands:
+            return True
+    return False
+
+
+def _embedded_shell_commands(tokens: list[str]) -> list[str]:
+    embedded: list[str] = []
+    for index, token in enumerate(tokens):
+        if token in _SHELL_COMMANDS:
+            for option_index in range(index + 1, len(tokens) - 1):
+                option = tokens[option_index]
+                if option == "-c" or (option.startswith("-") and "c" in option):
+                    embedded.append(tokens[option_index + 1])
+                    break
+        if token in _CMD_COMMANDS:
+            for option_index in range(index + 1, len(tokens) - 1):
+                if tokens[option_index] in {"/c", "/k"}:
+                    embedded.append(tokens[option_index + 1])
+                    break
+        if token in _POWERSHELL_COMMANDS:
+            for option_index in range(index + 1, len(tokens) - 1):
+                if tokens[option_index] in {"-command", "-c"}:
+                    embedded.append(tokens[option_index + 1])
+                    break
+    return embedded
+
+
 def _command_invokes(command: str, invocation: str) -> bool:
-    normalized = _normalized_command(command)
-    return normalized == invocation or normalized.startswith(f"{invocation} ")
+    tokens = _command_tokens(command)
+    invocation_tokens = _normalized_command(invocation).split()
+    if invocation_tokens[:1] == ["git"] and len(invocation_tokens) == 2:
+        direct_match = _git_invokes(tokens, invocation_tokens[1])
+    elif invocation_tokens[:1] == ["gh"] and len(invocation_tokens) > 1:
+        direct_match = _gh_invokes(tokens, invocation_tokens[1:])
+    else:
+        direct_match = tokens[: len(invocation_tokens)] == invocation_tokens
+    if direct_match:
+        return True
+    return any(_command_invokes(embedded, invocation) for embedded in _embedded_shell_commands(tokens))
+
+
+def _successful_result_has_evidence(commands_run: list[Any], validation_results: list[Any]) -> tuple[bool, str]:
+    if not validation_results:
+        return False, "executor result successful status requires validation evidence"
+    if not commands_run:
+        return False, "executor result successful status requires command evidence"
+    return True, "ok"
 
 
 def _parse_utc(value: Any) -> datetime | None:
@@ -276,6 +418,10 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
         if _non_empty_string(result.get("command")):
             validation_statuses_by_command.setdefault(result["command"], []).append(result["status"])
     if status == "succeeded":
+        if not task_packet["required_checks"]:
+            has_evidence, evidence_reason = _successful_result_has_evidence(commands_run, validation_results)
+            if not has_evidence:
+                return False, evidence_reason
         for required_check in task_packet["required_checks"]:
             exit_codes = command_exit_codes.get(required_check)
             if not exit_codes:
@@ -300,6 +446,8 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
     if evidence.get("status") == "succeeded" and evidence.get("dirty_worktree") is not False:
         return False, "executor result dirty_worktree must be false when status is succeeded"
     resulting_head = evidence.get("resulting_head")
+    if evidence.get("status") == "succeeded" and resulting_head is None:
+        return False, "executor result resulting_head is required when status is succeeded"
     if resulting_head is not None and not _non_empty_string(resulting_head):
         return False, "executor result resulting_head must be a string or null"
     if permissions.get("may_commit") is False and resulting_head is not None and resulting_head != task_packet["repo"]["head"]:

@@ -132,7 +132,7 @@ Minimum result evidence should include:
 - confidence;
 - blockers;
 - dirty-worktree status;
-- resulting head SHA when available.
+- resulting head SHA for successful results.
 
 Current evidence:
 
@@ -145,6 +145,10 @@ Current evidence:
   for operator approval without starting execution;
 - `validate-executor-result` can validate local result evidence against the
   task packet;
+- successful result evidence must include command evidence, validation
+  evidence, and a resulting head attestation;
+- disabled commit, push, and PR-creation permissions reject common git/gh
+  global-option and shell-wrapper command forms;
 - no real executor or named host adapter exists.
 
 Why it matters: Cadence cannot implement work until execution is a formal,

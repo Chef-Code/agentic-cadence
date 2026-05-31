@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-05-30
+Last updated: 2026-05-31
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,41 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-05-31 - Executor contract review hardening
+
+Summary:
+- Tightened result validation so successful executor evidence cannot be empty
+  when no required checks are configured.
+- Required successful executor evidence to include a resulting head attestation.
+- Hardened disabled commit, push, and PR-creation checks against common git/gh
+  global-option and shell-wrapper command forms.
+
+Completed slices:
+- Generic Executor Adapter Contract: Partial.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: the generic boundary is stricter, but Agentic Cadence still does not
+  run executors, manage branches, open PRs, or resume unattended loops.
+
+Evidence:
+- `python -m unittest tests.test_executor_contract`
+- `python -m unittest tests.test_executor_contract tests.test_cadence`
+- `python scripts/validate_protocol.py`
+- `python -m unittest discover -s tests`
+- `git diff --check`
+
+New risks or blockers:
+- Task-packet snapshot trust-boundary validation remains a follow-up before
+  treating task packets as a stronger standalone trust anchor.
+
+Docs updated:
+- `docs/protocol.md`
+- `docs/adapters.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
 
 ## 2026-05-30 - Generic executor contract Phase 1
 
