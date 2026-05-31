@@ -28,6 +28,46 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-05-31 - Record loop decisions before invoking real executors
+
+Decision:
+- Add local policy and audit controls before adding real executor invocation.
+- Keep policy file scope narrow for the first slice: executor task allowed
+  paths, denied paths, required checks, max runtime, and stop conditions.
+- Append compact audit records for root-backed loop decisions and executor
+  result validation instead of duplicating full packet bodies in the audit log.
+
+Why:
+- The next risky transition is from advisory packets to accepting or launching
+  implementation work. Cadence needs a durable local record of what it decided
+  and which bounds applied before that transition.
+- Compact records keep audit history readable while binding each record to the
+  emitted packet with a checksum.
+- Starting with local JSON avoids live credentials, remote state, or named host
+  assumptions while still making the approval boundary explicit.
+
+Alternatives considered:
+- Invoke a real executor first and add audit afterward. Rejected because the
+  first execution demo needs a decision trail before code changes are accepted.
+- Store full packets in every audit record. Deferred because snapshots and
+  executor packets can grow large, and compact checksummed records are enough
+  for the first local audit slice.
+- Build a remote tamper-evident audit backend now. Deferred because the 0.1.x
+  baseline is local clone-based use.
+
+Consequences:
+- `loop-tick --emit-executor-task` can now be bounded by a local policy file
+  and can return `policy_denied`.
+- Root-backed loop and result-validation packets now leave append-only JSONL
+  evidence under the Cadence runtime root.
+- Audit replay, hash chaining, command allow/deny policy, branch policy,
+  active-loop stop controls, and authenticated identity remain future work.
+
+Open questions:
+- Should audit records be hash-chained before real executor invocation, or is
+  packet checksum plus append-only JSONL enough for the first fixture demo?
+- Which command allowlist should be the default for a controlled local demo?
+
 ## 2026-05-31 - Reframe Cadence as GitHub-native agent-team orchestration
 
 Decision:

@@ -33,6 +33,47 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-05-31 - Initial loop policy and audit records
+
+Summary:
+- Added an initial local loop policy file for `loop-tick --emit-executor-task`.
+- Policy can supply executor task defaults for allowed paths, required checks,
+  max runtime, and stop conditions.
+- Policy can deny executor task packet emission when requested paths are
+  outside `allowed_paths`, overlap `denied_paths`, or exceed the runtime cap.
+- Added compact append-only `cadence-audit.v1` JSONL records for root-backed
+  `loop-tick` decisions and `validate-executor-result` packets.
+
+Completed slices:
+- Policy, Audit, And Stop Controls: Partial.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: decisions and result validation are now more inspectable and locally
+  bounded, but Cadence still does not invoke a real executor, start/complete
+  execution epochs, create branches or PRs, or replay audit history.
+
+Evidence:
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_loop_tick_records_audit_entry_for_executor_task_decision tests.test_cadence.CadenceCliTests.test_loop_tick_policy_file_bounds_executor_task_packet tests.test_cadence.CadenceCliTests.test_loop_tick_policy_file_denies_disallowed_executor_path tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_reports_valid_evidence`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_loop_tick_reports_no_candidates_without_starting_execution tests.test_cadence.CadenceCliTests.test_loop_tick_stops_at_executor_contract_for_elected_candidate tests.test_cadence.CadenceCliTests.test_loop_tick_can_emit_generic_executor_task_without_starting_execution tests.test_cadence.CadenceCliTests.test_loop_tick_requires_approval_for_low_confidence_repo tests.test_cadence.CadenceCliTests.test_loop_tick_requires_approval_for_red_ci_signal tests.test_cadence.CadenceCliTests.test_loop_tick_blocks_when_cadence_state_disallows_work tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_reports_valid_evidence tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_exits_nonzero_for_invalid_evidence`
+- `python -m unittest tests.test_executor_contract -q`
+- `python -m py_compile codex_cadence\policy_audit.py codex_cadence\cli.py codex_cadence\store.py`
+
+New risks or blockers:
+- Policy does not yet cover command allow/deny rules, branch policy, PR
+  approval policy, or active-loop stop behavior.
+- Audit records are appended but there is no replay, integrity chain, or
+  corrupted-record handling yet.
+
+Docs updated:
+- `docs/protocol.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
 ## 2026-05-31 - Agent-team orchestration vision alignment
 
 Summary:

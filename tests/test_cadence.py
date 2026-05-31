@@ -1480,6 +1480,138 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(executor_task["expected_output"]["evidence_path"], str(evidence_path))
             self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
 
+    def test_loop_tick_records_audit_entry_for_executor_task_decision(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--allowed-path",
+                "tests",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            audit_ref = output["audit_record"]
+            self.assertEqual(audit_ref["event"], "loop_tick_decision")
+            self.assertTrue(Path(audit_ref["path"]).exists())
+            audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(audit_lines), 1)
+            record = json.loads(audit_lines[0])
+            self.assertEqual(record["schema_version"], "cadence-audit.v1")
+            self.assertEqual(record["event"], "loop_tick_decision")
+            self.assertEqual(record["action"], "approve_executor_task")
+            self.assertEqual(record["tick_id"], output["tick_id"])
+            self.assertEqual(record["repo"], "local/test")
+            self.assertEqual(record["branch"], output["snapshot"]["branch"])
+            self.assertEqual(record["head"], output["snapshot"]["head"])
+            self.assertEqual(record["executor_task_id"], output["executor_task"]["task"]["id"])
+            self.assertTrue(record["payload_checksum"].startswith("sha256:"))
+
+    def test_loop_tick_policy_file_bounds_executor_task_packet(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "allowed_paths": ["codex_cadence"],
+                        "required_checks": ["python -m unittest tests.test_cadence"],
+                        "max_executor_time_minutes": 15,
+                        "stop_conditions": ["brake_not_drive", "timeout"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--policy-file",
+                str(policy_file),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "approve_executor_task")
+            executor_task = output["executor_task"]
+            self.assertEqual(executor_task["allowed_paths"], ["codex_cadence"])
+            self.assertEqual(executor_task["required_checks"], ["python -m unittest tests.test_cadence"])
+            self.assertEqual(executor_task["limits"]["max_minutes"], 15)
+            self.assertEqual(executor_task["stop_conditions"], ["brake_not_drive", "timeout"])
+            self.assertEqual(output["policy"]["source"], str(policy_file))
+
+    def test_loop_tick_policy_file_denies_disallowed_executor_path(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "allowed_paths": ["codex_cadence"],
+                        "denied_paths": ["tests"],
+                        "max_executor_time_minutes": 15,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--policy-file",
+                str(policy_file),
+                "--allowed-path",
+                "tests",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "policy_denied")
+            self.assertEqual(output["reason"], "executor allowed path tests is denied by policy")
+            self.assertTrue(output["operator_confirmation_required"])
+            self.assertFalse(output["executor_contract_required"])
+            self.assertIsNone(output["executor_task"])
+            audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(audit_lines), 1)
+            record = json.loads(audit_lines[0])
+            self.assertEqual(record["event"], "loop_tick_decision")
+            self.assertEqual(record["action"], "policy_denied")
+            self.assertEqual(record["reason"], "executor allowed path tests is denied by policy")
+
     def test_loop_tick_requires_approval_for_low_confidence_repo(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -1658,6 +1790,17 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["reason"], "ok")
             self.assertEqual(output["recommended_next_action"], "record_executor_result")
             self.assertFalse(output["executor_started"])
+            audit_ref = output["audit_record"]
+            self.assertEqual(audit_ref["event"], "executor_result_validation")
+            audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(audit_lines), 1)
+            record = json.loads(audit_lines[0])
+            self.assertEqual(record["schema_version"], "cadence-audit.v1")
+            self.assertEqual(record["event"], "executor_result_validation")
+            self.assertEqual(record["action"], "record_executor_result")
+            self.assertEqual(record["task_id"], "candidate-1")
+            self.assertTrue(record["valid"])
+            self.assertTrue(record["payload_checksum"].startswith("sha256:"))
 
     def test_validate_executor_result_command_exits_nonzero_for_invalid_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -12,6 +12,9 @@ All notable public changes to Agentic Cadence are documented here.
 - Added `examples/adapter-claim-verifier/run.py` to turn compact adapter
   evidence into a generic-only or named-host-claim decision before any
   host-specific support claim is documented.
+- Added initial `loop-tick --policy-file` support for local executor-task
+  path/check/runtime/stop-condition bounds and compact audit records for
+  loop decisions and executor-result validation.
 
 ### Changed
 
