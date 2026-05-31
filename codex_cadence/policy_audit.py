@@ -84,6 +84,8 @@ def repo_relative_path(value: Any) -> str | None:
     if not isinstance(value, str) or not value.strip():
         return None
     raw = value.replace("\\", "/").strip()
+    if "\0" in raw:
+        return None
     if raw.startswith("/") or ":" in raw:
         return None
     normalized = raw.strip("/")
@@ -122,7 +124,7 @@ def normalize_string_list(policy: dict[str, Any], field: str) -> list[str]:
         return []
     if not isinstance(values, list) or any(not isinstance(value, str) or not value.strip() for value in values):
         raise ValueError(f"loop policy {field} must be a list of non-empty strings")
-    return list(values)
+    return [value.strip() for value in values]
 
 
 def load_loop_policy(path: str | None) -> dict[str, Any]:

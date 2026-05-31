@@ -1381,10 +1381,11 @@ def main(argv: list[str] | None = None) -> int:
         if requires_root or args.root is not None:
             args.root = (args.root if args.root is not None else default_root()).expanduser().resolve()
             if (requires_root or getattr(args, "guards_optional_root", False)) and not args.allow_repo_local_root:
-                target_cwd = Path(getattr(args, "cwd", Path.cwd()))
-                issue = runtime_root_safety_issue(args.root, target_cwd)
-                if issue:
-                    raise ValueError(issue)
+                if requires_root:
+                    target_cwd = Path(getattr(args, "cwd", Path.cwd()))
+                    issue = runtime_root_safety_issue(args.root, target_cwd)
+                    if issue:
+                        raise ValueError(issue)
                 if getattr(args, "guards_optional_root", False):
                     issue = runtime_root_location_safety_issue(args.root)
                     if issue:

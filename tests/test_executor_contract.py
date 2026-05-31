@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from codex_cadence.executor_contract import (
+    DEFAULT_EXECUTOR_STOP_CONDITIONS,
     build_executor_task_packet,
     validate_executor_result_evidence,
     validate_executor_task_packet,
@@ -65,7 +66,7 @@ def valid_task_packet(tmp):
         required_checks=["python -m unittest tests.test_executor_contract"],
         max_minutes=30,
         max_tasks=1,
-        stop_conditions=["brake_not_drive", "operator_stop", "context_pressure", "timeout"],
+        stop_conditions=DEFAULT_EXECUTOR_STOP_CONDITIONS,
         evidence_path=Path(tmp) / "executor-result.json",
     )
 
@@ -736,10 +737,17 @@ class ExecutorContractTests(unittest.TestCase):
 
     def test_task_packet_rejects_relative_expected_evidence_path(self):
         with tempfile.TemporaryDirectory() as tmp:
-            packet = valid_task_packet(Path(tmp))
-            packet["expected_output"]["evidence_path"] = "executor-result.json"
+            cases = [
+                "executor-result.json",
+                f"{Path(tmp).anchor}bad\0result.json",
+            ]
 
-            valid, reason = validate_executor_task_packet(packet)
+            for evidence_path in cases:
+                with self.subTest(evidence_path=evidence_path):
+                    packet = valid_task_packet(Path(tmp))
+                    packet["expected_output"]["evidence_path"] = evidence_path
 
-            self.assertFalse(valid)
-            self.assertEqual(reason, "executor task expected_output.evidence_path must be absolute")
+                    valid, reason = validate_executor_task_packet(packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, "executor task expected_output.evidence_path must be absolute")

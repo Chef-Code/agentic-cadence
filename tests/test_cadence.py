@@ -1610,6 +1610,80 @@ class CadenceCliTests(unittest.TestCase):
                 ["brake_not_drive", "operator_stop", "context_pressure", "timeout", "requires_review", "custom_stop"],
             )
 
+    def test_loop_tick_policy_file_trims_checks_and_stop_conditions(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "allowed_paths": ["codex_cadence"],
+                        "required_checks": [" python -m unittest tests.test_cadence "],
+                        "stop_conditions": [" requires_review "],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--policy-file",
+                str(policy_file),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            executor_task = output["executor_task"]
+            self.assertEqual(executor_task["required_checks"], ["python -m unittest tests.test_cadence"])
+            self.assertEqual(
+                executor_task["stop_conditions"],
+                ["brake_not_drive", "operator_stop", "context_pressure", "timeout", "requires_review"],
+            )
+
+    def test_loop_tick_policy_file_rejects_allowed_path_with_nul(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "allowed_paths": ["codex_cadence\0bad"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--policy-file",
+                str(policy_file),
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("loop policy allowed_paths[0] must be repo-relative", result.stderr)
+
     def test_loop_tick_keeps_builtin_stop_conditions_with_cli_additions(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)

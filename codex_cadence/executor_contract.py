@@ -402,7 +402,7 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
     evidence_path = expected_output.get("evidence_path")
     if not _non_empty_string(evidence_path):
         return False, "executor task expected_output.evidence_path is required"
-    if not Path(evidence_path).expanduser().is_absolute():
+    if _normalized_filesystem_path(evidence_path) is None:
         return False, "executor task expected_output.evidence_path must be absolute"
     permissions = packet.get("permissions")
     if not isinstance(permissions, dict):
