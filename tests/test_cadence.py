@@ -2278,10 +2278,27 @@ class CadenceCliTests(unittest.TestCase):
 
     def test_validate_executor_result_audits_malformed_repo_path_shape(self):
         with tempfile.TemporaryDirectory() as tmp:
-            task_packet = {
-                "schema_version": "generic-executor-task.v1",
-                "repo": {"path": ["bad"]},
-            }
+            task_packet = build_executor_task_packet(
+                task={
+                    "id": "candidate-1",
+                    "title": "Implement bounded executor task",
+                    "summary": "Create generic executor evidence.",
+                    "task_type": "execution",
+                    "bucket": "S",
+                    "source": "text_marker",
+                    "drivers": [],
+                    "evidence": {"path": "docs/roadmap.md"},
+                },
+                snapshot=valid_snapshot(cwd=str(Path(tmp).resolve())),
+                repo_path=tmp,
+                allowed_paths=["codex_cadence"],
+                required_checks=["python -m unittest tests.test_executor_contract"],
+                max_minutes=30,
+                max_tasks=1,
+                stop_conditions=DEFAULT_EXECUTOR_STOP_CONDITIONS,
+                evidence_path=Path(tmp) / "executor-result.json",
+            )
+            task_packet["repo"]["path"] = ["bad"]
             result_evidence = {"schema_version": "generic-executor-result.v1"}
             task_path = Path(tmp) / "executor-task.json"
             result_path = Path(tmp) / "executor-result.json"
@@ -2301,7 +2318,7 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["valid"])
             self.assertEqual(
                 output["reason"],
-                "invalid executor task packet: executor task protocol_version is invalid",
+                "invalid executor task packet: executor task repo.path is required",
             )
             audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
             self.assertEqual(len(audit_lines), 1)
