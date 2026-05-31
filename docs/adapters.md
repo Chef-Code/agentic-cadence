@@ -32,12 +32,13 @@ any other named implementation host.
 
 `loop-tick --emit-executor-task` can attach a
 `generic-executor-task.v1` packet when an elected task is available and local
-repo confidence is not low. The packet records task identity, repo path,
-branch/head snapshot, allowed repo-relative paths, required checks, positive
-time/task limits, stop conditions, and the expected result evidence path.
-Task-packet validation checks the embedded local repo snapshot, requires its
-repo/cwd/branch/head to match the packet repo anchor, and rejects dirty or
-low-confidence snapshots. Cadence still sets `executor_started: false`.
+repo confidence is not low. The packet records task identity, repo name,
+absolute repo path, branch/head snapshot, allowed repo-relative paths, required
+checks, positive time/task limits, stop conditions, and the expected result
+evidence path. Task-packet validation checks the embedded local repo snapshot,
+requires non-empty repo identity, requires absolute local cwd/path anchors,
+requires repo/cwd/branch/head to match the packet repo anchor, and rejects dirty
+or low-confidence snapshots. Cadence still sets `executor_started: false`.
 
 Executor result evidence uses `generic-executor-result.v1` and is checked by
 `validate-executor-result`. The evidence must report executor id, timestamps,

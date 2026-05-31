@@ -81,6 +81,12 @@ It includes:
 - read-only candidate discovery from local repo signals, saved review
   findings, saved GitHub review-thread files, text markers, and business
   memory;
+- read-only `loop-tick` orchestration that emits a governed next-action packet
+  without starting execution, epoch mutation, PR actions, review spend, merge,
+  release, or publication;
+- generic executor task/result packet validation, including local snapshot
+  trust-anchor checks for repo name, absolute cwd/path, branch, head, dirty
+  worktree, and low-confidence state;
 - deterministic PR body preflight and PR readiness checks from saved local
   inputs;
 - release dry-run checks that require operator confirmation before tag or
@@ -140,7 +146,7 @@ host adapter claims remain gated by generic evidence:
 The following capabilities are not implemented as of this baseline:
 
 - continuous loop runner;
-- implementation executor contract;
+- real executor invocation or named executor adapter integration;
 - autonomous code modification;
 - branch, commit, push, and PR creation workflow;
 - live GitHub PR, check, comment, and review-thread synchronization;
@@ -326,8 +332,9 @@ The first generic executor contract now defines and validates
 --emit-executor-task` can attach a bounded task packet for operator approval,
 and `validate-executor-result` can validate local evidence. Task-packet
 validation now treats the embedded local repo snapshot as a trust anchor by
-validating snapshot shape/readiness, requiring repo/cwd/branch/head
-consistency, and rejecting dirty or low-confidence snapshots. No real executor
+validating snapshot shape/readiness, requiring non-empty repo identity,
+absolute cwd/path consistency, branch/head consistency, and rejecting dirty,
+low-confidence, relative-path, or mismatched snapshots. No real executor
 applies code changes yet.
 
 Likely files: `docs/adapters.md`, `examples/adapter-template`,
@@ -482,7 +489,8 @@ new blockers.
 ## Open Questions
 
 - What repository should be used for the first controlled demo loop?
-- What executor evidence schema is sufficient for 50% confidence?
+- What additional executor evidence and policy controls are sufficient for 50%
+  confidence once a real executor is invoked?
 - Which commands and paths should be allowed by the default local policy?
 - How much PR automation can be enabled before human approval becomes
   mandatory?

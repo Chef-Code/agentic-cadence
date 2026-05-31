@@ -216,7 +216,7 @@ agentic-cadence --root examples/first-run/work/runtime loop-tick --cwd examples/
 
 The command does not start an executor, start or complete an epoch, create a branch, commit, push, open a PR, spend review, or merge. Without executor-task emission, it stops with `recommended_next_action` set to `blocked`, `no_candidates`, `approval_required`, or `requires_executor_contract`.
 
-When an elected task exists, `--emit-executor-task` can attach a generic executor task packet for operator approval. The packet includes allowed paths, required checks, stop conditions, limits, and the expected result-evidence path, but Cadence still does not run the executor:
+When an elected task exists, `--emit-executor-task` can attach a generic executor task packet for operator approval. The packet includes repo identity, an absolute repo path, allowed paths, required checks, stop conditions, limits, and the expected result-evidence path. Cadence validates the embedded local snapshot as a trust anchor before accepting the packet, but it still does not run the executor:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime loop-tick --cwd examples/first-run/work/repo --repo local/demo --intent repo_health --emit-executor-task --allowed-path . --required-check "python -m unittest discover -s tests" > loop-tick.json

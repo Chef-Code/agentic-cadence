@@ -26,8 +26,9 @@ loop. Three smaller stabilization slices are now part of this baseline:
   evidence is not gated by saved-JSON age policy.
 - Executor task trust-anchor validation: task-packet validation binds the
   embedded local repo snapshot to the packet `repo/cwd/branch/head` anchor and
-  rejects malformed, dirty, low-confidence, relative-path, or mismatched
-  snapshots before execution is approved.
+  rejects missing repo identity, malformed snapshots, dirty snapshots,
+  low-confidence snapshots, relative or unnormalizable cwd/path anchors, and
+  mismatched snapshots before execution is approved.
 
 These changes reduce state-awareness footguns. The current tree also includes
 the Phase 1 read-only `loop-tick` command for the first slice and a generic
@@ -151,8 +152,8 @@ Current evidence:
 - `validate-executor-result` can validate local result evidence against the
   task packet;
 - task-packet validation checks the embedded local repo snapshot, requires its
-  repo/cwd/branch/head to match the packet repo anchor, and rejects dirty or
-  low-confidence snapshots;
+  repo/cwd/branch/head to match the packet repo anchor, and rejects missing
+  repo identity, dirty, low-confidence, relative-path, or mismatched snapshots;
 - successful result evidence must include command evidence, validation
   evidence, and a resulting head attestation;
 - disabled commit, push, and PR-creation permissions reject common
@@ -184,8 +185,9 @@ Validation needed:
   evidence;
 - done: forbidden commit, push, PR creation, and head-change evidence
   rejection;
-- done: malformed, dirty, low-confidence, branch/head-mismatched, or repo/cwd
-  anchor-mismatched embedded task snapshots;
+- done: malformed, missing-name, relative-path, dirty, low-confidence,
+  branch/head-mismatched, or repo/cwd anchor-mismatched embedded task
+  snapshots;
 - done: disallowed changed path;
 - done: dirty successful result rejection;
 - remaining: real executor timeout behavior, external executor invocation,

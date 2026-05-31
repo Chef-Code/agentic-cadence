@@ -1,7 +1,7 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-05-30
+Last updated: 2026-05-31
 Baseline: released 0.1.3 tree
 Current unattended-operation confidence: 10%
 
@@ -48,6 +48,9 @@ runtime can do these things end-to-end:
   packet;
 - emit a generic executor task packet for operator approval without starting an
   executor;
+- validate that executor task packets are anchored to the embedded local repo
+  snapshot by requiring matching repo name, absolute cwd/path, branch, head,
+  clean worktree, and non-low repo confidence;
 - validate local generic executor result evidence against a task packet;
 - size tasks and enforce pickup policy;
 - start, check, complete, or fail bounded epochs;
@@ -98,7 +101,7 @@ Agentic Cadence cannot currently:
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
 | Single loop tick | Partial, read-only | `loop-tick` emits next action and stops before execution |
 | Continuous loop runner | Not built | Planned slice |
-| Executor adapter contract | Partial generic contract | Task/result packet validation exists, but no real executor |
+| Executor adapter contract | Partial generic contract | Task/result packet validation exists, including snapshot trust-anchor checks, but no real executor |
 | Autonomous implementation | Not built | Requires real executor integration |
 | Live GitHub sync | Not built | Planned slice |
 | Branch/commit/push/PR creation | Not built | Planned slice |
@@ -112,9 +115,10 @@ No.
 
 It can inspect and suggest. It can run a read-only loop tick that produces a
 structured next action. It can emit a generic executor task packet for operator
-approval and validate local executor result evidence. It can govern handoff and
-continuation decisions. It can evaluate saved PR evidence. It cannot perform
-the core build loop by itself.
+approval, validate the packet's local snapshot trust anchor, and validate local
+executor result evidence. It can govern handoff and continuation decisions. It
+can evaluate saved PR evidence. It cannot perform the core build loop by
+itself.
 
 The current loop stops after:
 
@@ -130,18 +134,18 @@ start the next session after a handoff.
 
 ## What Would Break First
 
-The first likely failure in a real unattended run is still missing live
-synchronization. Repo snapshots are local git snapshots, and PR readiness reads
-saved input files. Cadence now labels `local_only`, `saved_input`, `stale`, and
-caller-asserted `live_like` evidence, but it still does not fetch or reconcile
-live PR, review, or CI state. Snapshot validation rejects missing or malformed
-local readiness evidence, and stale saved PR evidence waits before acting on
-blockers, but those checks only prevent overtrust in local files.
+The first hard stop in a real unattended run is still execution. Cadence can
+emit a bounded executor task packet and reject malformed, dirty, low-confidence,
+relative-path, or mismatched snapshot anchors, but it does not invoke a real
+executor or apply code changes.
 
 The next likely failures are:
 
-1. no real executor exists to safely implement the emitted task packet;
-2. no branch/commit/push/PR workflow exists;
+1. no branch/commit/push/PR workflow exists;
+2. missing live synchronization. Repo snapshots are local git snapshots, and PR
+   readiness reads saved input files. Cadence labels `local_only`,
+   `saved_input`, `stale`, and caller-asserted `live_like` evidence, but it
+   still does not fetch or reconcile live PR, review, or CI state;
 3. review comments and failing checks are not automatically synchronized back
    into the candidate loop;
 4. context pressure is only known when a host explicitly reports it;
@@ -198,6 +202,9 @@ Reasoning:
   state, and next-action reporting into one packet.
 - The generic executor task/result contract is now explicit and testable, but
   it is not wired to a real executor.
+- Executor task packets now fail closed on malformed local snapshots, missing
+  repo identity, relative or unnormalizable cwd/path anchors, repo/cwd/branch/head
+  mismatches, dirty worktrees, and low-confidence repo state.
 - The handoff and task/epoch model is useful.
 - Candidate discovery is deterministic and conservative.
 - Adapter contracts are tested at the public CLI boundary.

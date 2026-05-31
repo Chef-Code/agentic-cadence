@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-05-30
+Last updated: 2026-05-31
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption
@@ -27,6 +27,45 @@ Consequences:
 Open questions:
 - Remaining unknowns.
 ```
+
+## 2026-05-31 - Bind executor task packets to local snapshot trust anchors
+
+Decision:
+- Executor task packets must include a non-empty repo name and absolute repo
+  path.
+- Task-packet validation must validate the embedded local repo snapshot and
+  require snapshot repo, cwd, branch, and head to match the packet repo anchor.
+- Dirty, low-confidence, malformed, relative-path, unnormalizable-path, or
+  mismatched snapshot anchors must fail before execution can be approved.
+
+Why:
+- A task packet is the boundary between Cadence and an external implementation
+  executor. It must not borrow clean snapshot evidence from one checkout while
+  directing work at another checkout.
+- Relative paths make the same packet context-dependent because they resolve
+  against the validator process, not a stable repo identity.
+- Requiring explicit repo identity keeps the documented trust anchor from
+  becoming optional.
+
+Alternatives considered:
+- Validate only branch and head. Rejected because two checkouts can share a
+  branch/head while representing different local paths or packet repo anchors.
+- Allow relative paths and resolve them at validation time. Rejected because it
+  makes validation depend on the caller's current working directory.
+- Qualify docs to say repo identity is checked only when present. Rejected
+  because executor task packets should be stricter than generic local metadata.
+
+Consequences:
+- The generic executor contract is safer for a controlled external-executor
+  demo.
+- Task packets remain local, generic, and approval-gated; Cadence still does
+  not run a real executor, commit, push, or open PRs.
+
+Open questions:
+- Should the next slice record task-packet validation as an append-only audit
+  event before any executor result is accepted?
+- Should future live repo evidence sign the repo anchor or keep local snapshot
+  validation as the first gate?
 
 ## 2026-05-30 - Keep executor integration behind a generic task/result contract
 
