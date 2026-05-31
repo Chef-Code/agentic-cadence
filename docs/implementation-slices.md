@@ -118,13 +118,14 @@ Minimum task packet should include:
 
 - task id;
 - title and summary;
-- repo path;
-- branch/head snapshot;
+- repo identity and absolute repo path;
+- embedded local snapshot with matching repo/cwd/branch/head;
 - allowed paths;
 - required checks;
 - time/task limits;
 - stop conditions;
-- expected output evidence path.
+- expected output evidence path;
+- clean worktree and non-low repo confidence.
 
 Minimum result evidence should include:
 
