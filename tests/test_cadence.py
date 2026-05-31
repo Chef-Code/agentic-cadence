@@ -2236,6 +2236,40 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(record["task_packet_checksum"], checksum_json(task_packet))
             self.assertEqual(record["result_evidence_checksum"], checksum_json(result_evidence))
 
+    def test_validate_executor_result_audits_malformed_repo_path_string(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = {
+                "schema_version": "generic-executor-task.v1",
+                "repo": {"path": "C:/bad\u0000path"},
+            }
+            result_evidence = {"schema_version": "generic-executor-result.v1"}
+            task_path = Path(tmp) / "executor-task.json"
+            result_path = Path(tmp) / "executor-result.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+            result_path.write_text(json.dumps(result_evidence), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "validate-executor-result",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(
+                output["reason"],
+                "invalid executor task packet: executor task protocol_version is invalid",
+            )
+            audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(audit_lines), 1)
+            record = json.loads(audit_lines[0])
+            self.assertEqual(record["event"], "executor_result_validation")
+            self.assertEqual(record["task_packet_checksum"], checksum_json(task_packet))
+            self.assertEqual(record["result_evidence_checksum"], checksum_json(result_evidence))
+
     def test_validate_executor_result_rejects_repo_local_root_with_malformed_task_packet(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)

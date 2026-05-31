@@ -26,7 +26,7 @@ def run_git(cwd: str | Path, *args: str) -> str:
 def git_repo_root(cwd: str | Path) -> Path | None:
     try:
         return Path(run_git(cwd, "rev-parse", "--show-toplevel")).resolve()
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
         return None
 
 

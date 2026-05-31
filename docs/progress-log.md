@@ -50,7 +50,7 @@ Summary:
   packet's absolute expected evidence path.
 - Hardened root-backed result validation so malformed task packets cannot
   bypass repo-local runtime-root safety even when the command is launched from
-  outside that repo.
+  outside that repo or carries malformed repo path shapes.
 - Tightened task-packet validation so built-in safety stops and absolute
   expected evidence paths are required before result evidence can validate.
 
@@ -75,6 +75,7 @@ Evidence:
 - `python -m py_compile codex_cadence\policy_audit.py codex_cadence\cli.py codex_cadence\store.py codex_cadence\executor_contract.py`
 - `python -m unittest tests.test_cadence.CadenceCliTests.test_loop_tick_keeps_builtin_stop_conditions_with_cli_additions tests.test_cadence.CadenceCliTests.test_loop_tick_policy_file_bounds_executor_task_packet tests.test_cadence.CadenceCliTests.test_loop_tick_policy_file_keeps_policy_stop_conditions_with_cli_additions tests.test_cadence.CadenceCliTests.test_validate_executor_result_rejects_unexpected_result_file_path tests.test_cadence.CadenceCliTests.test_validate_executor_result_rejects_repo_local_root_with_malformed_task_packet tests.test_cadence.CadenceCliTests.test_validate_executor_result_audits_malformed_task_packet tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_reports_valid_evidence tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_exits_nonzero_for_invalid_evidence`
 - `python -m unittest tests.test_executor_contract.ExecutorContractTests.test_task_packet_rejects_missing_builtin_stop_conditions tests.test_executor_contract.ExecutorContractTests.test_task_packet_rejects_relative_expected_evidence_path tests.test_cadence.CadenceCliTests.test_validate_executor_result_audits_malformed_repo_path_shape tests.test_cadence.CadenceCliTests.test_validate_executor_result_rejects_repo_local_root_from_outside_repo_with_malformed_task_packet`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_validate_executor_result_audits_malformed_repo_path_string tests.test_cadence.CadenceCliTests.test_validate_executor_result_audits_malformed_repo_path_shape tests.test_cadence.CadenceCliTests.test_validate_executor_result_rejects_repo_local_root_from_outside_repo_with_malformed_task_packet tests.test_executor_contract.ExecutorContractTests.test_task_packet_rejects_missing_builtin_stop_conditions tests.test_executor_contract.ExecutorContractTests.test_task_packet_rejects_relative_expected_evidence_path`
 - `python -m unittest tests.test_cadence tests.test_executor_contract`
 - `python -m py_compile codex_cadence\policy_audit.py codex_cadence\cli.py codex_cadence\store.py codex_cadence\executor_contract.py codex_cadence\repo_state.py`
 - `python -m unittest discover -s tests` timed out after 304 seconds and is
