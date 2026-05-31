@@ -8,7 +8,7 @@ Last updated: 2026-05-31
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
 - Base branch for this handoff work: `origin/main` at `72370e61847f5b50108ef74604bd0af90cc30fda`.
 - Working branch: `codex/audit-replay-cli`
-- Pull request: not opened yet.
+- Pull request: PR #56, `https://github.com/Chef-Code/agentic-cadence/pull/56`
 - Recent merged PRs: PR #54 merged the audit replay design spec; PR #55 merged the documentation refresh that marked audit replay as designed but unimplemented.
 - Current branch intent: implement the read-only `audit-replay` command described by `docs/designs/2026-05-31-audit-replay-design.md`.
 
@@ -42,4 +42,4 @@ python scripts/verify_package.py
 
 ## Next Action
 
-Run the full local validation set, run local review agents, address findings, then open the audit replay implementation PR.
+Continue PR #56, monitor checks and review feedback, address any findings, then mark ready for review or merge when the operator is satisfied.
