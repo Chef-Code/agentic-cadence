@@ -214,7 +214,22 @@ Business-memory candidates are discovery-only. They can seed investigation, but 
 agentic-cadence --root examples/first-run/work/runtime loop-tick --cwd examples/first-run/work/repo --repo local/demo --intent repo_health
 ```
 
-The command does not start an executor, start or complete an epoch, create a branch, commit, push, open a PR, spend review, or merge. It stops with `recommended_next_action` set to `blocked`, `no_candidates`, `approval_required`, or `requires_executor_contract`.
+The command does not start an executor, start or complete an epoch, create a branch, commit, push, open a PR, spend review, or merge. Without executor-task emission, it stops with `recommended_next_action` set to `blocked`, `no_candidates`, `approval_required`, or `requires_executor_contract`.
+
+When an elected task exists, `--emit-executor-task` can attach a generic executor task packet for operator approval. The packet includes allowed paths, required checks, stop conditions, limits, and the expected result-evidence path, but Cadence still does not run the executor:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime loop-tick --cwd examples/first-run/work/repo --repo local/demo --intent repo_health --emit-executor-task --allowed-path . --required-check "python -m unittest discover -s tests" > loop-tick.json
+python -c "import json; print(json.dumps(json.load(open('loop-tick.json'))['executor_task'], indent=2))" > executor-task.json
+```
+
+The task packet is nested under `executor_task` in the `loop-tick` packet. It must be saved before validating returned executor evidence.
+
+Executor result evidence can be checked without running an executor:
+
+```bash
+agentic-cadence validate-executor-result --task-file executor-task.json --result-file executor-result.json
+```
 
 ## Context Handoff Preparation
 

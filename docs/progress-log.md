@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-05-30
+Last updated: 2026-05-31
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,98 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-05-31 - Executor contract review hardening
+
+Summary:
+- Tightened result validation so successful executor evidence cannot be empty
+  when no required checks are configured.
+- Required successful executor evidence to include a resulting head attestation.
+- Hardened disabled commit, push, and PR-creation checks against common
+  absolute-path, git/gh global-option, and shell-wrapper command forms.
+
+Completed slices:
+- Generic Executor Adapter Contract: Partial.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: the generic boundary is stricter, but Agentic Cadence still does not
+  run executors, manage branches, open PRs, or resume unattended loops.
+
+Evidence:
+- `python -m unittest tests.test_executor_contract`
+- `python -m unittest tests.test_executor_contract tests.test_cadence`
+- `python scripts/validate_protocol.py`
+- `python -m unittest discover -s tests`
+- `git diff --check`
+
+New risks or blockers:
+- Task-packet snapshot trust-boundary validation remains a follow-up before
+  treating task packets as a stronger standalone trust anchor.
+
+Docs updated:
+- `docs/protocol.md`
+- `docs/adapters.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+
+## 2026-05-30 - Generic executor contract Phase 1
+
+Summary:
+- Added a generic executor task/result contract without selecting a named host
+  adapter.
+- `loop-tick --emit-executor-task` can attach a bounded executor task packet for
+  operator approval while keeping `executor_started`, `epoch_started`, and
+  `pr_action_started` false.
+- Added `validate-executor-result` to validate local executor result evidence
+  against a task packet without running an executor.
+- Hardened result validation after review so successful evidence must prove
+  required checks passed, cannot report forbidden head changes, and cannot
+  report disabled commit, push, or PR-creation commands.
+- Hardened task-packet validation to reject unsupported protocol versions and
+  updated the non-emitting loop-tick reason to point operators toward emitting
+  a task packet.
+
+Completed slices:
+- Generic Executor Adapter Contract: Partial.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: the missing executor boundary is now explicit and testable, but no
+  real executor, epoch execution flow, branch/commit/PR automation, or live
+  review sync exists yet.
+
+Evidence:
+- `python -m unittest tests.test_executor_contract`
+- `python -m unittest tests.test_executor_contract tests.test_cadence`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_loop_tick_can_emit_generic_executor_task_without_starting_execution`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_reports_valid_evidence`
+- `python scripts/validate_protocol.py`
+- `python -m unittest discover -s tests`
+- Review hardening follow-up: `python -m unittest tests.test_executor_contract`
+- Review hardening follow-up: `python -m unittest tests.test_cadence.CadenceCliTests.test_loop_tick_stops_at_executor_contract_for_elected_candidate tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_reports_valid_evidence tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_exits_nonzero_for_invalid_evidence`
+- Review hardening follow-up: `python -m unittest tests.test_executor_contract tests.test_cadence`
+- Review hardening follow-up: `python scripts/validate_protocol.py`
+- Review hardening follow-up: `python -m unittest discover -s tests`
+- CodeRabbit follow-up: `python -m unittest tests.test_executor_contract tests.test_cadence.CadenceCliTests.test_loop_tick_stops_at_executor_contract_for_elected_candidate tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_reports_valid_evidence tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_exits_nonzero_for_invalid_evidence`
+- CodeRabbit follow-up: `python -m unittest tests.test_executor_contract tests.test_cadence`
+- CodeRabbit follow-up: `python scripts/validate_protocol.py`
+- CodeRabbit follow-up: `python -m unittest discover -s tests`
+
+New risks or blockers:
+- Real executor invocation, timeout handling, branch/commit behavior, epoch
+  completion/failure integration, and audit logging remain unimplemented.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/adapters.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/decision-log.md`
 
 ## 2026-05-30 - Read-only single-tick loop Phase 1
 
@@ -232,8 +324,8 @@ Evidence:
 - Current implemented commands and docs show local state inspection,
   candidate discovery, task sizing, handoffs, PR readiness from saved inputs,
   release dry-run, and generic adapter contracts.
-- Current gaps remain: no executor contract, no continuous loop runner, no
-  branch/commit/push/PR creation, no live GitHub sync, no automatic
+- At that point, gaps remained: no executor contract, no continuous loop
+  runner, no branch/commit/push/PR creation, no live GitHub sync, no automatic
   session-resume orchestration.
 
 New risks or blockers:

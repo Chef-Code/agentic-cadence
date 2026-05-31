@@ -46,6 +46,9 @@ runtime can do these things end-to-end:
 - run one read-only `loop-tick` that snapshots local repo state,
   discovers/elects candidates, checks Cadence state, and emits a next-action
   packet;
+- emit a generic executor task packet for operator approval without starting an
+  executor;
+- validate local generic executor result evidence against a task packet;
 - size tasks and enforce pickup policy;
 - start, check, complete, or fail bounded epochs;
 - prepare a signed handoff packet and clean-square evidence;
@@ -68,8 +71,7 @@ must provide equivalent workflow wiring before those checks are available.
 Agentic Cadence cannot currently:
 
 - implement code changes by itself;
-- choose a task and hand it to a real executor through a formal implementation
-  contract;
+- choose a task and hand it to a real executor;
 - create a branch;
 - commit changes;
 - push to a remote;
@@ -96,8 +98,8 @@ Agentic Cadence cannot currently:
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
 | Single loop tick | Partial, read-only | `loop-tick` emits next action and stops before execution |
 | Continuous loop runner | Not built | Planned slice |
-| Executor adapter contract | Not built | Planned slice |
-| Autonomous implementation | Not built | Requires executor contract |
+| Executor adapter contract | Partial generic contract | Task/result packet validation exists, but no real executor |
+| Autonomous implementation | Not built | Requires real executor integration |
 | Live GitHub sync | Not built | Planned slice |
 | Branch/commit/push/PR creation | Not built | Planned slice |
 | Review response loop | Partial local ingestion only | Saved review files can become candidates |
@@ -109,19 +111,22 @@ Agentic Cadence cannot currently:
 No.
 
 It can inspect and suggest. It can run a read-only loop tick that produces a
-structured next action. It can govern handoff and continuation decisions. It
-can evaluate saved PR evidence. It cannot perform the core build loop by
-itself.
+structured next action. It can emit a generic executor task packet for operator
+approval and validate local executor result evidence. It can govern handoff and
+continuation decisions. It can evaluate saved PR evidence. It cannot perform
+the core build loop by itself.
 
 The current loop stops after:
 
 ```text
-inspect repo -> discover/elect candidate -> emit blocked/no_candidates/approval_required/requires_executor_contract
+inspect repo -> discover/elect candidate -> emit blocked/no_candidates/approval_required/requires_executor_contract/approve_executor_task
 ```
 
-At `requires_executor_contract`, a human or external agent still has to
-implement code changes, run checks, commit, push, open or update a PR, fetch
-review feedback, and start the next session after a handoff.
+At `requires_executor_contract`, a human or external agent still has to request
+an executor task packet. At `approve_executor_task`, a human or external agent
+still has to approve execution, implement code changes, run checks, provide
+result evidence, commit, push, open or update a PR, fetch review feedback, and
+start the next session after a handoff.
 
 ## What Would Break First
 
@@ -135,7 +140,7 @@ blockers, but those checks only prevent overtrust in local files.
 
 The next likely failures are:
 
-1. no executor exists to safely implement the elected task;
+1. no real executor exists to safely implement the emitted task packet;
 2. no branch/commit/push/PR workflow exists;
 3. review comments and failing checks are not automatically synchronized back
    into the candidate loop;
@@ -191,6 +196,8 @@ Reasoning:
 - Safety and governance primitives are real.
 - A read-only `loop-tick` now stitches snapshot, candidate election, Cadence
   state, and next-action reporting into one packet.
+- The generic executor task/result contract is now explicit and testable, but
+  it is not wired to a real executor.
 - The handoff and task/epoch model is useful.
 - Candidate discovery is deterministic and conservative.
 - Adapter contracts are tested at the public CLI boundary.

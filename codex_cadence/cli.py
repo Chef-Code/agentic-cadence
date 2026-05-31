@@ -16,6 +16,11 @@ from typing import Any
 from codex_cadence import PROTOCOL_VERSION
 from codex_cadence.candidates import DISCOVERY_INTENTS, DISCOVERY_MODES, PROPOSAL_ALLOWANCES, CandidateBudget
 from codex_cadence.candidates import discover_candidates
+from codex_cadence.executor_contract import (
+    build_executor_task_packet,
+    validate_executor_result_evidence,
+    validate_executor_task_packet,
+)
 from codex_cadence.epochs import complete_epoch as complete_epoch_record
 from codex_cadence.epochs import CONTINUE, ASK_APPROVAL
 from codex_cadence.epochs import completed_continue_count
@@ -75,6 +80,13 @@ def non_negative_int(value: str) -> int:
         raise argparse.ArgumentTypeError("must be a non-negative integer") from exc
     if parsed < 0:
         raise argparse.ArgumentTypeError("must be a non-negative integer")
+    return parsed
+
+
+def positive_int(value: str) -> int:
+    parsed = non_negative_int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
     return parsed
 
 
@@ -920,7 +932,7 @@ def loop_tick_recommendation(
         return "approval_required", "repo confidence is low", True, False
     if not elected_next:
         return "no_candidates", "no elected candidate", False, False
-    return "requires_executor_contract", "executor contract is not implemented", False, True
+    return "requires_executor_contract", "executor task packet has not been emitted", False, True
 
 
 def loop_tick_command(args: argparse.Namespace) -> int:
@@ -967,10 +979,43 @@ def loop_tick_command(args: argparse.Namespace) -> int:
         snapshot,
         elected_next,
     )
+    tick_id = f"loop-tick-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}"
+    executor_task = None
+    if args.emit_executor_task and recommended_next_action == "requires_executor_contract":
+        evidence_path = args.executor_evidence_path or str(root / "executor-results" / f"{tick_id}.json")
+        executor_task = build_executor_task_packet(
+            task=elected_next[0],
+            snapshot=snapshot,
+            repo_path=args.cwd,
+            allowed_paths=args.allowed_path or ["."],
+            required_checks=args.required_check or [],
+            max_minutes=args.executor_time_limit_minutes,
+            max_tasks=1,
+            stop_conditions=args.stop_condition
+            or ["brake_not_drive", "operator_stop", "context_pressure", "timeout"],
+            evidence_path=evidence_path,
+        )
+        valid_task, invalid_reason = validate_executor_task_packet(executor_task)
+        if not valid_task:
+            raise ValueError(f"invalid executor task packet: {invalid_reason}")
+        recommended_next_action = "approve_executor_task"
+        reason = "executor task packet emitted for operator approval"
+        operator_confirmation_required = True
+        executor_contract_required = False
+    limitations = ["phase1_read_only"]
+    if executor_task is None:
+        limitations.append("executor_contract_not_implemented")
+    limitations.extend(
+        [
+            "executor_not_started",
+            "git_pr_automation_not_implemented",
+            "live_pr_review_sync_not_implemented",
+        ]
+    )
     payload = {
         "protocol_version": PROTOCOL_VERSION,
         "packet": "loop_tick",
-        "tick_id": f"loop-tick-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}",
+        "tick_id": tick_id,
         "mode": "single_tick",
         "read_only": True,
         "executor_started": False,
@@ -985,15 +1030,32 @@ def loop_tick_command(args: argparse.Namespace) -> int:
         "snapshot": snapshot,
         "candidate_discovery": discovery,
         "elected_next": elected_next,
-        "limitations": [
-            "phase1_read_only",
-            "executor_contract_not_implemented",
-            "git_pr_automation_not_implemented",
-            "live_pr_review_sync_not_implemented",
-        ],
+        "executor_task": executor_task,
+        "limitations": limitations,
     }
     emit(payload)
     return 0
+
+
+def validate_executor_result_command(args: argparse.Namespace) -> int:
+    task_file = Path(args.task_file)
+    result_file = Path(args.result_file)
+    task_packet = read_json(task_file)
+    result_evidence = read_json(result_file)
+    valid, reason = validate_executor_result_evidence(result_evidence, task_packet)
+    emit(
+        {
+            "protocol_version": PROTOCOL_VERSION,
+            "packet": "executor_result_validation",
+            "valid": valid,
+            "reason": reason,
+            "task_file": str(task_file),
+            "result_file": str(result_file),
+            "executor_started": False,
+            "recommended_next_action": "record_executor_result" if valid else "fix_executor_evidence",
+        }
+    )
+    return 0 if valid else 1
 
 
 def pr_readiness_command(args: argparse.Namespace) -> int:
@@ -1152,7 +1214,21 @@ def build_parser() -> argparse.ArgumentParser:
     loop_tick_parser.add_argument("--max-business-memory-candidates", type=int, default=5)
     loop_tick_parser.add_argument("--max-proposals", type=int, default=3)
     loop_tick_parser.add_argument("--max-product-evolution-candidates-in-hybrid", type=int, default=1)
+    loop_tick_parser.add_argument("--emit-executor-task", action="store_true")
+    loop_tick_parser.add_argument("--allowed-path", action="append", default=[])
+    loop_tick_parser.add_argument("--required-check", action="append", default=[])
+    loop_tick_parser.add_argument("--executor-time-limit-minutes", type=positive_int, default=30)
+    loop_tick_parser.add_argument("--executor-evidence-path")
+    loop_tick_parser.add_argument("--stop-condition", action="append", default=[])
     loop_tick_parser.set_defaults(func=loop_tick_command)
+
+    executor_result_parser = subparsers.add_parser(
+        "validate-executor-result",
+        help="Validate generic executor result evidence against a task packet",
+    )
+    executor_result_parser.add_argument("--task-file", required=True)
+    executor_result_parser.add_argument("--result-file", required=True)
+    executor_result_parser.set_defaults(func=validate_executor_result_command, requires_root=False)
 
     readiness_parser = subparsers.add_parser("pr-readiness", help="Evaluate a saved PR JSON readiness packet")
     readiness_parser.add_argument("--pr-json-file", required=True)

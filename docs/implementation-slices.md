@@ -64,7 +64,8 @@ Current evidence:
 - self-check continuation rules exist;
 - `loop-tick` captures and persists a snapshot, runs candidate discovery with
   election enabled, checks Cadence state, and emits `blocked`,
-  `no_candidates`, `approval_required`, or `requires_executor_contract`;
+  `no_candidates`, `approval_required`, `requires_executor_contract`, or
+  `approve_executor_task`;
 - `loop-tick` is explicitly read-only and reports `executor_started: false`,
   `epoch_started: false`, and `pr_action_started: false`;
 - no command yet starts an epoch, hands work to an executor, records validation,
@@ -102,7 +103,7 @@ generic, bounded, and does not push, merge, or release.
 
 ## 2. Generic Executor Adapter Contract
 
-Status: Not started
+Status: Partial
 
 Goal: define a generic contract for how Cadence asks an implementation executor
 to perform a task and how that executor returns evidence.
@@ -130,14 +131,25 @@ Minimum result evidence should include:
 - summary;
 - confidence;
 - blockers;
-- resulting head SHA when available.
+- dirty-worktree status;
+- resulting head SHA for successful results.
 
 Current evidence:
 
 - adapter template exists;
 - generic host-signal contract exists;
 - adapter contract runner exists;
-- no implementation executor contract exists.
+- `generic-executor-task.v1` and `generic-executor-result.v1` validation
+  helpers exist;
+- `loop-tick --emit-executor-task` can attach a generic executor task packet
+  for operator approval without starting execution;
+- `validate-executor-result` can validate local result evidence against the
+  task packet;
+- successful result evidence must include command evidence, validation
+  evidence, and a resulting head attestation;
+- disabled commit, push, and PR-creation permissions reject common
+  absolute-path, git/gh global-option, and shell-wrapper command forms;
+- no real executor or named host adapter exists.
 
 Why it matters: Cadence cannot implement work until execution is a formal,
 bounded, inspectable boundary.
@@ -157,12 +169,17 @@ Suggested implementation size: medium
 
 Validation needed:
 
-- fake executor succeeds;
-- fake executor fails;
-- executor times out;
-- executor returns malformed evidence;
-- executor changes disallowed path;
-- executor leaves dirty state unexpectedly.
+- done: fake executor success, failure, and stopped/timeout-shaped evidence;
+- done: blocked executor result evidence;
+- done: malformed timestamp order;
+- done: required-check command and validation enforcement for successful
+  evidence;
+- done: forbidden commit, push, PR creation, and head-change evidence
+  rejection;
+- done: disallowed changed path;
+- done: dirty successful result rejection;
+- remaining: real executor timeout behavior, external executor invocation,
+  branch/commit handling, and epoch completion/failure integration.
 
 Codex implementation rule: Codex can implement the generic contract directly.
 Named host adapters require explicit operator approval.
