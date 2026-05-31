@@ -45,6 +45,17 @@ def run_cli_without_root(*args: str, env: dict[str, str], cwd: Path | None = Non
     return result, output
 
 
+def run_cadence_cli(root: Path, *args: str):
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT), "--root", str(root), *args],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    output = json.loads(result.stdout) if result.stdout.strip() else None
+    return result, output
+
+
 def git(cwd: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=cwd, text=True, capture_output=True, check=True)
 
@@ -167,6 +178,30 @@ class AuditReplayCliTests(unittest.TestCase):
             self.assertEqual(output["records_invalid"], 0)
             self.assertEqual(output["events_by_type"], {})
             self.assertEqual(output["blockers"], [])
+
+    def test_replays_loop_tick_audit_record_when_repo_argument_is_omitted(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            root = Path(tmp)
+            repo_path = Path(repo)
+            init_committed_repo(repo_path)
+
+            tick_result, tick_output = run_cadence_cli(
+                root,
+                "loop-tick",
+                "--cwd",
+                str(repo_path),
+                "--intent",
+                "repo_health",
+            )
+            replay_result, replay_output = run_cli(root, "audit-replay")
+
+            self.assertEqual(tick_result.returncode, 0, tick_result.stderr)
+            self.assertEqual(tick_output["snapshot"]["repo"], None)
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay_output["valid"])
+            self.assertEqual(replay_output["events_by_type"], {"loop_tick_decision": 1})
+            record = json.loads((root / "audit" / "events.jsonl").read_text(encoding="utf-8"))
+            self.assertEqual(record["repo"], str(repo_path.resolve()))
 
     def test_valid_records_are_counted_by_event_type(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -355,6 +390,7 @@ class AuditReplayCliTests(unittest.TestCase):
             self.assertEqual(output["lines_seen"], 0)
             self.assertEqual(output["records_seen"], 0)
             self.assertEqual(blocker_codes(output), ["audit_file_unreadable"])
+            self.assertEqual(output["blockers"][0]["message"], "audit file could not be read")
 
     def test_runtime_root_inside_repo_is_rejected_unless_allowed(self):
         with tempfile.TemporaryDirectory() as repo:

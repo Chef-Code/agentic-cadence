@@ -197,6 +197,9 @@ The packet must include the brake and Cadence state, the persisted snapshot, the
 When `--policy-file` is supplied, it must be local JSON with `schema_version: cadence-loop-policy.v1`. The initial policy shape supports `allowed_paths`, `denied_paths`, `required_checks`, `max_executor_time_minutes`, and `stop_conditions`. Policy paths are repo-relative. Policy `allowed_paths` and max runtime provide defaults and caps for emitted executor task packets. Built-in safety stops `brake_not_drive`, `operator_stop`, `context_pressure`, and `timeout` must always be retained. Policy `required_checks` and `stop_conditions` must always be retained, and requested CLI checks or stop conditions are additive after de-duplication. Requested executor allowed paths must stay inside policy `allowed_paths` and must not overlap `denied_paths`; requested runtime must not exceed `max_executor_time_minutes`; malformed requested allowed paths fail closed before a task packet is emitted. A policy denial must emit a `policy_denied` loop packet, require operator attention, and avoid emitting an executor task.
 
 Each root-backed `loop-tick` must append a compact `cadence-audit.v1` record to `<root>/audit/events.jsonl` and include an `audit_record` reference in the returned packet. The audit record binds the decision to the tick id, recommended action, reason, repo, branch, head, snapshot id, optional executor task id, operator-confirmation flag, and a checksum of the emitted packet before the audit reference is added.
+When the operator omits `--repo`, the loop-decision audit record uses the
+resolved snapshot `cwd` as the local repo anchor so replay can still validate
+the compact record.
 
 `audit-replay` is the read-only local audit verification command. It reads
 `<root>/audit/events.jsonl`, emits an `audit-replay.v1` packet, and exits

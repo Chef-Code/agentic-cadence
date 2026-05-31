@@ -241,7 +241,7 @@ def replay_audit_log(root: Path) -> dict[str, Any]:
             events_by_type={},
             blockers=[audit_replay_blocker("audit_file_decode_failed", "audit file is not valid UTF-8")],
         )
-    except OSError as exc:
+    except OSError:
         return audit_replay_packet(
             root,
             audit_exists=True,
@@ -249,7 +249,7 @@ def replay_audit_log(root: Path) -> dict[str, Any]:
             records_valid=0,
             records_invalid=0,
             events_by_type={},
-            blockers=[audit_replay_blocker("audit_file_unreadable", f"audit file could not be read: {exc}")],
+            blockers=[audit_replay_blocker("audit_file_unreadable", "audit file could not be read")],
         )
 
     return audit_replay_packet(
@@ -287,7 +287,7 @@ def loop_tick_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
         "tick_id": payload.get("tick_id"),
         "action": payload.get("recommended_next_action"),
         "reason": payload.get("reason"),
-        "repo": snapshot.get("repo"),
+        "repo": snapshot.get("repo") or snapshot.get("cwd"),
         "branch": snapshot.get("branch"),
         "head": snapshot.get("head"),
         "snapshot_id": snapshot.get("id"),
