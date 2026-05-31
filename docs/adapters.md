@@ -35,7 +35,9 @@ any other named implementation host.
 repo confidence is not low. The packet records task identity, repo path,
 branch/head snapshot, allowed repo-relative paths, required checks, positive
 time/task limits, stop conditions, and the expected result evidence path.
-Cadence still sets `executor_started: false`.
+Task-packet validation checks the embedded local repo snapshot, requires its
+repo/cwd/branch/head to match the packet repo anchor, and rejects dirty or
+low-confidence snapshots. Cadence still sets `executor_started: false`.
 
 Executor result evidence uses `generic-executor-result.v1` and is checked by
 `validate-executor-result`. The evidence must report executor id, timestamps,

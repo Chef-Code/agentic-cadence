@@ -1,7 +1,7 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-05-30
+Last updated: 2026-05-31
 Baseline: released 0.1.3 tree
 Current unattended-operation confidence: 10%
 
@@ -324,7 +324,10 @@ Current evidence: adapter templates and generic host-binding contracts exist.
 The first generic executor contract now defines and validates
 `generic-executor-task.v1` and `generic-executor-result.v1`; `loop-tick
 --emit-executor-task` can attach a bounded task packet for operator approval,
-and `validate-executor-result` can validate local evidence. No real executor
+and `validate-executor-result` can validate local evidence. Task-packet
+validation now treats the embedded local repo snapshot as a trust anchor by
+validating snapshot shape/readiness, requiring repo/cwd/branch/head
+consistency, and rejecting dirty or low-confidence snapshots. No real executor
 applies code changes yet.
 
 Likely files: `docs/adapters.md`, `examples/adapter-template`,

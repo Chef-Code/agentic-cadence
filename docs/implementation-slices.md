@@ -1,7 +1,7 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-05-30
+Last updated: 2026-05-31
 Baseline: released 0.1.3 tree
 
 This document tracks the smallest implementation slices expected to move
@@ -10,10 +10,10 @@ in constrained controlled operation with pre-approved unattended ticks.
 
 Each slice should ship with tests, evidence, and updates to the living docs.
 
-## Current Baseline After PR #47
+## Current Baseline After PR #51
 
 The five 50% confidence slices below remain the work needed for a controlled
-loop. Two smaller stabilization slices are already merged:
+loop. Three smaller stabilization slices are now part of this baseline:
 
 - Runtime-root safety guard: root-using CLI commands reject unignored
   repo-local runtime roots unless the operator explicitly allows them, while
@@ -24,12 +24,17 @@ loop. Two smaller stabilization slices are already merged:
   future-dated saved PR evidence waits and recommends refresh before acting on
   blockers; negative max-age values are rejected; caller-asserted `live_like`
   evidence is not gated by saved-JSON age policy.
+- Executor task trust-anchor validation: task-packet validation binds the
+  embedded local repo snapshot to the packet `repo/cwd/branch/head` anchor and
+  rejects malformed, dirty, low-confidence, relative-path, or mismatched
+  snapshots before execution is approved.
 
 These changes reduce state-awareness footguns. The current tree also includes
-the Phase 1 read-only `loop-tick` command for the first slice, but it still
-does not add the missing executor contract, live GitHub synchronization,
-branch/commit/push or PR creation, or automatic resume orchestration. Current
-unattended-operation confidence remains 10%.
+the Phase 1 read-only `loop-tick` command for the first slice and a generic
+executor task/result contract, but it still does not add live GitHub
+synchronization, branch/commit/push or PR creation, real executor invocation,
+or automatic resume orchestration. Current unattended-operation confidence
+remains 10%.
 
 ## Slice Status Key
 
@@ -145,6 +150,9 @@ Current evidence:
   for operator approval without starting execution;
 - `validate-executor-result` can validate local result evidence against the
   task packet;
+- task-packet validation checks the embedded local repo snapshot, requires its
+  repo/cwd/branch/head to match the packet repo anchor, and rejects dirty or
+  low-confidence snapshots;
 - successful result evidence must include command evidence, validation
   evidence, and a resulting head attestation;
 - disabled commit, push, and PR-creation permissions reject common
@@ -176,6 +184,8 @@ Validation needed:
   evidence;
 - done: forbidden commit, push, PR creation, and head-change evidence
   rejection;
+- done: malformed, dirty, low-confidence, branch/head-mismatched, or repo/cwd
+  anchor-mismatched embedded task snapshots;
 - done: disallowed changed path;
 - done: dirty successful result rejection;
 - remaining: real executor timeout behavior, external executor invocation,
