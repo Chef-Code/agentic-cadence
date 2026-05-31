@@ -121,6 +121,19 @@ class ExecutorContractTests(unittest.TestCase):
             self.assertEqual(packet["limits"]["max_tasks"], 1)
             self.assertTrue(str(packet["expected_output"]["evidence_path"]).endswith("executor-result.json"))
 
+    def test_accepts_clean_medium_confidence_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = valid_task_packet(Path(tmp))
+            packet["snapshot"]["repo_confidence"] = "medium"
+
+            valid, reason = validate_executor_task_packet(packet)
+
+            self.assertTrue(valid, reason)
+
+            result_valid, result_reason = validate_executor_result_evidence(valid_result(), packet)
+
+            self.assertTrue(result_valid, result_reason)
+
     def test_task_packet_rejects_absolute_or_parent_allowed_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             packet = valid_task_packet(Path(tmp))
@@ -147,6 +160,93 @@ class ExecutorContractTests(unittest.TestCase):
 
             self.assertFalse(valid)
             self.assertEqual(reason, "executor task protocol_version is invalid")
+
+    def test_task_packet_rejects_invalid_embedded_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = valid_task_packet(Path(tmp))
+            packet["snapshot"].pop("readiness_evidence")
+
+            valid, reason = validate_executor_task_packet(packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor task snapshot is invalid: snapshot readiness_evidence is required")
+
+    def test_task_packet_rejects_snapshot_repo_or_cwd_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = [
+                (
+                    {"repo": "other/repo"},
+                    {},
+                    "executor task snapshot repo must match repo.name",
+                ),
+                (
+                    {"cwd": str(Path(tmp) / "other-checkout")},
+                    {},
+                    "executor task snapshot cwd must match repo.path",
+                ),
+                (
+                    {},
+                    {"path": str(Path(tmp) / "other-checkout")},
+                    "executor task snapshot cwd must match repo.path",
+                ),
+            ]
+
+            for snapshot_updates, repo_updates, expected_reason in cases:
+                with self.subTest(reason=expected_reason):
+                    packet = valid_task_packet(Path(tmp))
+                    packet["snapshot"].update(snapshot_updates)
+                    packet["repo"].update(repo_updates)
+
+                    valid, reason = validate_executor_task_packet(packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
+
+    def test_task_packet_rejects_snapshot_branch_or_head_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = [
+                (
+                    {"branch": "feature"},
+                    "executor task snapshot branch must match repo.branch",
+                ),
+                (
+                    {"head": "def456"},
+                    "executor task snapshot head must match repo.head",
+                ),
+            ]
+
+            for snapshot_updates, expected_reason in cases:
+                with self.subTest(reason=expected_reason):
+                    packet = valid_task_packet(Path(tmp))
+                    packet["snapshot"].update(snapshot_updates)
+
+                    valid, reason = validate_executor_task_packet(packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
+
+    def test_task_packet_rejects_low_confidence_or_dirty_snapshot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = [
+                (
+                    {"repo_confidence": "low", "repo_confidence_drivers": ["red_ci"]},
+                    "executor task snapshot repo_confidence must not be low",
+                ),
+                (
+                    {"dirty_worktree": True, "repo_confidence": "low", "repo_confidence_drivers": ["dirty_worktree"]},
+                    "executor task snapshot dirty_worktree must be false",
+                ),
+            ]
+
+            for snapshot_updates, expected_reason in cases:
+                with self.subTest(reason=expected_reason):
+                    packet = valid_task_packet(Path(tmp))
+                    packet["snapshot"].update(snapshot_updates)
+
+                    valid, reason = validate_executor_task_packet(packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
 
     def test_task_packet_rejects_unknown_task_type_and_bucket(self):
         with tempfile.TemporaryDirectory() as tmp:

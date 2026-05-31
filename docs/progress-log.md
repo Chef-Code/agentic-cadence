@@ -33,6 +33,43 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-05-31 - Executor task trust-anchor validation
+
+Summary:
+- Executor task packet validation now validates the embedded local repo
+  snapshot before accepting the packet as a task/result trust anchor.
+- Task packets now fail validation when snapshot repo/cwd/branch/head does not
+  match the packet repo anchor.
+- Task packets now fail validation when the embedded snapshot is dirty or
+  low-confidence.
+
+Completed slices:
+- Generic Executor Adapter Contract: Partial.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: task/result validation is safer, but Cadence still does not run a
+  real executor, manage branches, open PRs, or resume unattended loops.
+
+Evidence:
+- `python -m unittest tests.test_executor_contract`
+- `python -m unittest tests.test_executor_contract tests.test_cadence`
+- `python scripts/validate_protocol.py`
+- `git diff --check`
+- `python -m unittest discover -s tests`
+
+New risks or blockers:
+- Real executor invocation, timeout handling, branch/commit behavior, epoch
+  completion/failure integration, and audit logging remain unimplemented.
+
+Docs updated:
+- `docs/protocol.md`
+- `docs/adapters.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-05-31 - Executor contract review hardening
 
 Summary:

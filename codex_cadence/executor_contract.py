@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import shlex
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -8,6 +9,7 @@ from typing import Any
 
 from codex_cadence import PROTOCOL_VERSION
 from codex_cadence.model import BUCKETS, TASK_TYPES
+from codex_cadence.repo_state import validate_repo_snapshot
 from codex_cadence.store import utc_now
 
 EXECUTOR_TASK_SCHEMA_VERSION = "generic-executor-task.v1"
@@ -84,6 +86,15 @@ def _repo_relative_path(value: Any) -> str | None:
     if path.is_absolute() or any(part in {"", ".."} for part in path.parts):
         return None
     return path.as_posix()
+
+
+def _normalized_filesystem_path(value: Any) -> str | None:
+    if not _non_empty_string(value):
+        return None
+    try:
+        return os.path.normcase(str(Path(value).expanduser().resolve(strict=False)))
+    except (OSError, RuntimeError):
+        return None
 
 
 def _path_allowed(path: str, allowed_paths: list[str]) -> bool:
@@ -338,6 +349,21 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
     snapshot = packet.get("snapshot")
     if not isinstance(snapshot, dict) or snapshot.get("id") is None:
         return False, "executor task snapshot with id is required"
+    valid_snapshot, snapshot_reason = validate_repo_snapshot(snapshot)
+    if not valid_snapshot:
+        return False, f"executor task snapshot is invalid: {snapshot_reason}"
+    if _non_empty_string(repo.get("name")) and snapshot.get("repo") != repo["name"]:
+        return False, "executor task snapshot repo must match repo.name"
+    if _normalized_filesystem_path(snapshot.get("cwd")) != _normalized_filesystem_path(repo.get("path")):
+        return False, "executor task snapshot cwd must match repo.path"
+    if snapshot.get("branch") != repo["branch"]:
+        return False, "executor task snapshot branch must match repo.branch"
+    if snapshot.get("head") != repo["head"]:
+        return False, "executor task snapshot head must match repo.head"
+    if snapshot.get("dirty_worktree") is not False:
+        return False, "executor task snapshot dirty_worktree must be false"
+    if snapshot.get("repo_confidence") == "low":
+        return False, "executor task snapshot repo_confidence must not be low"
     allowed_paths = packet.get("allowed_paths")
     if not _is_string_list(allowed_paths) or not allowed_paths:
         return False, "executor task allowed_paths must be a non-empty list of strings"
