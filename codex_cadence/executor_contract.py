@@ -92,6 +92,8 @@ def _repo_relative_path(value: Any) -> str | None:
 def _normalized_filesystem_path(value: Any) -> str | None:
     if not _non_empty_string(value):
         return None
+    if "\0" in value:
+        return None
     try:
         path = Path(value)
         if not path.is_absolute():

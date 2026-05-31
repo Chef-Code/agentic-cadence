@@ -225,6 +225,7 @@ class ExecutorContractTests(unittest.TestCase):
 
     def test_task_packet_rejects_relative_or_unresolvable_repo_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
+            malformed_absolute_path = f"{Path(tmp).anchor}bad\0path"
             cases = [
                 (
                     ".",
@@ -244,6 +245,11 @@ class ExecutorContractTests(unittest.TestCase):
                 (
                     "bad\0path",
                     str(Path(tmp)),
+                    "executor task snapshot cwd and repo.path must be absolute local paths",
+                ),
+                (
+                    malformed_absolute_path,
+                    malformed_absolute_path,
                     "executor task snapshot cwd and repo.path must be absolute local paths",
                 ),
             ]
