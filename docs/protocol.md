@@ -6,13 +6,46 @@ Reference implementation: `codex_cadence/cli.py`
 
 ## Concepts
 
-Agentic Cadence has five core concepts:
+Agentic Cadence has five core concepts today:
 
 - `handoff`: a durable message that lets a new coding-agent session continue from a precise point.
 - `signature`: a machine-detectable marker that tells automation a handoff is ready.
 - `cadence state`: the operator-facing football state that controls whether automation may continue.
 - `brake`: the legacy persisted state behind Cadence state, retained for compatibility.
 - `clean-square`: the shutdown routine for the old session after a handoff is safely written.
+
+Future orchestration concepts include:
+
+- `orchestrator`: the future policy authority that decides whether to continue, stop, retry, split, review, or hand off work.
+- `agent role`: a bounded responsibility such as planning, architecture, build, review, QA, documentation, release, or handoff.
+- `handoff contract`: the explicit state package that transfers work between sessions or between roles.
+
+The current implementation mainly exercises the single-agent Phase 1 path. The
+protocol should not assume that only one agent exists forever.
+
+## GitHub-Native Orchestration Model
+
+The long-term coordination surface is GitHub-native: issues or recorded
+decisions define work, assignees or role claims establish ownership, branches
+isolate implementation, pull requests expose changes, reviews and CI gate
+quality, documentation keeps the repository aligned, and merges advance stable
+`main`.
+
+Cadence should govern that workflow rather than bypass it. Future agent-team
+orchestration must preserve these invariants:
+
+- no agent edits `main` directly;
+- every implementation happens on a branch;
+- every meaningful change produces a pull request;
+- validation runs before merge;
+- review is separate from implementation when possible;
+- handoff is explicit when work crosses a session or role boundary;
+- small bounded slices are preferred over large ambiguous work.
+
+Current commands do not implement role assignment, live GitHub synchronization,
+branch creation, PR creation, or merge authority. Protocol language that
+mentions agent roles or an agent pool is a design target unless a command
+explicitly documents otherwise.
 
 ## Runtime State
 
@@ -96,6 +129,13 @@ Allowed statuses:
 5. A fresh coding-agent session receives the handoff message.
 6. The old session runs clean-square and stops active work.
 7. The new session marks the handoff completed or failed.
+
+In the team-orchestration model, the same lifecycle also applies across roles:
+a Planning Agent can hand a decomposed task to a Builder Agent, a Builder Agent
+can hand a PR to a Reviewer Agent, a QA Agent can hand failures back to a
+Builder Agent, and a Documentation Agent can record architecture or behavior
+changes after merge. Role handoffs must be explicit and verifiable, not
+implicit transcript memory.
 
 ## Prepare Handoff
 

@@ -6,7 +6,9 @@ Baseline: released 0.1.3 tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
-in constrained controlled operation with pre-approved unattended ticks.
+in constrained controlled operation with pre-approved unattended ticks. That
+50% target remains a Phase 1 single-agent path. The longer-term product
+direction is GitHub-native orchestration for multiple cooperating agents.
 
 Each slice should ship with tests, evidence, and updates to the living docs.
 
@@ -34,8 +36,22 @@ These changes reduce state-awareness footguns. The current tree also includes
 the Phase 1 read-only `loop-tick` command for the first slice and a generic
 executor task/result contract, but it still does not add live GitHub
 synchronization, branch/commit/push or PR creation, real executor invocation,
-or automatic resume orchestration. Current unattended-operation confidence
-remains 10%.
+automatic resume orchestration, agent-role assignment, agent-pool coordination,
+or enforced review separation. Current unattended-operation confidence remains
+10%.
+
+## Vision Framing
+
+The existing slices are still the right foundation. Task election becomes work
+ownership; epochs bound each agent's effort; executor packets become role
+handoff contracts; validation gates and PR readiness become merge evidence; and
+review findings become follow-up candidates.
+
+Future work should avoid assuming there is only one agent. Even when a slice
+uses one implementation agent, packet fields, audit records, branch policy,
+handoff records, and review gates should remain compatible with a future
+orchestrator that can coordinate Planning, Architecture, Builder, Reviewer, QA,
+Documentation, Release, and Handoff agents.
 
 ## Slice Status Key
 
@@ -374,6 +390,27 @@ low-risk constrained operation with pre-approved unattended ticks is 45% to
 This does not mean production-autonomous operation. It means a controlled loop
 can run under policy, make bounded progress, stop safely, and leave an audit
 trail.
+
+## Future Agent-Team Orchestration Slices
+
+These are not part of the immediate 50% confidence target, but they should
+shape design choices now:
+
+- GitHub-native work registry: bind elected work to an issue, task id, or
+  recorded decision before implementation starts.
+- Agent role registry: record role, permissions, owner identity, branch, task,
+  and handoff contract for each active agent.
+- Branch and PR ownership: prevent duplicate work by making branch/PR claims
+  visible to other agents before they start.
+- Review separation: prove that the Reviewer Agent is distinct from the
+  Builder Agent when policy requires separation.
+- QA and documentation gates: route test failures and living-doc updates to
+  explicit roles instead of letting implementation sessions silently decide.
+- Release and merge decision packets: separate merge authority from build and
+  review work, with evidence-backed readiness.
+- Cross-role handoff contracts: support Builder-to-Reviewer,
+  Reviewer-to-Builder, QA-to-Builder, Documentation-to-Release, and
+  session-to-session handoffs using the same durable handoff model.
 
 ## Slice Completion Checklist
 

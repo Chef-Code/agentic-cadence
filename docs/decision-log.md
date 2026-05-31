@@ -28,6 +28,55 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-05-31 - Reframe Cadence as GitHub-native agent-team orchestration
+
+Decision:
+- Agentic Cadence should be described as a governance and orchestration layer
+  for autonomous software teams, not only as a continuous coding loop for one
+  agent.
+- The current single-agent flow remains Phase 1 and should continue to work.
+- Future architecture should evaluate primitives by how well they support
+  GitHub-native coordination across agent roles, branches, pull requests,
+  reviews, CI, documentation, handoff contracts, and merge decisions.
+- Documentation may describe future Planning, Architecture, Builder, Reviewer,
+  QA, Documentation, Release, and Handoff agent roles, but must not imply those
+  roles are implemented before evidence exists.
+
+Why:
+- GitHub already provides the coordination model that prevents teams from
+  duplicating work or breaking each other's changes.
+- The main risk for autonomous coding agents is ungoverned momentum: duplicate
+  work, conflicting changes, stale docs, hallucinated assumptions, context
+  overload, huge branches, roadmap drift, and merges without evidence.
+- Existing Cadence primitives are not wasted; task election, epochs,
+  validation, PR readiness, reviews, handoffs, and living docs are the right
+  foundation for later multi-agent coordination.
+
+Alternatives considered:
+- Keep all documentation centered on one long-running agent. Rejected because
+  it would bias future packet schemas, audit records, and roadmap work toward
+  a narrower product than the architecture can support.
+- Rewrite implementation toward team orchestration immediately. Rejected
+  because the current request is vision and documentation alignment only, and
+  the Phase 1 safety foundation is still the right next implementation path.
+- Invent a coordination model outside GitHub. Rejected because issues,
+  assignees, branches, pull requests, reviews, CI, documentation, and merges
+  already provide the durable coordination surface.
+
+Consequences:
+- Roadmap language should frame the current loop as Phase 1.
+- Handoff should be documented as a coordination primitive across sessions and
+  roles, not only as a context-pressure escape hatch.
+- Future work should avoid assumptions that only one agent exists.
+- Confidence remains 10% because no new implementation capability shipped.
+
+Open questions:
+- What issue/task identity should bind a future role claim to a branch and PR?
+- What identity and audit model proves review separation without making local
+  use too heavy?
+- Which team-orchestration slice should follow the controlled single-agent
+  loop once the Phase 1 evidence target is met?
+
 ## 2026-05-31 - Bind executor task packets to local snapshot trust anchors
 
 Decision:

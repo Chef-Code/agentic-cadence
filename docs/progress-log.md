@@ -33,6 +33,48 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-05-31 - Agent-team orchestration vision alignment
+
+Summary:
+- Reframed Agentic Cadence as a GitHub-native governance and orchestration
+  layer for autonomous software teams.
+- Clarified that the current single-agent workflow remains Phase 1 rather than
+  wasted work or the final product shape.
+- Added future role language for Planning, Architecture, Builder, Reviewer,
+  QA, Documentation, Release, and Handoff agents.
+- Reinterpreted handoff as a general coordination primitive across sessions
+  and roles.
+
+Completed slices:
+- None. This was documentation and roadmap alignment only.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: the vision is clearer, but no new implementation capability was
+  added.
+
+Evidence:
+- `python -m unittest tests.test_executor_contract tests.test_cadence`
+- `python scripts/validate_protocol.py`
+- `git diff --check`
+
+New risks or blockers:
+- The future agent-team model will require GitHub-native issue/task ownership,
+  role identity, review separation, live synchronization, distributed locking,
+  and audit semantics before it can be claimed as implemented.
+
+Docs updated:
+- `README.md`
+- `docs/agent-team-orchestration.md`
+- `docs/protocol.md`
+- `docs/adapters.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
 ## 2026-05-31 - Current documentation refresh after PR #51
 
 Summary:
