@@ -97,7 +97,7 @@ def valid_result(**overrides):
         "confidence": "high",
         "blockers": [],
         "dirty_worktree": False,
-        "resulting_head": "def456",
+        "resulting_head": "abc123",
     }
     result.update(overrides)
     return result
@@ -156,12 +156,13 @@ class ExecutorContractTests(unittest.TestCase):
             self.assertFalse(valid)
             self.assertEqual(reason, "executor task task.bucket must be one of XS, S, M, L, XL")
 
-    def test_accepts_success_failure_and_stopped_result_evidence(self):
+    def test_accepts_success_failure_blocked_and_stopped_result_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:
             task_packet = valid_task_packet(Path(tmp))
             cases = [
                 valid_result(status="succeeded", blockers=[], dirty_worktree=False),
                 valid_result(status="failed", blockers=["unit test failed"], dirty_worktree=True, resulting_head=None),
+                valid_result(status="blocked", blockers=["operator approval needed"], dirty_worktree=True, resulting_head=None),
                 valid_result(status="stopped", blockers=["timeout"], dirty_worktree=True, resulting_head=None),
             ]
 
@@ -189,6 +190,151 @@ class ExecutorContractTests(unittest.TestCase):
 
             self.assertFalse(valid)
             self.assertEqual(reason, "executor result dirty_worktree must be false when status is succeeded")
+
+    def test_result_evidence_rejects_success_without_required_check_results(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            evidence = valid_result(commands_run=[], validation_results=[])
+
+            valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(
+                reason,
+                "executor result missing required check command: python -m unittest tests.test_executor_contract",
+            )
+
+    def test_result_evidence_rejects_success_when_required_check_fails_or_is_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            cases = [
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 1,
+                            }
+                        ],
+                    ),
+                    "executor result required check command failed: python -m unittest tests.test_executor_contract",
+                ),
+                (
+                    valid_result(
+                        validation_results=[
+                            {
+                                "name": "executor-contract-tests",
+                                "status": "skipped",
+                                "command": "python -m unittest tests.test_executor_contract",
+                            }
+                        ],
+                    ),
+                    "executor result required check validation did not pass: python -m unittest tests.test_executor_contract",
+                ),
+                (
+                    valid_result(
+                        validation_results=[
+                            {
+                                "name": "unrelated-check",
+                                "status": "passed",
+                                "command": "python -m unittest tests.test_cadence",
+                            }
+                        ],
+                    ),
+                    "executor result missing required check validation: python -m unittest tests.test_executor_contract",
+                ),
+            ]
+
+            for evidence, expected_reason in cases:
+                with self.subTest(reason=expected_reason):
+                    valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
+
+    def test_result_evidence_rejects_success_with_failed_validation_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            evidence = valid_result(
+                validation_results=[
+                    {
+                        "name": "executor-contract-tests",
+                        "status": "passed",
+                        "command": "python -m unittest tests.test_executor_contract",
+                    },
+                    {
+                        "name": "other-check",
+                        "status": "failed",
+                    },
+                ]
+            )
+
+            valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor result successful status requires all validation_results to pass")
+
+    def test_result_evidence_rejects_forbidden_head_change_or_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            cases = [
+                (
+                    valid_result(resulting_head="def456"),
+                    "executor result resulting_head must match task repo head when commits are forbidden",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "git commit -m change",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled commit permission",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "git push origin HEAD",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "gh pr create --fill",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled PR creation permission",
+                ),
+            ]
+
+            for evidence, expected_reason in cases:
+                with self.subTest(reason=expected_reason):
+                    valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
 
     def test_result_evidence_rejects_malformed_timestamp_order(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -43,6 +43,9 @@ Summary:
   `pr_action_started` false.
 - Added `validate-executor-result` to validate local executor result evidence
   against a task packet without running an executor.
+- Hardened result validation after review so successful evidence must prove
+  required checks passed, cannot report forbidden head changes, and cannot
+  report disabled commit, push, or PR-creation commands.
 
 Completed slices:
 - Generic Executor Adapter Contract: Partial.
@@ -61,6 +64,11 @@ Evidence:
 - `python -m unittest tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_reports_valid_evidence`
 - `python scripts/validate_protocol.py`
 - `python -m unittest discover -s tests`
+- Review hardening follow-up: `python -m unittest tests.test_executor_contract`
+- Review hardening follow-up: `python -m unittest tests.test_cadence.CadenceCliTests.test_loop_tick_stops_at_executor_contract_for_elected_candidate tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_reports_valid_evidence tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_exits_nonzero_for_invalid_evidence`
+- Review hardening follow-up: `python -m unittest tests.test_executor_contract tests.test_cadence`
+- Review hardening follow-up: `python scripts/validate_protocol.py`
+- Review hardening follow-up: `python -m unittest discover -s tests`
 
 New risks or blockers:
 - Real executor invocation, timeout handling, branch/commit behavior, epoch

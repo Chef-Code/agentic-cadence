@@ -296,9 +296,10 @@ Status: partial. Phase 1 implements a read-only `loop-tick` command.
 Current evidence: `loop-tick` captures and persists a local repo snapshot,
 runs deterministic candidate discovery with election enabled, checks Cadence
 state, and emits `blocked`, `no_candidates`, `approval_required`, or
-`requires_executor_contract`. It sets `executor_started`, `epoch_started`, and
-`pr_action_started` to false. It does not yet start an epoch, hand work to an
-executor, run validation, complete or fail epochs, or drive PR/handoff
+`requires_executor_contract`; with `--emit-executor-task`, it can emit
+`approve_executor_task`. It sets `executor_started`, `epoch_started`, and
+`pr_action_started` to false. It does not yet start an epoch, hand work to a
+real executor, run execution, complete or fail epochs, or drive PR/handoff
 decisions after execution.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/candidates.py`,
@@ -330,8 +331,9 @@ Likely files: `docs/adapters.md`, `examples/adapter-template`,
 `examples/adapter-contract-runner`, `codex_cadence/model.py`,
 `codex_cadence/cli.py`, tests.
 
-Validation: fake executor success, failure, stopped/timeout-shaped evidence,
-malformed timestamp order, dirty success rejection, invalid task paths, and
+Validation: fake executor success, failure, blocked, stopped/timeout-shaped
+evidence, malformed timestamp order, required-check enforcement, forbidden
+head-change/command rejection, dirty success rejection, invalid task paths, and
 disallowed changed files.
 
 Codex can implement the generic contract directly. Named host adapters require

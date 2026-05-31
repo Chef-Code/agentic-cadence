@@ -41,8 +41,11 @@ Executor result evidence uses `generic-executor-result.v1` and is checked by
 `validate-executor-result`. The evidence must report executor id, timestamps,
 status, files changed, commands run, validation results, summary, confidence,
 blockers, dirty-worktree status, and resulting head SHA when available.
-Successful evidence must not report a dirty worktree, and changed files must
-stay within the task packet's allowed paths.
+Successful evidence must not report a dirty worktree, must show every required
+check command with exit code `0`, and must include matching passed validation
+results. Changed files must stay within the task packet's allowed paths, and
+reported commands/results must not violate disabled commit, push, PR, or head
+change permissions.
 
 This contract only defines the boundary between Cadence and an external
 executor. It does not run a shell command, create a branch, commit, push, open a

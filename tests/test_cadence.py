@@ -1426,6 +1426,7 @@ class CadenceCliTests(unittest.TestCase):
             self.assertTrue(output["executor_contract_required"])
             self.assertFalse(output["executor_started"])
             self.assertFalse(output["epoch_started"])
+            self.assertIn("executor_contract_not_implemented", output["limitations"])
             self.assertEqual(output["cadence"]["state"], "PLAY_ON")
             self.assertEqual(output["snapshot"]["repo_confidence"], "high")
             self.assertEqual(output["elected_next"][0]["source"], "text_marker")
@@ -1637,7 +1638,7 @@ class CadenceCliTests(unittest.TestCase):
                 "confidence": "high",
                 "blockers": [],
                 "dirty_worktree": False,
-                "resulting_head": "def456",
+                "resulting_head": valid_snapshot(cwd=str(root))["head"],
             }
             task_path = root / "executor-task.json"
             task_path.write_text(json.dumps(task_packet), encoding="utf-8")
@@ -1657,6 +1658,64 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["reason"], "ok")
             self.assertEqual(output["recommended_next_action"], "record_executor_result")
             self.assertFalse(output["executor_started"])
+
+    def test_validate_executor_result_command_exits_nonzero_for_invalid_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence_path = root / "executor-result.json"
+            task_packet = build_executor_task_packet(
+                task={
+                    "id": "candidate-1",
+                    "title": "Implement bounded executor task",
+                    "summary": "Create generic executor evidence.",
+                    "task_type": "execution",
+                    "bucket": "S",
+                    "source": "text_marker",
+                    "drivers": [],
+                    "evidence": {"path": "docs/roadmap.md"},
+                },
+                snapshot=valid_snapshot(cwd=str(root)),
+                repo_path=root,
+                allowed_paths=["codex_cadence"],
+                required_checks=["python -m unittest tests.test_executor_contract"],
+                max_minutes=30,
+                max_tasks=1,
+                stop_conditions=["brake_not_drive", "timeout"],
+                evidence_path=evidence_path,
+            )
+            result_evidence = {
+                "schema_version": "generic-executor-result.v1",
+                "packet": "executor_result",
+                "task_id": "candidate-1",
+                "executor_id": "fake-executor",
+                "started_at": "2999-05-22T00:00:00Z",
+                "ended_at": "2999-05-22T00:05:00Z",
+                "status": "succeeded",
+                "files_changed": ["codex_cadence/executor_contract.py"],
+                "commands_run": [],
+                "validation_results": [],
+                "summary": "Fake executor claimed success without checks.",
+                "confidence": "high",
+                "blockers": [],
+                "dirty_worktree": False,
+                "resulting_head": valid_snapshot(cwd=str(root))["head"],
+            }
+            task_path = root / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+            evidence_path.write_text(json.dumps(result_evidence), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "validate-executor-result",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(evidence_path),
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "fix_executor_evidence")
 
     def test_epoch_cli_lifecycle(self):
         with tempfile.TemporaryDirectory() as tmp:

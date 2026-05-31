@@ -53,6 +53,15 @@ def _path_allowed(path: str, allowed_paths: list[str]) -> bool:
     return False
 
 
+def _normalized_command(command: str) -> str:
+    return " ".join(command.strip().lower().split())
+
+
+def _command_invokes(command: str, invocation: str) -> bool:
+    normalized = _normalized_command(command)
+    return normalized == invocation or normalized.startswith(f"{invocation} ")
+
+
 def _parse_utc(value: Any) -> datetime | None:
     if not _non_empty_string(value):
         return None
@@ -223,6 +232,7 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
     status = evidence.get("status")
     if status not in EXECUTOR_STATUSES:
         return False, "executor result status is invalid"
+    permissions = task_packet["permissions"]
     files_changed = evidence.get("files_changed")
     if not isinstance(files_changed, list) or any(not _non_empty_string(path) for path in files_changed):
         return False, "executor result files_changed must be a list of strings"
@@ -233,17 +243,27 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
     commands_run = evidence.get("commands_run")
     if not isinstance(commands_run, list):
         return False, "executor result commands_run must be a list"
+    command_exit_codes: dict[str, list[int]] = {}
     for index, command in enumerate(commands_run):
         if not isinstance(command, dict):
             return False, f"executor result commands_run[{index}] must be a JSON object"
-        if not _non_empty_string(command.get("command")):
+        command_text = command.get("command")
+        if not _non_empty_string(command_text):
             return False, f"executor result commands_run[{index}].command is required"
         exit_code = command.get("exit_code")
         if isinstance(exit_code, bool) or not isinstance(exit_code, int):
             return False, f"executor result commands_run[{index}].exit_code must be an integer"
+        if permissions.get("may_commit") is False and _command_invokes(command_text, "git commit"):
+            return False, f"executor result commands_run[{index}] violates disabled commit permission"
+        if permissions.get("may_push") is False and _command_invokes(command_text, "git push"):
+            return False, f"executor result commands_run[{index}] violates disabled push permission"
+        if permissions.get("may_open_pr") is False and _command_invokes(command_text, "gh pr create"):
+            return False, f"executor result commands_run[{index}] violates disabled PR creation permission"
+        command_exit_codes.setdefault(command_text, []).append(exit_code)
     validation_results = evidence.get("validation_results")
     if not isinstance(validation_results, list):
         return False, "executor result validation_results must be a list"
+    validation_statuses_by_command: dict[str, list[str]] = {}
     for index, result in enumerate(validation_results):
         if not isinstance(result, dict):
             return False, f"executor result validation_results[{index}] must be a JSON object"
@@ -251,6 +271,22 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
             return False, f"executor result validation_results[{index}].name is required"
         if result.get("status") not in {"passed", "failed", "skipped"}:
             return False, f"executor result validation_results[{index}].status is invalid"
+        if _non_empty_string(result.get("command")):
+            validation_statuses_by_command.setdefault(result["command"], []).append(result["status"])
+    if status == "succeeded":
+        for required_check in task_packet["required_checks"]:
+            exit_codes = command_exit_codes.get(required_check)
+            if not exit_codes:
+                return False, f"executor result missing required check command: {required_check}"
+            if not any(exit_code == 0 for exit_code in exit_codes):
+                return False, f"executor result required check command failed: {required_check}"
+            validation_statuses = validation_statuses_by_command.get(required_check)
+            if not validation_statuses:
+                return False, f"executor result missing required check validation: {required_check}"
+            if "passed" not in validation_statuses:
+                return False, f"executor result required check validation did not pass: {required_check}"
+        if any(result.get("status") != "passed" for result in validation_results):
+            return False, "executor result successful status requires all validation_results to pass"
     if not _non_empty_string(evidence.get("summary")):
         return False, "executor result summary is required"
     if evidence.get("confidence") not in EXECUTOR_CONFIDENCE_VALUES:
@@ -264,4 +300,6 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
     resulting_head = evidence.get("resulting_head")
     if resulting_head is not None and not _non_empty_string(resulting_head):
         return False, "executor result resulting_head must be a string or null"
+    if permissions.get("may_commit") is False and resulting_head is not None and resulting_head != task_packet["repo"]["head"]:
+        return False, "executor result resulting_head must match task repo head when commits are forbidden"
     return True, "ok"

@@ -64,7 +64,8 @@ Current evidence:
 - self-check continuation rules exist;
 - `loop-tick` captures and persists a snapshot, runs candidate discovery with
   election enabled, checks Cadence state, and emits `blocked`,
-  `no_candidates`, `approval_required`, or `requires_executor_contract`;
+  `no_candidates`, `approval_required`, `requires_executor_contract`, or
+  `approve_executor_task`;
 - `loop-tick` is explicitly read-only and reports `executor_started: false`,
   `epoch_started: false`, and `pr_action_started: false`;
 - no command yet starts an epoch, hands work to an executor, records validation,
@@ -165,7 +166,12 @@ Suggested implementation size: medium
 Validation needed:
 
 - done: fake executor success, failure, and stopped/timeout-shaped evidence;
+- done: blocked executor result evidence;
 - done: malformed timestamp order;
+- done: required-check command and validation enforcement for successful
+  evidence;
+- done: forbidden commit, push, PR creation, and head-change evidence
+  rejection;
 - done: disallowed changed path;
 - done: dirty successful result rejection;
 - remaining: real executor timeout behavior, external executor invocation,

@@ -1002,6 +1002,16 @@ def loop_tick_command(args: argparse.Namespace) -> int:
         reason = "executor task packet emitted for operator approval"
         operator_confirmation_required = True
         executor_contract_required = False
+    limitations = ["phase1_read_only"]
+    if executor_task is None:
+        limitations.append("executor_contract_not_implemented")
+    limitations.extend(
+        [
+            "executor_not_started",
+            "git_pr_automation_not_implemented",
+            "live_pr_review_sync_not_implemented",
+        ]
+    )
     payload = {
         "protocol_version": PROTOCOL_VERSION,
         "packet": "loop_tick",
@@ -1021,12 +1031,7 @@ def loop_tick_command(args: argparse.Namespace) -> int:
         "candidate_discovery": discovery,
         "elected_next": elected_next,
         "executor_task": executor_task,
-        "limitations": [
-            "phase1_read_only",
-            "executor_not_started",
-            "git_pr_automation_not_implemented",
-            "live_pr_review_sync_not_implemented",
-        ],
+        "limitations": limitations,
     }
     emit(payload)
     return 0
@@ -1050,7 +1055,7 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
             "recommended_next_action": "record_executor_result" if valid else "fix_executor_evidence",
         }
     )
-    return 0
+    return 0 if valid else 1
 
 
 def pr_readiness_command(args: argparse.Namespace) -> int:
