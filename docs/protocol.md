@@ -198,7 +198,33 @@ When `--policy-file` is supplied, it must be local JSON with `schema_version: ca
 
 Each root-backed `loop-tick` must append a compact `cadence-audit.v1` record to `<root>/audit/events.jsonl` and include an `audit_record` reference in the returned packet. The audit record binds the decision to the tick id, recommended action, reason, repo, branch, head, snapshot id, optional executor task id, operator-confirmation flag, and a checksum of the emitted packet before the audit reference is added.
 
-Audit replay is a planned read-only verification command, not an implemented protocol command in the current tree. The merged design in `docs/designs/2026-05-31-audit-replay-design.md` specifies the future `audit-replay.v1` packet and blocker codes. Until that slice is implemented, Cadence can append local audit records but cannot replay audit history through the CLI.
+`audit-replay` is the read-only local audit verification command. It reads
+`<root>/audit/events.jsonl`, emits an `audit-replay.v1` packet, and exits
+nonzero when the audit log contains malformed, corrupt, or unsupported records.
+Missing or empty audit logs are valid zero-record packets for a fresh runtime
+root; they are not evidence that older audit history was preserved.
+
+Replay validates only the compact `cadence-audit.v1` record shape, supported
+event names, event-specific required fields, physical JSONL line counts, and
+`sha256:` checksum syntax. It does not recompute `payload_checksum`,
+`task_packet_checksum`, or `result_evidence_checksum` from original packet
+bodies because those bodies are not stored in the compact audit log.
+
+Invalid packets include stable blocker codes such as
+`audit_line_invalid_json`, `audit_record_not_object`,
+`audit_schema_version_unsupported`, `audit_event_unsupported`,
+`audit_required_field_missing`, and `audit_checksum_invalid`. The command uses
+`recommended_next_action: "upgrade_cadence"` only when every blocker is an
+unsupported schema or event; corruption, malformed records, unreadable files,
+decode failures, or mixed unsupported/corrupt history recommend
+`inspect_audit_log`.
+
+`audit-replay` has no target repository `cwd`, so the dispatcher resolves the
+runtime root and applies the runtime-root location safety guard without running
+repo-cwd safety checks. The command must not append audit records, repair files,
+run an executor, start or complete epochs, create branches, commit, push, open a
+pull request, spend review, merge, or treat clean replay evidence as approval to
+execute work.
 
 ## Generic Executor Contract
 

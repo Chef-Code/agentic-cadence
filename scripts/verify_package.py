@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -47,6 +48,21 @@ def verify_console_commands(venv: Path) -> None:
     run([str(venv_command(venv, "codex-transmission")), "--help"])
     # Keep this literal for workflow coverage tests: python -m codex_cadence
     run([str(venv_python(venv)), "-m", "codex_cadence", "--help"])
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp) / "cadence"
+        result = subprocess.run(
+            [str(venv_command(venv, "agentic-cadence")), "--root", str(root), "audit-replay"],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            sys.stderr.write(result.stdout)
+            sys.stderr.write(result.stderr)
+            raise SystemExit(result.returncode)
+        payload = json.loads(result.stdout)
+        if payload.get("schema_version") != "audit-replay.v1" or not payload.get("valid"):
+            raise SystemExit(f"installed audit-replay returned unexpected payload: {payload}")
 
 
 def main() -> int:

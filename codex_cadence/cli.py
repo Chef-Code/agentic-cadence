@@ -41,6 +41,7 @@ from codex_cadence.policy_audit import (
     executor_result_validation_audit_record,
     load_loop_policy,
     loop_tick_audit_record,
+    replay_audit_log,
     resolve_executor_policy,
 )
 from codex_cadence.pr_readiness import (
@@ -1106,6 +1107,12 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
     return 0 if valid else 1
 
 
+def audit_replay_command(args: argparse.Namespace) -> int:
+    payload = replay_audit_log(args.root)
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def pr_readiness_command(args: argparse.Namespace) -> int:
     pr_json_file = Path(args.pr_json_file)
     pr = load_pr_json(pr_json_file)
@@ -1283,6 +1290,16 @@ def build_parser() -> argparse.ArgumentParser:
         guards_optional_root=True,
     )
 
+    audit_replay_parser = subparsers.add_parser(
+        "audit-replay",
+        help="Replay and validate the local Cadence audit log",
+    )
+    audit_replay_parser.set_defaults(
+        func=audit_replay_command,
+        requires_root=False,
+        guards_runtime_root_only=True,
+    )
+
     readiness_parser = subparsers.add_parser("pr-readiness", help="Evaluate a saved PR JSON readiness packet")
     readiness_parser.add_argument("--pr-json-file", required=True)
     readiness_parser.add_argument("--required-check", action="append", default=[])
@@ -1378,15 +1395,20 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         requires_root = getattr(args, "requires_root", True)
-        if requires_root or args.root is not None:
+        guards_runtime_root_only = getattr(args, "guards_runtime_root_only", False)
+        if requires_root or guards_runtime_root_only or args.root is not None:
             args.root = (args.root if args.root is not None else default_root()).expanduser().resolve()
-            if (requires_root or getattr(args, "guards_optional_root", False)) and not args.allow_repo_local_root:
-                if requires_root:
+            if (
+                requires_root
+                or guards_runtime_root_only
+                or getattr(args, "guards_optional_root", False)
+            ) and not args.allow_repo_local_root:
+                if requires_root and not guards_runtime_root_only:
                     target_cwd = Path(getattr(args, "cwd", Path.cwd()))
                     issue = runtime_root_safety_issue(args.root, target_cwd)
                     if issue:
                         raise ValueError(issue)
-                if getattr(args, "guards_optional_root", False):
+                if guards_runtime_root_only or getattr(args, "guards_optional_root", False):
                     issue = runtime_root_location_safety_issue(args.root)
                     if issue:
                         raise ValueError(issue)

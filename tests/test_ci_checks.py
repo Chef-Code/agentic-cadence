@@ -618,6 +618,7 @@ class CiChecksTests(unittest.TestCase):
             "codex-cadence",
             "codex-transmission",
             "python -m codex_cadence",
+            "audit-replay",
         ):
             with self.subTest(token=token):
                 self.assertIn(token, text)

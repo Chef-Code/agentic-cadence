@@ -107,7 +107,7 @@ For reviewer follow-up, `--review-findings-file` accepts the existing normalized
 
 ## Policy And Audit Boundary
 
-`loop-tick --policy-file` can apply local `cadence-loop-policy.v1` executor-task bounds, and root-backed `loop-tick` and `validate-executor-result` append compact `cadence-audit.v1` records. Audit replay is only designed in `docs/designs/2026-05-31-audit-replay-design.md` at the current baseline; do not call or document an implemented `audit-replay` command until that slice lands.
+`loop-tick --policy-file` can apply local `cadence-loop-policy.v1` executor-task bounds, and root-backed `loop-tick` and `validate-executor-result` append compact `cadence-audit.v1` records. Use `audit-replay` to emit a read-only `audit-replay.v1` packet for `<root>/audit/events.jsonl`; it validates record shape, supported events, line counts, and checksum syntax, and reports blockers such as `audit_line_invalid_json` or `audit_schema_version_unsupported` without repairing files or approving executor invocation. A clean audit replay packet is not approval to invoke a real executor.
 
 ## Cadence State Controls
 

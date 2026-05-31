@@ -6,24 +6,25 @@ Last updated: 2026-05-31
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Base branch for this handoff work: `origin/main` at `ea5c24fc522acb1e868c0840811e61e4de62efe9`
-- Working branch: `codex/docs-current-state-handoff`
-- Pull request: PR #55, `https://github.com/Chef-Code/agentic-cadence/pull/55`
-- Recent merged PRs: PR #53 merged local policy/audit stop controls; PR #54 merged the audit replay design spec.
-- Current PR intent: documentation-only refresh that aligns public docs, living docs, business memory, and this handoff with the merged PR #54 state.
+- Base branch for this handoff work: `origin/main` at `72370e61847f5b50108ef74604bd0af90cc30fda`.
+- Working branch: `codex/audit-replay-cli`
+- Pull request: not opened yet.
+- Recent merged PRs: PR #54 merged the audit replay design spec; PR #55 merged the documentation refresh that marked audit replay as designed but unimplemented.
+- Current branch intent: implement the read-only `audit-replay` command described by `docs/designs/2026-05-31-audit-replay-design.md`.
 
 ## What Changed In This Branch
 
-- README, changelog, skill, protocol, roadmap, readiness, implementation-slice, progress, decision, and business-memory docs now distinguish the merged audit replay design from the unimplemented `audit-replay` command.
-- The docs now point at `docs/designs/2026-05-31-audit-replay-design.md` as the accepted contract for the next read-only audit verification slice.
-- This handoff records the branch, base, validation commands, and recommended next action for the next session.
+- Added `audit-replay` CLI wiring with root-only runtime-root resolution and location safety checks.
+- Added `codex_cadence.policy_audit.replay_audit_log()` for read-only replay of `<root>/audit/events.jsonl`.
+- Added focused tests for missing/empty audit logs, valid event counts, malformed lines, unsupported schema/event recommendations, checksum syntax, file loading failures, executor-result anchor rules, and repo-local runtime root safety.
+- Updated current-state docs so they describe audit replay as implemented without claiming executor approval, audit repair, hash chaining, or autonomous execution.
 
 ## Important Boundaries
 
-- `audit-replay.v1` is designed, not implemented.
-- The current CLI can append compact `cadence-audit.v1` records, but it cannot replay audit history.
-- Unattended-operation confidence remains 10%.
-- No new runtime behavior, executor invocation, branch/PR automation, live GitHub sync, merge authority, or release behavior is added by this docs branch.
+- `audit-replay` validates compact local `cadence-audit.v1` JSONL shape and checksum syntax only; it does not recompute checksums from original packet bodies.
+- Clean replay evidence is not approval to invoke a real executor, continue an epoch, bypass operator approval, or trust a tamper-evident audit chain.
+- No executor invocation, branch/PR automation, live GitHub sync, merge authority, or release behavior is added by this branch.
+- Keep public docs free of private machine paths and private repository assumptions.
 
 ## Validation To Re-run
 
@@ -31,11 +32,14 @@ Last updated: 2026-05-31
 git status -sb
 git diff --check
 python scripts/validate_protocol.py
-python -m unittest tests.test_ci_checks.CiChecksTests.test_public_release_audit_current_tree_passes tests.test_ci_checks.CiChecksTests.test_public_tree_excludes_private_context_docs
-python -m unittest tests.test_ci_checks.CiChecksTests.test_protocol_validator_accepts_current_repo tests.test_ci_checks.CiChecksTests.test_roadmap_captures_current_edges_and_target_state tests.test_ci_checks.CiChecksTests.test_release_readiness_docs_cover_public_baseline tests.test_ci_checks.CiChecksTests.test_candidate_discovery_docs_cover_business_memory tests.test_ci_checks.CiChecksTests.test_prepare_handoff_docs_describe_stop_packet_and_host_signal_boundary
-python -m unittest tests.test_candidates.CandidateDiscoveryGovernanceTests.test_repo_business_memory_current_entries_are_closed_and_parse_without_warnings
+python -m py_compile codex_cadence/policy_audit.py codex_cadence/cli.py
+python -m compileall scripts codex_cadence transmission_control tests
+python -m unittest tests.test_cadence tests.test_audit_replay
+python -m unittest discover -s tests
+python scripts/ci_smoke.py
+python scripts/verify_package.py
 ```
 
 ## Next Action
 
-Continue PR #55, run the normal PR checks and review agents, address bot or reviewer findings, then merge if checks and review are clean. After this documentation PR lands, the next implementation slice should be the actual `audit-replay` command from `docs/designs/2026-05-31-audit-replay-design.md`.
+Run the full local validation set, run local review agents, address findings, then open the audit replay implementation PR.

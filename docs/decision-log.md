@@ -46,8 +46,8 @@ Alternatives considered:
 - Make replay repair corrupt logs. Rejected because the first command should be read-only and suitable for gates.
 
 Consequences:
-- The next audit implementation has an accepted packet shape, blocker taxonomy, count semantics, and required test list in `docs/designs/2026-05-31-audit-replay-design.md`.
-- The current CLI still cannot replay audit history; docs must not describe `audit-replay` as implemented until that slice lands.
+- The audit implementation has an accepted packet shape, blocker taxonomy, count semantics, and required test list in `docs/designs/2026-05-31-audit-replay-design.md`.
+- The first implementation slice now exposes `audit-replay` as a read-only local verifier; future execution gates can consume clean replay evidence without treating it as executor approval.
 
 Open questions:
 - Should hash chaining land immediately after basic replay, or wait until a controlled executor demo proves the audit fields are stable?
