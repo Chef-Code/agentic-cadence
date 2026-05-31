@@ -138,6 +138,16 @@ class ExecutorContractTests(unittest.TestCase):
             self.assertFalse(valid)
             self.assertEqual(reason, "executor task allowed_paths[1] must be repo-relative")
 
+    def test_task_packet_rejects_wrong_protocol_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = valid_task_packet(Path(tmp))
+            packet["protocol_version"] = "unsupported"
+
+            valid, reason = validate_executor_task_packet(packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor task protocol_version is invalid")
+
     def test_task_packet_rejects_unknown_task_type_and_bucket(self):
         with tempfile.TemporaryDirectory() as tmp:
             packet = valid_task_packet(Path(tmp))

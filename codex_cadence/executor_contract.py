@@ -145,6 +145,8 @@ def build_executor_task_packet(
 def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
     if not isinstance(packet, dict):
         return False, "executor task packet must be a JSON object"
+    if packet.get("protocol_version") != PROTOCOL_VERSION:
+        return False, "executor task protocol_version is invalid"
     if packet.get("schema_version") != EXECUTOR_TASK_SCHEMA_VERSION:
         return False, "executor task schema_version is invalid"
     if packet.get("packet") != "executor_task":

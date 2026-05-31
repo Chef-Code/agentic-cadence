@@ -932,7 +932,7 @@ def loop_tick_recommendation(
         return "approval_required", "repo confidence is low", True, False
     if not elected_next:
         return "no_candidates", "no elected candidate", False, False
-    return "requires_executor_contract", "executor contract is not implemented", False, True
+    return "requires_executor_contract", "executor task packet has not been emitted", False, True
 
 
 def loop_tick_command(args: argparse.Namespace) -> int:

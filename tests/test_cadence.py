@@ -1422,7 +1422,7 @@ class CadenceCliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(output["recommended_next_action"], "requires_executor_contract")
-            self.assertEqual(output["reason"], "executor contract is not implemented")
+            self.assertEqual(output["reason"], "executor task packet has not been emitted")
             self.assertTrue(output["executor_contract_required"])
             self.assertFalse(output["executor_started"])
             self.assertFalse(output["epoch_started"])

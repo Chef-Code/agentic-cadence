@@ -46,6 +46,9 @@ Summary:
 - Hardened result validation after review so successful evidence must prove
   required checks passed, cannot report forbidden head changes, and cannot
   report disabled commit, push, or PR-creation commands.
+- Hardened task-packet validation to reject unsupported protocol versions and
+  updated the non-emitting loop-tick reason to point operators toward emitting
+  a task packet.
 
 Completed slices:
 - Generic Executor Adapter Contract: Partial.
@@ -69,6 +72,10 @@ Evidence:
 - Review hardening follow-up: `python -m unittest tests.test_executor_contract tests.test_cadence`
 - Review hardening follow-up: `python scripts/validate_protocol.py`
 - Review hardening follow-up: `python -m unittest discover -s tests`
+- CodeRabbit follow-up: `python -m unittest tests.test_executor_contract tests.test_cadence.CadenceCliTests.test_loop_tick_stops_at_executor_contract_for_elected_candidate tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_reports_valid_evidence tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_exits_nonzero_for_invalid_evidence`
+- CodeRabbit follow-up: `python -m unittest tests.test_executor_contract tests.test_cadence`
+- CodeRabbit follow-up: `python scripts/validate_protocol.py`
+- CodeRabbit follow-up: `python -m unittest discover -s tests`
 
 New risks or blockers:
 - Real executor invocation, timeout handling, branch/commit behavior, epoch
