@@ -70,6 +70,8 @@ from codex_cadence.store import (
     utc_now,
 )
 
+DEFAULT_EXECUTOR_STOP_CONDITIONS = ["brake_not_drive", "operator_stop", "context_pressure", "timeout"]
+
 
 def emit(data: dict[str, Any] | list[dict[str, Any]]) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
@@ -1003,6 +1005,9 @@ def loop_tick_command(args: argparse.Namespace) -> int:
             operator_confirmation_required = True
             executor_contract_required = False
         else:
+            policy["effective_stop_conditions"] = list(
+                dict.fromkeys([*DEFAULT_EXECUTOR_STOP_CONDITIONS, *policy["effective_stop_conditions"]])
+            )
             evidence_path = args.executor_evidence_path or str(root / "executor-results" / f"{tick_id}.json")
             executor_task = build_executor_task_packet(
                 task=elected_next[0],
@@ -1012,8 +1017,7 @@ def loop_tick_command(args: argparse.Namespace) -> int:
                 required_checks=policy["effective_required_checks"],
                 max_minutes=policy["effective_max_minutes"],
                 max_tasks=1,
-                stop_conditions=policy["effective_stop_conditions"]
-                or ["brake_not_drive", "operator_stop", "context_pressure", "timeout"],
+                stop_conditions=policy["effective_stop_conditions"],
                 evidence_path=evidence_path,
             )
             valid_task, invalid_reason = validate_executor_task_packet(executor_task)
@@ -1068,6 +1072,12 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
     task_packet = read_json(task_file)
     result_evidence = read_json(result_file)
     valid, reason = validate_executor_result_evidence(result_evidence, task_packet)
+    if valid:
+        expected_output = task_packet.get("expected_output") if isinstance(task_packet, dict) else {}
+        expected_path = expected_output.get("evidence_path") if isinstance(expected_output, dict) else None
+        if expected_path is not None and Path(expected_path).expanduser().resolve() != result_file.expanduser().resolve():
+            valid = False
+            reason = "executor result file does not match task expected_output.evidence_path"
     payload = {
         "protocol_version": PROTOCOL_VERSION,
         "packet": "executor_result_validation",
@@ -1079,7 +1089,7 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
         "recommended_next_action": "record_executor_result" if valid else "fix_executor_evidence",
     }
     if getattr(args, "root", None) is not None:
-        repo = task_packet.get("repo") if isinstance(task_packet.get("repo"), dict) else {}
+        repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
         repo_path = repo.get("path")
         if repo_path and not args.allow_repo_local_root:
             issue = runtime_root_safety_issue(args.root, repo_path)
@@ -1264,7 +1274,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     executor_result_parser.add_argument("--task-file", required=True)
     executor_result_parser.add_argument("--result-file", required=True)
-    executor_result_parser.set_defaults(func=validate_executor_result_command, requires_root=False)
+    executor_result_parser.set_defaults(
+        func=validate_executor_result_command,
+        requires_root=False,
+        guards_optional_root=True,
+    )
 
     readiness_parser = subparsers.add_parser("pr-readiness", help="Evaluate a saved PR JSON readiness packet")
     readiness_parser.add_argument("--pr-json-file", required=True)
@@ -1363,7 +1377,7 @@ def main(argv: list[str] | None = None) -> int:
         requires_root = getattr(args, "requires_root", True)
         if requires_root or args.root is not None:
             args.root = (args.root if args.root is not None else default_root()).expanduser().resolve()
-            if requires_root and not args.allow_repo_local_root:
+            if (requires_root or getattr(args, "guards_optional_root", False)) and not args.allow_repo_local_root:
                 target_cwd = Path(getattr(args, "cwd", Path.cwd()))
                 issue = runtime_root_safety_issue(args.root, target_cwd)
                 if issue:

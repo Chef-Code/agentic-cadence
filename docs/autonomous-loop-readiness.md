@@ -62,14 +62,15 @@ runtime can do these things end-to-end:
 - emit a generic executor task packet for operator approval without starting an
   executor;
 - apply an initial local loop policy file to bound emitted executor task paths,
-  required checks, runtime, and stop conditions;
+  required checks, runtime, and stop conditions while retaining built-in safety
+  stops;
 - append compact audit records for root-backed loop decisions and executor
   result validation, including task/result checksums for result validation;
 - validate that executor task packets are anchored to the embedded local repo
   snapshot by requiring matching repo name, absolute cwd/path, branch, head,
   clean worktree, and non-low repo confidence;
 - validate local generic executor result evidence against a task packet,
-  including elapsed runtime bounds;
+  including elapsed runtime bounds and expected evidence-path binding;
 - size tasks and enforce pickup policy;
 - start, check, complete, or fail bounded epochs;
 - prepare a signed handoff packet and clean-square evidence;

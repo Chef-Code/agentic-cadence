@@ -398,7 +398,8 @@ Goal: make unattended loop behavior bounded, inspectable, and interruptible.
 Current evidence: Cadence state, brakes, epochs, and handoff records exist.
 `loop-tick --policy-file` can load local `cadence-loop-policy.v1` JSON to
 bound emitted executor task `allowed_paths`, `denied_paths`,
-`required_checks`, `max_executor_time_minutes`, and `stop_conditions`.
+`required_checks`, `max_executor_time_minutes`, and `stop_conditions` while
+retaining built-in safety stops.
 Root-backed `loop-tick` and `validate-executor-result` append compact
 `cadence-audit.v1` records to `<root>/audit/events.jsonl`; result-validation
 audit records include task and result evidence checksums. There is still no

@@ -11,7 +11,7 @@ AUDIT_SCHEMA_VERSION = "cadence-audit.v1"
 LOOP_POLICY_SCHEMA_VERSION = "cadence-loop-policy.v1"
 
 
-def checksum_json(data: dict[str, Any]) -> str:
+def checksum_json(data: Any) -> str:
     payload = json.dumps(data, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -57,11 +57,11 @@ def loop_tick_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
 
 def executor_result_validation_audit_record(
     payload: dict[str, Any],
-    task_packet: dict[str, Any],
-    result_evidence: dict[str, Any],
+    task_packet: Any,
+    result_evidence: Any,
 ) -> dict[str, Any]:
-    task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
-    repo = task_packet.get("repo") if isinstance(task_packet.get("repo"), dict) else {}
+    task = task_packet.get("task") if isinstance(task_packet, dict) and isinstance(task_packet.get("task"), dict) else {}
+    repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
     record = {
         "event": "executor_result_validation",
         "action": payload.get("recommended_next_action"),

@@ -13,8 +13,9 @@ All notable public changes to Agentic Cadence are documented here.
   evidence into a generic-only or named-host-claim decision before any
   host-specific support claim is documented.
 - Added initial `loop-tick --policy-file` support for local executor-task
-  path/check/runtime/stop-condition bounds, plus compact audit records for
-  loop decisions and executor-result validation with task/result checksums.
+  path/check/runtime/stop-condition bounds that retain built-in safety stops,
+  plus compact audit records for loop decisions and executor-result validation
+  with task/result checksums.
 
 ### Changed
 
