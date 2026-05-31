@@ -15,10 +15,11 @@ software teams.
 
 ## Product Statement
 
-Agentic Cadence is a governance and orchestration layer for autonomous software
-teams. It coordinates agents through GitHub-native workflows so they can plan,
-build, review, validate, document, hand off, and merge work without duplicating
-effort or corrupting repository state.
+Agentic Cadence should become a governance and orchestration layer for
+autonomous software teams. The target system coordinates agents through
+GitHub-native workflows so they can plan, build, review, validate, document,
+hand off, and prepare merge decisions without duplicating effort or corrupting
+repository state.
 
 The system can start with one agent, but it should be designed to scale toward
 multiple cooperating agents with explicit roles, responsibilities,
@@ -44,7 +45,8 @@ behavior on top of that surface.
 
 ## Phase 1 And Target Shape
 
-The current Phase 1 shape remains useful:
+The Phase 1 target shape remains useful, even though the current implementation
+only ships the local governance primitives needed to reach it:
 
 ```text
 Task
