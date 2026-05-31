@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The current baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing.
+Agentic Cadence is an early public protocol and tooling release. The current baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The next audit safety slice has a merged design at `docs/designs/2026-05-31-audit-replay-design.md`; the `audit-replay` command itself is not implemented yet.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -264,6 +264,13 @@ Executor result evidence can be checked without running an executor:
 ```bash
 agentic-cadence validate-executor-result --task-file executor-task.json --result-file executor-result.json
 ```
+
+Root-backed loop ticks and executor-result validation append compact
+`cadence-audit.v1` records under `<root>/audit/events.jsonl`. A local
+`cadence-loop-policy.v1` file can bound emitted executor task paths, required
+checks, runtime, and stop conditions. Audit replay is designed but not yet
+implemented, so the current CLI can write audit records but cannot replay audit
+history as a command.
 
 ## Context Handoff Preparation
 

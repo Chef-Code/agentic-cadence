@@ -28,6 +28,31 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-05-31 - Specify audit replay before active execution controls
+
+Decision:
+- Merge a concrete read-only audit replay design before adding real executor invocation or active-loop stop controls.
+- Keep the first replay scope limited to local `cadence-audit.v1` JSONL shape validation, event counts, checksum syntax, and stable blocker codes.
+- Treat unsupported future schemas and events separately from malformed or corrupt audit records.
+
+Why:
+- Local policy/audit writes now create decision history, but future execution gates need a deterministic way to inspect that history before trusting it.
+- The design gives implementation and review a stable packet contract without prematurely adding hash chaining, remote audit storage, or executor side effects.
+- Distinguishing unsupported future records from corruption lets policy recommend `upgrade_cadence` only when history is valid but newer than the current reader.
+
+Alternatives considered:
+- Implement executor invocation before audit replay. Rejected because the first execution path should not depend on write-only audit history.
+- Add hash chaining in the first replay slice. Deferred because the immediate gap is replay visibility for compact records that already exist.
+- Make replay repair corrupt logs. Rejected because the first command should be read-only and suitable for gates.
+
+Consequences:
+- The next audit implementation has an accepted packet shape, blocker taxonomy, count semantics, and required test list in `docs/designs/2026-05-31-audit-replay-design.md`.
+- The current CLI still cannot replay audit history; docs must not describe `audit-replay` as implemented until that slice lands.
+
+Open questions:
+- Should hash chaining land immediately after basic replay, or wait until a controlled executor demo proves the audit fields are stable?
+- Which future policy gates should require clean audit replay evidence before executor invocation?
+
 ## 2026-05-31 - Record loop decisions before invoking real executors
 
 Decision:

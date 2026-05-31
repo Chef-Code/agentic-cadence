@@ -78,3 +78,20 @@ Do not:
 - Do not treat duplicate check names as blockers without head-SHA and run-status context.
 - Do not ignore unresolved actionable reviewer findings.
 - Do not spend paid review unless the elected review guardrail allows it.
+
+## Audit Replay Needs A Design Before Real Execution
+
+Status: fulfilled
+Fulfilled By: PR #54
+Kind: risk
+Workflow: Policy/audit safety before executor invocation
+Time Saved: medium
+Risk: high
+Pain: Local audit writes are useful only if future sessions can replay audit history and distinguish corrupt records from unsupported future records before trusting execution evidence.
+Signals:
+- PR #53 added compact `cadence-audit.v1` loop-decision and executor-result-validation records.
+- PR #54 added `docs/designs/2026-05-31-audit-replay-design.md` with the planned `audit-replay.v1` packet, blocker codes, count semantics, and required tests.
+- The `audit-replay` command remains unimplemented, so current CLI audit history is write-only from an operator command perspective.
+Do not:
+- Do not claim audit replay is implemented until the command, tests, and protocol docs land.
+- Do not treat missing replay evidence as approval to invoke a real executor.

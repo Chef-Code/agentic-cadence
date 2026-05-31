@@ -33,6 +33,52 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-05-31 - Current documentation refresh after PR #54
+
+Summary:
+- Updated the living documentation set and handoff notes to reflect that PR
+  #54 merged the audit replay design spec after PR #53 added local
+  policy/audit writes.
+- Clarified that `audit-replay.v1` is designed but the `audit-replay` command
+  is not implemented.
+- Kept unattended-operation confidence at 10%.
+
+Completed slices:
+- None. This was documentation and handoff alignment only.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: the next audit verification slice now has a merged design contract,
+  but no new runtime capability was added by this documentation refresh.
+
+Evidence:
+- PR #53 merged as `55093a1`.
+- PR #54 merged as `ea5c24f`.
+- `git diff --check`
+- `python scripts/validate_protocol.py`
+- `python -m unittest tests.test_ci_checks.CiChecksTests.test_public_release_audit_current_tree_passes tests.test_ci_checks.CiChecksTests.test_public_tree_excludes_private_context_docs`
+- `python -m unittest tests.test_ci_checks.CiChecksTests.test_protocol_validator_accepts_current_repo tests.test_ci_checks.CiChecksTests.test_roadmap_captures_current_edges_and_target_state tests.test_ci_checks.CiChecksTests.test_release_readiness_docs_cover_public_baseline tests.test_ci_checks.CiChecksTests.test_candidate_discovery_docs_cover_business_memory tests.test_ci_checks.CiChecksTests.test_prepare_handoff_docs_describe_stop_packet_and_host_signal_boundary`
+- `python -m unittest tests.test_candidates.CandidateDiscoveryGovernanceTests.test_repo_business_memory_current_entries_are_closed_and_parse_without_warnings`
+
+New risks or blockers:
+- None beyond the existing missing audit replay implementation, command
+  allow/deny policy, branch policy, active-loop stop handling, real executor
+  invocation, PR automation, live GitHub sync, and automatic resume loop.
+
+Docs updated:
+- `README.md`
+- `CHANGELOG.md`
+- `SKILL.md`
+- `docs/protocol.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+- `docs/cadence/business-memory.md`
+- `docs/session-handoff.md`
+
 ## 2026-05-31 - Initial loop policy and audit records
 
 Summary:

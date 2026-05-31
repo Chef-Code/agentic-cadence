@@ -100,6 +100,8 @@ It includes:
 - initial local loop policy and audit controls for `loop-tick
   --emit-executor-task` and `validate-executor-result`, including
   path/check/runtime/stop-condition bounds and compact JSONL decision records;
+- a merged audit replay design spec for the next read-only audit verification
+  slice, while the `audit-replay` command remains unimplemented;
 - generic executor task/result packet validation, including local snapshot
   trust-anchor checks for repo name, absolute cwd/path, branch, head, dirty
   worktree, and low-confidence state;
@@ -177,6 +179,8 @@ The following capabilities are not implemented as of this baseline:
 - branch, commit, push, and PR creation workflow;
 - live GitHub PR, check, comment, and review-thread synchronization;
 - review-feedback response loop;
+- audit replay command implementation for the merged
+  `audit-replay.v1` design;
 - real host context-pressure integration;
 - automatic fresh-session launch and resume orchestration;
 - distributed locking, shared runtime, authenticated approval identity, or
@@ -405,14 +409,17 @@ Root-backed `loop-tick` and `validate-executor-result` append compact
 audit records include task and result evidence checksums. There is still no
 audit replay command, command allow/deny policy, branch policy, active-loop
 stop handling, corrupted-audit handling, or authenticated approval identity.
+PR #54 merged a design for the read-only `audit-replay.v1` packet, blocker
+codes, and required tests, so the next audit slice has a concrete contract but
+no implementation yet.
 
 Likely files: `codex_cadence/model.py`, `codex_cadence/store.py`,
 `codex_cadence/cli.py`, tests, docs.
 
 Validation: initial policy allow/deny tests, loop-decision audit record tests,
 and executor-result validation audit record tests exist. Remaining validation
-needs denied command tests, audit replay tests, active-loop stop tests, and
-corrupted audit record tests.
+needs denied command tests, audit replay implementation/tests, active-loop stop
+tests, and corrupted audit record tests.
 
 Codex can implement direct local policy and audit controls. Destructive cleanup
 or default-autonomous permissions require operator approval.

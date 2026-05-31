@@ -19,11 +19,16 @@ All notable public changes to Agentic Cadence are documented here.
 - Tightened generic executor packet validation so built-in safety stops and
   absolute expected result-evidence paths are required before result evidence
   can validate.
+- Added an audit replay design spec for the next read-only audit verification
+  slice. The spec defines the planned `audit-replay.v1` packet, blocker codes,
+  count semantics, and focused test coverage without implementing the command.
 
 ### Changed
 
 - Roadmap current-state wording now describes the released `0.1.3` baseline
   instead of stale unreleased main-only work.
+- Living docs now distinguish the merged audit replay design from the still
+  missing `audit-replay` implementation.
 
 ## 0.1.3 - 2026-05-29
 

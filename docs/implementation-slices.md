@@ -39,7 +39,9 @@ synchronization, branch/commit/push or PR creation, real executor invocation,
 automatic resume orchestration, agent-role assignment, agent-pool coordination,
 or enforced review separation. The first local policy/audit controls can bound
 emitted executor task packets and append decision/result-validation audit
-records, but audit replay and active execution controls are still missing.
+records. The audit replay design spec is merged in
+`docs/designs/2026-05-31-audit-replay-design.md`, but audit replay
+implementation and active execution controls are still missing.
 Current unattended-operation confidence remains 10%.
 
 ## Vision Framing
@@ -279,6 +281,9 @@ Current evidence:
 - root-backed `validate-executor-result` appends compact
   `executor_result_validation` audit records with packet and evidence
   checksums;
+- PR #54 merged the read-only audit replay design, including the planned
+  `audit-replay.v1` packet shape, blocker codes, counting rules, and required
+  focused tests;
 - no audit replay command, command allow/deny policy, branch policy,
   active-loop stop handling, or corrupted-audit handling exists yet.
 
@@ -307,8 +312,8 @@ Validation needed:
 - denied command test;
 - stop brake during active loop;
 - audit append ordering;
-- audit replay summary;
-- corrupted audit record handling.
+- specified but not implemented: audit replay summary;
+- specified but not implemented: corrupted audit record handling.
 
 Codex implementation rule: Codex can implement local policy and audit controls.
 Destructive cleanup behavior or permissive default autonomy requires operator

@@ -105,6 +105,10 @@ Use `--discovery-mode off` for focused execution. In that mode, the tool must no
 
 For reviewer follow-up, `--review-findings-file` accepts the existing normalized JSON list of findings, while `--review-threads-file` accepts saved GitHub GraphQL `reviewThreads` JSON that includes `isResolved`, `isOutdated`, and comment `outdated` status fields. Review-thread ingestion is local and deterministic: it must not call GitHub, must ignore resolved or outdated threads, must fail closed when required status fields are missing, must ignore non-actionable summaries such as walkthroughs or no-actionable-comments reports, and must map actionable comments to repo-relative `review_finding` candidates without bypassing path validation.
 
+## Policy And Audit Boundary
+
+`loop-tick --policy-file` can apply local `cadence-loop-policy.v1` executor-task bounds, and root-backed `loop-tick` and `validate-executor-result` append compact `cadence-audit.v1` records. Audit replay is only designed in `docs/designs/2026-05-31-audit-replay-design.md` at the current baseline; do not call or document an implemented `audit-replay` command until that slice lands.
+
 ## Cadence State Controls
 
 Use legacy `NEUTRAL` to put Cadence in `HUDDLE`, where automation should stop claiming new work but existing human inspection may continue.
