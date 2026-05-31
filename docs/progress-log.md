@@ -38,11 +38,15 @@ Docs updated:
 Summary:
 - Added an initial local loop policy file for `loop-tick --emit-executor-task`.
 - Policy can supply executor task defaults for allowed paths, required checks,
-  max runtime, and stop conditions.
+  max runtime, and stop conditions; policy stop conditions remain in force when
+  CLI stop conditions are added.
 - Policy can deny executor task packet emission when requested paths are
   outside `allowed_paths`, overlap `denied_paths`, or exceed the runtime cap.
 - Added compact append-only `cadence-audit.v1` JSONL records for root-backed
-  `loop-tick` decisions and `validate-executor-result` packets.
+  `loop-tick` decisions and `validate-executor-result` packets, including
+  task/result content checksums for result-validation audit records.
+- Tightened executor result validation so elapsed result time must stay within
+  the emitted task runtime limit.
 
 Completed slices:
 - Policy, Audit, And Stop Controls: Partial.
@@ -59,6 +63,12 @@ Evidence:
 - `python -m unittest tests.test_cadence.CadenceCliTests.test_loop_tick_reports_no_candidates_without_starting_execution tests.test_cadence.CadenceCliTests.test_loop_tick_stops_at_executor_contract_for_elected_candidate tests.test_cadence.CadenceCliTests.test_loop_tick_can_emit_generic_executor_task_without_starting_execution tests.test_cadence.CadenceCliTests.test_loop_tick_requires_approval_for_low_confidence_repo tests.test_cadence.CadenceCliTests.test_loop_tick_requires_approval_for_red_ci_signal tests.test_cadence.CadenceCliTests.test_loop_tick_blocks_when_cadence_state_disallows_work tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_reports_valid_evidence tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_exits_nonzero_for_invalid_evidence`
 - `python -m unittest tests.test_executor_contract -q`
 - `python -m py_compile codex_cadence\policy_audit.py codex_cadence\cli.py codex_cadence\store.py`
+- `python -m unittest tests.test_cadence tests.test_executor_contract`
+- `python scripts\validate_protocol.py`
+- `git diff --check`
+- `python -m py_compile codex_cadence\policy_audit.py codex_cadence\cli.py codex_cadence\store.py codex_cadence\executor_contract.py`
+- `python -m unittest discover -s tests` timed out after 304 seconds and is
+  not counted as passing evidence for this slice.
 
 New risks or blockers:
 - Policy does not yet cover command allow/deny rules, branch policy, PR

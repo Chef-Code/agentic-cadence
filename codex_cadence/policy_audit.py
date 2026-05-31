@@ -27,8 +27,7 @@ def append_audit_record(root: Path, record: dict[str, Any]) -> dict[str, Any]:
     line.setdefault("schema_version", AUDIT_SCHEMA_VERSION)
     line.setdefault("recorded_at", utc_now())
     with target.open("a", encoding="utf-8", newline="\n") as handle:
-        handle.write(json.dumps(line, sort_keys=True, separators=(",", ":")))
-        handle.write("\n")
+        handle.write(json.dumps(line, sort_keys=True, separators=(",", ":")) + "\n")
     return {
         "event": line.get("event"),
         "path": str(target),
@@ -56,7 +55,11 @@ def loop_tick_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in record.items() if value is not None}
 
 
-def executor_result_validation_audit_record(payload: dict[str, Any], task_packet: dict[str, Any]) -> dict[str, Any]:
+def executor_result_validation_audit_record(
+    payload: dict[str, Any],
+    task_packet: dict[str, Any],
+    result_evidence: dict[str, Any],
+) -> dict[str, Any]:
     task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
     repo = task_packet.get("repo") if isinstance(task_packet.get("repo"), dict) else {}
     record = {
@@ -71,6 +74,8 @@ def executor_result_validation_audit_record(payload: dict[str, Any], task_packet
         "task_file": payload.get("task_file"),
         "result_file": payload.get("result_file"),
         "payload_checksum": checksum_json(payload),
+        "task_packet_checksum": checksum_json(task_packet),
+        "result_evidence_checksum": checksum_json(result_evidence),
     }
     return {key: value for key, value in record.items() if value is not None}
 
@@ -164,7 +169,7 @@ def resolve_executor_policy(
     for path in allowed_paths:
         normalized = repo_relative_path(path)
         if normalized is None:
-            return {"reason": f"executor allowed path {path} must be repo-relative"}, policy
+            raise ValueError(f"executor allowed path {path} must be repo-relative")
         if any(path_within(normalized, denied) or path_within(denied, normalized) for denied in denied_paths):
             return {"reason": f"executor allowed path {normalized} is denied by policy"}, policy
         if policy_allowed and not any(path_within(normalized, allowed) for allowed in policy_allowed):
@@ -177,7 +182,7 @@ def resolve_executor_policy(
             return {"reason": "executor time limit exceeds policy max_executor_time_minutes"}, policy
         max_minutes = requested_max_minutes if requested_max_minutes is not None else max_policy_minutes
     required_checks = list(dict.fromkeys([*policy["required_checks"], *requested_required_checks]))
-    stop_conditions = list(requested_stop_conditions or policy["stop_conditions"] or [])
+    stop_conditions = list(dict.fromkeys([*policy["stop_conditions"], *requested_stop_conditions]))
     return None, {
         **policy,
         "effective_allowed_paths": normalized_allowed,

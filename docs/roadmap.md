@@ -400,7 +400,8 @@ Current evidence: Cadence state, brakes, epochs, and handoff records exist.
 bound emitted executor task `allowed_paths`, `denied_paths`,
 `required_checks`, `max_executor_time_minutes`, and `stop_conditions`.
 Root-backed `loop-tick` and `validate-executor-result` append compact
-`cadence-audit.v1` records to `<root>/audit/events.jsonl`. There is still no
+`cadence-audit.v1` records to `<root>/audit/events.jsonl`; result-validation
+audit records include task and result evidence checksums. There is still no
 audit replay command, command allow/deny policy, branch policy, active-loop
 stop handling, corrupted-audit handling, or authenticated approval identity.
 

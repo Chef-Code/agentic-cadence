@@ -703,3 +703,17 @@ class ExecutorContractTests(unittest.TestCase):
 
             self.assertFalse(valid)
             self.assertEqual(reason, "executor result ended_at must be at or after started_at")
+
+    def test_result_evidence_rejects_elapsed_time_over_task_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            task_packet["limits"]["max_minutes"] = 4
+            evidence = valid_result(
+                started_at="2999-05-22T00:00:00Z",
+                ended_at="2999-05-22T00:05:00Z",
+            )
+
+            valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor result elapsed time exceeds task limit")

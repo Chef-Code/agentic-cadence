@@ -428,6 +428,8 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
         return False, "executor result ended_at is invalid"
     if ended_at < started_at:
         return False, "executor result ended_at must be at or after started_at"
+    if (ended_at - started_at).total_seconds() > task_packet["limits"]["max_minutes"] * 60:
+        return False, "executor result elapsed time exceeds task limit"
     status = evidence.get("status")
     if status not in EXECUTOR_STATUSES:
         return False, "executor result status is invalid"

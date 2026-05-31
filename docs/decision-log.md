@@ -35,14 +35,15 @@ Decision:
 - Keep policy file scope narrow for the first slice: executor task allowed
   paths, denied paths, required checks, max runtime, and stop conditions.
 - Append compact audit records for root-backed loop decisions and executor
-  result validation instead of duplicating full packet bodies in the audit log.
+  result validation, using packet and evidence checksums instead of duplicating
+  full packet bodies in the audit log.
 
 Why:
 - The next risky transition is from advisory packets to accepting or launching
   implementation work. Cadence needs a durable local record of what it decided
   and which bounds applied before that transition.
 - Compact records keep audit history readable while binding each record to the
-  emitted packet with a checksum.
+  emitted packet or validated evidence with checksums.
 - Starting with local JSON avoids live credentials, remote state, or named host
   assumptions while still making the approval boundary explicit.
 

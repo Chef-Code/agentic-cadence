@@ -12,7 +12,7 @@ direction is GitHub-native orchestration for multiple cooperating agents.
 
 Each slice should ship with tests, evidence, and updates to the living docs.
 
-## Current Baseline After PR #51
+## Current Working Baseline
 
 The five 50% confidence slices below remain the work needed for a controlled
 loop. Three smaller stabilization slices are now part of this baseline:
@@ -93,7 +93,8 @@ Current evidence:
 - `loop-tick` is explicitly read-only and reports `executor_started: false`,
   `epoch_started: false`, and `pr_action_started: false`;
 - `loop-tick --policy-file` can apply initial local path/check/runtime/stop
-  bounds before emitting an executor task and can return `policy_denied`;
+  bounds before emitting an executor task, keeps policy stop conditions when
+  CLI stop conditions are added, and can return `policy_denied`;
 - root-backed `loop-tick` packets append compact `cadence-audit.v1` decision
   records;
 - no command yet starts an epoch, hands work to an executor, records validation,
@@ -181,7 +182,8 @@ Current evidence:
   repo/cwd/branch/head to match the packet repo anchor, and rejects missing
   repo identity, dirty, low-confidence, relative-path, or mismatched snapshots;
 - successful result evidence must include command evidence, validation
-  evidence, and a resulting head attestation;
+  evidence, a resulting head attestation, and elapsed time within the task
+  runtime limit;
 - disabled commit, push, and PR-creation permissions reject common
   absolute-path, git/gh global-option, and shell-wrapper command forms;
 - no real executor or named host adapter exists.
@@ -265,13 +267,15 @@ Current evidence:
 - `loop-tick --policy-file` accepts a local `cadence-loop-policy.v1` JSON file
   with `allowed_paths`, `denied_paths`, `required_checks`,
   `max_executor_time_minutes`, and `stop_conditions`;
-- the policy file supplies defaults for emitted executor task packets and
-  denies requested executor paths outside `allowed_paths`, overlapping
-  `denied_paths`, or runtime above `max_executor_time_minutes`;
+- the policy file supplies defaults for emitted executor task packets, keeps
+  policy stop conditions when CLI stop conditions are added, and denies
+  requested executor paths outside `allowed_paths`, overlapping `denied_paths`,
+  or runtime above `max_executor_time_minutes`;
 - root-backed `loop-tick` appends compact `cadence-audit.v1` decision records
   to `<root>/audit/events.jsonl`;
 - root-backed `validate-executor-result` appends compact
-  `executor_result_validation` audit records;
+  `executor_result_validation` audit records with packet and evidence
+  checksums;
 - no audit replay command, command allow/deny policy, branch policy,
   active-loop stop handling, or corrupted-audit handling exists yet.
 

@@ -1079,9 +1079,15 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
         "recommended_next_action": "record_executor_result" if valid else "fix_executor_evidence",
     }
     if getattr(args, "root", None) is not None:
+        repo = task_packet.get("repo") if isinstance(task_packet.get("repo"), dict) else {}
+        repo_path = repo.get("path")
+        if repo_path and not args.allow_repo_local_root:
+            issue = runtime_root_safety_issue(args.root, repo_path)
+            if issue:
+                raise ValueError(issue)
         payload["audit_record"] = append_audit_record(
             args.root,
-            executor_result_validation_audit_record(payload, task_packet),
+            executor_result_validation_audit_record(payload, task_packet, result_evidence),
         )
     emit(payload)
     return 0 if valid else 1
