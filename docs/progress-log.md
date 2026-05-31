@@ -33,6 +33,57 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-05-31 - Implement read-only audit replay
+
+Summary:
+- Added the `audit-replay` CLI command for read-only validation of local
+  `cadence-audit.v1` JSONL history.
+- Replay now reports an `audit-replay.v1` packet with line and record counts,
+  valid event counts, stable blockers for corrupt or unsupported records, and
+  command-local recommendations.
+- Kept replay read-only: it does not append audit records, repair logs,
+  recompute compact checksums from original packet bodies, or approve executor
+  invocation.
+
+Completed slices:
+- Phase 1 audit replay summary and corrupted audit record handling for local
+  compact audit records.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: audit history is now inspectable, but unattended execution still
+  lacks a real executor, active-loop stop handling, Git/PR automation, and
+  approval identity.
+
+Evidence:
+- `python scripts/validate_protocol.py`
+- `python -m py_compile codex_cadence/policy_audit.py codex_cadence/cli.py`
+- `python -m compileall scripts codex_cadence transmission_control tests`
+- `git diff --check`
+- `python -m unittest tests.test_cadence tests.test_audit_replay`
+- `python -m unittest discover -s tests`
+- `python scripts/ci_smoke.py`
+- `python scripts/verify_package.py`
+
+New risks or blockers:
+- Command allow/deny policy, branch policy, active-loop stop handling, real
+  executor invocation, PR automation, live GitHub sync, and automatic resume
+  loop remain missing.
+
+Docs updated:
+- `README.md`
+- `CHANGELOG.md`
+- `SKILL.md`
+- `docs/protocol.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+- `docs/cadence/business-memory.md`
+- `docs/session-handoff.md`
+
 ## 2026-05-31 - Current documentation refresh after PR #54
 
 Summary:

@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-05-31
-Baseline: released 0.1.3 tree
+Baseline: released 0.1.3 plus unreleased audit-replay current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -38,10 +38,9 @@ executor task/result contract, but it still does not add live GitHub
 synchronization, branch/commit/push or PR creation, real executor invocation,
 automatic resume orchestration, agent-role assignment, agent-pool coordination,
 or enforced review separation. The first local policy/audit controls can bound
-emitted executor task packets and append decision/result-validation audit
-records. The audit replay design spec is merged in
-`docs/designs/2026-05-31-audit-replay-design.md`, but audit replay
-implementation and active execution controls are still missing.
+emitted executor task packets, append decision/result-validation audit records,
+and replay local audit history with a read-only `audit-replay.v1` packet.
+Active execution controls are still missing.
 Current unattended-operation confidence remains 10%.
 
 ## Vision Framing
@@ -281,11 +280,11 @@ Current evidence:
 - root-backed `validate-executor-result` appends compact
   `executor_result_validation` audit records with packet and evidence
   checksums;
-- PR #54 merged the read-only audit replay design, including the planned
-  `audit-replay.v1` packet shape, blocker codes, counting rules, and required
-  focused tests;
-- no audit replay command, command allow/deny policy, branch policy,
-  active-loop stop handling, or corrupted-audit handling exists yet.
+- `audit-replay` implements the read-only `audit-replay.v1` packet shape,
+  blocker codes, counting rules, supported event validation, and corrupted-log
+  failure behavior from the merged design;
+- no command allow/deny policy, branch policy, or active-loop stop handling
+  exists yet.
 
 Why it matters: unattended confidence comes from bounded blast radius and
 recoverable evidence.
@@ -312,8 +311,8 @@ Validation needed:
 - denied command test;
 - stop brake during active loop;
 - audit append ordering;
-- specified but not implemented: audit replay summary;
-- specified but not implemented: corrupted audit record handling.
+- audit replay summary and corrupted audit record handling: complete for Phase
+  1 local JSONL records.
 
 Codex implementation rule: Codex can implement local policy and audit controls.
 Destructive cleanup behavior or permissive default autonomy requires operator

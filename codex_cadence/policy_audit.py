@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
 from codex_cadence.store import read_json, utc_now
 
 AUDIT_SCHEMA_VERSION = "cadence-audit.v1"
+AUDIT_REPLAY_SCHEMA_VERSION = "audit-replay.v1"
 LOOP_POLICY_SCHEMA_VERSION = "cadence-loop-policy.v1"
+CHECKSUM_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
+AUDIT_REPLAY_UPGRADE_BLOCKERS = {
+    "audit_schema_version_unsupported",
+    "audit_event_unsupported",
+}
 
 
 def checksum_json(data: Any) -> str:
@@ -18,6 +25,259 @@ def checksum_json(data: Any) -> str:
 
 def audit_events_path(root: Path) -> Path:
     return root / "audit" / "events.jsonl"
+
+
+def audit_replay_blocker(code: str, message: str, line: int | None = None) -> dict[str, Any]:
+    """Build a stable audit replay blocker object."""
+    blocker: dict[str, Any] = {"code": code, "message": message}
+    if line is not None:
+        blocker["line"] = line
+    return blocker
+
+
+def audit_replay_recommendation(blockers: list[dict[str, Any]]) -> str:
+    """Choose the command-local recommendation for replay blockers."""
+    if not blockers:
+        return "use_audit_replay_evidence"
+    codes = {blocker.get("code") for blocker in blockers}
+    if codes and codes <= AUDIT_REPLAY_UPGRADE_BLOCKERS:
+        return "upgrade_cadence"
+    return "inspect_audit_log"
+
+
+def audit_replay_packet(
+    root: Path,
+    *,
+    audit_exists: bool,
+    lines_seen: int,
+    records_valid: int,
+    records_invalid: int,
+    events_by_type: dict[str, int],
+    blockers: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build the top-level audit-replay.v1 packet."""
+    target = audit_events_path(root).expanduser().resolve(strict=False)
+    records_seen = records_valid + records_invalid
+    return {
+        "protocol_version": "v1",
+        "schema_version": AUDIT_REPLAY_SCHEMA_VERSION,
+        "packet": "audit_replay",
+        "audit_path": str(target),
+        "audit_exists": audit_exists,
+        "valid": not blockers,
+        "lines_seen": lines_seen,
+        "records_seen": records_seen,
+        "records_valid": records_valid,
+        "records_invalid": records_invalid,
+        "events_by_type": events_by_type,
+        "blockers": blockers,
+        "recommended_next_action": audit_replay_recommendation(blockers),
+    }
+
+
+def required_string(record: dict[str, Any], field: str, line: int) -> list[dict[str, Any]]:
+    """Validate a required non-empty string audit field."""
+    if field not in record or record[field] is None or record[field] == "":
+        return [audit_replay_blocker("audit_required_field_missing", f"{field} is required", line)]
+    if not isinstance(record[field], str):
+        return [audit_replay_blocker("audit_field_type_invalid", f"{field} must be a non-empty string", line)]
+    return []
+
+
+def required_bool(record: dict[str, Any], field: str, line: int) -> list[dict[str, Any]]:
+    """Validate a required boolean audit field."""
+    if field not in record or record[field] is None:
+        return [audit_replay_blocker("audit_required_field_missing", f"{field} is required", line)]
+    if not isinstance(record[field], bool):
+        return [audit_replay_blocker("audit_field_type_invalid", f"{field} must be a boolean", line)]
+    return []
+
+
+def checksum_blocker(record: dict[str, Any], field: str, line: int, *, required: bool) -> list[dict[str, Any]]:
+    """Validate checksum syntax for a present or required audit field."""
+    if field not in record or record[field] is None or record[field] == "":
+        if required:
+            return [audit_replay_blocker("audit_required_field_missing", f"{field} is required", line)]
+        return []
+    if not isinstance(record[field], str) or CHECKSUM_PATTERN.fullmatch(record[field]) is None:
+        return [audit_replay_blocker("audit_checksum_invalid", f"{field} must be a sha256 checksum", line)]
+    return []
+
+
+def required_checksum_present(record: dict[str, Any], field: str, line: int) -> list[dict[str, Any]]:
+    """Validate that an event-required checksum field is present."""
+    if field not in record or record[field] is None or record[field] == "":
+        return [audit_replay_blocker("audit_required_field_missing", f"{field} is required", line)]
+    return []
+
+
+def present_checksum_blockers(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate every present audit checksum field once."""
+    blockers: list[dict[str, Any]] = []
+    for field in sorted(key for key in record if key.endswith("_checksum")):
+        blockers.extend(checksum_blocker(record, field, line, required=False))
+    return blockers
+
+
+def validate_loop_tick_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate loop_tick_decision audit-record fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in ("tick_id", "action", "reason", "repo", "branch", "head", "snapshot_id"):
+        blockers.extend(required_string(record, field, line))
+    blockers.extend(required_bool(record, "operator_confirmation_required", line))
+    blockers.extend(required_checksum_present(record, "payload_checksum", line))
+    return blockers
+
+
+def validate_executor_result_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate executor_result_validation audit-record fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in ("action", "reason", "task_file", "result_file"):
+        blockers.extend(required_string(record, field, line))
+    blockers.extend(required_bool(record, "valid", line))
+    for field in ("payload_checksum", "task_packet_checksum", "result_evidence_checksum"):
+        blockers.extend(required_checksum_present(record, field, line))
+    if record.get("valid") is True:
+        for field in ("task_id", "repo", "branch", "head"):
+            blockers.extend(required_string(record, field, line))
+    return blockers
+
+
+def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict[str, Any]]]:
+    """Validate one decoded audit record and return its countable event."""
+    if not isinstance(record, dict):
+        return None, [audit_replay_blocker("audit_record_not_object", "audit record must be a JSON object", line)]
+
+    schema_version = record.get("schema_version")
+    if schema_version is None:
+        return None, [audit_replay_blocker("audit_schema_version_missing", "schema_version is required", line)]
+    if not isinstance(schema_version, str):
+        return None, [audit_replay_blocker("audit_schema_version_type_invalid", "schema_version must be a string", line)]
+    if schema_version != AUDIT_SCHEMA_VERSION:
+        return None, [
+            audit_replay_blocker(
+                "audit_schema_version_unsupported",
+                f"unsupported audit schema_version: {schema_version}",
+                line,
+            )
+        ]
+
+    blockers: list[dict[str, Any]] = []
+    blockers.extend(required_string(record, "recorded_at", line))
+    blockers.extend(present_checksum_blockers(record, line))
+
+    if "event" not in record or record["event"] is None or record["event"] == "":
+        blockers.append(audit_replay_blocker("audit_event_missing", "event is required", line))
+        return None, blockers
+    if not isinstance(record["event"], str):
+        blockers.append(audit_replay_blocker("audit_event_type_invalid", "event must be a string", line))
+        return None, blockers
+
+    event = record["event"]
+    if event == "loop_tick_decision":
+        blockers.extend(validate_loop_tick_audit_record(record, line))
+    elif event == "executor_result_validation":
+        blockers.extend(validate_executor_result_audit_record(record, line))
+    else:
+        blockers.append(audit_replay_blocker("audit_event_unsupported", f"unsupported audit event: {event}", line))
+        return None, blockers
+
+    return event if not blockers else None, blockers
+
+
+def reject_json_constant(value: str) -> None:
+    """Reject non-standard JSON constants accepted by Python's parser."""
+    raise ValueError(f"non-standard JSON constant is not allowed: {value}")
+
+
+def replay_audit_log(root: Path) -> dict[str, Any]:
+    """Replay the local audit JSONL log without mutating runtime state."""
+    target = audit_events_path(root).expanduser().resolve(strict=False)
+    if not target.exists():
+        return audit_replay_packet(
+            root,
+            audit_exists=False,
+            lines_seen=0,
+            records_valid=0,
+            records_invalid=0,
+            events_by_type={},
+            blockers=[],
+        )
+    if not target.is_file():
+        return audit_replay_packet(
+            root,
+            audit_exists=True,
+            lines_seen=0,
+            records_valid=0,
+            records_invalid=0,
+            events_by_type={},
+            blockers=[
+                audit_replay_blocker(
+                    "audit_path_not_file",
+                    "audit path exists but is not a regular file",
+                )
+            ],
+        )
+
+    lines_seen = 0
+    records_valid = 0
+    records_invalid = 0
+    events_by_type: dict[str, int] = {}
+    blockers: list[dict[str, Any]] = []
+    try:
+        with target.open("r", encoding="utf-8") as handle:
+            for lines_seen, line in enumerate(handle, start=1):
+                text = line.rstrip("\r\n")
+                if not text.strip():
+                    records_invalid += 1
+                    blockers.append(audit_replay_blocker("audit_line_blank", "audit line is blank", lines_seen))
+                    continue
+                try:
+                    record = json.loads(text, parse_constant=reject_json_constant)
+                except (json.JSONDecodeError, ValueError):
+                    records_invalid += 1
+                    blockers.append(
+                        audit_replay_blocker("audit_line_invalid_json", "audit line is not valid JSON", lines_seen)
+                    )
+                    continue
+                event, record_blockers = validate_audit_record(record, lines_seen)
+                if record_blockers:
+                    records_invalid += 1
+                    blockers.extend(record_blockers)
+                    continue
+                records_valid += 1
+                if event is not None:
+                    events_by_type[event] = events_by_type.get(event, 0) + 1
+    except UnicodeDecodeError:
+        return audit_replay_packet(
+            root,
+            audit_exists=True,
+            lines_seen=0,
+            records_valid=0,
+            records_invalid=0,
+            events_by_type={},
+            blockers=[audit_replay_blocker("audit_file_decode_failed", "audit file is not valid UTF-8")],
+        )
+    except OSError:
+        return audit_replay_packet(
+            root,
+            audit_exists=True,
+            lines_seen=0,
+            records_valid=0,
+            records_invalid=0,
+            events_by_type={},
+            blockers=[audit_replay_blocker("audit_file_unreadable", "audit file could not be read")],
+        )
+
+    return audit_replay_packet(
+        root,
+        audit_exists=True,
+        lines_seen=lines_seen,
+        records_valid=records_valid,
+        records_invalid=records_invalid,
+        events_by_type=events_by_type,
+        blockers=blockers,
+    )
 
 
 def append_audit_record(root: Path, record: dict[str, Any]) -> dict[str, Any]:
@@ -44,7 +304,7 @@ def loop_tick_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
         "tick_id": payload.get("tick_id"),
         "action": payload.get("recommended_next_action"),
         "reason": payload.get("reason"),
-        "repo": snapshot.get("repo"),
+        "repo": snapshot.get("repo") or snapshot.get("cwd"),
         "branch": snapshot.get("branch"),
         "head": snapshot.get("head"),
         "snapshot_id": snapshot.get("id"),

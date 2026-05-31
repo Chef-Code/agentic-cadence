@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-05-31
-Baseline: released 0.1.3 tree
+Baseline: released 0.1.3 plus unreleased audit-replay current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -67,8 +67,9 @@ agent roles, handoff contracts, and release guardrails.
 ## Current Readiness
 
 Agentic Cadence is not currently a magic-button autonomous builder or an
-agent-team orchestrator. The 0.1.3 baseline is a local CLI and protocol
-substrate that can govern and document agentic work, but it cannot
+agent-team orchestrator. The released 0.1.3 baseline is a local CLI and
+protocol substrate that can govern and document agentic work. The current
+development tree adds unreleased audit replay evidence, but it still cannot
 independently implement code, push branches, open pull requests, assign agent
 roles, resolve review feedback, launch fresh sessions, coordinate an agent
 pool, or continue in an unattended loop.
@@ -83,8 +84,8 @@ See `docs/autonomous-loop-readiness.md` for the direct readiness assessment.
 
 ## Current State
 
-The current tree is based on the released 0.1.3 baseline for the 0.1.x line.
-It includes:
+The current development tree is based on the released 0.1.3 baseline for the
+0.1.x line and adds the unreleased audit-replay implementation. It includes:
 
 - packaged `agentic-cadence` CLI with Codex-compatible command aliases;
 - local Cadence state with `PLAY_ON`, `HUDDLE`, and `TIMEOUT`;
@@ -100,8 +101,8 @@ It includes:
 - initial local loop policy and audit controls for `loop-tick
   --emit-executor-task` and `validate-executor-result`, including
   path/check/runtime/stop-condition bounds and compact JSONL decision records;
-- a merged audit replay design spec for the next read-only audit verification
-  slice, while the `audit-replay` command remains unimplemented;
+- read-only `audit-replay` verification for local `cadence-audit.v1` JSONL
+  history, including stable blockers for corrupt or unsupported records;
 - generic executor task/result packet validation, including local snapshot
   trust-anchor checks for repo name, absolute cwd/path, branch, head, dirty
   worktree, and low-confidence state;
@@ -179,8 +180,6 @@ The following capabilities are not implemented as of this baseline:
 - branch, commit, push, and PR creation workflow;
 - live GitHub PR, check, comment, and review-thread synchronization;
 - review-feedback response loop;
-- audit replay command implementation for the merged
-  `audit-replay.v1` design;
 - real host context-pressure integration;
 - automatic fresh-session launch and resume orchestration;
 - distributed locking, shared runtime, authenticated approval identity, or
@@ -406,20 +405,18 @@ bound emitted executor task `allowed_paths`, `denied_paths`,
 retaining built-in safety stops.
 Root-backed `loop-tick` and `validate-executor-result` append compact
 `cadence-audit.v1` records to `<root>/audit/events.jsonl`; result-validation
-audit records include task and result evidence checksums. There is still no
-audit replay command, command allow/deny policy, branch policy, active-loop
-stop handling, corrupted-audit handling, or authenticated approval identity.
-PR #54 merged a design for the read-only `audit-replay.v1` packet, blocker
-codes, and required tests, so the next audit slice has a concrete contract but
-no implementation yet.
+audit records include task and result evidence checksums. `audit-replay`
+validates that local JSONL history is readable, uses supported record shapes,
+and has valid checksum syntax while reporting stable blockers for corrupt or
+unsupported records. There is still no command allow/deny policy, branch policy,
+active-loop stop handling, hash chain, or authenticated approval identity.
 
 Likely files: `codex_cadence/model.py`, `codex_cadence/store.py`,
 `codex_cadence/cli.py`, tests, docs.
 
 Validation: initial policy allow/deny tests, loop-decision audit record tests,
-and executor-result validation audit record tests exist. Remaining validation
-needs denied command tests, audit replay implementation/tests, active-loop stop
-tests, and corrupted audit record tests.
+executor-result validation audit record tests, and audit replay tests exist.
+Remaining validation needs denied command tests and active-loop stop tests.
 
 Codex can implement direct local policy and audit controls. Destructive cleanup
 or default-autonomous permissions require operator approval.
