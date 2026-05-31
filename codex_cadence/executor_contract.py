@@ -14,7 +14,16 @@ EXECUTOR_TASK_SCHEMA_VERSION = "generic-executor-task.v1"
 EXECUTOR_RESULT_SCHEMA_VERSION = "generic-executor-result.v1"
 EXECUTOR_STATUSES = ("succeeded", "failed", "blocked", "stopped")
 EXECUTOR_CONFIDENCE_VALUES = ("high", "medium", "low")
-_SHELL_COMMANDS = {"bash", "dash", "sh", "zsh"}
+_SHELL_COMMANDS = {
+    "bash",
+    "bash.exe",
+    "dash",
+    "dash.exe",
+    "sh",
+    "sh.exe",
+    "zsh",
+    "zsh.exe",
+}
 _POWERSHELL_COMMANDS = {"powershell", "powershell.exe", "pwsh", "pwsh.exe"}
 _CMD_COMMANDS = {"cmd", "cmd.exe"}
 _GIT_OPTIONS_WITH_VALUE = {
@@ -94,6 +103,10 @@ def _normalized_command(command: str) -> str:
     return " ".join(command.strip().lower().split())
 
 
+def _command_name(token: str) -> str:
+    return PurePosixPath(token.replace("\\", "/")).name.lower()
+
+
 def _command_tokens(command: str) -> list[str]:
     try:
         lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
@@ -130,7 +143,10 @@ def _next_git_subcommand(tokens: list[str], index: int) -> str | None:
 
 def _git_invokes(tokens: list[str], subcommand: str) -> bool:
     for index, token in enumerate(tokens):
-        if token == "git" and _next_git_subcommand(tokens, index) == subcommand:
+        if (
+            _command_name(token) in {"git", "git.exe"}
+            and _next_git_subcommand(tokens, index) == subcommand
+        ):
             return True
     return False
 
@@ -155,7 +171,10 @@ def _next_gh_subcommands(tokens: list[str], index: int, count: int) -> list[str]
 
 def _gh_invokes(tokens: list[str], subcommands: list[str]) -> bool:
     for index, token in enumerate(tokens):
-        if token == "gh" and _next_gh_subcommands(tokens, index, len(subcommands)) == subcommands:
+        if (
+            _command_name(token) in {"gh", "gh.exe"}
+            and _next_gh_subcommands(tokens, index, len(subcommands)) == subcommands
+        ):
             return True
     return False
 
@@ -163,18 +182,21 @@ def _gh_invokes(tokens: list[str], subcommands: list[str]) -> bool:
 def _embedded_shell_commands(tokens: list[str]) -> list[str]:
     embedded: list[str] = []
     for index, token in enumerate(tokens):
-        if token in _SHELL_COMMANDS:
+        command = _command_name(token)
+        if command in _SHELL_COMMANDS:
             for option_index in range(index + 1, len(tokens) - 1):
                 option = tokens[option_index]
-                if option == "-c" or (option.startswith("-") and "c" in option):
+                if option == "-c" or (
+                    option.startswith("-") and not option.startswith("--") and "c" in option[1:]
+                ):
                     embedded.append(tokens[option_index + 1])
                     break
-        if token in _CMD_COMMANDS:
+        if command in _CMD_COMMANDS:
             for option_index in range(index + 1, len(tokens) - 1):
                 if tokens[option_index] in {"/c", "/k"}:
                     embedded.append(tokens[option_index + 1])
                     break
-        if token in _POWERSHELL_COMMANDS:
+        if command in _POWERSHELL_COMMANDS:
             for option_index in range(index + 1, len(tokens) - 1):
                 if tokens[option_index] in {"-command", "-c"}:
                     embedded.append(tokens[option_index + 1])

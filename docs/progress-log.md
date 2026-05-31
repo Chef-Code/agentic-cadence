@@ -39,8 +39,8 @@ Summary:
 - Tightened result validation so successful executor evidence cannot be empty
   when no required checks are configured.
 - Required successful executor evidence to include a resulting head attestation.
-- Hardened disabled commit, push, and PR-creation checks against common git/gh
-  global-option and shell-wrapper command forms.
+- Hardened disabled commit, push, and PR-creation checks against common
+  absolute-path, git/gh global-option, and shell-wrapper command forms.
 
 Completed slices:
 - Generic Executor Adapter Contract: Partial.

@@ -46,7 +46,7 @@ validation evidence, must show every required check command with exit code `0`,
 and must include matching passed validation results. Changed files must stay
 within the task packet's allowed paths, and reported commands/results must not
 violate disabled commit, push, PR, or head-change permissions, including common
-git/gh global-option and shell-wrapper forms.
+absolute-path, git/gh global-option, and shell-wrapper forms.
 
 This contract only defines the boundary between Cadence and an external
 executor. It does not run a shell command, create a branch, commit, push, open a

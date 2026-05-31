@@ -453,6 +453,51 @@ class ExecutorContractTests(unittest.TestCase):
                     valid_result(
                         commands_run=[
                             {
+                                "command": 'bash --norc -lc "git commit -m change"',
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled commit permission",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "/usr/bin/git push origin HEAD",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "/opt/homebrew/bin/gh pr create --fill",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled PR creation permission",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
                                 "command": "gh --repo owner/repo pr create --fill",
                                 "exit_code": 0,
                             },
