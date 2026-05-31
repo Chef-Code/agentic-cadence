@@ -78,6 +78,24 @@ def runtime_root_safety_issue(root: str | Path, target_cwd: str | Path) -> str |
     )
 
 
+def runtime_root_location_safety_issue(root: str | Path) -> str | None:
+    runtime_root = Path(root).resolve(strict=False)
+    probe = runtime_root if runtime_root.exists() else runtime_root.parent
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    repo_root = git_repo_root(probe)
+    if repo_root is None:
+        return None
+    if not path_is_relative_to(runtime_root, repo_root):
+        return None
+    if git_ignores_path(repo_root, runtime_root):
+        return None
+    return (
+        "runtime root is inside target repo but is not ignored; use a root outside the repo, "
+        "add the runtime root to .gitignore, or pass --allow-repo-local-root"
+    )
+
+
 def dirty_worktree(cwd: str | Path) -> bool:
     return bool(run_git(cwd, "status", "--porcelain"))
 

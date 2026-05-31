@@ -68,7 +68,8 @@ runtime can do these things end-to-end:
   result validation, including task/result checksums for result validation;
 - validate that executor task packets are anchored to the embedded local repo
   snapshot by requiring matching repo name, absolute cwd/path, branch, head,
-  clean worktree, and non-low repo confidence;
+  clean worktree, built-in safety stops, absolute expected evidence path, and
+  non-low repo confidence;
 - validate local generic executor result evidence against a task packet,
   including elapsed runtime bounds and expected evidence-path binding;
 - size tasks and enforce pickup policy;

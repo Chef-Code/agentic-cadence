@@ -65,7 +65,7 @@ def valid_task_packet(tmp):
         required_checks=["python -m unittest tests.test_executor_contract"],
         max_minutes=30,
         max_tasks=1,
-        stop_conditions=["brake_not_drive", "operator_stop", "timeout"],
+        stop_conditions=["brake_not_drive", "operator_stop", "context_pressure", "timeout"],
         evidence_path=Path(tmp) / "executor-result.json",
     )
 
@@ -717,3 +717,23 @@ class ExecutorContractTests(unittest.TestCase):
 
             self.assertFalse(valid)
             self.assertEqual(reason, "executor result elapsed time exceeds task limit")
+
+    def test_task_packet_rejects_missing_builtin_stop_conditions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = valid_task_packet(Path(tmp))
+            packet["stop_conditions"] = ["brake_not_drive", "timeout"]
+
+            valid, reason = validate_executor_task_packet(packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor task stop_conditions must include built-in safety stops")
+
+    def test_task_packet_rejects_relative_expected_evidence_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = valid_task_packet(Path(tmp))
+            packet["expected_output"]["evidence_path"] = "executor-result.json"
+
+            valid, reason = validate_executor_task_packet(packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor task expected_output.evidence_path must be absolute")

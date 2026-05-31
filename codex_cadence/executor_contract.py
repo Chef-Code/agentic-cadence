@@ -16,6 +16,7 @@ EXECUTOR_TASK_SCHEMA_VERSION = "generic-executor-task.v1"
 EXECUTOR_RESULT_SCHEMA_VERSION = "generic-executor-result.v1"
 EXECUTOR_STATUSES = ("succeeded", "failed", "blocked", "stopped")
 EXECUTOR_CONFIDENCE_VALUES = ("high", "medium", "low")
+DEFAULT_EXECUTOR_STOP_CONDITIONS = ["brake_not_drive", "operator_stop", "context_pressure", "timeout"]
 _SHELL_COMMANDS = {
     "bash",
     "bash.exe",
@@ -386,15 +387,21 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
         value = limits.get(field)
         if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
             return False, f"executor task limits.{field} must be a positive integer"
-    if not _is_string_list(packet.get("stop_conditions")) or not packet.get("stop_conditions"):
+    stop_conditions = packet.get("stop_conditions")
+    if not _is_string_list(stop_conditions) or not stop_conditions:
         return False, "executor task stop_conditions must be a non-empty list of strings"
+    if not all(condition in stop_conditions for condition in DEFAULT_EXECUTOR_STOP_CONDITIONS):
+        return False, "executor task stop_conditions must include built-in safety stops"
     expected_output = packet.get("expected_output")
     if not isinstance(expected_output, dict):
         return False, "executor task expected_output must be a JSON object"
     if expected_output.get("schema_version") != EXECUTOR_RESULT_SCHEMA_VERSION:
         return False, "executor task expected_output.schema_version is invalid"
-    if not _non_empty_string(expected_output.get("evidence_path")):
+    evidence_path = expected_output.get("evidence_path")
+    if not _non_empty_string(evidence_path):
         return False, "executor task expected_output.evidence_path is required"
+    if not Path(evidence_path).expanduser().is_absolute():
+        return False, "executor task expected_output.evidence_path must be absolute"
     permissions = packet.get("permissions")
     if not isinstance(permissions, dict):
         return False, "executor task permissions must be a JSON object"

@@ -181,10 +181,11 @@ Current evidence:
   task packet;
 - task-packet validation checks the embedded local repo snapshot, requires its
   repo/cwd/branch/head to match the packet repo anchor, and rejects missing
-  repo identity, dirty, low-confidence, relative-path, or mismatched snapshots;
+  repo identity, missing built-in safety stops, relative expected evidence
+  paths, dirty, low-confidence, relative-path, or mismatched snapshots;
 - successful result evidence must include command evidence, validation
-  evidence, a resulting head attestation, and elapsed time within the task
-  runtime limit from the expected evidence path;
+  evidence, a resulting head attestation, elapsed time within the task runtime
+  limit, and the absolute expected evidence path;
 - disabled commit, push, and PR-creation permissions reject common
   absolute-path, git/gh global-option, and shell-wrapper command forms;
 - no real executor or named host adapter exists.

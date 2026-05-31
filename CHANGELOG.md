@@ -16,6 +16,9 @@ All notable public changes to Agentic Cadence are documented here.
   path/check/runtime/stop-condition bounds that retain built-in safety stops,
   plus compact audit records for loop decisions and executor-result validation
   with task/result checksums.
+- Tightened generic executor packet validation so built-in safety stops and
+  absolute expected result-evidence paths are required before result evidence
+  can validate.
 
 ### Changed
 

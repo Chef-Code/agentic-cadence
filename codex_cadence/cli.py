@@ -17,6 +17,7 @@ from codex_cadence import PROTOCOL_VERSION
 from codex_cadence.candidates import DISCOVERY_INTENTS, DISCOVERY_MODES, PROPOSAL_ALLOWANCES, CandidateBudget
 from codex_cadence.candidates import discover_candidates
 from codex_cadence.executor_contract import (
+    DEFAULT_EXECUTOR_STOP_CONDITIONS,
     build_executor_task_packet,
     validate_executor_result_evidence,
     validate_executor_task_packet,
@@ -50,7 +51,12 @@ from codex_cadence.pr_readiness import (
     load_template_sections,
 )
 from codex_cadence.release import evaluate_release_dry_run
-from codex_cadence.repo_state import runtime_root_safety_issue, snapshot_repo, validate_repo_snapshot
+from codex_cadence.repo_state import (
+    runtime_root_location_safety_issue,
+    runtime_root_safety_issue,
+    snapshot_repo,
+    validate_repo_snapshot,
+)
 from codex_cadence.store import (
     BRAKE_STATUSES,
     HANDOFF_STATES,
@@ -69,9 +75,6 @@ from codex_cadence.store import (
     snapshot_path,
     utc_now,
 )
-
-DEFAULT_EXECUTOR_STOP_CONDITIONS = ["brake_not_drive", "operator_stop", "context_pressure", "timeout"]
-
 
 def emit(data: dict[str, Any] | list[dict[str, Any]]) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
@@ -1091,7 +1094,7 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
     if getattr(args, "root", None) is not None:
         repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
         repo_path = repo.get("path")
-        if repo_path and not args.allow_repo_local_root:
+        if isinstance(repo_path, str) and repo_path and not args.allow_repo_local_root:
             issue = runtime_root_safety_issue(args.root, repo_path)
             if issue:
                 raise ValueError(issue)
@@ -1382,6 +1385,10 @@ def main(argv: list[str] | None = None) -> int:
                 issue = runtime_root_safety_issue(args.root, target_cwd)
                 if issue:
                     raise ValueError(issue)
+                if getattr(args, "guards_optional_root", False):
+                    issue = runtime_root_location_safety_issue(args.root)
+                    if issue:
+                        raise ValueError(issue)
         return args.func(args)
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)
