@@ -6,13 +6,11 @@ Last updated: 2026-05-31
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Base branch for this handoff work: `origin/main` at `72370e61847f5b50108ef74604bd0af90cc30fda`.
-- Working branch: `codex/audit-replay-cli`
-- Pull request: PR #56, `https://github.com/Chef-Code/agentic-cadence/pull/56`
-- Recent merged PRs: PR #54 merged the audit replay design spec; PR #55 merged the documentation refresh that marked audit replay as designed but unimplemented.
-- Current branch intent: implement the read-only `audit-replay` command described by `docs/designs/2026-05-31-audit-replay-design.md`.
+- Current base: `origin/main` at `a9fa241f0af3ea7ce07416fee3de5a2c2d6c7391`.
+- Recent merged PRs: PR #54 merged the audit replay design spec; PR #55 merged the documentation refresh that marked audit replay as designed but unimplemented; PR #56 implemented the read-only `audit-replay` CLI path.
+- Current branch intent: start the next safety slice after audit replay: command policy, active stop controls, and any remaining local audit-control validation.
 
-## What Changed In This Branch
+## What Changed In PR #56
 
 - Added `audit-replay` CLI wiring with root-only runtime-root resolution and location safety checks.
 - Added `codex_cadence.policy_audit.replay_audit_log()` for read-only replay of `<root>/audit/events.jsonl`.
@@ -42,4 +40,4 @@ python scripts/verify_package.py
 
 ## Next Action
 
-Continue PR #56, monitor checks and review feedback, address any findings, then mark ready for review or merge when the operator is satisfied.
+Start from latest `origin/main` and implement the next Policy, Audit, And Stop Controls slice. Prioritize command allow/deny policy for executor evidence, active-loop stop handling, and focused validation without adding live executor invocation, branch/PR automation, merge authority, or release behavior.
