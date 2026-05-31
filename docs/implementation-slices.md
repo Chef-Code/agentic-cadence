@@ -12,7 +12,7 @@ direction is GitHub-native orchestration for multiple cooperating agents.
 
 Each slice should ship with tests, evidence, and updates to the living docs.
 
-## Current Baseline After PR #51
+## Current Working Baseline
 
 The five 50% confidence slices below remain the work needed for a controlled
 loop. Three smaller stabilization slices are now part of this baseline:
@@ -37,8 +37,10 @@ the Phase 1 read-only `loop-tick` command for the first slice and a generic
 executor task/result contract, but it still does not add live GitHub
 synchronization, branch/commit/push or PR creation, real executor invocation,
 automatic resume orchestration, agent-role assignment, agent-pool coordination,
-or enforced review separation. Current unattended-operation confidence remains
-10%.
+or enforced review separation. The first local policy/audit controls can bound
+emitted executor task packets and append decision/result-validation audit
+records, but audit replay and active execution controls are still missing.
+Current unattended-operation confidence remains 10%.
 
 ## Vision Framing
 
@@ -90,6 +92,12 @@ Current evidence:
   `approve_executor_task`;
 - `loop-tick` is explicitly read-only and reports `executor_started: false`,
   `epoch_started: false`, and `pr_action_started: false`;
+- `loop-tick --policy-file` can apply initial local path/check/runtime/stop
+  bounds before emitting an executor task, keeps built-in and policy stop
+  conditions when CLI stop conditions are added, and can return
+  `policy_denied`;
+- root-backed `loop-tick` packets append compact `cadence-audit.v1` decision
+  records;
 - no command yet starts an epoch, hands work to an executor, records validation,
   completes or fails the epoch, or chooses PR/handoff follow-up after execution.
 
@@ -117,6 +125,9 @@ Validation needed:
 - dirty worktree stops before execution: complete for Phase 1;
 - stop brake prevents execution: complete for Phase 1;
 - approval-required path: complete for Phase 1;
+- initial policy-denied path before executor task emission: complete for
+  Phase 1;
+- loop-tick decision audit record: complete for Phase 1;
 - active epoch conflict;
 - stale snapshot rejection.
 
@@ -170,9 +181,11 @@ Current evidence:
   task packet;
 - task-packet validation checks the embedded local repo snapshot, requires its
   repo/cwd/branch/head to match the packet repo anchor, and rejects missing
-  repo identity, dirty, low-confidence, relative-path, or mismatched snapshots;
+  repo identity, missing built-in safety stops, relative expected evidence
+  paths, dirty, low-confidence, relative-path, or mismatched snapshots;
 - successful result evidence must include command evidence, validation
-  evidence, and a resulting head attestation;
+  evidence, a resulting head attestation, elapsed time within the task runtime
+  limit, and the absolute expected evidence path;
 - disabled commit, push, and PR-creation permissions reject common
   absolute-path, git/gh global-option, and shell-wrapper command forms;
 - no real executor or named host adapter exists.
@@ -253,7 +266,21 @@ Current evidence:
 - Cadence state/brake exists;
 - epoch limits exist in code;
 - handoff records exist;
-- no complete policy file or loop audit log exists.
+- `loop-tick --policy-file` accepts a local `cadence-loop-policy.v1` JSON file
+  with `allowed_paths`, `denied_paths`, `required_checks`,
+  `max_executor_time_minutes`, and `stop_conditions`;
+- the policy file supplies defaults and caps for emitted executor task paths
+  and runtime, keeps built-in stops plus policy required checks and stop
+  conditions when CLI checks or stop conditions are added, and denies requested
+  executor paths outside `allowed_paths`, overlapping `denied_paths`, or
+  runtime above `max_executor_time_minutes`;
+- root-backed `loop-tick` appends compact `cadence-audit.v1` decision records
+  to `<root>/audit/events.jsonl`;
+- root-backed `validate-executor-result` appends compact
+  `executor_result_validation` audit records with packet and evidence
+  checksums;
+- no audit replay command, command allow/deny policy, branch policy,
+  active-loop stop handling, or corrupted-audit handling exists yet.
 
 Why it matters: unattended confidence comes from bounded blast radius and
 recoverable evidence.
@@ -261,6 +288,7 @@ recoverable evidence.
 Likely files:
 
 - `codex_cadence/model.py`
+- `codex_cadence/policy_audit.py`
 - `codex_cadence/store.py`
 - `codex_cadence/cli.py`
 - tests
@@ -272,9 +300,11 @@ Suggested implementation size: medium
 
 Validation needed:
 
-- policy allow/deny tests;
+- initial policy allow/deny tests for executor task paths, required checks,
+  max runtime, and stop conditions: complete for Phase 1;
+- loop decision audit record: complete for Phase 1;
+- executor result validation audit record: complete for Phase 1;
 - denied command test;
-- denied path test;
 - stop brake during active loop;
 - audit append ordering;
 - audit replay summary;

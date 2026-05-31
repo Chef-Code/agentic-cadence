@@ -17,6 +17,7 @@ from codex_cadence import PROTOCOL_VERSION
 from codex_cadence.candidates import DISCOVERY_INTENTS, DISCOVERY_MODES, PROPOSAL_ALLOWANCES, CandidateBudget
 from codex_cadence.candidates import discover_candidates
 from codex_cadence.executor_contract import (
+    DEFAULT_EXECUTOR_STOP_CONDITIONS,
     build_executor_task_packet,
     validate_executor_result_evidence,
     validate_executor_task_packet,
@@ -35,6 +36,13 @@ from codex_cadence.epochs import start_epoch as start_epoch_record
 from codex_cadence.epochs import validate_snapshot_after_epoch
 from codex_cadence.handoff_loop import prepare_handoff
 from codex_cadence.model import BUCKETS, TASK_TYPES, estimate_task, governance_permissions, policy_for_bucket
+from codex_cadence.policy_audit import (
+    append_audit_record,
+    executor_result_validation_audit_record,
+    load_loop_policy,
+    loop_tick_audit_record,
+    resolve_executor_policy,
+)
 from codex_cadence.pr_readiness import (
     evaluate_pr_body_preflight,
     evaluate_pr_readiness,
@@ -43,7 +51,12 @@ from codex_cadence.pr_readiness import (
     load_template_sections,
 )
 from codex_cadence.release import evaluate_release_dry_run
-from codex_cadence.repo_state import runtime_root_safety_issue, snapshot_repo, validate_repo_snapshot
+from codex_cadence.repo_state import (
+    runtime_root_location_safety_issue,
+    runtime_root_safety_issue,
+    snapshot_repo,
+    validate_repo_snapshot,
+)
 from codex_cadence.store import (
     BRAKE_STATUSES,
     HANDOFF_STATES,
@@ -62,7 +75,6 @@ from codex_cadence.store import (
     snapshot_path,
     utc_now,
 )
-
 
 def emit(data: dict[str, Any] | list[dict[str, Any]]) -> None:
     print(json.dumps(data, indent=2, sort_keys=True))
@@ -941,6 +953,7 @@ def loop_tick_command(args: argparse.Namespace) -> int:
     if args.discovery_mode != "off" and not args.intent:
         raise ValueError("intent is required unless --discovery-mode off is used")
     root = args.root
+    policy = load_loop_policy(args.policy_file)
     brake = read_brake(root)
     cadence = cadence_state(brake)
     known_failures = args.known_failure or []
@@ -982,28 +995,45 @@ def loop_tick_command(args: argparse.Namespace) -> int:
     tick_id = f"loop-tick-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}"
     executor_task = None
     if args.emit_executor_task and recommended_next_action == "requires_executor_contract":
-        evidence_path = args.executor_evidence_path or str(root / "executor-results" / f"{tick_id}.json")
-        executor_task = build_executor_task_packet(
-            task=elected_next[0],
-            snapshot=snapshot,
-            repo_path=args.cwd,
-            allowed_paths=args.allowed_path or ["."],
-            required_checks=args.required_check or [],
-            max_minutes=args.executor_time_limit_minutes,
-            max_tasks=1,
-            stop_conditions=args.stop_condition
-            or ["brake_not_drive", "operator_stop", "context_pressure", "timeout"],
-            evidence_path=evidence_path,
+        policy_denial, policy = resolve_executor_policy(
+            policy,
+            requested_allowed_paths=args.allowed_path or [],
+            requested_required_checks=args.required_check or [],
+            requested_max_minutes=args.executor_time_limit_minutes,
+            requested_stop_conditions=args.stop_condition or [],
         )
-        valid_task, invalid_reason = validate_executor_task_packet(executor_task)
-        if not valid_task:
-            raise ValueError(f"invalid executor task packet: {invalid_reason}")
-        recommended_next_action = "approve_executor_task"
-        reason = "executor task packet emitted for operator approval"
-        operator_confirmation_required = True
-        executor_contract_required = False
+        if policy_denial:
+            recommended_next_action = "policy_denied"
+            reason = policy_denial["reason"]
+            operator_confirmation_required = True
+            executor_contract_required = False
+        else:
+            policy["effective_stop_conditions"] = list(
+                dict.fromkeys([*DEFAULT_EXECUTOR_STOP_CONDITIONS, *policy["effective_stop_conditions"]])
+            )
+            evidence_path = args.executor_evidence_path or str(root / "executor-results" / f"{tick_id}.json")
+            executor_task = build_executor_task_packet(
+                task=elected_next[0],
+                snapshot=snapshot,
+                repo_path=args.cwd,
+                allowed_paths=policy["effective_allowed_paths"],
+                required_checks=policy["effective_required_checks"],
+                max_minutes=policy["effective_max_minutes"],
+                max_tasks=1,
+                stop_conditions=policy["effective_stop_conditions"],
+                evidence_path=evidence_path,
+            )
+            valid_task, invalid_reason = validate_executor_task_packet(executor_task)
+            if not valid_task:
+                raise ValueError(f"invalid executor task packet: {invalid_reason}")
+            recommended_next_action = "approve_executor_task"
+            reason = "executor task packet emitted for operator approval"
+            operator_confirmation_required = True
+            executor_contract_required = False
     limitations = ["phase1_read_only"]
-    if executor_task is None:
+    if recommended_next_action == "policy_denied":
+        limitations.append("policy_denied")
+    elif executor_task is None:
         limitations.append("executor_contract_not_implemented")
     limitations.extend(
         [
@@ -1031,8 +1061,10 @@ def loop_tick_command(args: argparse.Namespace) -> int:
         "candidate_discovery": discovery,
         "elected_next": elected_next,
         "executor_task": executor_task,
+        "policy": policy,
         "limitations": limitations,
     }
+    payload["audit_record"] = append_audit_record(root, loop_tick_audit_record(payload))
     emit(payload)
     return 0
 
@@ -1043,18 +1075,34 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
     task_packet = read_json(task_file)
     result_evidence = read_json(result_file)
     valid, reason = validate_executor_result_evidence(result_evidence, task_packet)
-    emit(
-        {
-            "protocol_version": PROTOCOL_VERSION,
-            "packet": "executor_result_validation",
-            "valid": valid,
-            "reason": reason,
-            "task_file": str(task_file),
-            "result_file": str(result_file),
-            "executor_started": False,
-            "recommended_next_action": "record_executor_result" if valid else "fix_executor_evidence",
-        }
-    )
+    if valid:
+        expected_output = task_packet.get("expected_output") if isinstance(task_packet, dict) else {}
+        expected_path = expected_output.get("evidence_path") if isinstance(expected_output, dict) else None
+        if expected_path is not None and Path(expected_path).expanduser().resolve() != result_file.expanduser().resolve():
+            valid = False
+            reason = "executor result file does not match task expected_output.evidence_path"
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "packet": "executor_result_validation",
+        "valid": valid,
+        "reason": reason,
+        "task_file": str(task_file),
+        "result_file": str(result_file),
+        "executor_started": False,
+        "recommended_next_action": "record_executor_result" if valid else "fix_executor_evidence",
+    }
+    if getattr(args, "root", None) is not None:
+        repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
+        repo_path = repo.get("path")
+        if isinstance(repo_path, str) and repo_path and not args.allow_repo_local_root:
+            issue = runtime_root_safety_issue(args.root, repo_path)
+            if issue:
+                raise ValueError(issue)
+        payload["audit_record"] = append_audit_record(
+            args.root,
+            executor_result_validation_audit_record(payload, task_packet, result_evidence),
+        )
+    emit(payload)
     return 0 if valid else 1
 
 
@@ -1217,9 +1265,10 @@ def build_parser() -> argparse.ArgumentParser:
     loop_tick_parser.add_argument("--emit-executor-task", action="store_true")
     loop_tick_parser.add_argument("--allowed-path", action="append", default=[])
     loop_tick_parser.add_argument("--required-check", action="append", default=[])
-    loop_tick_parser.add_argument("--executor-time-limit-minutes", type=positive_int, default=30)
+    loop_tick_parser.add_argument("--executor-time-limit-minutes", type=positive_int)
     loop_tick_parser.add_argument("--executor-evidence-path")
     loop_tick_parser.add_argument("--stop-condition", action="append", default=[])
+    loop_tick_parser.add_argument("--policy-file")
     loop_tick_parser.set_defaults(func=loop_tick_command)
 
     executor_result_parser = subparsers.add_parser(
@@ -1228,7 +1277,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     executor_result_parser.add_argument("--task-file", required=True)
     executor_result_parser.add_argument("--result-file", required=True)
-    executor_result_parser.set_defaults(func=validate_executor_result_command, requires_root=False)
+    executor_result_parser.set_defaults(
+        func=validate_executor_result_command,
+        requires_root=False,
+        guards_optional_root=True,
+    )
 
     readiness_parser = subparsers.add_parser("pr-readiness", help="Evaluate a saved PR JSON readiness packet")
     readiness_parser.add_argument("--pr-json-file", required=True)
@@ -1327,11 +1380,16 @@ def main(argv: list[str] | None = None) -> int:
         requires_root = getattr(args, "requires_root", True)
         if requires_root or args.root is not None:
             args.root = (args.root if args.root is not None else default_root()).expanduser().resolve()
-            if requires_root and not args.allow_repo_local_root:
-                target_cwd = Path(getattr(args, "cwd", Path.cwd()))
-                issue = runtime_root_safety_issue(args.root, target_cwd)
-                if issue:
-                    raise ValueError(issue)
+            if (requires_root or getattr(args, "guards_optional_root", False)) and not args.allow_repo_local_root:
+                if requires_root:
+                    target_cwd = Path(getattr(args, "cwd", Path.cwd()))
+                    issue = runtime_root_safety_issue(args.root, target_cwd)
+                    if issue:
+                        raise ValueError(issue)
+                if getattr(args, "guards_optional_root", False):
+                    issue = runtime_root_location_safety_issue(args.root)
+                    if issue:
+                        raise ValueError(issue)
         return args.func(args)
     except Exception as exc:
         print(f"error: {exc}", file=sys.stderr)

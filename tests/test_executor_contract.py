@@ -3,6 +3,7 @@ import unittest
 from pathlib import Path
 
 from codex_cadence.executor_contract import (
+    DEFAULT_EXECUTOR_STOP_CONDITIONS,
     build_executor_task_packet,
     validate_executor_result_evidence,
     validate_executor_task_packet,
@@ -65,7 +66,7 @@ def valid_task_packet(tmp):
         required_checks=["python -m unittest tests.test_executor_contract"],
         max_minutes=30,
         max_tasks=1,
-        stop_conditions=["brake_not_drive", "operator_stop", "timeout"],
+        stop_conditions=DEFAULT_EXECUTOR_STOP_CONDITIONS,
         evidence_path=Path(tmp) / "executor-result.json",
     )
 
@@ -225,6 +226,7 @@ class ExecutorContractTests(unittest.TestCase):
 
     def test_task_packet_rejects_relative_or_unresolvable_repo_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
+            malformed_absolute_path = f"{Path(tmp).anchor}bad\0path"
             cases = [
                 (
                     ".",
@@ -244,6 +246,11 @@ class ExecutorContractTests(unittest.TestCase):
                 (
                     "bad\0path",
                     str(Path(tmp)),
+                    "executor task snapshot cwd and repo.path must be absolute local paths",
+                ),
+                (
+                    malformed_absolute_path,
+                    malformed_absolute_path,
                     "executor task snapshot cwd and repo.path must be absolute local paths",
                 ),
             ]
@@ -703,3 +710,44 @@ class ExecutorContractTests(unittest.TestCase):
 
             self.assertFalse(valid)
             self.assertEqual(reason, "executor result ended_at must be at or after started_at")
+
+    def test_result_evidence_rejects_elapsed_time_over_task_limit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            task_packet["limits"]["max_minutes"] = 4
+            evidence = valid_result(
+                started_at="2999-05-22T00:00:00Z",
+                ended_at="2999-05-22T00:05:00Z",
+            )
+
+            valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor result elapsed time exceeds task limit")
+
+    def test_task_packet_rejects_missing_builtin_stop_conditions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = valid_task_packet(Path(tmp))
+            packet["stop_conditions"] = ["brake_not_drive", "timeout"]
+
+            valid, reason = validate_executor_task_packet(packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor task stop_conditions must include built-in safety stops")
+
+    def test_task_packet_rejects_relative_expected_evidence_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = [
+                "executor-result.json",
+                f"{Path(tmp).anchor}bad\0result.json",
+            ]
+
+            for evidence_path in cases:
+                with self.subTest(evidence_path=evidence_path):
+                    packet = valid_task_packet(Path(tmp))
+                    packet["expected_output"]["evidence_path"] = evidence_path
+
+                    valid, reason = validate_executor_task_packet(packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, "executor task expected_output.evidence_path must be absolute")

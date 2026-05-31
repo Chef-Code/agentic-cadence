@@ -26,7 +26,7 @@ def run_git(cwd: str | Path, *args: str) -> str:
 def git_repo_root(cwd: str | Path) -> Path | None:
     try:
         return Path(run_git(cwd, "rev-parse", "--show-toplevel")).resolve()
-    except (OSError, RuntimeError):
+    except (OSError, RuntimeError, ValueError):
         return None
 
 
@@ -68,6 +68,24 @@ def runtime_root_safety_issue(root: str | Path, target_cwd: str | Path) -> str |
         return None
     # CLI callers resolve --root first; this keeps direct helper calls safe too.
     runtime_root = Path(root).resolve(strict=False)
+    if not path_is_relative_to(runtime_root, repo_root):
+        return None
+    if git_ignores_path(repo_root, runtime_root):
+        return None
+    return (
+        "runtime root is inside target repo but is not ignored; use a root outside the repo, "
+        "add the runtime root to .gitignore, or pass --allow-repo-local-root"
+    )
+
+
+def runtime_root_location_safety_issue(root: str | Path) -> str | None:
+    runtime_root = Path(root).resolve(strict=False)
+    probe = runtime_root if runtime_root.exists() else runtime_root.parent
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    repo_root = git_repo_root(probe)
+    if repo_root is None:
+        return None
     if not path_is_relative_to(runtime_root, repo_root):
         return None
     if git_ignores_path(repo_root, runtime_root):

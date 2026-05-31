@@ -146,6 +146,7 @@ def ensure_layout(root: Path) -> None:
     for state in EPOCH_STATES:
         epoch_state_dir(root, state).mkdir(parents=True, exist_ok=True)
     (root / "approvals").mkdir(parents=True, exist_ok=True)
+    (root / "audit").mkdir(parents=True, exist_ok=True)
     (root / "locks").mkdir(parents=True, exist_ok=True)
     (root / "logs" / "clean-square").mkdir(parents=True, exist_ok=True)
     (root / "snapshots").mkdir(parents=True, exist_ok=True)

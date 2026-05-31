@@ -97,6 +97,9 @@ It includes:
 - read-only `loop-tick` orchestration that emits a governed next-action packet
   without starting execution, epoch mutation, PR actions, review spend, merge,
   release, or publication;
+- initial local loop policy and audit controls for `loop-tick
+  --emit-executor-task` and `validate-executor-result`, including
+  path/check/runtime/stop-condition bounds and compact JSONL decision records;
 - generic executor task/result packet validation, including local snapshot
   trust-anchor checks for repo name, absolute cwd/path, branch, head, dirty
   worktree, and low-confidence state;
@@ -339,9 +342,11 @@ Current evidence: `loop-tick` captures and persists a local repo snapshot,
 runs deterministic candidate discovery with election enabled, checks Cadence
 state, and emits `blocked`, `no_candidates`, `approval_required`, or
 `requires_executor_contract`; with `--emit-executor-task`, it can emit
-`approve_executor_task`. It sets `executor_started`, `epoch_started`, and
-`pr_action_started` to false. It does not yet start an epoch, hand work to a
-real executor, run execution, complete or fail epochs, or drive PR/handoff
+`approve_executor_task` or `policy_denied` when a supplied local loop policy
+rejects the requested executor-task bounds. It appends a compact audit record
+for root-backed loop decisions. It sets `executor_started`, `epoch_started`,
+and `pr_action_started` to false. It does not yet start an epoch, hand work to
+a real executor, run execution, complete or fail epochs, or drive PR/handoff
 decisions after execution.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/candidates.py`,
@@ -350,9 +355,10 @@ Likely files: `codex_cadence/cli.py`, `codex_cadence/candidates.py`,
 
 Validation: fixture repo tests cover no-candidate, executor-contract-required,
 dirty-worktree approval-required with and without elected candidates, red-CI
-approval-required, and stop-brake blocked paths. Full slice completion still
-needs executor success/failure, active epoch conflict, stale snapshot rejection,
-validation collection, and completion/failure paths.
+approval-required, stop-brake blocked paths, policy-denied task emission, and
+loop-decision audit records. Full slice completion still needs executor
+success/failure, active epoch conflict, stale snapshot rejection, validation
+collection, and completion/failure paths.
 
 Codex can implement directly if the command remains generic and does not push
 or merge.
@@ -389,15 +395,24 @@ operator approval.
 
 Goal: make unattended loop behavior bounded, inspectable, and interruptible.
 
-Current evidence: Cadence state, brakes, epochs, and handoff records exist, but
-there is no single policy file or append-only audit log for loop decisions and
-executor actions.
+Current evidence: Cadence state, brakes, epochs, and handoff records exist.
+`loop-tick --policy-file` can load local `cadence-loop-policy.v1` JSON to
+bound emitted executor task `allowed_paths`, `denied_paths`,
+`required_checks`, `max_executor_time_minutes`, and `stop_conditions` while
+retaining built-in safety stops.
+Root-backed `loop-tick` and `validate-executor-result` append compact
+`cadence-audit.v1` records to `<root>/audit/events.jsonl`; result-validation
+audit records include task and result evidence checksums. There is still no
+audit replay command, command allow/deny policy, branch policy, active-loop
+stop handling, corrupted-audit handling, or authenticated approval identity.
 
 Likely files: `codex_cadence/model.py`, `codex_cadence/store.py`,
 `codex_cadence/cli.py`, tests, docs.
 
-Validation: policy denial tests, audit replay tests, active-loop stop tests,
-and corrupted audit record tests.
+Validation: initial policy allow/deny tests, loop-decision audit record tests,
+and executor-result validation audit record tests exist. Remaining validation
+needs denied command tests, audit replay tests, active-loop stop tests, and
+corrupted audit record tests.
 
 Codex can implement direct local policy and audit controls. Destructive cleanup
 or default-autonomous permissions require operator approval.
