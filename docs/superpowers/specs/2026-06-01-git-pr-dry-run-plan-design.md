@@ -13,7 +13,11 @@ Although this slice operates on a single executor result, the dry-run Git/PR pla
 
 ## Core Invariants
 
-Future orchestration note: in multi-agent workflows, the executor that produced the result evidence should not be treated as the final authority for Git/PR transition approval. The `git-pr-plan` packet is intended to support role separation: a builder may produce the evidence, but a reviewer, QA agent, release agent, or human operator should consume the plan and decide whether to proceed, request changes, split the work, update documentation, or hand off to another role.
+- This slice remains dry-run only.
+- Suggested commands are never executed by Cadence.
+- The executor that produced result evidence is not the final authority for Git/PR approval.
+- The packet must support future role separation between builder, reviewer, QA, release, documentation, and human operator roles.
+- Any future live Git or GitHub behavior must be added behind explicit approval and stable packet contracts.
 
 ## Approaches Considered
 
