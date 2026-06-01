@@ -603,6 +603,21 @@ class ExecutorContractTests(unittest.TestCase):
                     valid_result(
                         commands_run=[
                             {
+                                "command": "git -c alias.x=push x origin HEAD",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
                                 "command": 'bash -lc "gh pr create --fill"',
                                 "exit_code": 0,
                             },
@@ -784,6 +799,67 @@ class ExecutorContractTests(unittest.TestCase):
                     valid_result(
                         commands_run=[
                             {
+                                "command": (
+                                    "python -m unittest tests.test_executor_contract # ok\n"
+                                    "python -m pip install ."
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": (
+                                    "cmd /c python -m unittest tests.test_executor_contract "
+                                    "&& python -m pip install ."
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "python -m $(echo pip) install .",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "python -m pip $(echo install) .",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "`echo python -m pip install .`",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
                                 "command": "python -m unittest tests.test_executor_contract",
                                 "exit_code": 0,
                             },
@@ -904,6 +980,70 @@ class ExecutorContractTests(unittest.TestCase):
                     valid_result(
                         commands_run=[
                             {
+                                "command": "{ python -m pip install .; }",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": 'bash -lc "{ python -m pip install .; }"',
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": (
+                                    "python -m unittest tests.test_executor_contract || "
+                                    "python -m pip install ."
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": (
+                                    "python -m unittest tests.test_executor_contract | "
+                                    "python -m pip install ."
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": (
+                                    "python -m unittest tests.test_executor_contract & "
+                                    "python -m pip install ."
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
                                 "command": "python scripts/unknown.py",
                                 "exit_code": 0,
                             },
@@ -946,6 +1086,20 @@ class ExecutorContractTests(unittest.TestCase):
                         ],
                     ),
                     "executor result commands_run[1] is outside allowed command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": (
+                                    "python -m unittest tests.test_executor_contract "
+                                    "$(echo $(python scripts/unknown.py))"
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is outside allowed command_policy",
                 ),
                 (
                     valid_result(
@@ -1014,6 +1168,285 @@ class ExecutorContractTests(unittest.TestCase):
             self.assertFalse(valid)
             self.assertEqual(reason, "executor result commands_run[1] is denied by command_policy")
 
+    def test_result_evidence_denies_git_alias_push_command_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            task_packet["command_policy"] = {
+                "allowed_commands": [],
+                "denied_commands": ["git push"],
+            }
+            evidence = valid_result(
+                status="failed",
+                commands_run=[
+                    {
+                        "command": "git -c alias.x=push x origin main",
+                        "exit_code": 1,
+                    },
+                ],
+                validation_results=[],
+            )
+
+            valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor result commands_run[0] is denied by command_policy")
+
+    def test_result_evidence_denies_unquoted_cmd_payload_command_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            task_packet["command_policy"] = {
+                "allowed_commands": [],
+                "denied_commands": ["python -m pip install"],
+            }
+            evidence = valid_result(
+                status="failed",
+                commands_run=[
+                    {
+                        "command": "cmd /c python -m pip install .",
+                        "exit_code": 1,
+                    },
+                ],
+                validation_results=[],
+            )
+
+            valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor result commands_run[0] is denied by command_policy")
+
+    def test_result_evidence_rejects_shell_expansion_policy_bypasses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            task_packet["command_policy"] = {
+                "allowed_commands": ["python -m unittest tests.test_executor_contract"],
+                "denied_commands": ["python -m pip install"],
+            }
+            cases = [
+                (
+                    "python -m unittest tests.test_executor_contract < <(python -m pip install .)",
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    "python -m pip${IFS}install .",
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+            ]
+
+            for command, expected_reason in cases:
+                with self.subTest(command=command):
+                    evidence = valid_result(
+                        status="failed",
+                        commands_run=[
+                            {
+                                "command": command,
+                                "exit_code": 1,
+                            },
+                        ],
+                        validation_results=[],
+                    )
+
+                    valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
+
+    def test_result_evidence_rejects_shell_expansion_permission_bypasses(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            cases = [
+                (
+                    'git -c alias.x="!sh -c \'git push origin main\'" x',
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "git $(printf push) origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "git $(echo $(echo push)) origin main",
+                    "executor result commands_run[0] contains unsupported shell expansion",
+                ),
+                (
+                    "bash -lc 'p=push; git $p origin main'",
+                    "executor result commands_run[0] contains unsupported shell expansion",
+                ),
+                (
+                    "git status # ok\ngit push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "sudo -u root git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "sudo --user root git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "env --chdir /tmp git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "env -C /tmp git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "GIT_ALIAS=push git --config-env=alias.x=GIT_ALIAS x origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "env GIT_ALIAS=push git --config-env=alias.x=GIT_ALIAS x origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "git -c alias.one=two -c alias.two=push one origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "command git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "nohup git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "time git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    'env -S "git push origin main"',
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    'env --split-string "git push origin main"',
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "/usr/bin/time -f %E git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "time --format=%E git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "time --output /tmp/t git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "exec git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "nice git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "timeout 10 git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "builtin command git push origin main",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    'eval "git push origin main"',
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    'bash -lc "git\\\n push origin main"',
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "bash -c $'git push origin main'",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "bash -lc $'git push origin main'",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "zsh -c $'git push origin main'",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    'bash -c $"git push origin main"',
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+                (
+                    "env -S'git push origin main'",
+                    "executor result commands_run[0] violates disabled push permission",
+                ),
+            ]
+
+            for command, expected_reason in cases:
+                with self.subTest(command=command):
+                    evidence = valid_result(
+                        status="failed",
+                        commands_run=[
+                            {
+                                "command": command,
+                                "exit_code": 1,
+                            },
+                        ],
+                        validation_results=[],
+                    )
+
+                    valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
+
+    def test_result_evidence_handles_deep_nested_substitution_without_crashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            command = "push"
+            for _ in range(80):
+                command = f"echo $({command})"
+            evidence = valid_result(
+                status="failed",
+                commands_run=[
+                    {
+                        "command": f"git $({command}) origin main",
+                        "exit_code": 1,
+                    },
+                ],
+                validation_results=[],
+            )
+
+            valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor result commands_run[0] contains unsupported shell expansion")
+
+    def test_result_evidence_does_not_treat_literal_text_as_git_push(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            cases = [
+                "echo git push origin main",
+                "echo '$(git push origin main)'",
+                """python -c 'print("$(git push origin main)")'""",
+                "echo '$HOME'",
+            ]
+
+            for command in cases:
+                with self.subTest(command=command):
+                    evidence = valid_result(
+                        status="failed",
+                        commands_run=[
+                            {
+                                "command": command,
+                                "exit_code": 0,
+                            },
+                        ],
+                        validation_results=[],
+                    )
+
+                    valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+                    self.assertTrue(valid, reason)
+
     def test_command_substitution_extraction_ignores_literal_parentheses(self):
         self.assertEqual(
             _raw_command_substitutions('python -m unittest tests.test_executor_contract $(echo "(")'),
@@ -1027,6 +1460,10 @@ class ExecutorContractTests(unittest.TestCase):
     def test_task_packet_rejects_malformed_command_policy(self):
         with tempfile.TemporaryDirectory() as tmp:
             cases = [
+                (
+                    None,
+                    "executor task command_policy must be a JSON object",
+                ),
                 (
                     {"allowed_commands": ["python -m unittest"], "denied_commands": [123]},
                     "executor task command_policy.denied_commands must be a list of strings",
@@ -1054,6 +1491,10 @@ class ExecutorContractTests(unittest.TestCase):
     def test_result_evidence_rejects_null_command_policy_fields_without_crashing(self):
         with tempfile.TemporaryDirectory() as tmp:
             cases = [
+                (
+                    None,
+                    "invalid executor task packet: executor task command_policy must be a JSON object",
+                ),
                 (
                     {"allowed_commands": None, "denied_commands": []},
                     "invalid executor task packet: executor task command_policy.allowed_commands must be a list of strings",

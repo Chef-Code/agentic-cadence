@@ -43,6 +43,11 @@ All notable public changes to Agentic Cadence are documented here.
 
 ### Fixed
 
+- Further hardened command-policy validation against denied commands assembled
+  through simple command substitutions, process substitutions, Bash brace
+  grouping, Git aliases that invoke disabled subcommands, command wrappers,
+  comment/newline edge cases, unsupported shell expansions, and top-level null
+  `command_policy` packets.
 - Hardened command-policy validation against compound commands, shell grouping,
   command substitutions, and shell-wrapper payloads, and rejected null task
   command-policy fields without crashing result validation.
