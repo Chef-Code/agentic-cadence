@@ -302,16 +302,23 @@ def _materialized_change_evidence(
     if blockers:
         return absent, blockers
     limitations = [str(item) for item in raw.get("limitations") or [] if _non_empty_string(item)]
-    limitations = [item for item in limitations if item != "verified_against_result_metadata_not_local_diff"]
-    if "verified_against_local_base_diff" not in limitations:
-        limitations.append("verified_against_local_base_diff")
+    if local_changed_files is not None:
+        limitations = [item for item in limitations if item != "verified_against_result_metadata_not_local_diff"]
+        if "verified_against_local_base_diff" not in limitations:
+            limitations.append("verified_against_local_base_diff")
+        default_limitations = ["verified_against_local_base_diff"]
+    else:
+        limitations = [item for item in limitations if item != "verified_against_local_base_diff"]
+        if "verified_against_result_metadata_not_local_diff" not in limitations:
+            limitations.append("verified_against_result_metadata_not_local_diff")
+        default_limitations = ["verified_against_result_metadata_not_local_diff"]
     return {
         "status": "verified",
         "source": raw["source"],
         "files": list(files),
         "task_id": raw.get("task_id"),
         "resulting_head": raw.get("resulting_head"),
-        "limitations": limitations or ["verified_against_local_base_diff"],
+        "limitations": limitations or default_limitations,
     }, blockers
 
 
@@ -553,6 +560,9 @@ def evaluate_git_pr_plan(
     for blocker in pr_body_preflight.get("blockers", []):
         if isinstance(blocker, dict):
             blockers.append(blocker)
+    for warning in pr_body_preflight.get("warnings", []):
+        if isinstance(warning, dict):
+            warnings.append(warning)
 
     recommended_next_action = _recommendation(blockers)
     ready = not blockers

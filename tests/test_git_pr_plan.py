@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from codex_cadence import git_pr_plan as git_pr_plan_module
 from codex_cadence.executor_contract import DEFAULT_EXECUTOR_STOP_CONDITIONS, build_executor_task_packet
 
 
@@ -14,6 +15,7 @@ SCRIPT = ROOT / "scripts" / "cadence.py"
 
 
 def git(cwd, *args, check=True):
+    """Run a Git command in a test repository."""
     return subprocess.run(
         ["git", *args],
         cwd=cwd,
@@ -24,6 +26,7 @@ def git(cwd, *args, check=True):
 
 
 def init_committed_repo(path):
+    """Create a minimal committed Git repository for tests."""
     git(path, "init", "-b", "main")
     git(path, "config", "user.email", "test@example.com")
     git(path, "config", "user.name", "Test User")
@@ -33,6 +36,7 @@ def init_committed_repo(path):
 
 
 def write_brake(root, status="DRIVE"):
+    """Write a runtime brake file with the requested status."""
     Path(root).mkdir(parents=True, exist_ok=True)
     (Path(root) / "brake.json").write_text(
         json.dumps(
@@ -49,6 +53,7 @@ def write_brake(root, status="DRIVE"):
 
 
 def runtime_file_snapshot(root):
+    """Return runtime file contents keyed by relative path."""
     return {
         path.relative_to(root).as_posix(): path.read_bytes()
         for path in Path(root).rglob("*")
@@ -57,14 +62,17 @@ def runtime_file_snapshot(root):
 
 
 def current_head(path):
+    """Return the current commit for a test repository."""
     return git(path, "rev-parse", "HEAD").stdout.strip()
 
 
 def current_branch(path):
+    """Return the current branch for a test repository."""
     return git(path, "branch", "--show-current").stdout.strip()
 
 
 def commit_plan_changes(path):
+    """Commit representative git-pr-plan implementation files."""
     git(path, "switch", "-c", "feature/git-pr-plan")
     code_path = Path(path) / "codex_cadence" / "git_pr_plan.py"
     test_path = Path(path) / "tests" / "test_git_pr_plan.py"
@@ -77,6 +85,7 @@ def commit_plan_changes(path):
 
 
 def valid_snapshot(repo_path, **overrides):
+    """Build a valid repository snapshot for executor task packets."""
     snapshot = {
         "id": "snapshot-1",
         "repo": "local/test",
@@ -109,6 +118,7 @@ def valid_snapshot(repo_path, **overrides):
 
 
 def valid_task_packet(repo_path, evidence_path=None, **snapshot_overrides):
+    """Build a valid executor task packet for git-pr-plan tests."""
     return build_executor_task_packet(
         task={
             "id": "candidate-1",
@@ -132,6 +142,7 @@ def valid_task_packet(repo_path, evidence_path=None, **snapshot_overrides):
 
 
 def valid_result(repo_path, **overrides):
+    """Build valid executor result evidence for git-pr-plan tests."""
     result = {
         "schema_version": "generic-executor-result.v1",
         "packet": "executor_result",
@@ -173,6 +184,7 @@ def valid_result(repo_path, **overrides):
 
 
 def write_packets(tmp, repo_path, task_packet=None, result_evidence=None):
+    """Write task and result packets to temporary JSON files."""
     task_path = Path(tmp) / "executor-task.json"
     result_path = Path(tmp) / "executor-result.json"
     task_packet = task_packet or valid_task_packet(repo_path, result_path)
@@ -183,6 +195,7 @@ def write_packets(tmp, repo_path, task_packet=None, result_evidence=None):
 
 
 def run_git_pr_plan(root, *args, cwd=None, env=None):
+    """Run the git-pr-plan CLI and parse its JSON output."""
     command = [sys.executable, str(SCRIPT), "--root", str(root), "git-pr-plan", *args]
     result = subprocess.run(
         command,
@@ -198,6 +211,7 @@ def run_git_pr_plan(root, *args, cwd=None, env=None):
 
 class GitPrPlanTests(unittest.TestCase):
     def test_ready_dry_run_packet_requires_operator_review_and_preserves_non_authority(self):
+        """Ready packets remain dry-run plans with operator-only authority."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             commit_plan_changes(repo)
@@ -251,6 +265,7 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertEqual(pr_example["body_source"], "packet.proposed_pr_body")
 
     def test_empty_branch_prefix_generates_slug_without_leading_slash(self):
+        """An empty branch prefix yields a valid slug-only branch name."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             commit_plan_changes(repo)
@@ -280,6 +295,7 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertNotIn("invalid_generated_branch", {blocker["code"] for blocker in packet["blockers"]})
 
     def test_blocks_metadata_only_materialized_change_evidence(self):
+        """Materialized evidence must match the local base diff."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             task_path, result_path, _task_packet, _result_evidence = write_packets(tmp, repo)
@@ -301,6 +317,7 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertIn("materialized_change_evidence_unverified", {blocker["code"] for blocker in packet["blockers"]})
 
     def test_blocks_missing_pr_body_section_contract(self):
+        """PR body preflight blocks when no section contract is supplied."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             commit_plan_changes(repo)
@@ -324,6 +341,7 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertIn("required_body_section_contract_not_supplied", {blocker["code"] for blocker in packet["blockers"]})
 
     def test_command_examples_include_argv_for_shell_sensitive_titles(self):
+        """Command examples expose argv for shell-sensitive task titles."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             commit_plan_changes(repo)
@@ -365,6 +383,7 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertNotIn('git commit -m "Implement "quoted"; echo unsafe"', commit_example["command"])
 
     def test_blocks_files_changed_without_materialized_change_evidence(self):
+        """files_changed alone is not accepted as materialized evidence."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             commit_plan_changes(repo)
@@ -399,6 +418,7 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertIn("materialized_change_evidence_absent", {blocker["code"] for blocker in packet["blockers"]})
 
     def test_blocks_invalid_materialized_change_evidence_shapes(self):
+        """Malformed materialized evidence is reported as invalid."""
         cases = [
             ("status", {"status": "claimed"}),
             ("source", {"source": ""}),
@@ -441,6 +461,7 @@ class GitPrPlanTests(unittest.TestCase):
                     self.assertIn("materialized_change_evidence_invalid", {blocker["code"] for blocker in packet["blockers"]})
 
     def test_blocks_brake_gated_success_without_runtime_root(self):
+        """Brake-gated success requires an explicit runtime root."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             commit_plan_changes(repo)
@@ -476,6 +497,7 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertIn("runtime_root_required", {blocker["code"] for blocker in packet["blockers"]})
 
     def test_blocks_dirty_worktree_head_branch_base_collision_and_template_failures(self):
+        """Git state, branch collisions, and template blockers are surfaced."""
         cases = [
             ("dirty_worktree", lambda repo, tmp, task, result: (Path(repo) / "README.md").write_text("dirty\n", encoding="utf-8")),
             ("head_mismatch", lambda repo, tmp, task, result: result.update({"resulting_head": "0" * 40})),
@@ -522,8 +544,46 @@ class GitPrPlanTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertFalse(packet["ready_to_review"])
                     self.assertIn(expected_code, {blocker["code"] for blocker in packet["blockers"]})
+                    if expected_code == "base_branch_missing":
+                        limitations = packet["materialized_change_evidence"]["limitations"]
+                        self.assertIn("verified_against_result_metadata_not_local_diff", limitations)
+                        self.assertNotIn("verified_against_local_base_diff", limitations)
+
+    def test_pr_body_preflight_warnings_are_propagated(self):
+        """Warnings from PR body preflight appear in the git-pr-plan packet."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            task_path, result_path, task_packet, result_evidence = write_packets(tmp, repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            original_preflight = git_pr_plan_module.evaluate_pr_body_preflight
+
+            def warning_preflight(body, *, required_body_sections=None):
+                """Return normal preflight output with an advisory warning."""
+                packet = original_preflight(body, required_body_sections=required_body_sections)
+                packet["warnings"] = [{"code": "template_advisory", "message": "advisory"}]
+                return packet
+
+            git_pr_plan_module.evaluate_pr_body_preflight = warning_preflight
+            try:
+                packet = git_pr_plan_module.evaluate_git_pr_plan(
+                    cwd=repo,
+                    task_packet=task_packet,
+                    result_evidence=result_evidence,
+                    task_file=task_path,
+                    result_file=result_path,
+                    required_body_sections=["Summary", "Validation"],
+                    runtime_root=runtime_root,
+                )
+            finally:
+                git_pr_plan_module.evaluate_pr_body_preflight = original_preflight
+
+            self.assertTrue(packet["ready_to_review"])
+            self.assertIn("template_advisory", {warning["code"] for warning in packet["warnings"]})
 
     def test_blocks_untracked_dirty_worktree(self):
+        """Untracked files keep git-pr-plan blocked."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             commit_plan_changes(repo)
@@ -551,6 +611,7 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertIn("dirty_worktree", {blocker["code"] for blocker in packet["blockers"]})
 
     def test_blocks_result_file_and_repo_path_mismatches(self):
+        """Task/result path binding mismatches block planning."""
         cases = [
             (
                 "result_file_mismatch",
@@ -594,6 +655,7 @@ class GitPrPlanTests(unittest.TestCase):
                     self.assertIn(expected_code, {blocker["code"] for blocker in packet["blockers"]})
 
     def test_blocks_invalid_packets_non_success_active_brake_and_invalid_branch_names(self):
+        """Invalid packets, non-success results, brake stops, and bad refs block."""
         cases = [
             ("invalid_task_packet", lambda repo, tmp, task, result: task.update({"schema_version": "wrong"}), []),
             ("invalid_result_evidence", lambda repo, tmp, task, result: result.update({"commands_run": "bad"}), []),
@@ -640,6 +702,7 @@ class GitPrPlanTests(unittest.TestCase):
                     self.assertIn(expected_code, {blocker["code"] for blocker in packet["blockers"]})
 
     def test_blocks_missing_or_malformed_runtime_brake_file(self):
+        """Missing or malformed brake files block brake-gated planning."""
         cases = [
             ("runtime_brake_missing", None),
             ("runtime_brake_invalid", "{not-json"),
@@ -674,6 +737,7 @@ class GitPrPlanTests(unittest.TestCase):
                     self.assertIn(expected_code, {blocker["code"] for blocker in packet["blockers"]})
 
     def test_cli_does_not_call_gh_or_mutate_git_state(self):
+        """The CLI does not call gh or mutate Git, task, result, or runtime files."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             commit_plan_changes(repo)
@@ -734,6 +798,7 @@ class GitPrPlanTests(unittest.TestCase):
 
 
 def checksum_json(data):
+    """Return the checksum format used by policy audit helpers."""
     payload = json.dumps(data, sort_keys=True, separators=(",", ":"))
     return "sha256:" + __import__("hashlib").sha256(payload.encode("utf-8")).hexdigest()
 
