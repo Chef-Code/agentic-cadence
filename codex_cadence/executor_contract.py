@@ -125,13 +125,18 @@ def _command_name(token: str) -> str:
     return PurePosixPath(token.replace("\\", "/")).name.lower()
 
 
+def _command_text_for_lexing(command: str) -> str:
+    return command.replace("\r\n", "\n").replace("\r", "\n").replace("\n", " ; ")
+
+
 def _command_tokens(command: str) -> list[str]:
+    shell_text = _command_text_for_lexing(command)
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer = shlex.shlex(shell_text, posix=True, punctuation_chars=True)
         lexer.whitespace_split = True
         return [token.lower() for token in lexer]
     except ValueError:
-        return _normalized_command(command).split()
+        return _normalized_command(shell_text).split()
 
 
 def _command_segments(tokens: list[str]) -> list[list[str]]:
@@ -237,9 +242,42 @@ def _embedded_shell_commands(tokens: list[str]) -> list[str]:
     return embedded
 
 
+def _raw_command_substitutions(command: str) -> list[str]:
+    substitutions: list[str] = []
+    index = 0
+    while index < len(command):
+        if not command.startswith("$(", index):
+            index += 1
+            continue
+        depth = 1
+        index += 2
+        start = index
+        while index < len(command) and depth > 0:
+            if command.startswith("$(", index):
+                depth += 1
+                index += 2
+                continue
+            char = command[index]
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            index += 1
+        if depth == 0:
+            substitution = command[start:index].strip()
+            if substitution:
+                substitutions.append(substitution)
+        index += 1
+    return substitutions
+
+
 def _effective_command_segments(command: str) -> list[str]:
     tokens = _command_tokens(command)
     segments: list[str] = []
+    for substitution in _raw_command_substitutions(command):
+        segments.extend(_effective_command_segments(substitution))
     for segment_tokens in _command_segments(tokens):
         embedded = _embedded_shell_commands(segment_tokens)
         if embedded:

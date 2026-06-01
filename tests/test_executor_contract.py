@@ -765,6 +765,78 @@ class ExecutorContractTests(unittest.TestCase):
                     valid_result(
                         commands_run=[
                             {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": (
+                                    "python -m unittest tests.test_executor_contract\n"
+                                    "python -m pip install ."
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[1] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": (
+                                    'bash -lc "python -m unittest tests.test_executor_contract\n'
+                                    'python -m pip install ."'
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[1] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": (
+                                    "python -m unittest tests.test_executor_contract "
+                                    "$(python -m pip install .)"
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[1] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": (
+                                    'bash -lc "python -m unittest tests.test_executor_contract '
+                                    '$(python -m pip install .)"'
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[1] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
                                 "command": "python scripts/unknown.py",
                                 "exit_code": 0,
                             },
@@ -789,6 +861,24 @@ class ExecutorContractTests(unittest.TestCase):
                         ],
                     ),
                     "executor result commands_run[0] is outside allowed command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": (
+                                    "python -m unittest tests.test_executor_contract "
+                                    "$(python scripts/unknown.py)"
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[1] is outside allowed command_policy",
                 ),
             ]
 

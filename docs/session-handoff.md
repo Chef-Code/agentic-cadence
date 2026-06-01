@@ -16,7 +16,7 @@ Last updated: 2026-06-01
 - Added `allowed_commands` and `denied_commands` to local `cadence-loop-policy.v1` handling.
 - Executor task packets now carry `command_policy`, and executor result validation rejects commands that match the denylist or fall outside a non-empty allowlist.
 - `validate-executor-result` now checks the current brake before recording completion evidence; when `brake_not_drive` is a task stop condition and the brake is not `DRIVE`, non-`stopped` result evidence is invalid and recommends `stop_active_loop`.
-- Review follow-up hardened command policy across compound commands and shell-wrapper payloads, rejected null command-policy fields, and made rootless `brake_not_drive` completion validation fail closed with `provide_runtime_root`.
+- Review follow-up hardened command policy across compound commands, command substitutions, and shell-wrapper payloads, rejected null command-policy fields, and made rootless `brake_not_drive` completion validation fail closed with `provide_runtime_root`.
 - Updated protocol, readiness, roadmap, implementation-slice, progress, decision, changelog, README, and skill docs.
 
 ## Important Boundaries
@@ -24,7 +24,7 @@ Last updated: 2026-06-01
 - Command policy is carried in task packets so result validation checks the approved bounds, not a later mutable policy file.
 - Active stop handling rejects completion evidence after the brake changes, but it still allows `status: stopped` evidence to report that the executor honored the stop.
 - Non-`stopped` evidence for tasks with `brake_not_drive` needs a runtime root to check the current brake; without one, validation recommends `provide_runtime_root`.
-- No executor invocation, branch/PR automation, live GitHub sync, merge authority, or release behavior is added by this branch.
+- No executor invocation, branch policy, branch/PR automation, live GitHub sync, merge authority, release behavior, hash chain, or authenticated approval identity is added by this branch.
 - Keep public docs free of private machine paths and private repository assumptions.
 
 ## Validation To Re-run

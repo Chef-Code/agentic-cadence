@@ -37,7 +37,7 @@ Decision:
 - Enforce that carried command policy during executor result validation rather
   than re-reading a mutable policy file.
 - Apply command policy to every effective command segment, including compound
-  shell commands and shell-wrapper payloads.
+  shell commands, command substitutions, and shell-wrapper payloads.
 - Treat an active non-`DRIVE` brake as a stop control for result validation:
   non-`stopped` result evidence cannot be recorded as completion when
   `brake_not_drive` is one of the task stop conditions.
@@ -55,7 +55,8 @@ Why:
   after the brake changes would make the stop condition advisory instead of
   enforceable.
 - A command line can contain multiple effective commands. Checking only the
-  first prefix would make command policy advisory for compound shell forms.
+  first prefix would make command policy advisory for compound shell forms and
+  command substitutions.
 - Without a runtime root, Cadence cannot know the current brake state, so
   completion evidence for a brake-bound task must fail closed.
 

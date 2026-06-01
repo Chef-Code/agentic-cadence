@@ -46,7 +46,7 @@ Summary:
   brake is not `DRIVE`, non-`stopped` result evidence is invalid and
   recommends `stop_active_loop`.
 - Command policy now applies to every effective command segment, including
-  compound shell commands and shell-wrapper payloads.
+  compound shell commands, command substitutions, and shell-wrapper payloads.
 - Rootless validation of otherwise-valid non-`stopped` completion evidence now
   fails closed with `provide_runtime_root` when `brake_not_drive` is a task stop
   condition.

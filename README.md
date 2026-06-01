@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay for local `cadence-audit.v1` logs.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls for local `cadence-audit.v1` logs and generic executor evidence.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -269,9 +269,9 @@ Root-backed loop ticks and executor-result validation append compact
 `cadence-audit.v1` records under `<root>/audit/events.jsonl`. A local
 `cadence-loop-policy.v1` file can bound emitted executor task paths, required
 checks, command allow/deny lists, runtime, and stop conditions. Result
-validation enforces task-carried command policy across compound commands and
-shell-wrapper payloads, and it rejects non-`stopped` completion evidence after
-an active brake stop. If a task includes `brake_not_drive`, otherwise-valid
+validation enforces task-carried command policy across compound commands,
+command substitutions, and shell-wrapper payloads, and it rejects non-`stopped`
+completion evidence after an active brake stop. If a task includes `brake_not_drive`, otherwise-valid
 non-`stopped` completion evidence requires a runtime root so the current brake
 can be checked; rootless validation fails closed with `provide_runtime_root`.
 `audit-replay` validates that
