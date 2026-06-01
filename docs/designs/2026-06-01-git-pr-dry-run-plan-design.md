@@ -47,7 +47,7 @@ The command does not require a runtime root. It reads local files and local Git 
 
 The command returns a packet with `schema_version: "git-pr-plan.v1"`, `dry_run: true`, `operator_confirmation_required: true`, and `side_effects: []`.
 
-When ready, the packet includes:
+When the plan is valid, the packet includes:
 
 - task id, title, and summary copied from the task packet;
 - repository path, current branch, current head, base branch, and worktree status;
@@ -60,6 +60,8 @@ When ready, the packet includes:
 - explicit shell commands as suggested commands only, not executed commands.
 
 When blocked, the packet includes stable blocker codes and recommends `address_blockers`.
+
+Plan validity is not Git/PR transition approval. In the current executor contract, task packets still forbid commit, push, PR creation, and head-change permissions. The v1 planning packet can turn successful evidence into a reviewable transition plan, but it must not claim that a branchable commit already exists unless a later contract explicitly adds materialized-change or commit evidence.
 
 ## Validation
 
@@ -76,6 +78,8 @@ Planning is ready only when:
 - changed files in result evidence are non-empty and were already accepted by the executor contract;
 - the base branch name and generated branch name are valid Git ref names;
 - PR body preflight is ready when a template or required sections are supplied.
+
+Planning readiness means the packet is safe to review, not safe to execute. The operator or a separate future role still owns the decision to materialize changes, create a branch, commit, push, or open a pull request.
 
 Blocked examples:
 

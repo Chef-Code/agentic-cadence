@@ -139,7 +139,7 @@ Agentic Cadence cannot currently:
 | Executor adapter contract | Partial generic contract | Task/result packet validation exists, including snapshot trust-anchor checks, but no real executor |
 | Autonomous implementation | Not built | Requires real executor integration |
 | Live GitHub sync | Not built | Planned slice |
-| Branch/commit/push/PR creation | Not built | Planned slice |
+| Branch/commit/push/PR creation | Not built | First planned increment is dry-run-only Git/PR planning; live creation remains future work |
 | Review response loop | Partial local ingestion only | Saved review files can become candidates |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
 | New-session launch/resume | Partial handoff packets only | External orchestration required |
@@ -182,7 +182,8 @@ executor or apply code changes.
 
 The next likely failures are:
 
-1. no branch/commit/push/PR workflow exists;
+1. no live branch/commit/push/PR workflow exists; the next increment is only a
+   dry-run planning packet for operator or future role review;
 2. missing live synchronization. Repo snapshots are local git snapshots, and PR
    readiness reads saved input files. Cadence labels `local_only`,
    `saved_input`, `stale`, and caller-asserted `live_like` evidence, but it
