@@ -238,10 +238,32 @@ REQUIRED_TOKENS = {
     "docs/autonomous-loop-readiness.md": (
         "Local policy/audit controls",
         "no branch policy, hash chain, or authenticated approval identity",
+        "dry-run `git-pr-plan`",
+        "live commit, push, PR creation or update",
     ),
     "docs/implementation-slices.md": (
         "Active execution controls are partial",
         "no branch policy exists yet",
+        "dry-run Git/PR transition plan",
+        "blocked no materialized changes tied to result evidence",
+    ),
+    "docs/designs/2026-06-01-git-pr-dry-run-plan-design.md": (
+        "git-pr-plan",
+        'schema_version: "git-pr-plan.v1"',
+        "dry_run: true",
+        "operator_confirmation_required: true",
+        "side_effects: []",
+        "Suggested commands are never executed by Cadence",
+        'approval_state: "not_approved"',
+        'execution_authority: "none"',
+        'merge_readiness: "not_evaluated"',
+        "materialized_change_evidence",
+        "provide_runtime_root",
+        "current checkout is on a branch, not detached",
+        "base branch resolves locally to a commit",
+        "generated branch does not already exist locally",
+        "No `git checkout`, `git switch`, `git commit`, `git push`, or `gh pr create`",
+        "No GitHub API calls",
     ),
     "docs/progress-log.md": (
         "compound shell commands",
@@ -429,6 +451,9 @@ FORBIDDEN_TOKENS = {
         "Draft PR #58",
         "Continue PR #58",
         "codex/policy-stop-controls",
+        "design and implement the first dry-run-only Git/PR planning slice",
+        "contract and implementation without live",
+        "Implement the dry-run-only `git-pr-plan` slice test-first",
     ),
 }
 

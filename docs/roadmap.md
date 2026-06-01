@@ -431,8 +431,9 @@ or default-autonomous permissions require operator approval.
 
 ### Minimal Git/PR automation
 
-Goal: after an approved successful task, prepare branch, commit, push, PR body,
-and PR creation evidence through dry-run-first commands.
+Goal: after an approved successful task, produce a dry-run Git/PR transition
+plan from validated result evidence. Live branch, commit, push, and pull
+request materialization belongs in later explicitly approved slices.
 
 Current evidence: PR body preflight and readiness checks exist, but Cadence
 does not create branches, commits, pushes, or pull requests. The first planned
@@ -446,10 +447,13 @@ scripts, tests, docs.
 
 Validation: first-increment tests should cover dry-run packet generation, PR
 body preflight success/failure, no `gh` calls, no Git mutation, invalid
-task/result evidence, non-success results, dirty worktrees, HEAD mismatches,
-and missing PR template sections. Later live-action increments can add mocked
-`gh` fixtures for PR creation, failed push, pending CI, failing CI, passing CI,
-and stale state.
+task/result evidence, brake-gated success without a runtime root, active brake
+stops for non-`stopped` evidence, non-success results, no materialized changes,
+dirty worktrees, HEAD mismatches, detached heads, current-branch mismatches,
+missing local base branches, generated branch collisions, and missing PR
+template sections. Later live-action increments can add mocked `gh` fixtures
+for PR creation, failed push, pending CI, failing CI, passing CI, and stale
+state.
 
 Codex can implement dry-run packets directly. Live PR creation and push
 behavior require a later explicit operator-approved slice.

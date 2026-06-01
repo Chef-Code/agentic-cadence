@@ -50,6 +50,10 @@ Why:
   consume separately from the builder that produced implementation evidence.
 - Keeping the first slice dry-run preserves the local, deterministic evidence
   model while avoiding live GitHub credentials or irreversible remote effects.
+- Existing active-stop controls already require a runtime root before accepting
+  otherwise-valid non-`stopped` evidence for tasks with `brake_not_drive`.
+  Git/PR planning must preserve that fail-closed rule so stale success evidence
+  cannot bypass the current brake.
 
 Alternatives considered:
 - Add optional live `gh pr create`, push, or commit flags in the first slice.
@@ -61,6 +65,11 @@ Alternatives considered:
 
 Consequences:
 - The `git-pr-plan` packet is safe to review, not safe to execute.
+- A ready plan can only be produced from result evidence that passes the same
+  brake/runtime-root checks as `validate-executor-result`.
+- The packet must record materialized-change evidence explicitly; absent
+  evidence blocks Git/PR readiness instead of relying on result `files_changed`
+  alone.
 - Suggested commands remain suggestions only.
 - Later live Git or GitHub behavior requires explicit approval and stable
   packet contracts.

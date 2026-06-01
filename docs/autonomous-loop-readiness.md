@@ -167,11 +167,14 @@ requested executor-task bounds.
 At `requires_executor_contract`, a human or external agent still has to request
 an executor task packet. At `approve_executor_task`, a human or external agent
 still has to approve execution, implement code changes, run checks, provide
-result evidence, commit, push, open or update a PR, fetch review feedback, and
-start the next session after a handoff. At `policy_denied`, an operator must
-adjust the task bounds or policy before execution can be considered. Audit
-history is now locally inspectable through `audit-replay`, but clean replay
-evidence is not approval to execute work and does not provide tamper evidence.
+result evidence, and then hand the result to a separate Git/PR transition
+review. The next planned Cadence-owned step is only a dry-run `git-pr-plan`
+packet; live commit, push, PR creation or update, review feedback fetching, and
+new-session launch remain external or future approved slices. At
+`policy_denied`, an operator must adjust the task bounds or policy before
+execution can be considered. Audit history is now locally inspectable through
+`audit-replay`, but clean replay evidence is not approval to execute work and
+does not provide tamper evidence.
 
 ## What Would Break First
 

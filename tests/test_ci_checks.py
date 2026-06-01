@@ -1325,6 +1325,61 @@ class CiChecksTests(unittest.TestCase):
                     f"expected stale handoff error {expected_error!r}, got {errors}",
                 )
 
+    def test_protocol_validator_rejects_git_pr_plan_guard_drift(self):
+        validator = load_validate_protocol()
+
+        cases = (
+            (
+                "dry_run_disabled",
+                lambda text: text.replace("dry_run: true", "dry_run: false"),
+                "dry_run: true",
+            ),
+            (
+                "side_effects_added",
+                lambda text: text.replace("side_effects: []", "side_effects: ['git']"),
+                "side_effects: []",
+            ),
+            (
+                "materialized_evidence_omitted",
+                lambda text: text.replace("materialized_change_evidence", "change_evidence"),
+                "materialized_change_evidence",
+            ),
+            (
+                "github_calls_allowed",
+                lambda text: text.replace("No GitHub API calls.", "GitHub API calls allowed after approval."),
+                "No GitHub API calls",
+            ),
+        )
+
+        for name, mutate, expected_token in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                tmp_root = Path(tmp)
+                for relative in validator.REQUIRED_TOKENS:
+                    source = ROOT / relative
+                    target = tmp_root / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+                design = tmp_root / "docs" / "designs" / "2026-06-01-git-pr-dry-run-plan-design.md"
+                design.write_text(mutate(design.read_text(encoding="utf-8")), encoding="utf-8")
+
+                original_root = validator.ROOT
+                validator.ROOT = tmp_root
+                try:
+                    errors = []
+                    validator.validate_tokens(errors)
+                finally:
+                    validator.ROOT = original_root
+
+            expected_error = (
+                "docs/designs/2026-06-01-git-pr-dry-run-plan-design.md "
+                f"missing required token: {expected_token}"
+            )
+            self.assertTrue(
+                any(expected_error in error for error in errors),
+                f"expected git-pr-plan guard drift error {expected_error!r}, got {errors}",
+            )
+
     def test_protocol_validator_rejects_release_workflow_guard_drift(self):
         validator = load_validate_protocol()
         source = ROOT / ".github" / "workflows" / "release-dry-run.yml"

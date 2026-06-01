@@ -329,8 +329,9 @@ approval.
 
 Status: In progress
 
-Goal: create a dry-run-first path for turning successful task evidence into a
-branch, commit, push, and pull request workflow.
+Goal: produce a dry-run Git/PR transition plan from validated executor result
+evidence, while reserving live branch, commit, push, and pull request
+materialization for later approved slices.
 
 The first implementation increment is the local `git-pr-plan` dry-run packet.
 It plans the Git/PR transition from validated executor result evidence, but it
@@ -380,14 +381,21 @@ Suggested implementation size: medium to large
 
 Validation needed:
 
-- branch plan dry-run;
+- ready branch plan dry-run with verified materialized-change evidence;
 - PR body preflight success/failure;
 - proof that the CLI does not call `gh` or mutate Git state;
 - blocked invalid task packet;
 - blocked invalid result evidence;
+- blocked missing runtime root for brake-gated successful result evidence;
+- blocked active brake stop for non-`stopped` result evidence;
 - blocked non-success result;
+- blocked no materialized changes tied to result evidence;
 - blocked dirty worktree;
 - blocked current `HEAD` mismatch;
+- blocked detached head;
+- blocked current branch mismatch;
+- blocked missing local base branch;
+- blocked generated branch already exists;
 - blocked missing PR template section;
 - freshness labels preserved when saved PR evidence is reused.
 

@@ -7,9 +7,9 @@ Last updated: 2026-06-01
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
 - Current base: `origin/main` at `8df4e494549e73625255eaf5402bcb06248dcd9e` after PR #59 merged.
-- Working branch intent: design and implement the first dry-run-only Git/PR planning slice from latest `origin/main`.
+- Working branch intent: document the first dry-run-only Git/PR planning slice from latest `origin/main`.
 - Recent merged PRs: PR #56 implemented the read-only `audit-replay` CLI path; PR #57 updated this handoff after PR #56 merged; PR #58 merged the command-policy and active-stop control slice; PR #59 hardened command-policy review findings.
-- Current branch scope: add the `git-pr-plan` dry-run packet contract and implementation without live branch, commit, push, GitHub, PR creation, merge, release, or package-publication side effects.
+- Current branch scope: add the `git-pr-plan` dry-run packet design and contract docs without implementation, live branch, commit, push, GitHub, PR creation, merge, release, or package-publication side effects.
 
 ## Current Capability Baseline
 
@@ -45,4 +45,4 @@ python scripts/verify_package.py
 
 ## Next Action
 
-Implement the dry-run-only `git-pr-plan` slice test-first, update living docs with actual evidence, run local validation and review agents, and merge only after the operator is satisfied.
+After this design branch merges, implement the dry-run-only `git-pr-plan` slice test-first on a follow-up branch, update living docs with actual evidence, run local validation and review agents, and merge only after the operator is satisfied.

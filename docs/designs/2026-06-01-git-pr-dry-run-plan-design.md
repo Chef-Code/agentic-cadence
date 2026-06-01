@@ -41,7 +41,13 @@ Initial arguments:
 - `--pr-template-file`: optional local PR template file.
 - `--required-body-section`: repeatable fallback section contract, matching `pr-body-preflight`.
 
-The command does not require a runtime root. It reads local files and local Git refs only.
+The command reads local files and local Git refs only. It must not call GitHub
+or mutate runtime state. Planning readiness still inherits the existing
+executor-result validation rules: if a successful result is gated by
+`brake_not_drive`, the planner must require a runtime root so the current brake
+can be checked. Without that root, the packet is blocked with
+`provide_runtime_root` rather than treating stale success evidence as ready for
+Git/PR transition review.
 
 ## Packet
 
@@ -51,17 +57,35 @@ When the plan is valid, the packet includes:
 
 - task id, title, and summary copied from the task packet;
 - repository path, current branch, current head, base branch, and worktree status;
+- evidence provenance, including task/result file checksums, executor id, task
+  repo head, result head, and materialized-change evidence source;
+- `materialized_change_evidence`, with an explicit `verified` or `absent`
+  status and limitations explaining the source;
+- explicit non-authority fields: `approval_state: "not_approved"`,
+  `execution_authority: "none"`, and
+  `merge_readiness: "not_evaluated"`;
 - proposed branch name;
 - proposed commit message;
 - proposed PR title;
 - generated PR body;
 - PR body preflight packet;
 - recommended next action: `review_git_pr_plan`;
-- explicit shell commands as suggested commands only, not executed commands.
+- optional command examples only when they are marked as non-executable by
+  Cadence. These examples are for a future role or operator review path, not a
+  live execution request.
 
 When blocked, the packet includes stable blocker codes and recommends `address_blockers`.
 
-Plan validity is not Git/PR transition approval. In the current executor contract, task packets still forbid commit, push, PR creation, and head-change permissions. The v1 planning packet can turn successful evidence into a reviewable transition plan, but it must not claim that a branchable commit already exists unless a later contract explicitly adds materialized-change or commit evidence.
+Plan validity is not Git/PR transition approval. In the current executor
+contract, task packets still forbid commit, push, PR creation, and head-change
+permissions. The v1 planning packet can turn successful evidence into a
+reviewable transition plan, but it must not claim that a branchable commit
+already exists unless the planner can verify materialized local changes tied to
+the task/result evidence or a later contract explicitly adds
+materialized-change or commit evidence. Result `files_changed` alone is not
+materialized-change evidence. When materialized-change evidence is absent, the
+packet must say so through `materialized_change_evidence` and block Git/PR
+readiness rather than emitting executable-looking instructions.
 
 ## Validation
 
@@ -70,13 +94,21 @@ The command must validate the executor task and result with existing contract he
 Planning is ready only when:
 
 - task packet validation passes;
-- result evidence validation passes;
+- result evidence validation passes, including runtime-root brake validation
+  when `brake_not_drive` is one of the task stop conditions;
 - result status is `succeeded`;
+- when `brake_not_drive` is present, the current brake remains `DRIVE`;
 - result `resulting_head` matches the current local `HEAD`;
 - the current repo path matches the task packet repo path;
+- the current checkout is on a branch, not detached;
+- the current branch matches the task packet repo branch;
 - the worktree is clean;
-- changed files in result evidence are non-empty and were already accepted by the executor contract;
+- changed files in result evidence are non-empty and were already accepted by
+  the executor contract;
+- materialized change evidence is present and tied to the task/result evidence;
 - the base branch name and generated branch name are valid Git ref names;
+- the base branch resolves locally to a commit;
+- the generated branch does not already exist locally;
 - PR body preflight is ready when a template or required sections are supplied.
 
 Planning readiness means the packet is safe to review, not safe to execute. The operator or a separate future role still owns the decision to materialize changes, create a branch, commit, push, or open a pull request.
@@ -85,11 +117,18 @@ Blocked examples:
 
 - invalid task packet;
 - invalid result evidence;
+- missing runtime root for brake-gated successful result evidence;
+- active brake stop for non-`stopped` result evidence;
 - non-success result status;
 - missing or mismatched resulting head;
 - dirty worktree;
 - wrong repository path;
+- detached head;
+- current branch mismatch;
+- missing local base branch;
+- generated branch already exists;
 - invalid branch name;
+- no materialized changes tied to the result evidence;
 - missing PR template sections.
 
 ## Generated Text
@@ -169,13 +208,21 @@ Do not build these extensions in this slice. Design the dry-run packet so it doe
 
 Add focused unit and CLI tests:
 
-- ready dry-run packet from a successful executor result;
+- ready dry-run packet from a successful executor result with verified
+  materialized-change evidence;
 - CLI does not call `gh` or mutate Git state;
 - blocked invalid task packet;
 - blocked invalid result evidence;
+- blocked missing runtime root for brake-gated successful result evidence;
+- blocked active brake stop for non-`stopped` result evidence;
 - blocked non-success result;
+- blocked no materialized changes tied to result evidence;
 - blocked dirty worktree;
 - blocked current `HEAD` mismatch;
+- blocked detached head;
+- blocked current branch mismatch;
+- blocked missing local base branch;
+- blocked generated branch already exists;
 - blocked missing PR template section;
 - branch name sanitization and invalid branch name handling.
 
