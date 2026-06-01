@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls for local `cadence-audit.v1` logs and generic executor evidence.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus dry-run Git/PR planning for local `cadence-audit.v1` logs and generic executor evidence.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -316,6 +316,16 @@ agentic-cadence pr-body-preflight --body-file pr-body.md --pr-template-file .git
 ```
 
 Use this before `gh pr create` or `gh pr edit` when a repository has a PR template. Missing template headings are reported as blockers with `recommended_next_action: update_pr_body`. If no template file or `--required-body-section` is supplied, the packet fails closed with `recommended_next_action: provide_template_or_sections`.
+
+## Git/PR Dry-Run Plan
+
+`git-pr-plan` turns a validated generic executor task packet and result evidence into a reviewable Git/PR transition plan. It inspects local Git refs, validates the current brake when `brake_not_drive` applies, generates proposed branch, commit, PR title, and PR body text, and can run the generated body through PR body preflight:
+
+```bash
+agentic-cadence --root <runtime-root> git-pr-plan --cwd . --task-file executor-task.json --result-file executor-result.json --required-body-section Summary --required-body-section Validation
+```
+
+The packet is dry-run only. Cadence does not create a branch, commit, push, call GitHub, or open a pull request. Result `files_changed` is not enough by itself; the planner requires explicit `materialized_change_evidence` before it reports the plan as ready for review.
 
 ## Release Dry Run
 

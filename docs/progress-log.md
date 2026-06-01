@@ -33,6 +33,55 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-01 - Implement dry-run Git/PR planning
+
+Summary:
+- Added the `git-pr-plan` CLI command and `git-pr-plan.v1` packet.
+- The planner validates generic executor task/result evidence, checks local Git
+  branch/head/base state, requires explicit `materialized_change_evidence`,
+  preserves brake/runtime-root stop validation, generates proposed branch,
+  commit, PR title, and PR body text, and runs PR body preflight when a
+  template or required sections are supplied.
+- The packet remains dry-run only with no Git mutation, no GitHub calls, no
+  runtime mutation, and explicit non-authority fields for separate review.
+
+Completed slices:
+- First dry-run-only increment of Minimal Git/PR Automation.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Git/PR transition review is now packetized, but Cadence still does
+  not invoke a real executor, create branches, commit, push, open pull
+  requests, synchronize live GitHub state, or run an unattended loop.
+
+Evidence:
+- `python -m unittest discover -s tests -p test_git_pr_plan.py -v`
+- `python -m unittest tests.test_executor_contract tests.test_pr_readiness -v`
+- `python -m py_compile codex_cadence/git_pr_plan.py codex_cadence/cli.py`
+- `python -m unittest tests.test_cadence -v`
+- `python scripts/validate_protocol.py`
+- `python -m unittest tests.test_ci_checks -v`
+- `python -m compileall scripts codex_cadence transmission_control tests`
+- `python -m unittest discover -s tests -v`
+- `git diff --check`
+- `python scripts/ci_smoke.py`
+- `python scripts/verify_package.py`
+
+New risks or blockers:
+- The current materialized-change evidence contract verifies result metadata,
+  not a branchable commit. Live branch, commit, push, PR creation, approval
+  identity, branch ownership, and GitHub synchronization remain future work.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/session-handoff.md`
+
 ## 2026-05-31 - Add command policy and active stop controls
 
 Summary:

@@ -22,6 +22,7 @@ from codex_cadence.executor_contract import (
     validate_executor_result_evidence,
     validate_executor_task_packet,
 )
+from codex_cadence.git_pr_plan import evaluate_git_pr_plan
 from codex_cadence.epochs import complete_epoch as complete_epoch_record
 from codex_cadence.epochs import CONTINUE, ASK_APPROVAL
 from codex_cadence.epochs import completed_continue_count
@@ -1188,6 +1189,36 @@ def pr_body_preflight_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def git_pr_plan_command(args: argparse.Namespace) -> int:
+    task_file = Path(args.task_file)
+    result_file = Path(args.result_file)
+    task_packet = read_json(task_file)
+    result_evidence = read_json(result_file)
+    if getattr(args, "root", None) is not None:
+        repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
+        repo_path = repo.get("path")
+        if isinstance(repo_path, str) and repo_path and not args.allow_repo_local_root:
+            issue = runtime_root_safety_issue(args.root, repo_path)
+            if issue:
+                raise ValueError(issue)
+    required_body_sections = list(args.required_body_section or [])
+    if args.pr_template_file:
+        required_body_sections.extend(load_template_sections(Path(args.pr_template_file)))
+    payload = evaluate_git_pr_plan(
+        cwd=Path(args.cwd),
+        task_packet=task_packet,
+        result_evidence=result_evidence,
+        task_file=task_file,
+        result_file=result_file,
+        base_branch=args.base_branch,
+        branch_prefix=args.branch_prefix,
+        required_body_sections=required_body_sections,
+        runtime_root=args.root,
+    )
+    emit(payload)
+    return 0
+
+
 def release_dry_run_command(args: argparse.Namespace) -> int:
     payload = evaluate_release_dry_run(
         cwd=Path(args.cwd),
@@ -1357,6 +1388,23 @@ def build_parser() -> argparse.ArgumentParser:
     body_preflight_parser.add_argument("--required-body-section", action="append", default=[])
     body_preflight_parser.add_argument("--pr-template-file")
     body_preflight_parser.set_defaults(func=pr_body_preflight_command, requires_root=False)
+
+    git_pr_plan_parser = subparsers.add_parser(
+        "git-pr-plan",
+        help="Generate a dry-run Git/PR transition plan from executor evidence",
+    )
+    git_pr_plan_parser.add_argument("--cwd", default=".")
+    git_pr_plan_parser.add_argument("--task-file", required=True)
+    git_pr_plan_parser.add_argument("--result-file", required=True)
+    git_pr_plan_parser.add_argument("--base-branch", default="main")
+    git_pr_plan_parser.add_argument("--branch-prefix", default="cadence")
+    git_pr_plan_parser.add_argument("--pr-template-file")
+    git_pr_plan_parser.add_argument("--required-body-section", action="append", default=[])
+    git_pr_plan_parser.set_defaults(
+        func=git_pr_plan_command,
+        requires_root=False,
+        guards_optional_root=True,
+    )
 
     release_parser = subparsers.add_parser(
         "release-dry-run",

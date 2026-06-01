@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-01
-Baseline: released 0.1.3 plus unreleased audit-replay and policy/stop-control current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, and git-pr-plan current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -76,6 +76,10 @@ runtime can do these things end-to-end:
 - validate local generic executor result evidence against a task packet,
   including elapsed runtime bounds, expected evidence-path binding, command
   allow/deny policy, and active brake stop handling;
+- generate a dry-run Git/PR transition plan from validated executor evidence,
+  with local branch/head/base checks, explicit materialized-change evidence,
+  PR body preflight, operator-confirmation requirements, and no Git or GitHub
+  side effects;
 - size tasks and enforce pickup policy;
 - start, check, complete, or fail bounded epochs;
 - prepare a signed handoff packet and clean-square evidence;
@@ -139,7 +143,8 @@ Agentic Cadence cannot currently:
 | Executor adapter contract | Partial generic contract | Task/result packet validation exists, including snapshot trust-anchor checks, but no real executor |
 | Autonomous implementation | Not built | Requires real executor integration |
 | Live GitHub sync | Not built | Planned slice |
-| Branch/commit/push/PR creation | Not built | First planned increment is dry-run-only Git/PR planning; live creation remains future work |
+| Git/PR transition planning | Partial, dry-run only | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects |
+| Branch/commit/push/PR creation | Not built | Live creation remains future work |
 | Review response loop | Partial local ingestion only | Saved review files can become candidates |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
 | New-session launch/resume | Partial handoff packets only | External orchestration required |
@@ -150,9 +155,10 @@ No.
 
 It can inspect and suggest. It can run a read-only loop tick that produces a
 structured next action. It can emit a generic executor task packet for operator
-approval, validate the packet's local snapshot trust anchor, and validate local
-executor result evidence. It can govern handoff and continuation decisions. It
-can evaluate saved PR evidence. It cannot perform the core build loop by
+approval, validate the packet's local snapshot trust anchor, validate local
+executor result evidence, and produce a dry-run Git/PR transition plan for
+separate review. It can govern handoff and continuation decisions. It can
+evaluate saved PR evidence. It cannot perform the core build loop by
 itself, and it cannot yet coordinate a team of role-specific agents.
 
 The current loop stops after:
@@ -167,10 +173,10 @@ requested executor-task bounds.
 At `requires_executor_contract`, a human or external agent still has to request
 an executor task packet. At `approve_executor_task`, a human or external agent
 still has to approve execution, implement code changes, run checks, provide
-result evidence, and then hand the result to a separate Git/PR transition
-review. The next planned Cadence-owned step is only a dry-run `git-pr-plan`
-packet; live commit, push, PR creation or update, review feedback fetching, and
-new-session launch remain external or future approved slices. At
+result evidence, and then hand the result to dry-run `git-pr-plan` for a
+separate Git/PR transition review. The remaining gaps are live commit, push, PR creation or update,
+review feedback fetching, and new-session launch; they remain external or
+future approved slices. At
 `policy_denied`, an operator must adjust the task bounds or policy before
 execution can be considered. Audit history is now locally inspectable through
 `audit-replay`, but clean replay evidence is not approval to execute work and

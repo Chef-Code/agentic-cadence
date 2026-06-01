@@ -6,10 +6,10 @@ Last updated: 2026-06-01
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `8df4e494549e73625255eaf5402bcb06248dcd9e` after PR #59 merged.
-- Working branch intent: document the first dry-run-only Git/PR planning slice from latest `origin/main`.
-- Recent merged PRs: PR #56 implemented the read-only `audit-replay` CLI path; PR #57 updated this handoff after PR #56 merged; PR #58 merged the command-policy and active-stop control slice; PR #59 hardened command-policy review findings.
-- Current branch scope: add the `git-pr-plan` dry-run packet design and contract docs without implementation, live branch, commit, push, GitHub, PR creation, merge, release, or package-publication side effects.
+- Current base: `origin/main` at `c18403472b7f30ac8fabc73987b33303ccd4940d` after PR #60 merged.
+- Working branch intent: finish and validate the dry-run-only `git-pr-plan` implementation branch from latest `origin/main`.
+- Recent merged PRs: PR #56 implemented the read-only `audit-replay` CLI path; PR #57 updated this handoff after PR #56 merged; PR #58 merged the command-policy and active-stop control slice; PR #59 hardened command-policy review findings; PR #60 added the dry-run Git/PR planning design.
+- Current branch scope: `git-pr-plan-dry-run` adds the local dry-run planning packet, tests, and public docs without live branch, commit, push, GitHub, PR creation, merge, release, or package-publication side effects.
 
 ## Current Capability Baseline
 
@@ -17,7 +17,7 @@ Last updated: 2026-06-01
 - Executor task packets now carry `command_policy`, and executor result validation rejects commands that match the denylist or fall outside a non-empty allowlist.
 - `validate-executor-result` now checks the current brake before recording completion evidence; when `brake_not_drive` is a task stop condition and the brake is not `DRIVE`, non-`stopped` result evidence is invalid and recommends `stop_active_loop`.
 - PR #59 further hardened command policy around shell grouping, Bash brace grouping, command substitutions, shell-wrapper payloads, Git aliases, and null top-level command-policy packets.
-- The current branch has a design spec for `git-pr-plan` as a future coordination artifact for role-separated multi-agent workflows, but no implementation capability has shipped from this branch yet.
+- The merged design spec for `git-pr-plan` lives at `docs/designs/2026-06-01-git-pr-dry-run-plan-design.md`; the current branch implements the dry-run packet and CLI path, pending final validation and review.
 
 ## Important Boundaries
 
@@ -25,6 +25,9 @@ Last updated: 2026-06-01
 - Active stop handling rejects completion evidence after the brake changes, but it still allows `status: stopped` evidence to report that the executor honored the stop.
 - Non-`stopped` evidence for tasks with `brake_not_drive` needs a runtime root to check the current brake; without one, validation recommends `provide_runtime_root`.
 - The `git-pr-plan` slice must remain dry-run only: suggested commands are never executed by Cadence, and the executor that produced result evidence is not the final authority for Git/PR approval.
+- `git-pr-plan` readiness must preserve the merged spec's fail-closed gates: brake-gated success needs the current brake check, `files_changed` alone is not materialized-change evidence, `materialized_change_evidence` must be explicit, and absent materialized evidence blocks Git/PR readiness.
+- The packet should include evidence provenance and non-authority fields such as `approval_state: "not_approved"`, `execution_authority: "none"`, and `merge_readiness: "not_evaluated"`.
+- The first implementation must block detached HEAD, current-branch mismatch, missing local base branch, generated branch collisions, dirty worktree, head mismatch, invalid branch names, invalid task/result evidence, non-success results, and missing PR template sections.
 - No executor invocation, branch policy, branch/PR automation, live GitHub sync, merge authority, release behavior, hash chain, or authenticated approval identity is added by this branch.
 - No live branch creation, live commit, live push, or live PR creation is added by this branch.
 - Keep public docs free of private machine paths and private repository assumptions.
@@ -45,4 +48,4 @@ python scripts/verify_package.py
 
 ## Next Action
 
-After this design branch merges, implement the dry-run-only `git-pr-plan` slice test-first on a follow-up branch, update living docs with actual evidence, run local validation and review agents, and merge only after the operator is satisfied.
+Finish validation for the `git-pr-plan-dry-run` branch, review the packet contract and documentation updates, and merge only after the operator is satisfied.
