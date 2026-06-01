@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-01
-Baseline: released 0.1.3 plus unreleased audit-replay and policy/stop-control current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, and git-pr-plan current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -70,10 +70,10 @@ Agentic Cadence is not currently a magic-button autonomous builder or an
 agent-team orchestrator. The released 0.1.3 baseline is a local CLI and
 protocol substrate that can govern and document agentic work. The current
 development tree adds unreleased audit replay evidence, command-policy
-enforcement, and active-stop result-validation controls, but it still cannot
-independently implement code, push branches, open pull requests, assign agent
-roles, resolve review feedback, launch fresh sessions, coordinate an agent pool,
-or continue in an unattended loop.
+enforcement, active-stop result-validation controls, and dry-run Git/PR
+planning, but it still cannot independently implement code, push branches, open
+pull requests, assign agent roles, resolve review feedback, launch fresh
+sessions, coordinate an agent pool, or continue in an unattended loop.
 
 Current confidence for unattended continuous operation is 10%.
 
@@ -111,6 +111,9 @@ command-policy and active-stop controls. It includes:
   worktree, and low-confidence state;
 - deterministic PR body preflight and PR readiness checks from saved local
   inputs;
+- dry-run-only `git-pr-plan` packets that turn validated executor evidence into
+  proposed branch, commit, PR title, and PR body text without creating a branch,
+  committing, pushing, calling GitHub, or opening a pull request;
 - release dry-run checks that require operator confirmation before tag or
   release actions;
 - elected Codex Review GitHub workflow with preflight, dedupe, pinned action,
@@ -435,25 +438,29 @@ Goal: after an approved successful task, produce a dry-run Git/PR transition
 plan from validated result evidence. Live branch, commit, push, and pull
 request materialization belongs in later explicitly approved slices.
 
-Current evidence: PR body preflight and readiness checks exist, but Cadence
-does not create branches, commits, pushes, or pull requests. The first planned
-increment is a dry-run-only `git-pr-plan` packet that turns validated executor
-result evidence into a reviewable Git/PR transition plan without executing
-suggested commands, calling GitHub, or treating the executor as the final
-authority for Git/PR approval.
+Current evidence: PR body preflight and readiness checks exist. The first
+increment now adds a dry-run-only `git-pr-plan` packet that turns validated
+executor result evidence into a reviewable Git/PR transition plan without
+executing suggested commands, calling GitHub, or treating the executor as the
+final authority for Git/PR approval. The packet requires explicit
+`materialized_change_evidence`, validates current branch/head/base branch and
+generated branch safety, preserves brake/runtime-root stop checks, and blocks
+dirty worktrees, detached heads, branch collisions, invalid packets,
+non-success evidence, missing template sections, and invalid branch names.
+Cadence still does not create branches, commits, pushes, or pull requests.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/pr_readiness.py`,
 scripts, tests, docs.
 
-Validation: first-increment tests should cover dry-run packet generation, PR
-body preflight success/failure, no `gh` calls, no Git mutation, invalid
-task/result evidence, brake-gated success without a runtime root, active brake
-stops for non-`stopped` evidence, non-success results, no materialized changes,
-dirty worktrees, HEAD mismatches, detached heads, current-branch mismatches,
-missing local base branches, generated branch collisions, and missing PR
-template sections. Later live-action increments can add mocked `gh` fixtures
-for PR creation, failed push, pending CI, failing CI, passing CI, and stale
-state.
+Validation: focused tests cover dry-run packet generation, PR body preflight
+success/failure, no `gh` calls, no Git or runtime mutation, invalid task/result
+evidence, brake-gated success without a runtime root, active brake stops for
+non-`stopped` evidence, non-success results, no materialized changes, dirty
+worktrees, HEAD mismatches, detached heads, current-branch mismatches, missing
+local base branches, generated branch collisions, missing PR template sections,
+and invalid branch names. Later live-action increments can add mocked `gh`
+fixtures for PR creation, failed push, pending CI, failing CI, passing CI, and
+stale state.
 
 Codex can implement dry-run packets directly. Live PR creation and push
 behavior require a later explicit operator-approved slice.

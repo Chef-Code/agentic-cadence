@@ -235,6 +235,34 @@ The generic executor contract is an agent-neutral boundary, not a named host ada
 
 Executor result evidence uses `schema_version: generic-executor-result.v1` and `packet: executor_result`. It must include executor id, start/end timestamps, status `succeeded`, `failed`, `blocked`, or `stopped`, files changed, commands run, validation results, summary, confidence, blockers, dirty-worktree status, and resulting head SHA for successful results. `validate-executor-result` reads a task packet and result evidence from local JSON files and emits an `executor_result_validation` packet. Successful evidence must include command and validation evidence, must show every task-packet `required_checks` entry in both `commands_run` with exit code `0` and `validation_results` with matching `command` and `status: passed`, and all validation results in successful evidence must pass. Result evidence must stay within the task packet's max runtime based on `started_at` and `ended_at`, and the supplied result file must match the task packet's absolute `expected_output.evidence_path`. Result evidence must respect disabled permissions: it rejects reported `git commit`, `git push`, or `gh pr create` invocations while those permissions are false, including absolute-path, common git/gh global-option, compound-command, shell-grouping, command-substitution, and shell-wrapper forms, and it rejects head changes when commits are forbidden. Result evidence must also respect task `command_policy`: any effective command segment matching `denied_commands` is invalid, and when `allowed_commands` is non-empty every effective command segment from direct compound commands, shell grouping, command substitutions, and shell-wrapper payloads must match that allowlist. If otherwise-valid non-`stopped` evidence includes `brake_not_drive` in the task stop conditions, rootless validation is invalid with `recommended_next_action: provide_runtime_root` because the current brake cannot be checked. When a runtime root is supplied, `validate-executor-result` must apply the runtime-root safety guard for the command working directory, the runtime-root location itself, and the task repo when the task repo path is valid, then check the current brake before recording completion. If `brake_not_drive` is in the task stop conditions and the current brake is not `DRIVE`, non-`stopped` result evidence must be invalid with `recommended_next_action: stop_active_loop`; stopped result evidence remains the valid way to report that the executor honored the active stop. The command then appends a compact `executor_result_validation` audit record with the task id, repo, branch, head, validity, recommendation, reason, local evidence paths, payload checksum, task-packet checksum, and result-evidence checksum. Invalid evidence exits nonzero. It must not run an executor, modify files, commit, push, open PRs, spend review, merge, or infer named-host support.
 
+## Git/PR Dry-Run Planning
+
+`git-pr-plan` reads a generic executor task packet and result evidence from
+local JSON files, validates them with the executor contract helpers, checks
+local Git state, and emits a `git-pr-plan.v1` packet. The packet must include
+`dry_run: true`, `operator_confirmation_required: true`, `side_effects: []`,
+`approval_state: not_approved`, `execution_authority: none`, and
+`merge_readiness: not_evaluated`. A ready packet may include proposed branch,
+commit, PR title, PR body, PR body preflight, provenance checksums, explicit
+materialized-change evidence, and non-executable command examples for a future
+operator or role-separated workflow.
+
+Planning readiness is not Git/PR approval. `git-pr-plan` must not create a
+branch, commit, push, call GitHub, open a pull request, append audit records,
+or create runtime state. If a successful result is gated by
+`brake_not_drive`, the command requires an existing runtime root with readable
+brake state; rootless planning recommends `provide_runtime_root`, and an active
+non-`DRIVE` brake recommends `stop_active_loop`. Result `files_changed` is not
+materialized-change evidence. Missing or invalid `materialized_change_evidence`
+blocks planning instead of emitting a review-ready packet.
+
+The command must block invalid task packets, invalid result evidence,
+non-success results, missing runtime-root brake validation, active brake stops,
+dirty worktrees, mismatched current `HEAD`, detached checkouts, current-branch
+mismatches, wrong repository paths, missing local base branches, generated
+branch collisions, invalid base or generated branch names, absent materialized
+change evidence, and missing required PR body sections.
+
 PR readiness may check target-repository template compliance from local files. `pr-readiness --pr-template-file <path>` must read a Markdown pull request template, derive required PR body sections from its headings, and report missing template sections through the readiness packet. It must include `readiness_evidence` labels so consumers can distinguish `saved_input`, `stale`, and caller-asserted `live_like` evidence. The CLI reads local saved PR JSON and labels it `saved_input`; when `--max-pr-json-age-minutes` is supplied and the file mtime exceeds that limit, it must label the packet `stale`, add a `pr_evidence_stale` waiting item, and recommend `refresh_pr_evidence` before acting on stale blockers. When a saved PR JSON file has a future mtime, it must label the packet `stale`, add a `pr_evidence_from_future` waiting item, and recommend `refresh_pr_evidence`. Negative `--max-pr-json-age-minutes` values must fail closed. Saved-JSON age policy applies only to saved PR JSON, not to caller-asserted `live_like` evaluator inputs. It must ignore headings inside HTML comments or fenced code blocks, match saved PR body headings by section label rather than by heading level, stay repo-agnostic, and must not hard-code target-specific labels, call GitHub, rewrite the PR body, spend paid review, or merge the PR.
 
 PR body preflight covers the pre-publish side of the same template contract. `pr-body-preflight --body-file <path> --pr-template-file <path>` must read a draft PR body and a local Markdown pull request template, derive required template sections from template headings, and report missing template sections before PR creation or update. It must reuse the same heading parser as PR readiness, match draft body headings by normalized section label, ignore headings inside HTML comments or fenced code blocks without creating false setext headings across skipped blocks, stay repo-agnostic, and must not hard-code target-specific labels, call GitHub, rewrite the body file, create a PR, update a PR, spend paid review, or merge the PR. If no template file or `--required-body-section` is supplied, it must fail closed and recommend `provide_template_or_sections`.

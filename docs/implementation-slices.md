@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-01
-Baseline: released 0.1.3 plus unreleased audit-replay and policy/stop-control current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, and git-pr-plan current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -41,8 +41,9 @@ or enforced review separation. The first local policy/audit controls can bound
 emitted executor task packets, append decision/result-validation audit records,
 and replay local audit history with a read-only `audit-replay.v1` packet.
 Active execution controls are partial: result validation enforces task-carried
-command policy and active brake stop evidence, while real executor governance,
-branch policy, branch/commit/push or PR automation, and continuous loop
+command policy and active brake stop evidence, and `git-pr-plan` can produce a
+dry-run Git/PR transition plan for separate review. Real executor governance,
+branch policy, live branch/commit/push or PR creation, and continuous loop
 orchestration remain missing.
 Current unattended-operation confidence remains 10%.
 
@@ -327,7 +328,7 @@ approval.
 
 ## 4. Minimal Git/PR Automation
 
-Status: In progress
+Status: Partial
 
 Goal: produce a dry-run Git/PR transition plan from validated executor result
 evidence, while reserving live branch, commit, push, and pull request
@@ -362,7 +363,16 @@ Current evidence:
 - release dry-run follows operator-confirmation pattern;
 - a design spec for the first dry-run-only `git-pr-plan` packet exists at
   `docs/designs/2026-06-01-git-pr-dry-run-plan-design.md`;
-- no branch, commit, push, or PR creation command exists.
+- `git-pr-plan` now emits `git-pr-plan.v1` packets with `dry_run: true`,
+  `operator_confirmation_required: true`, no side effects, explicit
+  non-authority fields, evidence provenance, materialized-change evidence, PR
+  body preflight, and non-executable command examples;
+- readiness blocks invalid task/result evidence, brake-gated success without a
+  runtime root, active brake stops, non-success results, absent materialized
+  change evidence, dirty worktrees, HEAD mismatches, detached heads, branch
+  mismatches, missing local base branches, generated branch collisions, missing
+  PR template sections, and invalid branch names;
+- no live branch, commit, push, or PR creation command exists.
 
 Why it matters: the autonomous build loop needs to reach PR state before review
 feedback can become useful loop input.
@@ -381,23 +391,25 @@ Suggested implementation size: medium to large
 
 Validation needed:
 
-- ready branch plan dry-run with verified materialized-change evidence;
-- PR body preflight success/failure;
-- proof that the CLI does not call `gh` or mutate Git state;
-- blocked invalid task packet;
-- blocked invalid result evidence;
-- blocked missing runtime root for brake-gated successful result evidence;
-- blocked active brake stop for non-`stopped` result evidence;
-- blocked non-success result;
-- blocked no materialized changes tied to result evidence;
-- blocked dirty worktree;
-- blocked current `HEAD` mismatch;
-- blocked detached head;
-- blocked current branch mismatch;
-- blocked missing local base branch;
-- blocked generated branch already exists;
-- blocked missing PR template section;
-- freshness labels preserved when saved PR evidence is reused.
+- done: ready branch plan dry-run with verified materialized-change evidence;
+- done: PR body preflight success/failure;
+- done: proof that the CLI does not call `gh` or mutate Git/runtime state;
+- done: blocked invalid task packet;
+- done: blocked invalid result evidence;
+- done: blocked missing runtime root for brake-gated successful result evidence;
+- done: blocked active brake stop for non-`stopped` result evidence;
+- done: blocked non-success result;
+- done: blocked no materialized changes tied to result evidence;
+- done: blocked dirty worktree;
+- done: blocked current `HEAD` mismatch;
+- done: blocked detached head;
+- done: blocked current branch mismatch;
+- done: blocked missing local base branch;
+- done: blocked generated branch already exists;
+- done: blocked missing PR template section;
+- done: blocked invalid branch names;
+- remaining: freshness labels preserved when saved PR evidence is reused by
+  later PR synchronization paths.
 
 Codex implementation rule: Codex can implement dry-run packets directly. Live
 push or PR creation behavior requires a later explicit operator-approved slice.
