@@ -270,6 +270,28 @@ def _raw_command_substitutions(command: str) -> list[str]:
             if substitution:
                 substitutions.append(substitution)
         index += 1
+    index = 0
+    while index < len(command):
+        if command[index] != "`":
+            index += 1
+            continue
+        index += 1
+        start = index
+        escaped = False
+        while index < len(command):
+            char = command[index]
+            if char == "\\" and not escaped:
+                escaped = True
+                index += 1
+                continue
+            if char == "`" and not escaped:
+                substitution = command[start:index].strip()
+                if substitution:
+                    substitutions.append(substitution)
+                break
+            escaped = False
+            index += 1
+        index += 1
     return substitutions
 
 
