@@ -6,18 +6,17 @@ Last updated: 2026-06-01
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `ec15b9df736a1ef256c8b2065f3cefff56834eb0`.
-- Working branch: `codex/policy-stop-controls`
-- Recent merged PRs: PR #54 merged the audit replay design spec; PR #55 merged the documentation refresh that marked audit replay as designed but unimplemented; PR #56 implemented the read-only `audit-replay` CLI path; PR #57 updated this handoff after PR #56 merged.
-- Current branch intent: implement the next local safety slice after audit replay: command policy, active stop controls, and focused local audit-control validation. Draft PR #58 is open for this branch.
+- Current base: `origin/main` at `f1d8752f60ee945707502442907af9c817353390` after PR #58 merged.
+- Working branch: use a clean follow-up branch from latest `origin/main`.
+- Recent merged PRs: PR #54 merged the audit replay design spec; PR #55 merged the documentation refresh that marked audit replay as designed but unimplemented; PR #56 implemented the read-only `audit-replay` CLI path; PR #57 updated this handoff after PR #56 merged; PR #58 merged the command-policy and active-stop control slice.
+- Current branch intent: follow up on post-merge review findings for the command policy, active stop controls, and focused local audit-control validation slice.
 
-## What Changed In This Branch
+## Current Capability Baseline
 
 - Added `allowed_commands` and `denied_commands` to local `cadence-loop-policy.v1` handling.
 - Executor task packets now carry `command_policy`, and executor result validation rejects commands that match the denylist or fall outside a non-empty allowlist.
 - `validate-executor-result` now checks the current brake before recording completion evidence; when `brake_not_drive` is a task stop condition and the brake is not `DRIVE`, non-`stopped` result evidence is invalid and recommends `stop_active_loop`.
-- Review follow-up hardened command policy across compound commands, shell grouping, command substitutions, and shell-wrapper payloads, rejected null command-policy fields, and made rootless `brake_not_drive` completion validation fail closed with `provide_runtime_root`.
-- Updated protocol, readiness, roadmap, implementation-slice, progress, decision, changelog, README, and skill docs.
+- Post-merge review follow-up further hardens command policy around shell grouping, Bash brace grouping, command substitutions, shell-wrapper payloads, Git aliases, and null top-level command-policy packets.
 
 ## Important Boundaries
 
@@ -43,4 +42,4 @@ python scripts/verify_package.py
 
 ## Next Action
 
-Continue PR #58 review, monitor CI and bot feedback, address any remaining findings, and merge only after the operator is satisfied.
+Open a follow-up PR for any remaining post-merge review findings, run local and PR review agents, and merge only after the operator is satisfied.

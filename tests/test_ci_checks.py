@@ -1285,6 +1285,46 @@ class CiChecksTests(unittest.TestCase):
             f"expected forbidden token error, got {errors}",
         )
 
+    def test_protocol_validator_rejects_stale_handoff_pr_state(self):
+        validator = load_validate_protocol()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_root = Path(tmp)
+            for relative in validator.REQUIRED_TOKENS:
+                source = ROOT / relative
+                target = tmp_root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+
+            handoff = tmp_root / "docs" / "session-handoff.md"
+            handoff.write_text(
+                handoff.read_text(encoding="utf-8")
+                + "\n- Working branch: `codex/policy-stop-controls`\n"
+                + "- Current branch intent: Draft PR #58 is open for this branch.\n"
+                + "Continue PR #58 review, monitor CI and bot feedback, address any remaining findings, and merge only after the operator is satisfied.\n",
+                encoding="utf-8",
+            )
+
+            original_root = validator.ROOT
+            validator.ROOT = tmp_root
+            try:
+                errors = []
+                validator.validate_tokens(errors)
+            finally:
+                validator.ROOT = original_root
+
+        expected_errors = (
+            "docs/session-handoff.md must not contain forbidden token: codex/policy-stop-controls",
+            "docs/session-handoff.md must not contain forbidden token: Draft PR #58",
+            "docs/session-handoff.md must not contain forbidden token: Continue PR #58",
+        )
+        for expected_error in expected_errors:
+            with self.subTest(expected_error=expected_error):
+                self.assertTrue(
+                    any(expected_error in error for error in errors),
+                    f"expected stale handoff error {expected_error!r}, got {errors}",
+                )
+
     def test_protocol_validator_rejects_release_workflow_guard_drift(self):
         validator = load_validate_protocol()
         source = ROOT / ".github" / "workflows" / "release-dry-run.yml"

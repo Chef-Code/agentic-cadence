@@ -425,6 +425,11 @@ FORBIDDEN_TOKENS = {
         "refs/pull/${{ github.event.pull_request.number }}/merge",
         "refs/remotes/pull/${PR_NUMBER}/head",
     ),
+    "docs/session-handoff.md": (
+        "Draft PR #58",
+        "Continue PR #58",
+        "codex/policy-stop-controls",
+    ),
 }
 
 FORBIDDEN_RELEASE_ACTIONS = (

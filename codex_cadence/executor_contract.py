@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -62,7 +63,44 @@ _GH_OPTIONS_WITH_EQUALS = (
     "--hostname=",
     "--repo=",
 )
-_COMMAND_SEPARATORS = {"&&", "||", ";", "|", "&", "(", ")"}
+_COMMAND_SEPARATORS = {"&&", "||", ";", "|", "&", "(", ")", "{", "}"}
+_COMMAND_EXPANSION_DEPTH_LIMIT = 32
+_PARAMETER_EXPANSION_PATTERN = re.compile(r"(?<!\\)\$(?!\()(\{[^}]*\}|[A-Za-z_][A-Za-z0-9_]*)")
+_IFS_EXPANSION_PATTERN = re.compile(r"\$\{ifs\}|\$ifs\b", re.IGNORECASE)
+_ENV_OPTIONS_WITH_VALUE = {"-u", "--unset", "-c", "-C", "--chdir", "-s", "-S", "--split-string", "--argv0"}
+_ENV_OPTIONS_WITH_EQUALS = ("--unset=", "--chdir=", "--split-string=", "--argv0=")
+_SUDO_OPTIONS_WITH_VALUE = {
+    "-u",
+    "--user",
+    "-g",
+    "--group",
+    "-h",
+    "--host",
+    "-p",
+    "--prompt",
+    "-c",
+    "-C",
+    "--close-from",
+    "-T",
+    "--command-timeout",
+}
+_SUDO_OPTIONS_WITH_EQUALS = (
+    "--user=",
+    "--group=",
+    "--host=",
+    "--prompt=",
+    "--close-from=",
+    "--command-timeout=",
+)
+_EXEC_OPTIONS_WITH_VALUE = {"-a"}
+_NICE_OPTIONS_WITH_VALUE = {"-n", "--adjustment"}
+_NICE_OPTIONS_WITH_EQUALS = ("--adjustment=",)
+_TIME_OPTIONS_WITH_VALUE = {"-f", "--format", "-o", "--output"}
+_TIME_OPTIONS_WITH_EQUALS = ("--format=", "--output=")
+_TIME_OPTIONS_WITHOUT_VALUE = {"-a", "--append", "-p", "--portability", "-v", "--verbose", "--quiet"}
+_TIMEOUT_OPTIONS_WITH_VALUE = {"-k", "--kill-after", "-s", "--signal"}
+_TIMEOUT_OPTIONS_WITH_EQUALS = ("--kill-after=", "--signal=")
+_TIMEOUT_OPTIONS_WITHOUT_VALUE = {"--preserve-status", "--foreground", "-v", "--verbose"}
 
 
 def _non_empty_string(value: Any) -> bool:
@@ -126,13 +164,16 @@ def _command_name(token: str) -> str:
 
 
 def _command_text_for_lexing(command: str) -> str:
-    return command.replace("\r\n", "\n").replace("\r", "\n").replace("\n", " ; ")
+    normalized = command.replace("\r\n", "\n").replace("\r", "\n")
+    normalized = re.sub(r"\\\n[ \t]*", " ", normalized)
+    return normalized.replace("\n", " ; ")
 
 
 def _command_tokens(command: str) -> list[str]:
     shell_text = _command_text_for_lexing(command)
     try:
         lexer = shlex.shlex(shell_text, posix=True, punctuation_chars=True)
+        lexer.commenters = ""
         lexer.whitespace_split = True
         return [token.lower() for token in lexer]
     except ValueError:
@@ -152,6 +193,276 @@ def _command_segments(tokens: list[str]) -> list[list[str]]:
     if current:
         segments.append(current)
     return segments
+
+
+def _shell_assignment(token: str) -> bool:
+    if "=" not in token or token.startswith("-"):
+        return False
+    name, _value = token.split("=", 1)
+    return bool(name) and (name[0].isalpha() or name[0] == "_") and all(
+        char.isalnum() or char == "_" for char in name
+    )
+
+
+def _assignment_pair(token: str) -> tuple[str, str] | None:
+    if not _shell_assignment(token):
+        return None
+    name, value = token.split("=", 1)
+    return name.lower(), value
+
+
+def _option_step(
+    tokens: list[str],
+    index: int,
+    options_with_value: set[str],
+    options_with_equals: tuple[str, ...],
+) -> int | None:
+    token = tokens[index]
+    if token in options_with_value:
+        return min(index + 2, len(tokens))
+    if any(token.startswith(prefix) and token != prefix for prefix in options_with_equals):
+        return index + 1
+    return None
+
+
+def _strip_shell_dollar_quote(token: str) -> str:
+    if token.startswith("$") and len(token) > 1 and not token.startswith("$("):
+        return token[1:]
+    return token
+
+
+def _strip_single_quoted_ranges(command: str) -> str:
+    result: list[str] = []
+    index = 0
+    single_quoted = False
+    double_quoted = False
+    escaped = False
+    while index < len(command):
+        char = command[index]
+        if escaped:
+            if not single_quoted:
+                result.append(" ")
+            escaped = False
+            index += 1
+            continue
+        if char == "\\" and not single_quoted:
+            if not single_quoted:
+                result.append(" ")
+            escaped = True
+            index += 1
+            continue
+        if char == "'" and not double_quoted:
+            single_quoted = not single_quoted
+            result.append(" ")
+            index += 1
+            continue
+        if char == '"' and not single_quoted:
+            double_quoted = not double_quoted
+        result.append(" " if single_quoted else char)
+        index += 1
+    return "".join(result)
+
+
+def _first_non_assignment_index(tokens: list[str]) -> int | None:
+    current = 0
+    while current < len(tokens) and _assignment_pair(tokens[current]) is not None:
+        current += 1
+    return current if current < len(tokens) else None
+
+
+def _visible_environment_assignments(tokens: list[str], command_index: int) -> dict[str, str]:
+    assignments: dict[str, str] = {}
+    current = 0
+    while current < command_index:
+        pair = _assignment_pair(tokens[current])
+        if pair is not None:
+            assignments[pair[0]] = pair[1]
+            current += 1
+            continue
+        command = _command_name(tokens[current])
+        if command == "env":
+            current += 1
+            while current < command_index:
+                pair = _assignment_pair(tokens[current])
+                if pair is not None:
+                    assignments[pair[0]] = pair[1]
+                    current += 1
+                    continue
+                option_next = _option_step(tokens, current, _ENV_OPTIONS_WITH_VALUE, _ENV_OPTIONS_WITH_EQUALS)
+                if option_next is not None:
+                    current = option_next
+                    continue
+                if tokens[current].startswith("-"):
+                    current += 1
+                    continue
+                break
+        current += 1
+    return assignments
+
+
+def _first_command_index(tokens: list[str]) -> int | None:
+    current = 0
+    while current < len(tokens):
+        token = tokens[current]
+        command = _command_name(token)
+        if _shell_assignment(token):
+            current += 1
+            continue
+        if command == "env":
+            current += 1
+            while current < len(tokens):
+                if _assignment_pair(tokens[current]) is not None:
+                    current += 1
+                    continue
+                option_next = _option_step(tokens, current, _ENV_OPTIONS_WITH_VALUE, _ENV_OPTIONS_WITH_EQUALS)
+                if option_next is not None:
+                    current = option_next
+                    continue
+                if tokens[current].startswith("-"):
+                    current += 1
+                    continue
+                break
+            continue
+        if command == "sudo":
+            current += 1
+            while current < len(tokens):
+                option_next = _option_step(tokens, current, _SUDO_OPTIONS_WITH_VALUE, _SUDO_OPTIONS_WITH_EQUALS)
+                if option_next is not None:
+                    current = option_next
+                    continue
+                if tokens[current].startswith("-"):
+                    current += 1
+                    continue
+                break
+            continue
+        if command == "command":
+            current += 1
+            while current < len(tokens):
+                if tokens[current] == "--":
+                    current += 1
+                    break
+                if tokens[current] in {"-p"}:
+                    current += 1
+                    continue
+                if tokens[current] in {"-v", "-V"}:
+                    return current - 1
+                break
+            continue
+        if command == "exec":
+            current += 1
+            while current < len(tokens):
+                option_next = _option_step(tokens, current, _EXEC_OPTIONS_WITH_VALUE, ())
+                if option_next is not None:
+                    current = option_next
+                    continue
+                if tokens[current] in {"-c", "-l"}:
+                    current += 1
+                    continue
+                break
+            continue
+        if command == "builtin":
+            current += 1
+            continue
+        if command == "nohup":
+            current += 1
+            continue
+        if command == "nice":
+            current += 1
+            while current < len(tokens):
+                option_next = _option_step(tokens, current, _NICE_OPTIONS_WITH_VALUE, _NICE_OPTIONS_WITH_EQUALS)
+                if option_next is not None:
+                    current = option_next
+                    continue
+                if re.fullmatch(r"-\d+", tokens[current]):
+                    current += 1
+                    continue
+                if tokens[current].startswith("-"):
+                    current += 1
+                    continue
+                break
+            continue
+        if command == "time":
+            current += 1
+            while current < len(tokens):
+                option_next = _option_step(tokens, current, _TIME_OPTIONS_WITH_VALUE, _TIME_OPTIONS_WITH_EQUALS)
+                if option_next is not None:
+                    current = option_next
+                    continue
+                if tokens[current] in _TIME_OPTIONS_WITHOUT_VALUE:
+                    current += 1
+                    continue
+                break
+            continue
+        if command == "timeout":
+            current += 1
+            while current < len(tokens):
+                option_next = _option_step(tokens, current, _TIMEOUT_OPTIONS_WITH_VALUE, _TIMEOUT_OPTIONS_WITH_EQUALS)
+                if option_next is not None:
+                    current = option_next
+                    continue
+                if tokens[current] in _TIMEOUT_OPTIONS_WITHOUT_VALUE:
+                    current += 1
+                    continue
+                if tokens[current].startswith("-"):
+                    current += 1
+                    continue
+                break
+            if current < len(tokens):
+                current += 1
+            continue
+        return current
+    return None
+
+
+def _git_config_alias(value: str) -> tuple[str, str] | None:
+    if not value.startswith("alias.") or "=" not in value:
+        return None
+    alias_name, alias_value = value.split("=", 1)
+    alias_name = alias_name.removeprefix("alias.").strip().lower()
+    alias_value = alias_value.strip().lower()
+    if not alias_name or not alias_value:
+        return None
+    return alias_name, alias_value
+
+
+def _git_config_env_alias(value: str, assignments: dict[str, str]) -> tuple[str, str | None] | None:
+    if not value.startswith("alias.") or "=" not in value:
+        return None
+    alias_name, env_name = value.split("=", 1)
+    alias_name = alias_name.removeprefix("alias.").strip().lower()
+    env_name = env_name.strip().lower()
+    if not alias_name or not env_name:
+        return None
+    return alias_name, assignments.get(env_name)
+
+
+def _git_alias_invokes(
+    alias_value: str | None,
+    subcommand: str,
+    aliases: dict[str, str | None],
+    seen: set[str] | None = None,
+) -> bool:
+    if alias_value is None:
+        return True
+    shell_alias = alias_value.startswith("!")
+    alias_command = alias_value.removeprefix("!")
+    if shell_alias and _command_invokes(alias_command, f"git {subcommand}"):
+        return True
+    alias_tokens = _command_tokens(alias_command)
+    if not alias_tokens:
+        return False
+    if _command_name(alias_tokens[0]) in {"git", "git.exe"}:
+        return len(alias_tokens) > 1 and alias_tokens[1] == subcommand
+    alias_name = alias_tokens[0]
+    if alias_name == subcommand:
+        return True
+    if alias_name in aliases:
+        seen_aliases = set() if seen is None else set(seen)
+        if alias_name in seen_aliases:
+            return False
+        seen_aliases.add(alias_name)
+        return _git_alias_invokes(aliases[alias_name], subcommand, aliases, seen_aliases)
+    return False
 
 
 def _option_uses_value(token: str, options_with_value: set[str], options_with_equals: tuple[str, ...]) -> bool:
@@ -179,14 +490,58 @@ def _next_git_subcommand(tokens: list[str], index: int) -> str | None:
     return tokens[current] if current < len(tokens) else None
 
 
+def _git_aliases_before_subcommand(tokens: list[str], index: int) -> dict[str, str | None]:
+    aliases: dict[str, str | None] = {}
+    assignments = _visible_environment_assignments(tokens, index)
+    current = index + 1
+    while current < len(tokens):
+        token = tokens[current]
+        if token == "--" or token in _COMMAND_SEPARATORS:
+            return aliases
+        if token == "-c" and current + 1 < len(tokens):
+            alias = _git_config_alias(tokens[current + 1])
+            if alias is not None:
+                aliases[alias[0]] = alias[1]
+            current += 2
+            continue
+        if token.startswith("-c") and token != "-c":
+            alias = _git_config_alias(token[2:])
+            if alias is not None:
+                aliases[alias[0]] = alias[1]
+            current += 1
+            continue
+        if token == "--config-env" and current + 1 < len(tokens):
+            alias = _git_config_env_alias(tokens[current + 1], assignments)
+            if alias is not None:
+                aliases[alias[0]] = alias[1]
+            current += 2
+            continue
+        if token.startswith("--config-env="):
+            alias = _git_config_env_alias(token.removeprefix("--config-env="), assignments)
+            if alias is not None:
+                aliases[alias[0]] = alias[1]
+            current += 1
+            continue
+        if _option_uses_value(token, _GIT_OPTIONS_WITH_VALUE, _GIT_OPTIONS_WITH_EQUALS):
+            current += 2 if token in _GIT_OPTIONS_WITH_VALUE else 1
+            continue
+        if token.startswith("-"):
+            current += 1
+            continue
+        return aliases
+    return aliases
+
+
 def _git_invokes(tokens: list[str], subcommand: str) -> bool:
-    for index, token in enumerate(tokens):
-        if (
-            _command_name(token) in {"git", "git.exe"}
-            and _next_git_subcommand(tokens, index) == subcommand
-        ):
-            return True
-    return False
+    index = _first_command_index(tokens)
+    if index is None or _command_name(tokens[index]) not in {"git", "git.exe"}:
+        return False
+    aliases = _git_aliases_before_subcommand(tokens, index)
+    next_subcommand = _next_git_subcommand(tokens, index)
+    return next_subcommand == subcommand or (
+        next_subcommand in aliases
+        and _git_alias_invokes(aliases[next_subcommand], subcommand, aliases, {next_subcommand})
+    )
 
 
 def _next_gh_subcommands(tokens: list[str], index: int, count: int) -> list[str]:
@@ -208,57 +563,120 @@ def _next_gh_subcommands(tokens: list[str], index: int, count: int) -> list[str]
 
 
 def _gh_invokes(tokens: list[str], subcommands: list[str]) -> bool:
-    for index, token in enumerate(tokens):
-        if (
-            _command_name(token) in {"gh", "gh.exe"}
-            and _next_gh_subcommands(tokens, index, len(subcommands)) == subcommands
-        ):
-            return True
-    return False
+    index = _first_command_index(tokens)
+    return (
+        index is not None
+        and _command_name(tokens[index]) in {"gh", "gh.exe"}
+        and _next_gh_subcommands(tokens, index, len(subcommands)) == subcommands
+    )
 
 
 def _embedded_shell_commands(tokens: list[str]) -> list[str]:
     embedded: list[str] = []
-    for index, token in enumerate(tokens):
-        command = _command_name(token)
-        if command in _SHELL_COMMANDS:
-            for option_index in range(index + 1, len(tokens) - 1):
-                option = tokens[option_index]
-                if option == "-c" or (
-                    option.startswith("-") and not option.startswith("--") and "c" in option[1:]
-                ):
-                    embedded.append(tokens[option_index + 1])
-                    break
-        if command in _CMD_COMMANDS:
-            for option_index in range(index + 1, len(tokens) - 1):
-                if tokens[option_index] in {"/c", "/k"}:
-                    embedded.append(tokens[option_index + 1])
-                    break
-        if command in _POWERSHELL_COMMANDS:
-            for option_index in range(index + 1, len(tokens) - 1):
-                if tokens[option_index] in {"-command", "-c"}:
-                    embedded.append(tokens[option_index + 1])
-                    break
+    first = _first_non_assignment_index(tokens)
+    if first is not None and _command_name(tokens[first]) == "env":
+        for option_index in range(first + 1, len(tokens)):
+            option = tokens[option_index]
+            if option in {"-S", "-s", "--split-string"} and option_index + 1 < len(tokens):
+                embedded.append(tokens[option_index + 1])
+                return embedded
+            if option.startswith("-s") and option != "-s":
+                embedded.append(option[2:])
+                return embedded
+            if option.startswith("--split-string="):
+                embedded.append(option.removeprefix("--split-string="))
+                return embedded
+    index = _first_command_index(tokens)
+    if index is None:
+        return embedded
+    command = _command_name(tokens[index])
+    if command == "eval" and index + 1 < len(tokens):
+        embedded.append(" ".join(tokens[index + 1 :]))
+        return embedded
+    if command in _SHELL_COMMANDS:
+        for option_index in range(index + 1, len(tokens) - 1):
+            option = tokens[option_index]
+            if option == "-c" or (
+                option.startswith("-") and not option.startswith("--") and "c" in option[1:]
+            ):
+                embedded.append(_strip_shell_dollar_quote(tokens[option_index + 1]))
+                break
+    if command in _CMD_COMMANDS:
+        for option_index in range(index + 1, len(tokens) - 1):
+            if tokens[option_index] in {"/c", "/k"}:
+                embedded_command = " ".join(tokens[option_index + 1 :]).strip()
+                if embedded_command:
+                    embedded.append(embedded_command)
+                break
+    if command in _POWERSHELL_COMMANDS:
+        for option_index in range(index + 1, len(tokens) - 1):
+            if tokens[option_index] in {"-command", "-c"}:
+                embedded.append(tokens[option_index + 1])
+                break
     return embedded
 
 
-def _raw_command_substitutions(command: str) -> list[str]:
-    substitutions: list[str] = []
+def _command_substitution_spans(command: str) -> list[tuple[int, int, str]]:
+    spans: list[tuple[int, int, str]] = []
     index = 0
+    single_quoted = False
+    double_quoted = False
+    escaped = False
     while index < len(command):
-        if not command.startswith("$(", index):
+        char = command[index]
+        if escaped:
+            escaped = False
             index += 1
             continue
+        if char == "\\" and not single_quoted:
+            escaped = True
+            index += 1
+            continue
+        if char == "'" and not double_quoted:
+            single_quoted = not single_quoted
+            index += 1
+            continue
+        if char == '"' and not single_quoted:
+            double_quoted = not double_quoted
+            index += 1
+            continue
+        if single_quoted:
+            index += 1
+            continue
+        prefix = next((candidate for candidate in ("$(", "<(", ">(") if command.startswith(candidate, index)), None)
+        if prefix is None:
+            index += 1
+            continue
+        span_start = index
         depth = 1
-        index += 2
+        index += len(prefix)
         start = index
+        inner_single_quoted = False
+        inner_double_quoted = False
+        inner_escaped = False
         while index < len(command) and depth > 0:
-            if command.startswith("$(", index):
+            char = command[index]
+            if inner_escaped:
+                inner_escaped = False
+                index += 1
+                continue
+            if char == "\\" and not inner_single_quoted:
+                inner_escaped = True
+                index += 1
+                continue
+            if char == "'" and not inner_double_quoted:
+                inner_single_quoted = not inner_single_quoted
+                index += 1
+                continue
+            if char == '"' and not inner_single_quoted:
+                inner_double_quoted = not inner_double_quoted
+                index += 1
+                continue
+            if not inner_single_quoted and any(command.startswith(candidate, index) for candidate in ("$(", "<(", ">(")):
                 depth += 1
                 index += 2
                 continue
-            char = command[index]
-            if char == ")":
+            if char == ")" and not inner_single_quoted and not inner_double_quoted:
                 depth -= 1
                 if depth == 0:
                     break
@@ -266,13 +684,34 @@ def _raw_command_substitutions(command: str) -> list[str]:
         if depth == 0:
             substitution = command[start:index].strip()
             if substitution:
-                substitutions.append(substitution)
+                spans.append((span_start, index + 1, substitution))
         index += 1
     index = 0
+    single_quoted = False
+    double_quoted = False
+    escaped = False
     while index < len(command):
-        if command[index] != "`":
+        char = command[index]
+        if escaped:
+            escaped = False
             index += 1
             continue
+        if char == "\\" and not single_quoted:
+            escaped = True
+            index += 1
+            continue
+        if char == "'" and not double_quoted:
+            single_quoted = not single_quoted
+            index += 1
+            continue
+        if char == '"' and not single_quoted:
+            double_quoted = not double_quoted
+            index += 1
+            continue
+        if single_quoted or char != "`":
+            index += 1
+            continue
+        span_start = index
         index += 1
         start = index
         escaped = False
@@ -285,24 +724,94 @@ def _raw_command_substitutions(command: str) -> list[str]:
             if char == "`" and not escaped:
                 substitution = command[start:index].strip()
                 if substitution:
-                    substitutions.append(substitution)
+                    spans.append((span_start, index + 1, substitution))
                 break
             escaped = False
             index += 1
         index += 1
-    return substitutions
+    return spans
 
 
-def _effective_command_segments(command: str) -> list[str]:
+def _raw_command_substitutions(command: str) -> list[str]:
+    return [substitution for _start, _end, substitution in _command_substitution_spans(command)]
+
+
+def _simple_substitution_output(command: str) -> str | None:
+    if _command_substitution_spans(command):
+        return None
+    segments = _command_segments(_command_tokens(command))
+    if len(segments) != 1 or not segments[0]:
+        return None
+    tokens = segments[0]
+    command_name = _command_name(tokens[0])
+    if command_name in {"echo", "echo.exe"}:
+        output = " ".join(tokens[1:]).strip()
+        return output or None
+    if command_name in {"printf", "printf.exe"} and len(tokens) > 1:
+        if tokens[1] in {"%s", "%s\\n"} and len(tokens) > 2:
+            output = " ".join(tokens[2:]).strip()
+        else:
+            output = tokens[1].strip()
+        return output or None
+    return None
+
+
+def _command_substitution_output_variants(command: str) -> list[str]:
+    variants: list[str] = []
+    for start, end, substitution in _command_substitution_spans(command):
+        output = _simple_substitution_output(substitution)
+        if output is not None:
+            variants.append(f"{command[:start]}{output}{command[end:]}")
+    return variants
+
+
+def _shell_parameter_variants(command: str) -> list[str]:
+    expanded = _IFS_EXPANSION_PATTERN.sub(" ", command)
+    return [expanded] if expanded != command else []
+
+
+def _has_command_substitution(command: str) -> bool:
+    return bool(_command_substitution_spans(command))
+
+
+def _has_unsupported_shell_expansion(command: str, depth: int = 0) -> bool:
+    if depth > _COMMAND_EXPANSION_DEPTH_LIMIT:
+        return True
+    if "<<" in command:
+        return True
+    expansion_text = _strip_single_quoted_ranges(command)
+    if _PARAMETER_EXPANSION_PATTERN.search(expansion_text):
+        return True
+    for segment_tokens in _command_segments(_command_tokens(command)):
+        for embedded_command in _embedded_shell_commands(segment_tokens):
+            if _has_unsupported_shell_expansion(embedded_command, depth + 1):
+                return True
+    for _start, _end, substitution in _command_substitution_spans(command):
+        if _simple_substitution_output(substitution) is None:
+            return True
+        if _has_unsupported_shell_expansion(substitution, depth + 1):
+            return True
+    return False
+
+
+def _effective_command_segments(command: str, depth: int = 0) -> list[str]:
+    if depth > _COMMAND_EXPANSION_DEPTH_LIMIT:
+        normalized = _normalized_command(command)
+        return [normalized] if normalized else []
     tokens = _command_tokens(command)
     segments: list[str] = []
     for substitution in _raw_command_substitutions(command):
-        segments.extend(_effective_command_segments(substitution))
+        segments.extend(_effective_command_segments(substitution, depth + 1))
+    for variant in _command_substitution_output_variants(command):
+        if variant != command:
+            segments.extend(_effective_command_segments(variant, depth + 1))
+    for variant in _shell_parameter_variants(command):
+        segments.extend(_effective_command_segments(variant, depth + 1))
     for segment_tokens in _command_segments(tokens):
         embedded = _embedded_shell_commands(segment_tokens)
         if embedded:
             for embedded_command in embedded:
-                segments.extend(_effective_command_segments(embedded_command))
+                segments.extend(_effective_command_segments(embedded_command, depth + 1))
             continue
         segment = " ".join(segment_tokens).strip()
         if segment:
@@ -325,7 +834,9 @@ def _single_command_invokes(command: str, invocation: str) -> bool:
 
 
 def _command_invokes(command: str, invocation: str) -> bool:
-    return any(_single_command_invokes(segment, invocation) for segment in _effective_command_segments(command))
+    return _single_command_invokes(command, invocation) or any(
+        _single_command_invokes(segment, invocation) for segment in _effective_command_segments(command)
+    )
 
 
 def _command_allowed_by_policy(command: str, allowed_commands: list[str]) -> bool:
@@ -504,8 +1015,6 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
     if not all(condition in stop_conditions for condition in DEFAULT_EXECUTOR_STOP_CONDITIONS):
         return False, "executor task stop_conditions must include built-in safety stops"
     command_policy = packet.get("command_policy", {})
-    if command_policy is None:
-        command_policy = {}
     if not isinstance(command_policy, dict):
         return False, "executor task command_policy must be a JSON object"
     for field in ("allowed_commands", "denied_commands"):
@@ -572,8 +1081,6 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
     if not isinstance(commands_run, list):
         return False, "executor result commands_run must be a list"
     command_policy = task_packet.get("command_policy", {})
-    if command_policy is None:
-        command_policy = {}
     allowed_commands = command_policy.get("allowed_commands", []) if isinstance(command_policy, dict) else []
     denied_commands = command_policy.get("denied_commands", []) if isinstance(command_policy, dict) else []
     command_exit_codes: dict[str, list[int]] = {}
@@ -586,9 +1093,12 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
         exit_code = command.get("exit_code")
         if isinstance(exit_code, bool) or not isinstance(exit_code, int):
             return False, f"executor result commands_run[{index}].exit_code must be an integer"
+        unsupported_shell_expansion = _has_unsupported_shell_expansion(command_text)
         if any(_command_invokes(command_text, denied) for denied in denied_commands):
             return False, f"executor result commands_run[{index}] is denied by command_policy"
-        if allowed_commands and not _command_allowed_by_policy(command_text, allowed_commands):
+        if denied_commands and not allowed_commands and (_has_command_substitution(command_text) or unsupported_shell_expansion):
+            return False, f"executor result commands_run[{index}] is denied by command_policy"
+        if allowed_commands and (unsupported_shell_expansion or not _command_allowed_by_policy(command_text, allowed_commands)):
             return False, f"executor result commands_run[{index}] is outside allowed command_policy"
         if permissions.get("may_commit") is False and _command_invokes(command_text, "git commit"):
             return False, f"executor result commands_run[{index}] violates disabled commit permission"
@@ -596,6 +1106,10 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
             return False, f"executor result commands_run[{index}] violates disabled push permission"
         if permissions.get("may_open_pr") is False and _command_invokes(command_text, "gh pr create"):
             return False, f"executor result commands_run[{index}] violates disabled PR creation permission"
+        if unsupported_shell_expansion and any(
+            permissions.get(field) is False for field in ("may_commit", "may_push", "may_open_pr")
+        ):
+            return False, f"executor result commands_run[{index}] contains unsupported shell expansion"
         command_exit_codes.setdefault(command_text, []).append(exit_code)
     validation_results = evidence.get("validation_results")
     if not isinstance(validation_results, list):
