@@ -327,18 +327,30 @@ approval.
 
 ## 4. Minimal Git/PR Automation
 
-Status: Not started
+Status: In progress
 
-Goal: create a dry-run-first path for turning successful task evidence into a
-branch, commit, push, and pull request workflow.
+Goal: produce a dry-run Git/PR transition plan from validated executor result
+evidence, while reserving live branch, commit, push, and pull request
+materialization for later approved slices.
 
-Initial scope should prefer packets before side effects:
+The first implementation increment is the local `git-pr-plan` dry-run packet.
+It plans the Git/PR transition from validated executor result evidence, but it
+does not create a branch, commit, push, call GitHub, or open a pull request.
+This keeps the first contract useful for review and future role coordination
+without giving the implementation executor final Git/PR approval authority.
+
+Initial dry-run scope:
 
 1. generate branch/commit/PR plan;
 2. validate PR body against template;
 3. require operator approval;
-4. optionally run live `gh` commands after approval;
-5. fetch saved PR evidence for existing readiness checks.
+4. report suggested commands as suggestions only;
+5. preserve role-separation language so the executor evidence producer is not
+   treated as the final authority for Git/PR transition approval.
+
+Later increments may add live `gh` or Git commands after explicit approval and
+stable packet contracts. Those live side effects are outside the first
+`git-pr-plan` slice.
 
 Current evidence:
 
@@ -348,6 +360,8 @@ Current evidence:
   caller-asserted `live_like`, with stale saved evidence waiting before
   blockers when an age policy is supplied;
 - release dry-run follows operator-confirmation pattern;
+- a design spec for the first dry-run-only `git-pr-plan` packet exists at
+  `docs/designs/2026-06-01-git-pr-dry-run-plan-design.md`;
 - no branch, commit, push, or PR creation command exists.
 
 Why it matters: the autonomous build loop needs to reach PR state before review
@@ -367,15 +381,26 @@ Suggested implementation size: medium to large
 
 Validation needed:
 
-- branch plan dry-run;
+- ready branch plan dry-run with verified materialized-change evidence;
 - PR body preflight success/failure;
-- mocked `gh pr create`;
-- mocked failed push;
-- mocked pending/failing/passing checks;
+- proof that the CLI does not call `gh` or mutate Git state;
+- blocked invalid task packet;
+- blocked invalid result evidence;
+- blocked missing runtime root for brake-gated successful result evidence;
+- blocked active brake stop for non-`stopped` result evidence;
+- blocked non-success result;
+- blocked no materialized changes tied to result evidence;
+- blocked dirty worktree;
+- blocked current `HEAD` mismatch;
+- blocked detached head;
+- blocked current branch mismatch;
+- blocked missing local base branch;
+- blocked generated branch already exists;
+- blocked missing PR template section;
 - freshness labels preserved when saved PR evidence is reused.
 
 Codex implementation rule: Codex can implement dry-run packets directly. Live
-push or PR creation behavior requires operator approval.
+push or PR creation behavior requires a later explicit operator-approved slice.
 
 ## 5. CI/Review Feedback Back Into Candidate Discovery
 

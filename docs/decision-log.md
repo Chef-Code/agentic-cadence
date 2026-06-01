@@ -28,6 +28,58 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-01 - Keep Git/PR planning dry-run and role-separated
+
+Decision:
+- The first Minimal Git/PR Automation increment should be a dry-run-only
+  `git-pr-plan` packet.
+- The packet may translate successful executor result evidence into suggested
+  branch, commit, and PR metadata, but Cadence must not execute suggested
+  commands, create a branch, commit, push, call GitHub, open a pull request, or
+  treat the plan as approval to proceed.
+- The executor that produced result evidence must not be treated as the final
+  authority for Git/PR transition approval.
+
+Why:
+- Current generic executor task packets still forbid commit, push, PR
+  creation, and head-change permissions. A first planning packet can make the
+  next transition reviewable, but it cannot honestly prove that a branchable
+  commit exists.
+- Future agent-team orchestration needs a coordination artifact that a
+  reviewer, QA agent, release agent, documentation agent, or human operator can
+  consume separately from the builder that produced implementation evidence.
+- Keeping the first slice dry-run preserves the local, deterministic evidence
+  model while avoiding live GitHub credentials or irreversible remote effects.
+- Existing active-stop controls already require a runtime root before accepting
+  otherwise-valid non-`stopped` evidence for tasks with `brake_not_drive`.
+  Git/PR planning must preserve that fail-closed rule so stale success evidence
+  cannot bypass the current brake.
+
+Alternatives considered:
+- Add optional live `gh pr create`, push, or commit flags in the first slice.
+  Rejected because those actions need branch ownership, approval identity,
+  rollback, and live-side-effect policy that are not stable yet.
+- Extend `validate-executor-result` to emit Git/PR fields directly. Rejected
+  because result validation and post-result transition planning are different
+  governance decisions.
+
+Consequences:
+- The `git-pr-plan` packet is safe to review, not safe to execute.
+- A ready plan can only be produced from result evidence that passes the same
+  brake/runtime-root checks as `validate-executor-result`.
+- The packet must record materialized-change evidence explicitly; absent
+  evidence blocks Git/PR readiness instead of relying on result `files_changed`
+  alone.
+- Suggested commands remain suggestions only.
+- Later live Git or GitHub behavior requires explicit approval and stable
+  packet contracts.
+
+Open questions:
+- What materialized-change evidence should later prove that executor output is
+  actually present in a branchable commit?
+- What identity model should prove that Git/PR approval came from a separate
+  role or human operator?
+
 ## 2026-05-31 - Carry command policy in executor task packets
 
 Decision:

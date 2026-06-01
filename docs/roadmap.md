@@ -431,20 +431,32 @@ or default-autonomous permissions require operator approval.
 
 ### Minimal Git/PR automation
 
-Goal: after an approved successful task, prepare branch, commit, push, PR body,
-and PR creation evidence through dry-run-first commands.
+Goal: after an approved successful task, produce a dry-run Git/PR transition
+plan from validated result evidence. Live branch, commit, push, and pull
+request materialization belongs in later explicitly approved slices.
 
 Current evidence: PR body preflight and readiness checks exist, but Cadence
-does not create branches, commits, pushes, or pull requests.
+does not create branches, commits, pushes, or pull requests. The first planned
+increment is a dry-run-only `git-pr-plan` packet that turns validated executor
+result evidence into a reviewable Git/PR transition plan without executing
+suggested commands, calling GitHub, or treating the executor as the final
+authority for Git/PR approval.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/pr_readiness.py`,
 scripts, tests, docs.
 
-Validation: mocked `gh` fixtures for PR creation, failed push, pending CI,
-failing CI, passing CI, stale state, and dry-run packets.
+Validation: first-increment tests should cover dry-run packet generation, PR
+body preflight success/failure, no `gh` calls, no Git mutation, invalid
+task/result evidence, brake-gated success without a runtime root, active brake
+stops for non-`stopped` evidence, non-success results, no materialized changes,
+dirty worktrees, HEAD mismatches, detached heads, current-branch mismatches,
+missing local base branches, generated branch collisions, and missing PR
+template sections. Later live-action increments can add mocked `gh` fixtures
+for PR creation, failed push, pending CI, failing CI, passing CI, and stale
+state.
 
 Codex can implement dry-run packets directly. Live PR creation and push
-behavior require operator approval.
+behavior require a later explicit operator-approved slice.
 
 ### CI and review feedback as candidate input
 
