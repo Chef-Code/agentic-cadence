@@ -9,6 +9,8 @@ Agentic Cadence can validate generic executor task and result evidence, and it c
 
 The next slice starts the Minimal Git/PR Automation roadmap item with a local dry-run contract only. Cadence should produce a deterministic plan for the Git/PR transition without mutating Git state, calling GitHub, pushing, or creating a pull request.
 
+Although this slice operates on a single executor result, the dry-run Git/PR planning packet is designed as a future coordination artifact for multi-agent workflows. In later phases, builder agents, reviewer agents, QA agents, documentation agents, or human operators may consume this packet to decide whether to create a branch, commit, pull request, request review, update docs, or hand off work to another role.
+
 ## Approaches Considered
 
 Recommended: add a dry-run planning command that reads an executor task packet and result evidence, inspects local Git state, generates branch/commit/PR body recommendations, and runs PR body preflight. This gives reviewers a stable packet and tests before any live side effects exist.
