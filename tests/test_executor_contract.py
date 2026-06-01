@@ -709,11 +709,81 @@ class ExecutorContractTests(unittest.TestCase):
                     valid_result(
                         commands_run=[
                             {
+                                "command": (
+                                    "python -m unittest tests.test_executor_contract; "
+                                    "python -m pip install ."
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": (
+                                    'bash -lc "python -m unittest tests.test_executor_contract '
+                                    '&& python -m pip install ."'
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": (
+                                    'pwsh -Command "python -m unittest tests.test_executor_contract; '
+                                    'python -m pip install ."'
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": (
+                                    'cmd /c "python -m unittest tests.test_executor_contract && '
+                                    'python -m pip install ."'
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
                                 "command": "python scripts/unknown.py",
                                 "exit_code": 0,
                             },
                             {
                                 "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is outside allowed command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": (
+                                    "python -m unittest tests.test_executor_contract && "
+                                    "python scripts/unknown.py"
+                                ),
                                 "exit_code": 0,
                             },
                         ],
@@ -731,13 +801,53 @@ class ExecutorContractTests(unittest.TestCase):
 
     def test_task_packet_rejects_malformed_command_policy(self):
         with tempfile.TemporaryDirectory() as tmp:
-            packet = valid_task_packet(Path(tmp))
-            packet["command_policy"] = {"allowed_commands": ["python -m unittest"], "denied_commands": [123]}
+            cases = [
+                (
+                    {"allowed_commands": ["python -m unittest"], "denied_commands": [123]},
+                    "executor task command_policy.denied_commands must be a list of strings",
+                ),
+                (
+                    {"allowed_commands": None, "denied_commands": []},
+                    "executor task command_policy.allowed_commands must be a list of strings",
+                ),
+                (
+                    {"allowed_commands": [], "denied_commands": None},
+                    "executor task command_policy.denied_commands must be a list of strings",
+                ),
+            ]
 
-            valid, reason = validate_executor_task_packet(packet)
+            for command_policy, expected_reason in cases:
+                with self.subTest(command_policy=command_policy):
+                    packet = valid_task_packet(Path(tmp))
+                    packet["command_policy"] = command_policy
 
-            self.assertFalse(valid)
-            self.assertEqual(reason, "executor task command_policy.denied_commands must be a list of strings")
+                    valid, reason = validate_executor_task_packet(packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
+
+    def test_result_evidence_rejects_null_command_policy_fields_without_crashing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = [
+                (
+                    {"allowed_commands": None, "denied_commands": []},
+                    "invalid executor task packet: executor task command_policy.allowed_commands must be a list of strings",
+                ),
+                (
+                    {"allowed_commands": [], "denied_commands": None},
+                    "invalid executor task packet: executor task command_policy.denied_commands must be a list of strings",
+                ),
+            ]
+
+            for command_policy, expected_reason in cases:
+                with self.subTest(command_policy=command_policy):
+                    task_packet = valid_task_packet(Path(tmp))
+                    task_packet["command_policy"] = command_policy
+
+                    valid, reason = validate_executor_result_evidence(valid_result(), task_packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
 
     def test_result_evidence_rejects_success_without_resulting_head(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -1,7 +1,7 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-05-31
+Last updated: 2026-06-01
 Baseline: released 0.1.3 plus unreleased audit-replay and policy/stop-control current tree
 Current unattended-operation confidence: 10%
 
@@ -133,7 +133,7 @@ Agentic Cadence cannot currently:
 | PR body/readiness checks | Implemented from saved inputs | `codex_cadence/pr_readiness.py` |
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
 | Single loop tick | Partial, read-only | `loop-tick` emits next action and stops before execution |
-| Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, active brake stop handling, `<root>/audit/events.jsonl`, and read-only `audit-replay`; no hash chain or authenticated approval identity |
+| Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, active brake stop handling, `<root>/audit/events.jsonl`, and read-only `audit-replay`; no branch policy, hash chain, or authenticated approval identity |
 | Agent-team orchestration | Not built | No agent pool, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
 | Executor adapter contract | Partial generic contract | Task/result packet validation exists, including snapshot trust-anchor checks, but no real executor |

@@ -1093,16 +1093,25 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
             if issue:
                 raise ValueError(issue)
     active_stop = None
+    missing_runtime_root_for_stop = False
+    stop_conditions = task_packet.get("stop_conditions") if isinstance(task_packet, dict) else []
+    result_status = result_evidence.get("status") if isinstance(result_evidence, dict) else None
+    needs_brake_check = (
+        valid
+        and isinstance(stop_conditions, list)
+        and "brake_not_drive" in stop_conditions
+        and result_status != "stopped"
+    )
+    if needs_brake_check and getattr(args, "root", None) is None:
+        valid = False
+        reason = "runtime root is required to validate brake_not_drive stop condition"
+        missing_runtime_root_for_stop = True
     if getattr(args, "root", None) is not None:
         brake = read_brake(args.root)
-        stop_conditions = task_packet.get("stop_conditions") if isinstance(task_packet, dict) else []
-        result_status = result_evidence.get("status") if isinstance(result_evidence, dict) else None
         if (
-            valid
+            needs_brake_check
+            and valid
             and brake["status"] != "DRIVE"
-            and isinstance(stop_conditions, list)
-            and "brake_not_drive" in stop_conditions
-            and result_status != "stopped"
         ):
             valid = False
             reason = (
@@ -1118,6 +1127,8 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
     recommended_next_action = "record_executor_result" if valid else "fix_executor_evidence"
     if active_stop is not None:
         recommended_next_action = "stop_active_loop"
+    elif missing_runtime_root_for_stop:
+        recommended_next_action = "provide_runtime_root"
     payload = {
         "protocol_version": PROTOCOL_VERSION,
         "packet": "executor_result_validation",

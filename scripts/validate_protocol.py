@@ -109,7 +109,15 @@ REQUIRED_TOKENS = {
         "audit_schema_version_unsupported",
         "clean audit replay",
         "command_policy",
+        "compound commands",
+        "provide_runtime_root",
         "status: stopped",
+    ),
+    "README.md": (
+        "--root examples/first-run/work/runtime validate-executor-result",
+        "compound commands",
+        "shell-wrapper payloads",
+        "provide_runtime_root",
     ),
     "docs/protocol.md": (
         "New handoffs must declare `--task-type`",
@@ -208,6 +216,33 @@ REQUIRED_TOKENS = {
         "denied_commands",
         "command_policy",
         "stop_active_loop",
+        "compound-command",
+        "effective command segment",
+        "shell-wrapper payloads",
+        "provide_runtime_root",
+    ),
+    "docs/roadmap.md": (
+        "audit replay evidence, command-policy",
+        "active-stop result-validation controls",
+        "still no branch policy, hash chain, or authenticated approval identity",
+    ),
+    "docs/autonomous-loop-readiness.md": (
+        "Local policy/audit controls",
+        "no branch policy, hash chain, or authenticated approval identity",
+    ),
+    "docs/implementation-slices.md": (
+        "Active execution controls are partial",
+        "no branch policy exists yet",
+    ),
+    "docs/progress-log.md": (
+        "compound shell commands",
+        "shell-wrapper payloads",
+        "provide_runtime_root",
+    ),
+    "docs/session-handoff.md": (
+        "Draft PR #58",
+        "shell-wrapper payloads",
+        "provide_runtime_root",
     ),
     "codex_cadence/cli.py": (
         "create_parser.add_argument(\"--task-type\"",
@@ -251,6 +286,16 @@ REQUIRED_TOKENS = {
         "effective_allowed_commands",
         "effective_denied_commands",
         "stop_active_loop",
+        "provide_runtime_root",
+        "runtime root is required to validate brake_not_drive stop condition",
+        "missing_runtime_root_for_stop",
+    ),
+    "codex_cadence/executor_contract.py": (
+        "_COMMAND_SEPARATORS",
+        "_effective_command_segments",
+        "_command_allowed_by_policy",
+        "allowed_commands",
+        "denied_commands",
     ),
     "codex_cadence/policy_audit.py": (
         "AUDIT_REPLAY_SCHEMA_VERSION",

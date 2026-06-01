@@ -262,15 +262,19 @@ The task packet is nested under `executor_task` in the `loop-tick` packet. It mu
 Executor result evidence can be checked without running an executor:
 
 ```bash
-agentic-cadence validate-executor-result --task-file executor-task.json --result-file executor-result.json
+agentic-cadence --root examples/first-run/work/runtime validate-executor-result --task-file executor-task.json --result-file executor-result.json
 ```
 
 Root-backed loop ticks and executor-result validation append compact
 `cadence-audit.v1` records under `<root>/audit/events.jsonl`. A local
 `cadence-loop-policy.v1` file can bound emitted executor task paths, required
 checks, command allow/deny lists, runtime, and stop conditions. Result
-validation enforces task-carried command policy and rejects non-`stopped`
-completion evidence after an active brake stop. `audit-replay` validates that
+validation enforces task-carried command policy across compound commands and
+shell-wrapper payloads, and it rejects non-`stopped` completion evidence after
+an active brake stop. If a task includes `brake_not_drive`, otherwise-valid
+non-`stopped` completion evidence requires a runtime root so the current brake
+can be checked; rootless validation fails closed with `provide_runtime_root`.
+`audit-replay` validates that
 local audit history is readable, uses supported record shapes, has valid
 checksum syntax, and reports stable blockers without modifying the log:
 

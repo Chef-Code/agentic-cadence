@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-05-31
+Last updated: 2026-06-01
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption
@@ -36,9 +36,14 @@ Decision:
   `command_policy.denied_commands`.
 - Enforce that carried command policy during executor result validation rather
   than re-reading a mutable policy file.
+- Apply command policy to every effective command segment, including compound
+  shell commands and shell-wrapper payloads.
 - Treat an active non-`DRIVE` brake as a stop control for result validation:
   non-`stopped` result evidence cannot be recorded as completion when
   `brake_not_drive` is one of the task stop conditions.
+- Require a runtime root to validate otherwise-valid non-`stopped` completion
+  evidence when `brake_not_drive` is present, so rootless validation cannot skip
+  the current brake check.
 
 Why:
 - The executor result validator needs to validate the exact bounds approved for
@@ -49,6 +54,10 @@ Why:
 - The brake is the current local stop signal. Accepting `succeeded` evidence
   after the brake changes would make the stop condition advisory instead of
   enforceable.
+- A command line can contain multiple effective commands. Checking only the
+  first prefix would make command policy advisory for compound shell forms.
+- Without a runtime root, Cadence cannot know the current brake state, so
+  completion evidence for a brake-bound task must fail closed.
 
 Alternatives considered:
 - Re-read `--policy-file` during result validation. Rejected because policy can
@@ -64,6 +73,8 @@ Consequences:
   validation.
 - Active stop handling prevents completion evidence from being recorded after
   the operator brake changes unless the result status is `stopped`.
+- Rootless validation can still report malformed evidence, but it cannot
+  approve completion evidence for tasks that require the current brake check.
 - Branch policy, hash chaining, authenticated approval identity, and real
   executor invocation remain future work.
 

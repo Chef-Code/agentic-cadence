@@ -41,6 +41,15 @@ All notable public changes to Agentic Cadence are documented here.
   for task packets that include `brake_not_drive`; non-`stopped` completion
   evidence is rejected with `stop_active_loop`.
 
+### Fixed
+
+- Hardened command-policy validation against compound commands and
+  shell-wrapper payloads, and rejected null task command-policy fields without
+  crashing result validation.
+- `validate-executor-result` now fails closed with `provide_runtime_root` when
+  otherwise-valid non-`stopped` completion evidence includes `brake_not_drive`
+  but no runtime root was supplied.
+
 ## 0.1.3 - 2026-05-29
 
 Adapter contract runner Windows path-depth fix.

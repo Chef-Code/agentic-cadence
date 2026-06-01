@@ -1,7 +1,7 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-05-31
+Last updated: 2026-06-01
 Baseline: released 0.1.3 plus unreleased audit-replay and policy/stop-control current tree
 
 This document tracks the smallest implementation slices expected to move
@@ -40,7 +40,10 @@ automatic resume orchestration, agent-role assignment, agent-pool coordination,
 or enforced review separation. The first local policy/audit controls can bound
 emitted executor task packets, append decision/result-validation audit records,
 and replay local audit history with a read-only `audit-replay.v1` packet.
-Active execution controls are still missing.
+Active execution controls are partial: result validation enforces task-carried
+command policy and active brake stop evidence, while real executor governance,
+branch policy, branch/commit/push or PR automation, and continuous loop
+orchestration remain missing.
 Current unattended-operation confidence remains 10%.
 
 ## Vision Framing

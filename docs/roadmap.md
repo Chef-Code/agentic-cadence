@@ -1,7 +1,7 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-05-31
+Last updated: 2026-06-01
 Baseline: released 0.1.3 plus unreleased audit-replay and policy/stop-control current tree
 Current unattended-operation confidence: 10%
 
@@ -69,10 +69,11 @@ agent roles, handoff contracts, and release guardrails.
 Agentic Cadence is not currently a magic-button autonomous builder or an
 agent-team orchestrator. The released 0.1.3 baseline is a local CLI and
 protocol substrate that can govern and document agentic work. The current
-development tree adds unreleased audit replay evidence, but it still cannot
+development tree adds unreleased audit replay evidence, command-policy
+enforcement, and active-stop result-validation controls, but it still cannot
 independently implement code, push branches, open pull requests, assign agent
-roles, resolve review feedback, launch fresh sessions, coordinate an agent
-pool, or continue in an unattended loop.
+roles, resolve review feedback, launch fresh sessions, coordinate an agent pool,
+or continue in an unattended loop.
 
 Current confidence for unattended continuous operation is 10%.
 

@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-05-31
+Last updated: 2026-06-01
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -45,6 +45,11 @@ Summary:
   completion evidence. If `brake_not_drive` is a task stop condition and the
   brake is not `DRIVE`, non-`stopped` result evidence is invalid and
   recommends `stop_active_loop`.
+- Command policy now applies to every effective command segment, including
+  compound shell commands and shell-wrapper payloads.
+- Rootless validation of otherwise-valid non-`stopped` completion evidence now
+  fails closed with `provide_runtime_root` when `brake_not_drive` is a task stop
+  condition.
 
 Completed slices:
 - Phase 1 denied command test.
@@ -59,7 +64,9 @@ Confidence change:
 
 Evidence:
 - `python -m unittest tests.test_executor_contract.ExecutorContractTests.test_result_evidence_enforces_task_command_policy tests.test_executor_contract.ExecutorContractTests.test_task_packet_rejects_malformed_command_policy`
+- `python -m unittest tests.test_executor_contract.ExecutorContractTests.test_result_evidence_enforces_task_command_policy tests.test_executor_contract.ExecutorContractTests.test_task_packet_rejects_malformed_command_policy tests.test_executor_contract.ExecutorContractTests.test_result_evidence_rejects_null_command_policy_fields_without_crashing`
 - `python -m unittest tests.test_cadence.CadenceCliTests.test_loop_tick_policy_file_emits_executor_command_policy tests.test_cadence.CadenceCliTests.test_validate_executor_result_rejects_success_after_active_brake_stop tests.test_cadence.CadenceCliTests.test_validate_executor_result_rejects_unignored_repo_local_audit_root`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_validate_executor_result_requires_root_for_completion_with_brake_stop_condition tests.test_cadence.CadenceCliTests.test_validate_executor_result_rejects_success_after_active_brake_stop tests.test_cadence.CadenceCliTests.test_validate_executor_result_command_reports_valid_evidence`
 - `python -m unittest tests.test_executor_contract tests.test_cadence`
 - `python scripts/validate_protocol.py`
 - `python -m unittest tests.test_ci_checks.CiChecksTests.test_protocol_validator_accepts_current_repo tests.test_ci_checks.CiChecksTests.test_public_release_audit_current_tree_passes`
