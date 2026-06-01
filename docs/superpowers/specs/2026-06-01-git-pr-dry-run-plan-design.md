@@ -11,6 +11,10 @@ The next slice starts the Minimal Git/PR Automation roadmap item with a local dr
 
 Although this slice operates on a single executor result, the dry-run Git/PR planning packet is designed as a future coordination artifact for multi-agent workflows. In later phases, builder agents, reviewer agents, QA agents, documentation agents, or human operators may consume this packet to decide whether to create a branch, commit, pull request, request review, update docs, or hand off work to another role.
 
+## Core Invariants
+
+Future orchestration note: in multi-agent workflows, the executor that produced the result evidence should not be treated as the final authority for Git/PR transition approval. The `git-pr-plan` packet is intended to support role separation: a builder may produce the evidence, but a reviewer, QA agent, release agent, or human operator should consume the plan and decide whether to proceed, request changes, split the work, update documentation, or hand off to another role.
+
 ## Approaches Considered
 
 Recommended: add a dry-run planning command that reads an executor task packet and result evidence, inspects local Git state, generates branch/commit/PR body recommendations, and runs PR body preflight. This gives reviewers a stable packet and tests before any live side effects exist.
@@ -136,6 +140,22 @@ If a PR template supplies additional required sections, the first slice does not
 - No branch ownership lock.
 - No remote audit record.
 - No merge, release, or package publication behavior.
+
+## Future Extensions
+
+Later slices may add:
+
+- branch ownership locks;
+- issue claiming or assignment;
+- reviewer-agent handoff packets;
+- QA-agent validation packets;
+- documentation-agent update checks;
+- draft PR creation after operator approval;
+- live GitHub PR creation behind explicit confirmation;
+- multi-agent conflict detection when two tasks touch overlapping files;
+- merge readiness decisions based on CI, reviews, docs, and policy.
+
+Do not build these extensions in this slice. Design the dry-run packet so it does not block those future moves.
 
 ## Tests
 
