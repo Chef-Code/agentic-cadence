@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-05-31
+Last updated: 2026-06-01
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption
@@ -27,6 +27,64 @@ Consequences:
 Open questions:
 - Remaining unknowns.
 ```
+
+## 2026-05-31 - Carry command policy in executor task packets
+
+Decision:
+- Store local command allow/deny policy on emitted generic executor task
+  packets as `command_policy.allowed_commands` and
+  `command_policy.denied_commands`.
+- Enforce that carried command policy during executor result validation rather
+  than re-reading a mutable policy file.
+- Apply command policy to every effective command segment, including compound
+  shell commands, shell grouping, command substitutions, and shell-wrapper
+  payloads.
+- Treat an active non-`DRIVE` brake as a stop control for result validation:
+  non-`stopped` result evidence cannot be recorded as completion when
+  `brake_not_drive` is one of the task stop conditions.
+- Require a runtime root to validate otherwise-valid non-`stopped` completion
+  evidence when `brake_not_drive` is present, so rootless validation cannot skip
+  the current brake check.
+
+Why:
+- The executor result validator needs to validate the exact bounds approved for
+  that task, not whichever policy file happens to exist later.
+- Task packets are already the trust boundary for allowed paths, checks,
+  runtime, permissions, and stop conditions; command policy belongs at the same
+  boundary.
+- The brake is the current local stop signal. Accepting `succeeded` evidence
+  after the brake changes would make the stop condition advisory instead of
+  enforceable.
+- A command line can contain multiple effective commands. Checking only the
+  first prefix would make command policy advisory for compound shell forms and
+  shell grouping or command substitutions.
+- Without a runtime root, Cadence cannot know the current brake state, so
+  completion evidence for a brake-bound task must fail closed.
+
+Alternatives considered:
+- Re-read `--policy-file` during result validation. Rejected because policy can
+  drift after task approval and before result evidence is recorded.
+- Make command policy a global runtime setting. Deferred because 0.1.x remains
+  local clone-based and task packets already provide portable evidence.
+- Reject all result evidence after the brake changes. Rejected because
+  `stopped` evidence is the correct way for an executor to report it honored
+  the active stop.
+
+Consequences:
+- Policy-bounded task packets can now carry command bounds into later evidence
+  validation.
+- Active stop handling prevents completion evidence from being recorded after
+  the operator brake changes unless the result status is `stopped`.
+- Rootless validation can still report malformed evidence, but it cannot
+  approve completion evidence for tasks that require the current brake check.
+- Branch policy, hash chaining, authenticated approval identity, and real
+  executor invocation remain future work.
+
+Open questions:
+- Which default command allowlist is sufficient for the first controlled local
+  executor demo?
+- Should clean audit replay be required before result evidence is recorded for
+  a real executor run?
 
 ## 2026-05-31 - Specify audit replay before active execution controls
 

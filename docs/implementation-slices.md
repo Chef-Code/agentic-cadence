@@ -1,8 +1,8 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-05-31
-Baseline: released 0.1.3 plus unreleased audit-replay current tree
+Last updated: 2026-06-01
+Baseline: released 0.1.3 plus unreleased audit-replay and policy/stop-control current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -40,7 +40,10 @@ automatic resume orchestration, agent-role assignment, agent-pool coordination,
 or enforced review separation. The first local policy/audit controls can bound
 emitted executor task packets, append decision/result-validation audit records,
 and replay local audit history with a read-only `audit-replay.v1` packet.
-Active execution controls are still missing.
+Active execution controls are partial: result validation enforces task-carried
+command policy and active brake stop evidence, while real executor governance,
+branch policy, branch/commit/push or PR automation, and continuous loop
+orchestration remain missing.
 Current unattended-operation confidence remains 10%.
 
 ## Vision Framing
@@ -268,8 +271,9 @@ Current evidence:
 - epoch limits exist in code;
 - handoff records exist;
 - `loop-tick --policy-file` accepts a local `cadence-loop-policy.v1` JSON file
-  with `allowed_paths`, `denied_paths`, `required_checks`,
-  `max_executor_time_minutes`, and `stop_conditions`;
+  with `allowed_paths`, `denied_paths`, `allowed_commands`,
+  `denied_commands`, `required_checks`, `max_executor_time_minutes`, and
+  `stop_conditions`;
 - the policy file supplies defaults and caps for emitted executor task paths
   and runtime, keeps built-in stops plus policy required checks and stop
   conditions when CLI checks or stop conditions are added, and denies requested
@@ -283,8 +287,11 @@ Current evidence:
 - `audit-replay` implements the read-only `audit-replay.v1` packet shape,
   blocker codes, counting rules, supported event validation, and corrupted-log
   failure behavior from the merged design;
-- no command allow/deny policy, branch policy, or active-loop stop handling
-  exists yet.
+- command allow/deny policy is carried into executor task packets and enforced
+  during result validation;
+- active brake stops now prevent recording non-`stopped` executor completion
+  evidence when `brake_not_drive` is one of the task stop conditions;
+- no branch policy exists yet.
 
 Why it matters: unattended confidence comes from bounded blast radius and
 recoverable evidence.
@@ -308,8 +315,8 @@ Validation needed:
   max runtime, and stop conditions: complete for Phase 1;
 - loop decision audit record: complete for Phase 1;
 - executor result validation audit record: complete for Phase 1;
-- denied command test;
-- stop brake during active loop;
+- denied command test: complete for Phase 1;
+- stop brake during active loop: complete for Phase 1;
 - audit append ordering;
 - audit replay summary and corrupted audit record handling: complete for Phase
   1 local JSONL records.

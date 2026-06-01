@@ -62,6 +62,7 @@ _GH_OPTIONS_WITH_EQUALS = (
     "--hostname=",
     "--repo=",
 )
+_COMMAND_SEPARATORS = {"&&", "||", ";", "|", "&", "(", ")"}
 
 
 def _non_empty_string(value: Any) -> bool:
@@ -124,13 +125,33 @@ def _command_name(token: str) -> str:
     return PurePosixPath(token.replace("\\", "/")).name.lower()
 
 
+def _command_text_for_lexing(command: str) -> str:
+    return command.replace("\r\n", "\n").replace("\r", "\n").replace("\n", " ; ")
+
+
 def _command_tokens(command: str) -> list[str]:
+    shell_text = _command_text_for_lexing(command)
     try:
-        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer = shlex.shlex(shell_text, posix=True, punctuation_chars=True)
         lexer.whitespace_split = True
         return [token.lower() for token in lexer]
     except ValueError:
-        return _normalized_command(command).split()
+        return _normalized_command(shell_text).split()
+
+
+def _command_segments(tokens: list[str]) -> list[list[str]]:
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token in _COMMAND_SEPARATORS:
+            if current:
+                segments.append(current)
+                current = []
+            continue
+        current.append(token)
+    if current:
+        segments.append(current)
+    return segments
 
 
 def _option_uses_value(token: str, options_with_value: set[str], options_with_equals: tuple[str, ...]) -> bool:
@@ -146,7 +167,7 @@ def _next_git_subcommand(tokens: list[str], index: int) -> str | None:
         if token == "--":
             current += 1
             break
-        if token in {"&&", "||", ";", "|"}:
+        if token in _COMMAND_SEPARATORS:
             return None
         if _option_uses_value(token, _GIT_OPTIONS_WITH_VALUE, _GIT_OPTIONS_WITH_EQUALS):
             current += 2 if token in _GIT_OPTIONS_WITH_VALUE else 1
@@ -173,7 +194,7 @@ def _next_gh_subcommands(tokens: list[str], index: int, count: int) -> list[str]
     subcommands: list[str] = []
     while current < len(tokens) and len(subcommands) < count:
         token = tokens[current]
-        if token in {"&&", "||", ";", "|"}:
+        if token in _COMMAND_SEPARATORS:
             break
         if _option_uses_value(token, _GH_OPTIONS_WITH_VALUE, _GH_OPTIONS_WITH_EQUALS):
             current += 2 if token in _GH_OPTIONS_WITH_VALUE else 1
@@ -221,18 +242,100 @@ def _embedded_shell_commands(tokens: list[str]) -> list[str]:
     return embedded
 
 
-def _command_invokes(command: str, invocation: str) -> bool:
+def _raw_command_substitutions(command: str) -> list[str]:
+    substitutions: list[str] = []
+    index = 0
+    while index < len(command):
+        if not command.startswith("$(", index):
+            index += 1
+            continue
+        depth = 1
+        index += 2
+        start = index
+        while index < len(command) and depth > 0:
+            if command.startswith("$(", index):
+                depth += 1
+                index += 2
+                continue
+            char = command[index]
+            if char == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            index += 1
+        if depth == 0:
+            substitution = command[start:index].strip()
+            if substitution:
+                substitutions.append(substitution)
+        index += 1
+    index = 0
+    while index < len(command):
+        if command[index] != "`":
+            index += 1
+            continue
+        index += 1
+        start = index
+        escaped = False
+        while index < len(command):
+            char = command[index]
+            if char == "\\" and not escaped:
+                escaped = True
+                index += 1
+                continue
+            if char == "`" and not escaped:
+                substitution = command[start:index].strip()
+                if substitution:
+                    substitutions.append(substitution)
+                break
+            escaped = False
+            index += 1
+        index += 1
+    return substitutions
+
+
+def _effective_command_segments(command: str) -> list[str]:
+    tokens = _command_tokens(command)
+    segments: list[str] = []
+    for substitution in _raw_command_substitutions(command):
+        segments.extend(_effective_command_segments(substitution))
+    for segment_tokens in _command_segments(tokens):
+        embedded = _embedded_shell_commands(segment_tokens)
+        if embedded:
+            for embedded_command in embedded:
+                segments.extend(_effective_command_segments(embedded_command))
+            continue
+        segment = " ".join(segment_tokens).strip()
+        if segment:
+            segments.append(segment)
+    if not segments:
+        normalized = _normalized_command(command)
+        if normalized:
+            segments.append(normalized)
+    return segments
+
+
+def _single_command_invokes(command: str, invocation: str) -> bool:
     tokens = _command_tokens(command)
     invocation_tokens = _normalized_command(invocation).split()
     if invocation_tokens[:1] == ["git"] and len(invocation_tokens) == 2:
-        direct_match = _git_invokes(tokens, invocation_tokens[1])
+        return _git_invokes(tokens, invocation_tokens[1])
     elif invocation_tokens[:1] == ["gh"] and len(invocation_tokens) > 1:
-        direct_match = _gh_invokes(tokens, invocation_tokens[1:])
-    else:
-        direct_match = tokens[: len(invocation_tokens)] == invocation_tokens
-    if direct_match:
-        return True
-    return any(_command_invokes(embedded, invocation) for embedded in _embedded_shell_commands(tokens))
+        return _gh_invokes(tokens, invocation_tokens[1:])
+    return tokens[: len(invocation_tokens)] == invocation_tokens
+
+
+def _command_invokes(command: str, invocation: str) -> bool:
+    return any(_single_command_invokes(segment, invocation) for segment in _effective_command_segments(command))
+
+
+def _command_allowed_by_policy(command: str, allowed_commands: list[str]) -> bool:
+    segments = _effective_command_segments(command)
+    if not segments:
+        return False
+    return all(
+        any(_single_command_invokes(segment, allowed) for allowed in allowed_commands)
+        for segment in segments
+    )
 
 
 def _successful_result_has_evidence(commands_run: list[Any], validation_results: list[Any]) -> tuple[bool, str]:
@@ -273,6 +376,8 @@ def build_executor_task_packet(
     max_tasks: int,
     stop_conditions: list[str],
     evidence_path: str | Path,
+    allowed_commands: list[str] | None = None,
+    denied_commands: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -305,6 +410,10 @@ def build_executor_task_packet(
             "max_tasks": max_tasks,
         },
         "stop_conditions": list(stop_conditions),
+        "command_policy": {
+            "allowed_commands": list(allowed_commands or []),
+            "denied_commands": list(denied_commands or []),
+        },
         "expected_output": {
             "schema_version": EXECUTOR_RESULT_SCHEMA_VERSION,
             "evidence_path": str(evidence_path),
@@ -394,6 +503,15 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
         return False, "executor task stop_conditions must be a non-empty list of strings"
     if not all(condition in stop_conditions for condition in DEFAULT_EXECUTOR_STOP_CONDITIONS):
         return False, "executor task stop_conditions must include built-in safety stops"
+    command_policy = packet.get("command_policy", {})
+    if command_policy is None:
+        command_policy = {}
+    if not isinstance(command_policy, dict):
+        return False, "executor task command_policy must be a JSON object"
+    for field in ("allowed_commands", "denied_commands"):
+        commands = command_policy.get(field, [])
+        if not _is_string_list(commands):
+            return False, f"executor task command_policy.{field} must be a list of strings"
     expected_output = packet.get("expected_output")
     if not isinstance(expected_output, dict):
         return False, "executor task expected_output must be a JSON object"
@@ -453,6 +571,11 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
     commands_run = evidence.get("commands_run")
     if not isinstance(commands_run, list):
         return False, "executor result commands_run must be a list"
+    command_policy = task_packet.get("command_policy", {})
+    if command_policy is None:
+        command_policy = {}
+    allowed_commands = command_policy.get("allowed_commands", []) if isinstance(command_policy, dict) else []
+    denied_commands = command_policy.get("denied_commands", []) if isinstance(command_policy, dict) else []
     command_exit_codes: dict[str, list[int]] = {}
     for index, command in enumerate(commands_run):
         if not isinstance(command, dict):
@@ -463,6 +586,10 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
         exit_code = command.get("exit_code")
         if isinstance(exit_code, bool) or not isinstance(exit_code, int):
             return False, f"executor result commands_run[{index}].exit_code must be an integer"
+        if any(_command_invokes(command_text, denied) for denied in denied_commands):
+            return False, f"executor result commands_run[{index}] is denied by command_policy"
+        if allowed_commands and not _command_allowed_by_policy(command_text, allowed_commands):
+            return False, f"executor result commands_run[{index}] is outside allowed command_policy"
         if permissions.get("may_commit") is False and _command_invokes(command_text, "git commit"):
             return False, f"executor result commands_run[{index}] violates disabled commit permission"
         if permissions.get("may_push") is False and _command_invokes(command_text, "git push"):
