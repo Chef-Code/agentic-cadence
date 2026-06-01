@@ -43,8 +43,8 @@ All notable public changes to Agentic Cadence are documented here.
 
 ### Fixed
 
-- Hardened command-policy validation against compound commands, command
-  substitutions, and shell-wrapper payloads, and rejected null task
+- Hardened command-policy validation against compound commands, shell grouping,
+  command substitutions, and shell-wrapper payloads, and rejected null task
   command-policy fields without crashing result validation.
 - `validate-executor-result` now fails closed with `provide_runtime_root` when
   otherwise-valid non-`stopped` completion evidence includes `brake_not_drive`

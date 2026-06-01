@@ -16,7 +16,7 @@ Last updated: 2026-06-01
 - Added `allowed_commands` and `denied_commands` to local `cadence-loop-policy.v1` handling.
 - Executor task packets now carry `command_policy`, and executor result validation rejects commands that match the denylist or fall outside a non-empty allowlist.
 - `validate-executor-result` now checks the current brake before recording completion evidence; when `brake_not_drive` is a task stop condition and the brake is not `DRIVE`, non-`stopped` result evidence is invalid and recommends `stop_active_loop`.
-- Review follow-up hardened command policy across compound commands, command substitutions, and shell-wrapper payloads, rejected null command-policy fields, and made rootless `brake_not_drive` completion validation fail closed with `provide_runtime_root`.
+- Review follow-up hardened command policy across compound commands, shell grouping, command substitutions, and shell-wrapper payloads, rejected null command-policy fields, and made rootless `brake_not_drive` completion validation fail closed with `provide_runtime_root`.
 - Updated protocol, readiness, roadmap, implementation-slice, progress, decision, changelog, README, and skill docs.
 
 ## Important Boundaries

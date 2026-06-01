@@ -270,7 +270,7 @@ Root-backed loop ticks and executor-result validation append compact
 `cadence-loop-policy.v1` file can bound emitted executor task paths, required
 checks, command allow/deny lists, runtime, and stop conditions. Result
 validation enforces task-carried command policy across compound commands,
-command substitutions, and shell-wrapper payloads, and it rejects non-`stopped`
+shell grouping, command substitutions, and shell-wrapper payloads, and it rejects non-`stopped`
 completion evidence after an active brake stop. If a task includes `brake_not_drive`, otherwise-valid
 non-`stopped` completion evidence requires a runtime root so the current brake
 can be checked; rootless validation fails closed with `provide_runtime_root`.

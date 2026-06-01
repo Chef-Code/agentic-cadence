@@ -62,7 +62,7 @@ _GH_OPTIONS_WITH_EQUALS = (
     "--hostname=",
     "--repo=",
 )
-_COMMAND_SEPARATORS = {"&&", "||", ";", "|", "&"}
+_COMMAND_SEPARATORS = {"&&", "||", ";", "|", "&", "(", ")"}
 
 
 def _non_empty_string(value: Any) -> bool:
@@ -167,7 +167,7 @@ def _next_git_subcommand(tokens: list[str], index: int) -> str | None:
         if token == "--":
             current += 1
             break
-        if token in {"&&", "||", ";", "|"}:
+        if token in _COMMAND_SEPARATORS:
             return None
         if _option_uses_value(token, _GIT_OPTIONS_WITH_VALUE, _GIT_OPTIONS_WITH_EQUALS):
             current += 2 if token in _GIT_OPTIONS_WITH_VALUE else 1
@@ -194,7 +194,7 @@ def _next_gh_subcommands(tokens: list[str], index: int, count: int) -> list[str]
     subcommands: list[str] = []
     while current < len(tokens) and len(subcommands) < count:
         token = tokens[current]
-        if token in {"&&", "||", ";", "|"}:
+        if token in _COMMAND_SEPARATORS:
             break
         if _option_uses_value(token, _GH_OPTIONS_WITH_VALUE, _GH_OPTIONS_WITH_EQUALS):
             current += 2 if token in _GH_OPTIONS_WITH_VALUE else 1
