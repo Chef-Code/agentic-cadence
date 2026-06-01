@@ -1,7 +1,10 @@
+"""Dry-run Git and pull request transition planning."""
+
 from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -16,17 +19,20 @@ GIT_PR_PLAN_SCHEMA_VERSION = "git-pr-plan.v1"
 
 
 def _issue(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    """Build a structured blocker or warning payload."""
     issue = {"code": code, "message": message}
     issue.update(extra)
     return issue
 
 
 def _non_empty_string(value: Any) -> bool:
+    """Return True for strings that contain non-whitespace text."""
     return isinstance(value, str) and bool(value.strip())
 
 
-def _run_git(cwd: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
-    command = ["git", *args]
+def _run_git(cwd: Path, args: list[str], *, optional_locks: bool = True) -> subprocess.CompletedProcess[str]:
+    """Run a Git command in cwd, optionally disabling optional locks."""
+    command = ["git", *args] if optional_locks else ["git", "--no-optional-locks", *args]
     try:
         return subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
     except OSError as exc:
@@ -34,6 +40,7 @@ def _run_git(cwd: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
 
 
 def _git_stdout(cwd: Path, args: list[str]) -> tuple[str | None, str | None]:
+    """Return stripped stdout for a Git command or a compact error."""
     result = _run_git(cwd, args)
     if result.returncode != 0:
         return None, (result.stderr or result.stdout).strip()
@@ -41,6 +48,7 @@ def _git_stdout(cwd: Path, args: list[str]) -> tuple[str | None, str | None]:
 
 
 def _valid_branch_name(cwd: Path, branch_name: str) -> bool:
+    """Check whether branch_name can be used as a local branch ref."""
     if not branch_name.strip():
         return False
     result = _run_git(cwd, ["check-ref-format", f"refs/heads/{branch_name}"])
@@ -48,10 +56,12 @@ def _valid_branch_name(cwd: Path, branch_name: str) -> bool:
 
 
 def _resolve_branch(cwd: Path, branch_name: str) -> tuple[str | None, str | None]:
+    """Resolve a local branch name to a commit hash."""
     return _git_stdout(cwd, ["rev-parse", "--verify", f"refs/heads/{branch_name}^{{commit}}"])
 
 
 def _branch_exists(cwd: Path, branch_name: str) -> tuple[bool, str | None]:
+    """Return whether a local branch ref exists, preserving lookup errors."""
     result = _run_git(cwd, ["rev-parse", "--verify", "--quiet", f"refs/heads/{branch_name}"])
     if result.returncode == 0:
         return True, None
@@ -61,16 +71,20 @@ def _branch_exists(cwd: Path, branch_name: str) -> tuple[bool, str | None]:
 
 
 def _slugify(value: str) -> str:
+    """Normalize arbitrary text into a bounded branch-name slug."""
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return (slug or "task")[:48].strip("-") or "task"
 
 
 def _generated_branch_name(branch_prefix: str, task_id: Any) -> str:
+    """Build the proposed branch name from prefix and task id."""
     prefix = branch_prefix.strip().strip("/")
-    return f"{prefix}/{_slugify(str(task_id or 'task'))}" if prefix else f"/{_slugify(str(task_id or 'task'))}"
+    slug = _slugify(str(task_id or "task"))
+    return f"{prefix}/{slug}" if prefix else slug
 
 
 def _read_brake_without_writes(runtime_root: Path | None) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Read brake.json without initializing or mutating runtime state."""
     if runtime_root is None:
         return None, _issue(
             "runtime_root_required",
@@ -93,6 +107,7 @@ def _read_brake_without_writes(runtime_root: Path | None) -> tuple[dict[str, Any
 
 
 def _cadence_state(brake: dict[str, Any]) -> dict[str, Any]:
+    """Translate brake state into the public cadence state shape."""
     state_by_brake = {
         "DRIVE": "PLAY_ON",
         "NEUTRAL": "HUDDLE",
@@ -113,6 +128,7 @@ def _inspect_git_state(
     base_branch: str,
     proposed_branch: str,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Collect Git state needed for PR planning and any blockers."""
     blockers: list[dict[str, Any]] = []
     summary: dict[str, Any] = {
         "repository_path": str(cwd),
@@ -147,7 +163,7 @@ def _inspect_git_state(
     else:
         summary["current_branch"] = current_branch
 
-    status = _run_git(cwd, ["status", "--porcelain", "--untracked-files=all"])
+    status = _run_git(cwd, ["status", "--porcelain", "--untracked-files=all"], optional_locks=False)
     if status.returncode != 0:
         blockers.append(_issue("worktree_status_failed", "could not inspect worktree status", detail=status.stderr.strip()))
     else:
@@ -195,9 +211,26 @@ def _inspect_git_state(
     return summary, blockers
 
 
+def _local_changed_files_against_base(cwd: Path, base_head: Any, current_head: Any) -> tuple[set[str] | None, dict[str, Any] | None]:
+    """Return files changed between base and current head."""
+    if not (_non_empty_string(base_head) and _non_empty_string(current_head)):
+        return None, None
+    result = _run_git(cwd, ["diff", "--name-only", f"{base_head}...{current_head}", "--"], optional_locks=False)
+    if result.returncode != 0:
+        return None, _issue(
+            "materialized_change_evidence_unverified",
+            "could not inspect local diff against base branch",
+            detail=(result.stderr or result.stdout).strip(),
+        )
+    return {line.strip().replace("\\", "/") for line in result.stdout.splitlines() if line.strip()}, None
+
+
 def _materialized_change_evidence(
     result_evidence: Any,
+    *,
+    local_changed_files: set[str] | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Validate executor materialized evidence against metadata and local diff."""
     blockers: list[dict[str, Any]] = []
     absent = {
         "status": "absent",
@@ -223,7 +256,7 @@ def _materialized_change_evidence(
         return absent, blockers
 
     files = raw.get("files")
-    result_files = set(result_evidence.get("files_changed") or [])
+    result_files = {str(path).replace("\\", "/") for path in (result_evidence.get("files_changed") or [])}
     if raw.get("status") != "verified":
         blockers.append(_issue("materialized_change_evidence_invalid", "materialized_change_evidence.status must be verified"))
     if not _non_empty_string(raw.get("source")):
@@ -239,27 +272,51 @@ def _materialized_change_evidence(
         )
     if not isinstance(files, list) or not files or any(not _non_empty_string(path) for path in files):
         blockers.append(_issue("materialized_change_evidence_invalid", "materialized_change_evidence.files must be a non-empty list of strings"))
-    elif not set(files).issubset(result_files):
+    else:
+        normalized_files = [path.replace("\\", "/") for path in files]
+
+    if isinstance(files, list) and files and all(_non_empty_string(path) for path in files) and not set(normalized_files).issubset(result_files):
         blockers.append(
             _issue(
                 "materialized_change_evidence_invalid",
                 "materialized_change_evidence.files must be a subset of result files_changed",
             )
         )
+    if (
+        local_changed_files is not None
+        and isinstance(files, list)
+        and files
+        and all(_non_empty_string(path) for path in files)
+        and set(normalized_files).issubset(result_files)
+    ):
+        missing_local_files = [path for path in normalized_files if path not in local_changed_files]
+        if missing_local_files:
+            blockers.append(
+                _issue(
+                    "materialized_change_evidence_unverified",
+                    "materialized_change_evidence.files are not present in the local diff against the base branch",
+                    files=missing_local_files,
+                )
+            )
 
     if blockers:
         return absent, blockers
+    limitations = [str(item) for item in raw.get("limitations") or [] if _non_empty_string(item)]
+    limitations = [item for item in limitations if item != "verified_against_result_metadata_not_local_diff"]
+    if "verified_against_local_base_diff" not in limitations:
+        limitations.append("verified_against_local_base_diff")
     return {
         "status": "verified",
         "source": raw["source"],
         "files": list(files),
         "task_id": raw.get("task_id"),
         "resulting_head": raw.get("resulting_head"),
-        "limitations": list(raw.get("limitations") or ["accepted_from_executor_result_metadata"]),
+        "limitations": limitations or ["verified_against_local_base_diff"],
     }, blockers
 
 
 def _generated_pr_body(task: dict[str, Any], result_evidence: dict[str, Any]) -> str:
+    """Render the proposed PR body from task and result evidence."""
     files_changed = result_evidence.get("files_changed") or []
     validation_results = result_evidence.get("validation_results") or []
     source = task.get("source") or "unknown"
@@ -297,48 +354,66 @@ def _generated_pr_body(task: dict[str, Any], result_evidence: dict[str, Any]) ->
 
 
 def _preflight_pr_body(body: str, required_body_sections: list[str]) -> dict[str, Any]:
+    """Evaluate PR body sections, blocking when no contract is supplied."""
     if required_body_sections:
         return evaluate_pr_body_preflight(body, required_body_sections=required_body_sections)
     return {
-        "ready_to_publish": True,
-        "decision": "not_evaluated",
-        "recommended_next_action": "provide_template_or_sections_if_required",
-        "blockers": [],
-        "warnings": [
+        "ready_to_publish": False,
+        "decision": "blocked",
+        "recommended_next_action": "provide_template_or_sections",
+        "blockers": [
             _issue(
                 "required_body_section_contract_not_supplied",
                 "no PR template or required body sections were supplied for body preflight",
             )
         ],
+        "warnings": [],
         "template_summary": {"required_sections": [], "missing_sections": []},
     }
 
 
+def _command_display(argv: list[str]) -> str:
+    """Render argv as a shell-quoted display string."""
+    return " ".join(shlex.quote(part) for part in argv)
+
+
 def _command_examples(proposed_branch: str, proposed_commit_message: str, proposed_pr_title: str) -> list[dict[str, Any]]:
+    """Return non-executable, operator-confirmed Git and PR command examples."""
     examples = [
-        ("create_branch", f"git switch -c {proposed_branch}"),
-        ("commit_changes", f'git commit -m "{proposed_commit_message}"'),
-        ("push_branch", f"git push -u origin {proposed_branch}"),
-        ("open_pull_request", f'gh pr create --title "{proposed_pr_title}" --fill'),
+        ("create_branch", ["git", "switch", "-c", proposed_branch], None),
+        ("commit_changes", ["git", "commit", "-m", proposed_commit_message], None),
+        ("push_branch", ["git", "push", "-u", "origin", proposed_branch], None),
+        (
+            "open_pull_request",
+            ["gh", "pr", "create", "--title", proposed_pr_title, "--body-file", "proposed-pr-body.md"],
+            "packet.proposed_pr_body",
+        ),
     ]
     return [
         {
             "label": label,
-            "command": command,
+            "argv": list(argv),
+            "command": _command_display(argv),
+            **({"body_source": body_source} if body_source else {}),
             "cadence_executable": False,
             "executor_authorized": False,
             "requires_operator_confirmation": True,
         }
-        for label, command in examples
+        for label, argv, body_source in examples
     ]
 
 
 def _recommendation(blockers: list[dict[str, Any]]) -> str:
+    """Map blocker codes to the next recommended operator action."""
     codes = {blocker["code"] for blocker in blockers}
     if "runtime_root_required" in codes or "runtime_brake_missing" in codes:
         return "provide_runtime_root"
     if "active_brake_stop" in codes:
         return "stop_active_loop"
+    if "required_body_section_contract_not_supplied" in codes:
+        return "provide_template_or_sections"
+    if "required_body_section_missing" in codes:
+        return "update_pr_body"
     if blockers:
         return "address_blockers"
     return "review_git_pr_plan"
@@ -356,6 +431,7 @@ def evaluate_git_pr_plan(
     required_body_sections: list[str] | None = None,
     runtime_root: str | Path | None = None,
 ) -> dict[str, Any]:
+    """Build a dry-run Git/PR transition plan from executor evidence."""
     repo_cwd = Path(cwd).expanduser().resolve()
     task_path = Path(task_file).expanduser().resolve(strict=False)
     result_path = Path(result_file).expanduser().resolve(strict=False)
@@ -430,7 +506,18 @@ def evaluate_git_pr_plan(
             )
         )
 
-    materialized_evidence, materialized_blockers = _materialized_change_evidence(result_evidence)
+    local_changed_files, local_diff_blocker = _local_changed_files_against_base(
+        repo_cwd,
+        git_summary.get("base_head"),
+        git_summary.get("current_head"),
+    )
+    if local_diff_blocker is not None:
+        blockers.append(local_diff_blocker)
+
+    materialized_evidence, materialized_blockers = _materialized_change_evidence(
+        result_evidence,
+        local_changed_files=local_changed_files,
+    )
     blockers.extend(materialized_blockers)
 
     stop_conditions = task_packet.get("stop_conditions") if isinstance(task_packet, dict) else []
