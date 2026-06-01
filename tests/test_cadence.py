@@ -2206,6 +2206,13 @@ class CadenceCliTests(unittest.TestCase):
             task_path = root / "executor-task.json"
             task_path.write_text(json.dumps(task_packet), encoding="utf-8")
             evidence_path.write_text(json.dumps(result_evidence), encoding="utf-8")
+            env = {
+                **os.environ,
+                "HOME": tmp,
+                "USERPROFILE": tmp,
+            }
+            env.pop("CODEX_CADENCE_ROOT", None)
+            env.pop("CODEX_TRANSMISSION_ROOT", None)
 
             result = subprocess.run(
                 [
@@ -2217,6 +2224,7 @@ class CadenceCliTests(unittest.TestCase):
                     "--result-file",
                     str(evidence_path),
                 ],
+                env=env,
                 text=True,
                 capture_output=True,
                 check=False,

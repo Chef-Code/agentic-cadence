@@ -4,6 +4,7 @@ from pathlib import Path
 
 from codex_cadence.executor_contract import (
     DEFAULT_EXECUTOR_STOP_CONDITIONS,
+    _raw_command_substitutions,
     build_executor_task_packet,
     validate_executor_result_evidence,
     validate_executor_task_packet,
@@ -954,6 +955,24 @@ class ExecutorContractTests(unittest.TestCase):
                                 "exit_code": 0,
                             },
                             {
+                                "command": (
+                                    "python -m unittest tests.test_executor_contract "
+                                    "`python scripts/unknown.py`"
+                                ),
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[1] is outside allowed command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                            {
                                 "command": "(python scripts/unknown.py)",
                                 "exit_code": 0,
                             },
@@ -994,6 +1013,16 @@ class ExecutorContractTests(unittest.TestCase):
 
             self.assertFalse(valid)
             self.assertEqual(reason, "executor result commands_run[1] is denied by command_policy")
+
+    def test_command_substitution_extraction_ignores_literal_parentheses(self):
+        self.assertEqual(
+            _raw_command_substitutions('python -m unittest tests.test_executor_contract $(echo "(")'),
+            ['echo "("'],
+        )
+        self.assertEqual(
+            _raw_command_substitutions("python -m unittest tests.test_executor_contract $(echo $(pwd))"),
+            ["echo $(pwd)"],
+        )
 
     def test_task_packet_rejects_malformed_command_policy(self):
         with tempfile.TemporaryDirectory() as tmp:

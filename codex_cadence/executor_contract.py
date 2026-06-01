@@ -258,9 +258,7 @@ def _raw_command_substitutions(command: str) -> list[str]:
                 index += 2
                 continue
             char = command[index]
-            if char == "(":
-                depth += 1
-            elif char == ")":
+            if char == ")":
                 depth -= 1
                 if depth == 0:
                     break

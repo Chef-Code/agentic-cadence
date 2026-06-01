@@ -251,7 +251,6 @@ REQUIRED_TOKENS = {
         "provide_runtime_root",
     ),
     "docs/session-handoff.md": (
-        "Draft PR #58",
         "shell grouping",
         "command substitutions",
         "shell-wrapper payloads",
