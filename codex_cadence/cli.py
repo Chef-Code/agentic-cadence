@@ -1023,6 +1023,8 @@ def loop_tick_command(args: argparse.Namespace) -> int:
                 max_tasks=1,
                 stop_conditions=policy["effective_stop_conditions"],
                 evidence_path=evidence_path,
+                allowed_commands=policy["effective_allowed_commands"],
+                denied_commands=policy["effective_denied_commands"],
             )
             valid_task, invalid_reason = validate_executor_task_packet(executor_task)
             if not valid_task:
@@ -1082,6 +1084,40 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
         if expected_path is not None and Path(expected_path).expanduser().resolve() != result_file.expanduser().resolve():
             valid = False
             reason = "executor result file does not match task expected_output.evidence_path"
+    repo = {}
+    if getattr(args, "root", None) is not None:
+        repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
+        repo_path = repo.get("path")
+        if isinstance(repo_path, str) and repo_path and not args.allow_repo_local_root:
+            issue = runtime_root_safety_issue(args.root, repo_path)
+            if issue:
+                raise ValueError(issue)
+    active_stop = None
+    if getattr(args, "root", None) is not None:
+        brake = read_brake(args.root)
+        stop_conditions = task_packet.get("stop_conditions") if isinstance(task_packet, dict) else []
+        result_status = result_evidence.get("status") if isinstance(result_evidence, dict) else None
+        if (
+            valid
+            and brake["status"] != "DRIVE"
+            and isinstance(stop_conditions, list)
+            and "brake_not_drive" in stop_conditions
+            and result_status != "stopped"
+        ):
+            valid = False
+            reason = (
+                f"cadence brake is {brake['status']}; "
+                "executor result must report stopped before completion can be recorded"
+            )
+            active_stop = {
+                "brake_status": brake["status"],
+                "cadence": cadence_state(brake),
+                "reason": brake.get("reason"),
+                "required_result_status": "stopped",
+            }
+    recommended_next_action = "record_executor_result" if valid else "fix_executor_evidence"
+    if active_stop is not None:
+        recommended_next_action = "stop_active_loop"
     payload = {
         "protocol_version": PROTOCOL_VERSION,
         "packet": "executor_result_validation",
@@ -1090,15 +1126,11 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
         "task_file": str(task_file),
         "result_file": str(result_file),
         "executor_started": False,
-        "recommended_next_action": "record_executor_result" if valid else "fix_executor_evidence",
+        "recommended_next_action": recommended_next_action,
     }
+    if active_stop is not None:
+        payload["active_stop"] = active_stop
     if getattr(args, "root", None) is not None:
-        repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
-        repo_path = repo.get("path")
-        if isinstance(repo_path, str) and repo_path and not args.allow_repo_local_root:
-            issue = runtime_root_safety_issue(args.root, repo_path)
-            if issue:
-                raise ValueError(issue)
         payload["audit_record"] = append_audit_record(
             args.root,
             executor_result_validation_audit_record(payload, task_packet, result_evidence),

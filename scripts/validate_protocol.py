@@ -108,6 +108,8 @@ REQUIRED_TOKENS = {
         "audit_line_invalid_json",
         "audit_schema_version_unsupported",
         "clean audit replay",
+        "command_policy",
+        "status: stopped",
     ),
     "docs/protocol.md": (
         "New handoffs must declare `--task-type`",
@@ -202,6 +204,10 @@ REQUIRED_TOKENS = {
         "upgrade_cadence",
         "inspect_audit_log",
         "no target repository `cwd`",
+        "allowed_commands",
+        "denied_commands",
+        "command_policy",
+        "stop_active_loop",
     ),
     "codex_cadence/cli.py": (
         "create_parser.add_argument(\"--task-type\"",
@@ -242,6 +248,9 @@ REQUIRED_TOKENS = {
         "audit-replay",
         "audit_replay_command",
         "guards_runtime_root_only",
+        "effective_allowed_commands",
+        "effective_denied_commands",
+        "stop_active_loop",
     ),
     "codex_cadence/policy_audit.py": (
         "AUDIT_REPLAY_SCHEMA_VERSION",
@@ -253,6 +262,10 @@ REQUIRED_TOKENS = {
         "audit_event_unsupported",
         "audit_checksum_invalid",
         "CHECKSUM_PATTERN",
+        "allowed_commands",
+        "denied_commands",
+        "effective_allowed_commands",
+        "effective_denied_commands",
     ),
     ".github/workflows/codex-review.yml": (
         "pull_request_target",

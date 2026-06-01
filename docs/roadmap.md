@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-05-31
-Baseline: released 0.1.3 plus unreleased audit-replay current tree
+Baseline: released 0.1.3 plus unreleased audit-replay and policy/stop-control current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -85,7 +85,8 @@ See `docs/autonomous-loop-readiness.md` for the direct readiness assessment.
 ## Current State
 
 The current development tree is based on the released 0.1.3 baseline for the
-0.1.x line and adds the unreleased audit-replay implementation. It includes:
+0.1.x line and adds the unreleased audit-replay implementation plus local
+command-policy and active-stop controls. It includes:
 
 - packaged `agentic-cadence` CLI with Codex-compatible command aliases;
 - local Cadence state with `PLAY_ON`, `HUDDLE`, and `TIMEOUT`;
@@ -100,7 +101,8 @@ The current development tree is based on the released 0.1.3 baseline for the
   release, or publication;
 - initial local loop policy and audit controls for `loop-tick
   --emit-executor-task` and `validate-executor-result`, including
-  path/check/runtime/stop-condition bounds and compact JSONL decision records;
+  path/command/check/runtime/stop-condition bounds, active brake stop handling,
+  and compact JSONL decision records;
 - read-only `audit-replay` verification for local `cadence-audit.v1` JSONL
   history, including stable blockers for corrupt or unsupported records;
 - generic executor task/result packet validation, including local snapshot
@@ -401,22 +403,25 @@ Goal: make unattended loop behavior bounded, inspectable, and interruptible.
 Current evidence: Cadence state, brakes, epochs, and handoff records exist.
 `loop-tick --policy-file` can load local `cadence-loop-policy.v1` JSON to
 bound emitted executor task `allowed_paths`, `denied_paths`,
-`required_checks`, `max_executor_time_minutes`, and `stop_conditions` while
-retaining built-in safety stops.
+`allowed_commands`, `denied_commands`, `required_checks`,
+`max_executor_time_minutes`, and `stop_conditions` while retaining built-in
+safety stops.
 Root-backed `loop-tick` and `validate-executor-result` append compact
 `cadence-audit.v1` records to `<root>/audit/events.jsonl`; result-validation
 audit records include task and result evidence checksums. `audit-replay`
 validates that local JSONL history is readable, uses supported record shapes,
 and has valid checksum syntax while reporting stable blockers for corrupt or
-unsupported records. There is still no command allow/deny policy, branch policy,
-active-loop stop handling, hash chain, or authenticated approval identity.
+unsupported records. Executor task packets now carry command allow/deny policy
+into result validation, and `validate-executor-result` prevents non-`stopped`
+completion evidence from being recorded after an active brake stop. There is
+still no branch policy, hash chain, or authenticated approval identity.
 
 Likely files: `codex_cadence/model.py`, `codex_cadence/store.py`,
 `codex_cadence/cli.py`, tests, docs.
 
-Validation: initial policy allow/deny tests, loop-decision audit record tests,
-executor-result validation audit record tests, and audit replay tests exist.
-Remaining validation needs denied command tests and active-loop stop tests.
+Validation: initial policy allow/deny tests, denied command tests, active-stop
+brake tests, loop-decision audit record tests, executor-result validation audit
+record tests, and audit replay tests exist.
 
 Codex can implement direct local policy and audit controls. Destructive cleanup
 or default-autonomous permissions require operator approval.

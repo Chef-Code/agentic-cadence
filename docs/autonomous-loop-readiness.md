@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-05-31
-Baseline: released 0.1.3 plus unreleased audit-replay current tree
+Baseline: released 0.1.3 plus unreleased audit-replay and policy/stop-control current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -62,8 +62,8 @@ runtime can do these things end-to-end:
 - emit a generic executor task packet for operator approval without starting an
   executor;
 - apply an initial local loop policy file to bound emitted executor task paths,
-  required checks, runtime, and stop conditions while retaining built-in safety
-  stops;
+  command policy, required checks, runtime, and stop conditions while retaining
+  built-in safety stops;
 - append compact audit records for root-backed loop decisions and executor
   result validation, including task/result checksums for result validation;
 - replay local audit history with a read-only `audit-replay` command that
@@ -74,7 +74,8 @@ runtime can do these things end-to-end:
   clean worktree, built-in safety stops, absolute expected evidence path, and
   non-low repo confidence;
 - validate local generic executor result evidence against a task packet,
-  including elapsed runtime bounds and expected evidence-path binding;
+  including elapsed runtime bounds, expected evidence-path binding, command
+  allow/deny policy, and active brake stop handling;
 - size tasks and enforce pickup policy;
 - start, check, complete, or fail bounded epochs;
 - prepare a signed handoff packet and clean-square evidence;
@@ -132,7 +133,7 @@ Agentic Cadence cannot currently:
 | PR body/readiness checks | Implemented from saved inputs | `codex_cadence/pr_readiness.py` |
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
 | Single loop tick | Partial, read-only | `loop-tick` emits next action and stops before execution |
-| Local policy/audit controls | Partial | `loop-tick --policy-file`, `<root>/audit/events.jsonl`, and read-only `audit-replay`; no hash chain or active-loop stop control |
+| Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, active brake stop handling, `<root>/audit/events.jsonl`, and read-only `audit-replay`; no hash chain or authenticated approval identity |
 | Agent-team orchestration | Not built | No agent pool, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
 | Executor adapter contract | Partial generic contract | Task/result packet validation exists, including snapshot trust-anchor checks, but no real executor |
@@ -248,8 +249,10 @@ Reasoning:
   repo identity, relative or unnormalizable cwd/path anchors, repo/cwd/branch/head
   mismatches, dirty worktrees, and low-confidence repo state.
 - Initial local policy/audit controls can bound emitted executor task packets,
-  record loop/result-validation decisions, and replay local audit history, but
-  they do not govern a running executor or provide tamper evidence.
+  record loop/result-validation decisions, reject commands outside task
+  command policy, stop non-`stopped` result completion after the brake changes,
+  and replay local audit history, but they do not invoke or govern a running
+  executor or provide tamper evidence.
 - The handoff and task/epoch model is useful.
 - Candidate discovery is deterministic and conservative.
 - Adapter contracts are tested at the public CLI boundary.

@@ -273,6 +273,8 @@ def build_executor_task_packet(
     max_tasks: int,
     stop_conditions: list[str],
     evidence_path: str | Path,
+    allowed_commands: list[str] | None = None,
+    denied_commands: list[str] | None = None,
 ) -> dict[str, Any]:
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -305,6 +307,10 @@ def build_executor_task_packet(
             "max_tasks": max_tasks,
         },
         "stop_conditions": list(stop_conditions),
+        "command_policy": {
+            "allowed_commands": list(allowed_commands or []),
+            "denied_commands": list(denied_commands or []),
+        },
         "expected_output": {
             "schema_version": EXECUTOR_RESULT_SCHEMA_VERSION,
             "evidence_path": str(evidence_path),
@@ -394,6 +400,17 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
         return False, "executor task stop_conditions must be a non-empty list of strings"
     if not all(condition in stop_conditions for condition in DEFAULT_EXECUTOR_STOP_CONDITIONS):
         return False, "executor task stop_conditions must include built-in safety stops"
+    command_policy = packet.get("command_policy", {})
+    if command_policy is None:
+        command_policy = {}
+    if not isinstance(command_policy, dict):
+        return False, "executor task command_policy must be a JSON object"
+    for field in ("allowed_commands", "denied_commands"):
+        commands = command_policy.get(field, [])
+        if commands is None:
+            commands = []
+        if not _is_string_list(commands):
+            return False, f"executor task command_policy.{field} must be a list of strings"
     expected_output = packet.get("expected_output")
     if not isinstance(expected_output, dict):
         return False, "executor task expected_output must be a JSON object"
@@ -453,6 +470,11 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
     commands_run = evidence.get("commands_run")
     if not isinstance(commands_run, list):
         return False, "executor result commands_run must be a list"
+    command_policy = task_packet.get("command_policy", {})
+    if command_policy is None:
+        command_policy = {}
+    allowed_commands = command_policy.get("allowed_commands", []) if isinstance(command_policy, dict) else []
+    denied_commands = command_policy.get("denied_commands", []) if isinstance(command_policy, dict) else []
     command_exit_codes: dict[str, list[int]] = {}
     for index, command in enumerate(commands_run):
         if not isinstance(command, dict):
@@ -463,6 +485,10 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
         exit_code = command.get("exit_code")
         if isinstance(exit_code, bool) or not isinstance(exit_code, int):
             return False, f"executor result commands_run[{index}].exit_code must be an integer"
+        if any(_command_invokes(command_text, denied) for denied in denied_commands):
+            return False, f"executor result commands_run[{index}] is denied by command_policy"
+        if allowed_commands and not any(_command_invokes(command_text, allowed) for allowed in allowed_commands):
+            return False, f"executor result commands_run[{index}] is outside allowed command_policy"
         if permissions.get("may_commit") is False and _command_invokes(command_text, "git commit"):
             return False, f"executor result commands_run[{index}] violates disabled commit permission"
         if permissions.get("may_push") is False and _command_invokes(command_text, "git push"):

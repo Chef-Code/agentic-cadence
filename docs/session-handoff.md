@@ -6,21 +6,22 @@ Last updated: 2026-05-31
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `a9fa241f0af3ea7ce07416fee3de5a2c2d6c7391`.
-- Recent merged PRs: PR #54 merged the audit replay design spec; PR #55 merged the documentation refresh that marked audit replay as designed but unimplemented; PR #56 implemented the read-only `audit-replay` CLI path.
-- Current branch intent: start the next safety slice after audit replay: command policy, active stop controls, and any remaining local audit-control validation.
+- Current base: `origin/main` at `ec15b9df736a1ef256c8b2065f3cefff56834eb0`.
+- Working branch: `codex/policy-stop-controls`
+- Recent merged PRs: PR #54 merged the audit replay design spec; PR #55 merged the documentation refresh that marked audit replay as designed but unimplemented; PR #56 implemented the read-only `audit-replay` CLI path; PR #57 updated this handoff after PR #56 merged.
+- Current branch intent: implement the next local safety slice after audit replay: command policy, active stop controls, and focused local audit-control validation.
 
-## What Changed In PR #56
+## What Changed In This Branch
 
-- Added `audit-replay` CLI wiring with root-only runtime-root resolution and location safety checks.
-- Added `codex_cadence.policy_audit.replay_audit_log()` for read-only replay of `<root>/audit/events.jsonl`.
-- Added focused tests for missing/empty audit logs, valid event counts, malformed lines, unsupported schema/event recommendations, checksum syntax, file loading failures, executor-result anchor rules, and repo-local runtime root safety.
-- Updated current-state docs so they describe audit replay as implemented without claiming executor approval, audit repair, hash chaining, or autonomous execution.
+- Added `allowed_commands` and `denied_commands` to local `cadence-loop-policy.v1` handling.
+- Executor task packets now carry `command_policy`, and executor result validation rejects commands that match the denylist or fall outside a non-empty allowlist.
+- `validate-executor-result` now checks the current brake before recording completion evidence; when `brake_not_drive` is a task stop condition and the brake is not `DRIVE`, non-`stopped` result evidence is invalid and recommends `stop_active_loop`.
+- Updated protocol, readiness, roadmap, implementation-slice, progress, decision, changelog, README, and skill docs.
 
 ## Important Boundaries
 
-- `audit-replay` validates compact local `cadence-audit.v1` JSONL shape and checksum syntax only; it does not recompute checksums from original packet bodies.
-- Clean replay evidence is not approval to invoke a real executor, continue an epoch, bypass operator approval, or trust a tamper-evident audit chain.
+- Command policy is carried in task packets so result validation checks the approved bounds, not a later mutable policy file.
+- Active stop handling rejects completion evidence after the brake changes, but it still allows `status: stopped` evidence to report that the executor honored the stop.
 - No executor invocation, branch/PR automation, live GitHub sync, merge authority, or release behavior is added by this branch.
 - Keep public docs free of private machine paths and private repository assumptions.
 
@@ -32,7 +33,7 @@ git diff --check
 python scripts/validate_protocol.py
 python -m py_compile codex_cadence/policy_audit.py codex_cadence/cli.py
 python -m compileall scripts codex_cadence transmission_control tests
-python -m unittest tests.test_cadence tests.test_audit_replay
+python -m unittest tests.test_executor_contract tests.test_cadence
 python -m unittest discover -s tests
 python scripts/ci_smoke.py
 python scripts/verify_package.py
@@ -40,4 +41,4 @@ python scripts/verify_package.py
 
 ## Next Action
 
-Start from latest `origin/main` and implement the next Policy, Audit, And Stop Controls slice. Prioritize command allow/deny policy for executor evidence, active-loop stop handling, and focused validation without adding live executor invocation, branch/PR automation, merge authority, or release behavior.
+Open a PR for `codex/policy-stop-controls`, monitor CI and review feedback, address any findings, and merge only after the operator is satisfied.

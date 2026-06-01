@@ -250,7 +250,7 @@ agentic-cadence --root examples/first-run/work/runtime loop-tick --cwd examples/
 
 The command does not start an executor, start or complete an epoch, create a branch, commit, push, open a PR, spend review, or merge. Without executor-task emission, it stops with `recommended_next_action` set to `blocked`, `no_candidates`, `approval_required`, or `requires_executor_contract`.
 
-When an elected task exists, `--emit-executor-task` can attach a generic executor task packet for operator approval. The packet includes repo identity, an absolute repo path, allowed paths, required checks, stop conditions, limits, and the expected result-evidence path. Cadence validates the embedded local snapshot as a trust anchor before accepting the packet, but it still does not run the executor:
+When an elected task exists, `--emit-executor-task` can attach a generic executor task packet for operator approval. The packet includes repo identity, an absolute repo path, allowed paths, command policy, required checks, stop conditions, limits, and the expected result-evidence path. Cadence validates the embedded local snapshot as a trust anchor before accepting the packet, but it still does not run the executor:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime loop-tick --cwd examples/first-run/work/repo --repo local/demo --intent repo_health --emit-executor-task --allowed-path . --required-check "python -m unittest discover -s tests" > loop-tick.json
@@ -268,9 +268,11 @@ agentic-cadence validate-executor-result --task-file executor-task.json --result
 Root-backed loop ticks and executor-result validation append compact
 `cadence-audit.v1` records under `<root>/audit/events.jsonl`. A local
 `cadence-loop-policy.v1` file can bound emitted executor task paths, required
-checks, runtime, and stop conditions. `audit-replay` validates that local audit
-history is readable, uses supported record shapes, has valid checksum syntax,
-and reports stable blockers without modifying the log:
+checks, command allow/deny lists, runtime, and stop conditions. Result
+validation enforces task-carried command policy and rejects non-`stopped`
+completion evidence after an active brake stop. `audit-replay` validates that
+local audit history is readable, uses supported record shapes, has valid
+checksum syntax, and reports stable blockers without modifying the log:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime audit-replay > audit-replay.json

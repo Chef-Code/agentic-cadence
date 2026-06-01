@@ -26,6 +26,10 @@ All notable public changes to Agentic Cadence are documented here.
   `cadence-audit.v1` JSONL history, including zero-record fresh roots, stable
   corrupt/unsupported blocker codes, event counts, and checksum syntax
   validation.
+- Added local command policy support for emitted executor task packets:
+  `cadence-loop-policy.v1` can provide `allowed_commands` and
+  `denied_commands`, and executor result validation rejects evidence outside
+  those task-carried bounds.
 
 ### Changed
 
@@ -33,6 +37,9 @@ All notable public changes to Agentic Cadence are documented here.
   baseline from unreleased audit-replay work in the current development tree.
 - Living docs now describe `audit-replay` as implemented while preserving the
   boundary that clean replay evidence does not approve executor invocation.
+- `validate-executor-result` now treats a non-`DRIVE` brake as an active stop
+  for task packets that include `brake_not_drive`; non-`stopped` completion
+  evidence is rejected with `stop_active_loop`.
 
 ## 0.1.3 - 2026-05-29
 

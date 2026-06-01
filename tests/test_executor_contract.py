@@ -682,6 +682,63 @@ class ExecutorContractTests(unittest.TestCase):
                     self.assertFalse(valid)
                     self.assertEqual(reason, expected_reason)
 
+    def test_result_evidence_enforces_task_command_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            task_packet["command_policy"] = {
+                "allowed_commands": ["python -m unittest tests.test_executor_contract"],
+                "denied_commands": ["python -m pip install"],
+            }
+            cases = [
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "python -m pip install .",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is denied by command_policy",
+                ),
+                (
+                    valid_result(
+                        commands_run=[
+                            {
+                                "command": "python scripts/unknown.py",
+                                "exit_code": 0,
+                            },
+                            {
+                                "command": "python -m unittest tests.test_executor_contract",
+                                "exit_code": 0,
+                            },
+                        ],
+                    ),
+                    "executor result commands_run[0] is outside allowed command_policy",
+                ),
+            ]
+
+            for evidence, expected_reason in cases:
+                with self.subTest(reason=expected_reason):
+                    valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
+
+    def test_task_packet_rejects_malformed_command_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = valid_task_packet(Path(tmp))
+            packet["command_policy"] = {"allowed_commands": ["python -m unittest"], "denied_commands": [123]}
+
+            valid, reason = validate_executor_task_packet(packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor task command_policy.denied_commands must be a list of strings")
+
     def test_result_evidence_rejects_success_without_resulting_head(self):
         with tempfile.TemporaryDirectory() as tmp:
             task_packet = valid_task_packet(Path(tmp))

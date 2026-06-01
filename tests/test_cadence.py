@@ -1569,6 +1569,52 @@ class CadenceCliTests(unittest.TestCase):
             )
             self.assertEqual(output["policy"]["source"], str(policy_file))
 
+    def test_loop_tick_policy_file_emits_executor_command_policy(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "allowed_paths": ["codex_cadence"],
+                        "allowed_commands": ["python -m unittest tests.test_cadence"],
+                        "denied_commands": ["python -m pip install"],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--policy-file",
+                str(policy_file),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "approve_executor_task")
+            self.assertEqual(
+                output["executor_task"]["command_policy"],
+                {
+                    "allowed_commands": ["python -m unittest tests.test_cadence"],
+                    "denied_commands": ["python -m pip install"],
+                },
+            )
+            self.assertEqual(output["policy"]["allowed_commands"], ["python -m unittest tests.test_cadence"])
+            self.assertEqual(output["policy"]["denied_commands"], ["python -m pip install"])
+
     def test_loop_tick_policy_file_keeps_policy_stop_conditions_with_cli_additions(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -2022,6 +2068,88 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(record["payload_checksum"], checksum_json(payload_without_audit))
             self.assertEqual(record["task_packet_checksum"], checksum_json(task_packet))
             self.assertEqual(record["result_evidence_checksum"], checksum_json(result_evidence))
+
+    def test_validate_executor_result_rejects_success_after_active_brake_stop(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            evidence_path = root / "executor-result.json"
+            task_packet = build_executor_task_packet(
+                task={
+                    "id": "candidate-1",
+                    "title": "Implement bounded executor task",
+                    "summary": "Create generic executor evidence.",
+                    "task_type": "execution",
+                    "bucket": "S",
+                    "source": "text_marker",
+                    "drivers": [],
+                    "evidence": {"path": "docs/roadmap.md"},
+                },
+                snapshot=valid_snapshot(cwd=str(root)),
+                repo_path=root,
+                allowed_paths=["codex_cadence"],
+                required_checks=["python -m unittest tests.test_executor_contract"],
+                max_minutes=30,
+                max_tasks=1,
+                stop_conditions=DEFAULT_EXECUTOR_STOP_CONDITIONS,
+                evidence_path=evidence_path,
+            )
+            result_evidence = {
+                "schema_version": "generic-executor-result.v1",
+                "packet": "executor_result",
+                "task_id": "candidate-1",
+                "executor_id": "fake-executor",
+                "started_at": "2999-05-22T00:00:00Z",
+                "ended_at": "2999-05-22T00:05:00Z",
+                "status": "succeeded",
+                "files_changed": ["codex_cadence/executor_contract.py"],
+                "commands_run": [
+                    {
+                        "command": "python -m unittest tests.test_executor_contract",
+                        "exit_code": 0,
+                    }
+                ],
+                "validation_results": [
+                    {
+                        "name": "executor-contract-tests",
+                        "status": "passed",
+                        "command": "python -m unittest tests.test_executor_contract",
+                    }
+                ],
+                "summary": "Fake executor completed after an operator stop.",
+                "confidence": "high",
+                "blockers": [],
+                "dirty_worktree": False,
+                "resulting_head": valid_snapshot(cwd=str(root))["head"],
+            }
+            task_path = root / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+            evidence_path.write_text(json.dumps(result_evidence), encoding="utf-8")
+            brake_result, _ = run_cli(tmp, "set-brake", "PARK", "--reason", "operator stop")
+            self.assertEqual(brake_result.returncode, 0, brake_result.stderr)
+
+            result, output = run_cli(
+                tmp,
+                "validate-executor-result",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(evidence_path),
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(
+                output["reason"],
+                "cadence brake is PARK; executor result must report stopped before completion can be recorded",
+            )
+            self.assertEqual(output["recommended_next_action"], "stop_active_loop")
+            self.assertEqual(output["active_stop"]["brake_status"], "PARK")
+            audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(audit_lines), 1)
+            record = json.loads(audit_lines[0])
+            self.assertEqual(record["event"], "executor_result_validation")
+            self.assertEqual(record["action"], "stop_active_loop")
+            self.assertFalse(record["valid"])
 
     def test_validate_executor_result_rejects_unexpected_result_file_path(self):
         with tempfile.TemporaryDirectory() as tmp:
