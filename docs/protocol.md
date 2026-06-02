@@ -212,8 +212,9 @@ event names, event-specific required fields, physical JSONL line counts, and
 `sha256:` checksum syntax. Supported events are `loop_tick_decision`,
 `executor_fixture_invocation`, `executor_result_validation`, and
 `executor_epoch_closeout`. It does not recompute `payload_checksum`,
-`task_packet_checksum`, or `result_evidence_checksum` from original packet
-bodies because those bodies are not stored in the compact audit log.
+`task_packet_checksum`, `result_evidence_checksum`, or
+`snapshot_after_checksum` from original packet bodies because those bodies are
+not stored in the compact audit log.
 
 Invalid packets include stable blocker codes such as
 `audit_line_invalid_json`, `audit_record_not_object`,
@@ -248,19 +249,25 @@ requested active epoch. Binding requires exactly the requested active epoch, a
 task id recorded in that epoch, a task snapshot checksum matching the epoch
 `snapshot_before`, matching repo/branch/head anchors, and a valid
 snapshot-after packet captured after epoch start with a head matching the
-executor result. Stale task snapshots, head mismatches, active epoch conflicts,
-already-terminal epochs, malformed packets, and evidence that needs more
-validation block closeout without moving the active epoch.
+executor result and a `captured_at` timestamp at or after the executor result
+`ended_at`. Stale task snapshots, stale snapshot-after packets, head mismatches,
+active epoch conflicts, already-terminal epochs, malformed packets, and evidence
+that needs more validation block closeout without moving the active epoch.
 
 When closeout succeeds, the command emits `executor-epoch-closeout.v1`.
-Successful executor evidence completes the epoch with `decision: STOP`; valid
+Successful executor evidence records the task in active epoch `completed_tasks`
+when other epoch tasks remain, with `closeout_status: task_completed` and a
+`next_decision` of `continue`; successful evidence completes the epoch with
+`decision: STOP` only when all recorded epoch tasks are complete. Valid
 `failed`, `blocked`, `stopped`, timeout-shaped stopped evidence, and executor
 policy violations fail the epoch with stable reason codes. The packet includes a
-`next_decision` of `generate_git_pr_plan`, `handoff`, `stop`, or
-`validate_more_evidence`. With `--emit-git-pr-plan`, a successful closeout may
-embed a dry-run `git-pr-plan.v1` packet for review. The command appends a compact
-`executor_epoch_closeout` audit record. It must not start an executor, create a
-branch, commit, push, call GitHub, open a pull request, merge, release, or
+`next_decision` of `generate_git_pr_plan`, `continue`, `handoff`, `stop`, or
+`validate_more_evidence`. With `--emit-git-pr-plan`, a terminal successful
+closeout may embed a dry-run `git-pr-plan.v1` packet for review, and supplied PR
+template inputs are read before terminal epoch state is mutated. The command
+appends a compact `executor_epoch_closeout` audit record containing task/result
+and snapshot-after path/checksum anchors. It must not start an executor, create
+a branch, commit, push, call GitHub, open a pull request, merge, release, or
 publish packages.
 
 ## Git/PR Dry-Run Planning

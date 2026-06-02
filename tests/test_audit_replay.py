@@ -138,9 +138,11 @@ def executor_epoch_closeout_record(valid: bool = True, **overrides):
         "closeout_status": "completed" if valid else "blocked",
         "task_file": "C:/tmp/executor-task.json",
         "result_file": "C:/tmp/executor-result.json",
+        "snapshot_after_file": "C:/tmp/snapshot-after.json",
         "payload_checksum": GOOD_CHECKSUM,
         "task_packet_checksum": GOOD_CHECKSUM,
         "result_evidence_checksum": GOOD_CHECKSUM,
+        "snapshot_after_checksum": GOOD_CHECKSUM,
     }
     if valid:
         record.update(
@@ -255,6 +257,22 @@ class AuditReplayCliTests(unittest.TestCase):
                 },
             )
             self.assertEqual(output["recommended_next_action"], "use_audit_replay_evidence")
+
+    def test_executor_epoch_closeout_audit_requires_snapshot_after_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = executor_epoch_closeout_record()
+            record.pop("snapshot_after_file")
+            record.pop("snapshot_after_checksum")
+            write_audit_records(root, record)
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["records_valid"], 0)
+            self.assertEqual(output["records_invalid"], 1)
+            self.assertEqual(blocker_codes(output), ["audit_required_field_missing", "audit_required_field_missing"])
 
     def test_mixed_valid_blank_and_bad_json_lines_report_counts_and_line_blockers(self):
         with tempfile.TemporaryDirectory() as tmp:

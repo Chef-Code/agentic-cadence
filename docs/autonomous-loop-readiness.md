@@ -82,7 +82,8 @@ runtime can do these things end-to-end:
   allow/deny policy, disabled commit/push/PR/merge/release/package-publication
   permissions, and active brake stop handling;
 - close out an active epoch from local executor task/result/snapshot-after
-  packets, completing successful evidence, failing failed/blocked/stopped or
+  packets, recording successful task evidence while other epoch tasks remain,
+  completing terminal successful epochs, failing failed/blocked/stopped or
   policy-violating evidence with stable reason codes, and emitting a local next
   decision;
 - generate a dry-run Git/PR transition plan from validated executor evidence,
@@ -184,8 +185,9 @@ At `requires_executor_contract`, a human or external agent still has to request
 an executor task packet. At `approve_executor_task`, a human or external agent
 still has to approve any real execution. The controlled fixture path can prove
 policy, timeout, audit, and result-evidence behavior with fake local evidence,
-and local closeout can complete or fail the active epoch from that evidence, but
-it does not implement product changes. The dry-run `git-pr-plan` handoff remains
+and local closeout can record task completion or terminally complete/fail the
+active epoch from that evidence, but it does not implement product changes. The
+dry-run `git-pr-plan` handoff remains
 review-only. Real code changes, branch policy, operator-approved Git/PR
 materialization, live commit, push, PR creation or update, review feedback
 fetching, and new-session launch remain external or future approved slices. At

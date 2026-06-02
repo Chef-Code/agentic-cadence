@@ -1196,6 +1196,15 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
         result_evidence=result_evidence,
         executor_started=False,
     )
+    result_status = result_evidence.get("status") if isinstance(result_evidence, dict) else None
+    required_body_sections = list(args.required_body_section or [])
+    template_sections: list[str] | None = None
+
+    def validate_terminal_git_pr_plan_inputs() -> None:
+        nonlocal template_sections
+        if args.pr_template_file and template_sections is None:
+            template_sections = load_template_sections(Path(args.pr_template_file))
+
     closeout = closeout_executor_result_epoch(
         args.root,
         epoch_id_value=args.epoch_id,
@@ -1205,13 +1214,13 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
         task_file=str(task_file),
         result_file=str(result_file),
         snapshot_after=snapshot_after,
+        before_terminal_complete=validate_terminal_git_pr_plan_inputs if args.emit_git_pr_plan else None,
     )
     git_pr_plan_packet = None
     next_decision = dict(closeout["next_decision"])
     if args.emit_git_pr_plan and closeout["closeout_status"] == "completed":
-        required_body_sections = list(args.required_body_section or [])
         if args.pr_template_file:
-            required_body_sections.extend(load_template_sections(Path(args.pr_template_file)))
+            required_body_sections.extend(template_sections or load_template_sections(Path(args.pr_template_file)))
         git_pr_plan_packet = evaluate_git_pr_plan(
             cwd=Path(args.cwd),
             task_packet=task_packet,
@@ -1241,7 +1250,8 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
         "task_file": str(task_file),
         "result_file": str(result_file),
         "snapshot_after_file": str(snapshot_after_file),
-        "executor_result_status": result_evidence.get("status") if isinstance(result_evidence, dict) else None,
+        "snapshot_after_checksum": checksum_epoch_json(snapshot_after),
+        "executor_result_status": result_status,
         "executor_started": False,
         "pr_action_started": False,
         "operator_confirmation_required": next_decision["decision"] in {"generate_git_pr_plan", "handoff"},

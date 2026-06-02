@@ -38,10 +38,16 @@ Docs updated:
 Summary:
 - Added `closeout-executor-result` and the `executor-epoch-closeout.v1` packet.
 - The command consumes local task/result/snapshot-after packets, validates
-  executor evidence, completes successful epochs, fails failed/blocked/stopped
-  or policy-violating evidence with stable reason codes, blocks stale or
-  conflicting epoch state, and can embed a dry-run `git-pr-plan.v1` packet.
-- Added compact `executor_epoch_closeout` audit records and audit-replay support.
+  executor evidence, records partial task success while other epoch tasks
+  remain, completes terminal successful epochs, fails failed/blocked/stopped or
+  policy-violating evidence with stable reason codes, blocks stale or
+  conflicting epoch state, and can embed a dry-run `git-pr-plan.v1` packet after
+  terminal success.
+- Added compact `executor_epoch_closeout` audit records and audit-replay support
+  with snapshot-after path/checksum anchors.
+- Addressed review findings by requiring snapshot-after freshness at or after
+  executor result `ended_at` and validating optional PR-template inputs before
+  terminal epoch state mutation.
 
 Completed slices:
 - Task 3 current-tree implementation: executor result closeout and next decision.

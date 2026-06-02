@@ -146,10 +146,10 @@ def validate_executor_result_audit_record(record: dict[str, Any], line: int) -> 
 def validate_executor_epoch_closeout_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
     """Validate executor_epoch_closeout audit-record fields."""
     blockers: list[dict[str, Any]] = []
-    for field in ("action", "reason", "epoch_id", "closeout_status", "task_file", "result_file"):
+    for field in ("action", "reason", "epoch_id", "closeout_status", "task_file", "result_file", "snapshot_after_file"):
         blockers.extend(required_string(record, field, line))
     blockers.extend(required_bool(record, "valid", line))
-    for field in ("payload_checksum", "task_packet_checksum", "result_evidence_checksum"):
+    for field in ("payload_checksum", "task_packet_checksum", "result_evidence_checksum", "snapshot_after_checksum"):
         blockers.extend(required_checksum_present(record, field, line))
     if record.get("valid") is True:
         for field in ("epoch_status", "task_id", "repo", "branch", "head"):
@@ -391,9 +391,11 @@ def executor_epoch_closeout_audit_record(
         "head": repo.get("head"),
         "task_file": payload.get("task_file"),
         "result_file": payload.get("result_file"),
+        "snapshot_after_file": payload.get("snapshot_after_file"),
         "payload_checksum": checksum_json(payload),
         "task_packet_checksum": checksum_json(task_packet),
         "result_evidence_checksum": checksum_json(result_evidence),
+        "snapshot_after_checksum": payload.get("snapshot_after_checksum"),
     }
     return {key: value for key, value in record.items() if value is not None}
 

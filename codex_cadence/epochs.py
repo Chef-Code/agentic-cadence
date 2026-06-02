@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
 import hashlib
 import json
@@ -440,6 +441,12 @@ def closeout_next_decision(
             "recommended_next_action": "run_git_pr_plan",
             "reason": "executor result succeeded; dry-run Git/PR plan can be generated",
         }
+    if closeout_status == "task_completed":
+        return {
+            "decision": "continue",
+            "recommended_next_action": "wait_for_next_executor_result",
+            "reason": "executor task completed; epoch has remaining tasks",
+        }
     if closeout_status == "failed":
         if result_status == "stopped" or failure_reason == "executor_result_timed_out":
             return {
@@ -494,6 +501,26 @@ def _epoch_task_ids(epoch: dict[str, Any]) -> set[str]:
         if isinstance(task, dict) and isinstance(task.get("id"), str):
             task_ids.add(task["id"])
     return task_ids
+
+
+def _ordered_epoch_task_ids(epoch: dict[str, Any]) -> list[str]:
+    tasks = epoch.get("tasks")
+    if not isinstance(tasks, list):
+        return []
+    task_ids: list[str] = []
+    for task in tasks:
+        if isinstance(task, dict) and isinstance(task.get("id"), str):
+            task_ids.append(task["id"])
+    return task_ids
+
+
+def _parse_optional_utc(value: Any) -> datetime | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        return parse_utc(value)
+    except ValueError:
+        return None
 
 
 def _validate_executor_epoch_binding(
@@ -572,6 +599,17 @@ def _validate_executor_epoch_binding(
                     result_head=expected_head,
                 )
             )
+        snapshot_captured_at = _parse_optional_utc(snapshot_after.get("captured_at"))
+        result_ended_at = _parse_optional_utc(result_evidence.get("ended_at"))
+        if snapshot_captured_at is not None and result_ended_at is not None and snapshot_captured_at < result_ended_at:
+            blockers.append(
+                closeout_blocker(
+                    "stale_snapshot_after",
+                    "snapshot_after must be captured at or after executor result ended_at",
+                    snapshot_after_captured_at=snapshot_after.get("captured_at"),
+                    executor_result_ended_at=result_evidence.get("ended_at"),
+                )
+            )
     return blockers
 
 
@@ -614,6 +652,7 @@ def closeout_executor_result_epoch(
     task_file: str,
     result_file: str,
     snapshot_after: dict[str, Any],
+    before_terminal_complete: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     ensure_layout(root)
     result_status = result_evidence.get("status") if isinstance(result_evidence, dict) else None
@@ -745,7 +784,34 @@ def closeout_executor_result_epoch(
         completed_tasks = list(epoch.get("completed_tasks") or [])
         if should_complete and task_id_value is not None and task_id_value not in completed_tasks:
             completed_tasks.append(task_id_value)
-        if should_complete:
+        epoch_task_ids = _ordered_epoch_task_ids(epoch)
+        remaining_task_ids = [task_id for task_id in epoch_task_ids if task_id not in completed_tasks]
+        closeout_data["completed_task_ids"] = list(completed_tasks)
+        closeout_data["remaining_task_ids"] = remaining_task_ids
+        if should_complete and remaining_task_ids:
+            closeouts = epoch.get("executor_closeouts")
+            if not isinstance(closeouts, list):
+                closeouts = []
+            closeouts.append(closeout_data)
+            epoch.update(
+                {
+                    "completed_tasks": completed_tasks,
+                    "executor_closeouts": closeouts,
+                    "updated_at": now,
+                }
+            )
+            atomic_write_json(active_path, epoch)
+            closeout_status = "task_completed"
+            failure_reason = None
+            side_effects = ["epoch_task_completed"]
+        elif should_complete:
+            if before_terminal_complete is not None:
+                before_terminal_complete()
+            closeouts = epoch.get("executor_closeouts")
+            if isinstance(closeouts, list):
+                closeouts = [*closeouts, closeout_data]
+            else:
+                closeouts = [closeout_data]
             epoch.update(
                 {
                     "status": "COMPLETED",
@@ -753,6 +819,7 @@ def closeout_executor_result_epoch(
                     "summary": result_evidence.get("summary") if isinstance(result_evidence, dict) else None,
                     "completed_tasks": completed_tasks,
                     "executor_closeout": closeout_data,
+                    "executor_closeouts": closeouts,
                     "completed_at": now,
                     "updated_at": now,
                 }

@@ -268,16 +268,20 @@ agentic-cadence --root examples/first-run/work/runtime validate-executor-result 
 After an active epoch exists and a fresh `snapshot-repo` packet has been saved,
 `closeout-executor-result` can consume the local task packet, result evidence,
 and snapshot-after packet. It validates the same executor evidence gates,
-completes the epoch on success, fails the epoch for valid failed/blocked/stopped
-evidence or policy violations, and emits the next local decision:
+records a successful task result while keeping the epoch active when other epoch
+tasks remain, completes the epoch only when all recorded tasks are complete,
+fails the epoch for valid failed/blocked/stopped evidence or policy violations,
+and emits the next local decision:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime closeout-executor-result --epoch-id epoch-123 --task-file executor-task.json --result-file executor-result.json --snapshot-after-file snapshot-after.json --emit-git-pr-plan --cwd examples/first-run/work/repo --required-body-section Summary --required-body-section Validation
 ```
 
-The optional Git/PR plan is embedded as a dry-run packet only. The closeout
-command does not start an executor, create a branch, commit, push, call GitHub,
-open a pull request, merge, release, or publish packages.
+The optional Git/PR plan is embedded as a dry-run packet only after terminal
+epoch completion, and supplied PR-template inputs are validated before terminal
+state is mutated. The closeout command does not start an executor, create a
+branch, commit, push, call GitHub, open a pull request, merge, release, or
+publish packages.
 
 For tests and examples, `run-controlled-executor-fixture` can launch a fake
 external executor component from an explicit command template. The template may
@@ -299,7 +303,8 @@ malformed templates fail closed before launch. It must not create branches,
 commit, push, open or merge PRs, create releases, or publish packages.
 
 Root-backed loop ticks, executor-result validation, and executor closeout append compact
-`cadence-audit.v1` records under `<root>/audit/events.jsonl`. A local
+`cadence-audit.v1` records under `<root>/audit/events.jsonl`; closeout audit
+anchors include the task packet, result evidence, and snapshot-after packet. A local
 `cadence-loop-policy.v1` file can bound emitted executor task paths, required
 checks, command allow/deny lists, runtime, and stop conditions. Result
 validation enforces task-carried command policy across compound commands,

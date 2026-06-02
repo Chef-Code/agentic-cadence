@@ -43,8 +43,9 @@ and replay local audit history with a read-only `audit-replay.v1` packet.
 Active execution controls are partial: result validation enforces task-carried
 command policy and active brake stop evidence, `run-controlled-executor-fixture`
 can govern a fake external executor component in tests/examples, and
-`closeout-executor-result` can complete or fail an active epoch from validated
-local executor evidence and emit the next dry-run decision. `git-pr-plan` can
+`closeout-executor-result` can record validated local executor evidence against
+an active epoch, complete or fail terminal epochs, and emit the next dry-run
+decision. `git-pr-plan` can
 produce a dry-run Git/PR transition plan for separate review. Real executor
 governance, branch policy, live branch/commit/push or PR creation, and
 continuous loop orchestration remain missing.
@@ -107,9 +108,10 @@ Current evidence:
 - root-backed `loop-tick` packets append compact `cadence-audit.v1` decision
   records;
 - `closeout-executor-result` can consume local task/result/snapshot-after
-  packets, complete or fail the active epoch, append closeout audit, and choose
-  stop, handoff, validate-more-evidence, or dry-run Git/PR planning as the next
-  decision;
+  packets, mark a successful task complete while the epoch remains active when
+  other tasks remain, complete or fail terminal epochs, append closeout audit,
+  and choose continue, stop, handoff, validate-more-evidence, or dry-run Git/PR
+  planning as the next decision;
 - no command yet starts an epoch and hands work to a real executor in one
   governed loop tick.
 
@@ -303,7 +305,8 @@ Current evidence:
   `executor_fixture_invocation` audit record before starting the fake external
   fixture and an `executor_result_validation` record after evidence validation;
 - root-backed `closeout-executor-result` appends a compact
-  `executor_epoch_closeout` audit record after a local epoch closeout decision;
+  `executor_epoch_closeout` audit record with task/result and snapshot-after
+  anchors after a local epoch closeout decision;
 - `audit-replay` implements the read-only `audit-replay.v1` packet shape,
   blocker codes, counting rules, supported event validation, and corrupted-log
   failure behavior from the merged design;

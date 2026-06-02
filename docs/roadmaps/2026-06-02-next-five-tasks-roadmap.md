@@ -125,9 +125,11 @@ git diff --check
 
 **Current-tree implementation:** `closeout-executor-result` consumes local
 task/result/snapshot-after packets, validates executor evidence with the existing
-contract, binds the task packet to the active epoch baseline snapshot, completes
-or fails the epoch, appends `executor_epoch_closeout` audit, and optionally
-embeds a dry-run `git-pr-plan.v1` packet.
+contract, binds the task packet to the active epoch baseline snapshot, records
+successful task completion without terminal closeout when other epoch tasks
+remain, completes or fails terminal epochs, appends `executor_epoch_closeout`
+audit with snapshot-after anchors, and optionally embeds a dry-run
+`git-pr-plan.v1` packet after terminal success.
 
 **Validation:**
 - Success evidence completes the active epoch and emits a next decision.
