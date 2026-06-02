@@ -1237,7 +1237,9 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
         next_decision["recommended_next_action"] = git_pr_plan_packet["recommended_next_action"]
         next_decision["git_pr_plan_ready"] = git_pr_plan_packet["ready_to_review"]
     side_effects = list(closeout["side_effects"])
-    side_effects.append("audit_record_appended")
+    append_closeout_audit = closeout["closeout_status"] != "already_closed"
+    if append_closeout_audit:
+        side_effects.append("audit_record_appended")
     payload = {
         "protocol_version": PROTOCOL_VERSION,
         "schema_version": EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION,
@@ -1272,10 +1274,11 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
     }
     if payload["failure_reason"] is None:
         payload.pop("failure_reason")
-    payload["audit_record"] = append_audit_record(
-        args.root,
-        executor_epoch_closeout_audit_record(payload, task_packet, result_evidence),
-    )
+    if append_closeout_audit:
+        payload["audit_record"] = append_audit_record(
+            args.root,
+            executor_epoch_closeout_audit_record(payload, task_packet, result_evidence),
+        )
     emit(payload)
     return 0 if payload["valid"] else 1
 

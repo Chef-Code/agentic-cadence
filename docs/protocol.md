@@ -266,8 +266,10 @@ policy violations fail the epoch with stable reason codes. The packet includes a
 closeout may embed a dry-run `git-pr-plan.v1` packet for review, and supplied PR
 template inputs are read before terminal epoch state is mutated. The command
 appends a compact `executor_epoch_closeout` audit record containing task/result
-and snapshot-after path/checksum anchors. It must not start an executor, create
-a branch, commit, push, call GitHub, open a pull request, merge, release, or
+and snapshot-after path/checksum anchors for fresh closeout decisions.
+Already-terminal reruns report `closeout_status: already_closed` without
+appending another closeout audit record. It must not start an executor, create a
+branch, commit, push, call GitHub, open a pull request, merge, release, or
 publish packages.
 
 ## Git/PR Dry-Run Planning

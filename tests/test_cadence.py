@@ -236,63 +236,66 @@ def closeout_snapshot(repo, **overrides):
 
 def write_closeout_packets(root, repo, *, task_packet=None, result_evidence=None, snapshot_before=None):
     result_path = Path(root) / "executor-result.json"
-    snapshot_before = snapshot_before or closeout_snapshot(repo)
-    task_packet = task_packet or build_executor_task_packet(
-        task={
-            "id": "candidate-1",
-            "title": "Implement epoch closeout",
-            "summary": "Wire executor evidence into epoch closeout.",
-            "task_type": "execution",
-            "bucket": "S",
-            "source": "text_marker",
-            "drivers": [],
-            "evidence": {"path": "docs/roadmap.md"},
-        },
-        snapshot=snapshot_before,
-        repo_path=repo,
-        allowed_paths=["README.md", "codex_cadence", "tests"],
-        required_checks=[],
-        max_minutes=30,
-        max_tasks=1,
-        stop_conditions=DEFAULT_EXECUTOR_STOP_CONDITIONS,
-        evidence_path=result_path,
-    )
-    result_evidence = result_evidence or {
-        "schema_version": "generic-executor-result.v1",
-        "packet": "executor_result",
-        "task_id": "candidate-1",
-        "executor_id": "fake-executor",
-        "started_at": "2999-05-22T00:00:00Z",
-        "ended_at": "2999-05-22T00:05:00Z",
-        "status": "succeeded",
-        "files_changed": ["README.md"],
-        "commands_run": [
-            {
-                "command": "python -m unittest tests.test_cadence",
-                "exit_code": 0,
-            }
-        ],
-        "validation_results": [
-            {
-                "name": "cadence-tests",
-                "status": "passed",
-                "command": "python -m unittest tests.test_cadence",
-            }
-        ],
-        "summary": "Closeout evidence is ready.",
-        "confidence": "high",
-        "blockers": [],
-        "dirty_worktree": False,
-        "resulting_head": current_head(repo),
-        "materialized_change_evidence": {
-            "status": "verified",
-            "source": "executor_result.materialized_change_evidence",
+    if snapshot_before is None:
+        snapshot_before = closeout_snapshot(repo)
+    if task_packet is None:
+        task_packet = build_executor_task_packet(
+            task={
+                "id": "candidate-1",
+                "title": "Implement epoch closeout",
+                "summary": "Wire executor evidence into epoch closeout.",
+                "task_type": "execution",
+                "bucket": "S",
+                "source": "text_marker",
+                "drivers": [],
+                "evidence": {"path": "docs/roadmap.md"},
+            },
+            snapshot=snapshot_before,
+            repo_path=repo,
+            allowed_paths=["README.md", "codex_cadence", "tests"],
+            required_checks=[],
+            max_minutes=30,
+            max_tasks=1,
+            stop_conditions=DEFAULT_EXECUTOR_STOP_CONDITIONS,
+            evidence_path=result_path,
+        )
+    if result_evidence is None:
+        result_evidence = {
+            "schema_version": "generic-executor-result.v1",
+            "packet": "executor_result",
             "task_id": "candidate-1",
+            "executor_id": "fake-executor",
+            "started_at": "2999-05-22T00:00:00Z",
+            "ended_at": "2999-05-22T00:05:00Z",
+            "status": "succeeded",
+            "files_changed": ["README.md"],
+            "commands_run": [
+                {
+                    "command": "python -m unittest tests.test_cadence",
+                    "exit_code": 0,
+                }
+            ],
+            "validation_results": [
+                {
+                    "name": "cadence-tests",
+                    "status": "passed",
+                    "command": "python -m unittest tests.test_cadence",
+                }
+            ],
+            "summary": "Closeout evidence is ready.",
+            "confidence": "high",
+            "blockers": [],
+            "dirty_worktree": False,
             "resulting_head": current_head(repo),
-            "files": ["README.md"],
-            "limitations": ["verified_against_result_metadata_not_local_diff"],
-        },
-    }
+            "materialized_change_evidence": {
+                "status": "verified",
+                "source": "executor_result.materialized_change_evidence",
+                "task_id": "candidate-1",
+                "resulting_head": current_head(repo),
+                "files": ["README.md"],
+                "limitations": ["verified_against_result_metadata_not_local_diff"],
+            },
+        }
     task_path = Path(root) / "executor-task.json"
     snapshot_after_path = Path(root) / "snapshot-after.json"
     snapshot_after = closeout_snapshot(repo, id="snapshot-after", captured_at="2999-05-22T00:10:00Z")
@@ -307,6 +310,25 @@ def claimed_handoff_path(root, handoff_id):
 
 
 class CadenceCliTests(unittest.TestCase):
+    def test_write_closeout_packets_preserves_explicit_empty_overrides(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+
+            task_path, result_path, _snapshot_after_path, task_packet, result_evidence, _snapshot_after = (
+                write_closeout_packets(
+                    tmp,
+                    repo,
+                    task_packet={},
+                    result_evidence={},
+                    snapshot_before={},
+                )
+            )
+
+            self.assertEqual(task_packet, {})
+            self.assertEqual(result_evidence, {})
+            self.assertEqual(json.loads(task_path.read_text(encoding="utf-8")), {})
+            self.assertEqual(json.loads(result_path.read_text(encoding="utf-8")), {})
+
     def test_default_root_uses_cadence_runtime_name(self):
         with tempfile.TemporaryDirectory() as tmp:
             with mock.patch.dict(os.environ, {"HOME": tmp, "USERPROFILE": tmp}, clear=True):
@@ -5281,6 +5303,9 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIn("epoch_already_closed", {blocker["code"] for blocker in second_output["blockers"]})
             self.assertEqual(len(list((Path(tmp) / "epochs" / "completed").glob("epoch-closeout-rerun.json"))), 1)
             self.assertEqual(len(list((Path(tmp) / "epochs" / "failed").glob("epoch-closeout-rerun.json"))), 0)
+            audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(audit_lines), 1)
+            self.assertEqual(json.loads(audit_lines[0])["event"], "executor_epoch_closeout")
 
 
 if __name__ == "__main__":
