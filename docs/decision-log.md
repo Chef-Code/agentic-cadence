@@ -47,8 +47,9 @@ Why:
 - A fixture command gives reviewers a deterministic way to test success,
   failed evidence, timeout/stopped evidence, active brake stops, command policy,
   disabled live actions, and audit replay before any real executor is allowed.
-- The current policy surface still lacks branch policy, execution closeout,
-  approval identity, hash chaining, and live GitHub synchronization.
+- At that point the policy surface still lacked execution closeout, approval
+  identity, hash chaining, and live GitHub synchronization; branch policy was
+  deferred from this fixture slice and later added as local dry-run policy.
 
 Alternatives considered:
 - Integrate a named host adapter first. Rejected because it would overfit the
@@ -64,8 +65,9 @@ Consequences:
   the policy, evidence, and audit governor.
 - Successful fixture evidence can be recorded, but it is not permission to
   merge, release, publish, or claim unattended repository writes.
-- The next execution slice should wire validated executor results into epoch
-  closeout and next-decision logic.
+- Subsequent execution slices should continue toward audited closeout, branch
+  policy, and live-evidence gates without giving Cadence unattended write,
+  merge, release, or package-publication authority.
 
 Open questions:
 - What should the epoch closeout packet contain when a fixture or real executor

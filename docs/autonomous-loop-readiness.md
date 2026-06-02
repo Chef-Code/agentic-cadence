@@ -147,7 +147,7 @@ Agentic Cadence cannot currently:
 | PR body/readiness checks | Implemented from saved inputs | `codex_cadence/pr_readiness.py` |
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
 | Single loop tick | Partial, read-only | `loop-tick` emits next action and stops before execution |
-| Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, active brake stop handling, `<root>/audit/events.jsonl`, and read-only `audit-replay`; no branch policy, hash chain, or authenticated approval identity |
+| Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, task-carried branch policy, active brake stop handling, `<root>/audit/events.jsonl`, and read-only `audit-replay`; no hash chain or authenticated approval identity |
 | Agent-team orchestration | Not built | No agent pool, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
 | Executor adapter contract | Partial generic contract | Task/result packet validation and a fake controlled fixture runner exist, including snapshot trust-anchor checks, but no real executor or named host adapter |
@@ -188,7 +188,7 @@ policy, timeout, audit, and result-evidence behavior with fake local evidence,
 and local closeout can record task completion or terminally complete/fail the
 active epoch from that evidence, but it does not implement product changes. The
 dry-run `git-pr-plan` handoff remains
-review-only. Real code changes, branch policy, operator-approved Git/PR
+review-only. Real code changes, operator-approved Git/PR
 materialization, live commit, push, PR creation or update, review feedback
 fetching, and new-session launch remain external or future approved slices. At
 `policy_denied`, an operator must adjust the task bounds or policy before
@@ -206,8 +206,8 @@ It still does not invoke a real executor or apply code changes.
 
 The next likely failures are:
 
-1. no branch policy exists yet, so executor output is not governed against
-   protected base/target branch rules;
+1. branch policy is local and dry-run only, so protected base/target branch
+   rules are not yet enforced immediately before live Git/PR materialization;
 2. no live branch/commit/push/PR workflow exists; the current Git/PR increment
    is only a dry-run planning packet for operator or future role review;
 3. missing live synchronization. Repo snapshots are local git snapshots, and PR

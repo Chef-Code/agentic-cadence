@@ -294,6 +294,167 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertEqual(packet["proposed_branch"], "candidate-1")
             self.assertNotIn("invalid_generated_branch", {blocker["code"] for blocker in packet["blockers"]})
 
+    def test_blocks_task_carried_branch_policy_violations(self):
+        """Task-carried branch policy blocks disallowed dry-run Git/PR plans."""
+        cases = [
+            (
+                "branch_policy_base_branch_disallowed",
+                {
+                    "allowed_base_branches": ["develop"],
+                    "denied_target_branches": [],
+                    "required_branch_prefixes": [],
+                    "allow_current_branch_main": True,
+                },
+            ),
+            (
+                "branch_policy_target_branch_denied",
+                {
+                    "allowed_base_branches": [],
+                    "denied_target_branches": ["cadence/candidate-1"],
+                    "required_branch_prefixes": [],
+                    "allow_current_branch_main": True,
+                },
+            ),
+            (
+                "branch_policy_required_prefix_missing",
+                {
+                    "allowed_base_branches": [],
+                    "denied_target_branches": [],
+                    "required_branch_prefixes": ["codex/"],
+                    "allow_current_branch_main": True,
+                },
+            ),
+        ]
+        for expected_code, branch_policy in cases:
+            with self.subTest(expected_code=expected_code):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    commit_plan_changes(repo)
+                    task_packet = valid_task_packet(repo, Path(tmp) / "executor-result.json")
+                    task_packet["branch_policy"] = branch_policy
+                    result_evidence = valid_result(repo)
+                    task_path, result_path, _task_packet, _result_evidence = write_packets(
+                        tmp,
+                        repo,
+                        task_packet=task_packet,
+                        result_evidence=result_evidence,
+                    )
+                    runtime_root = Path(tmp) / "runtime"
+                    write_brake(runtime_root)
+
+                    result, packet = run_git_pr_plan(
+                        runtime_root,
+                        "--cwd",
+                        repo,
+                        "--task-file",
+                        str(task_path),
+                        "--result-file",
+                        str(result_path),
+                        "--required-body-section",
+                        "Summary",
+                        "--required-body-section",
+                        "Validation",
+                    )
+
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertFalse(packet["ready_to_review"])
+                    self.assertEqual(packet["recommended_next_action"], "address_blockers")
+                    self.assertIn(expected_code, {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_blocks_task_carried_branch_policy_current_main(self):
+        """Branch policy can prevent Git/PR planning from a main checkout."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            git(repo, "branch", "base-for-plan")
+            code_path = Path(repo) / "codex_cadence" / "git_pr_plan.py"
+            test_path = Path(repo) / "tests" / "test_git_pr_plan.py"
+            code_path.parent.mkdir(parents=True, exist_ok=True)
+            test_path.parent.mkdir(parents=True, exist_ok=True)
+            code_path.write_text("print('plan')\n", encoding="utf-8")
+            test_path.write_text("print('test plan')\n", encoding="utf-8")
+            git(repo, "add", "codex_cadence/git_pr_plan.py", "tests/test_git_pr_plan.py")
+            git(repo, "commit", "-m", "implement git pr plan on main")
+            task_packet = valid_task_packet(repo, Path(tmp) / "executor-result.json")
+            task_packet["branch_policy"] = {
+                "allowed_base_branches": ["base-for-plan"],
+                "denied_target_branches": [],
+                "required_branch_prefixes": ["cadence/"],
+                "allow_current_branch_main": False,
+            }
+            result_evidence = valid_result(repo)
+            task_path, result_path, _task_packet, _result_evidence = write_packets(
+                tmp,
+                repo,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
+            )
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+
+            result, packet = run_git_pr_plan(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--base-branch",
+                "base-for-plan",
+                "--required-body-section",
+                "Summary",
+                "--required-body-section",
+                "Validation",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(packet["ready_to_review"])
+            self.assertIn("branch_policy_current_branch_main_disallowed", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_policy_file_branch_policy_blocks_git_pr_plan(self):
+        """A local policy file can add branch-policy blockers to git-pr-plan."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            task_path, result_path, _task_packet, _result_evidence = write_packets(tmp, repo)
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "branch_policy": {
+                            "allowed_base_branches": ["main"],
+                            "denied_target_branches": [],
+                            "required_branch_prefixes": ["codex/"],
+                            "allow_current_branch_main": True,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+
+            result, packet = run_git_pr_plan(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--policy-file",
+                str(policy_file),
+                "--required-body-section",
+                "Summary",
+                "--required-body-section",
+                "Validation",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(packet["ready_to_review"])
+            self.assertIn("branch_policy_required_prefix_missing", {blocker["code"] for blocker in packet["blockers"]})
+
     def test_blocks_metadata_only_materialized_change_evidence(self):
         """Materialized evidence must match the local base diff."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

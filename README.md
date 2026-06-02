@@ -250,7 +250,7 @@ agentic-cadence --root examples/first-run/work/runtime loop-tick --cwd examples/
 
 The command does not start an executor, start or complete an epoch, create a branch, commit, push, open a PR, spend review, or merge. Without executor-task emission, it stops with `recommended_next_action` set to `blocked`, `no_candidates`, `approval_required`, or `requires_executor_contract`.
 
-When an elected task exists, `--emit-executor-task` can attach a generic executor task packet for operator approval. The packet includes repo identity, an absolute repo path, allowed paths, command policy, required checks, stop conditions, limits, and the expected result-evidence path. Cadence validates the embedded local snapshot as a trust anchor before accepting the packet, but it still does not run the executor:
+When an elected task exists, `--emit-executor-task` can attach a generic executor task packet for operator approval. The packet includes repo identity, an absolute repo path, allowed paths, command policy, branch policy, required checks, stop conditions, limits, and the expected result-evidence path. Cadence validates the embedded local snapshot as a trust anchor before accepting the packet, but it still does not run the executor:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime loop-tick --cwd examples/first-run/work/repo --repo local/demo --intent repo_health --emit-executor-task --allowed-path . --required-check "python -m unittest discover -s tests" > loop-tick.json
@@ -306,7 +306,12 @@ Root-backed loop ticks, executor-result validation, and executor closeout append
 `cadence-audit.v1` records under `<root>/audit/events.jsonl`; closeout audit
 anchors include the task packet, result evidence, and snapshot-after packet. A local
 `cadence-loop-policy.v1` file can bound emitted executor task paths, required
-checks, command allow/deny lists, runtime, and stop conditions. Result
+checks, command allow/deny lists, runtime, stop conditions, and a dry-run
+`branch_policy`. The branch policy supports `allowed_base_branches`,
+`denied_target_branches`, `required_branch_prefixes`, and
+`allow_current_branch_main`, is copied into emitted executor task packets, and
+is enforced by `git-pr-plan` along with any local `--policy-file` branch policy.
+Result
 validation enforces task-carried command policy across compound commands,
 shell grouping, command substitutions, and shell-wrapper payloads, and it rejects non-`stopped`
 completion evidence after an active brake stop. If a task includes `brake_not_drive`, otherwise-valid

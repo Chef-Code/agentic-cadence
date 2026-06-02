@@ -28,7 +28,7 @@ Tasks 1-5 intentionally land mostly in Phases 1-3. Tasks 6-7 extend that local g
 - PR #63 completed Task 1 by refreshing the handoff and seeding the active business-memory backlog.
 - PR #64 completed Task 2 by adding and hardening the controlled executor component fixture.
 - `python scripts/validate_protocol.py` passed after PR #64 merged.
-- The remaining immediate work starts at Task 3: wire executor results into epoch closeout and next-decision logic.
+- The remaining immediate work starts at Task 4: carry local branch policy into executor task packets and dry-run Git/PR planning.
 
 ## Task 1: Refresh Handoff And Seed The Active Backlog
 
@@ -45,7 +45,7 @@ Tasks 1-5 intentionally land mostly in Phases 1-3. Tasks 6-7 extend that local g
 **Implementation outline:**
 - Update the handoff document to state that #61 is merged and `main` is at `209ee61`.
 - Replace the old "finish git-pr-plan branch" next action with the selected next slice.
-- Add one active business-memory entry for the controlled executor loop path. The entry should describe why real executor invocation remains blocked until policy, audit, branch policy, and result evidence gates are stable.
+- Add one active business-memory entry for the controlled executor loop path. The entry should describe why real executor invocation remains blocked until policy, audit, branch/PR materialization, live evidence sync, resume verification, and result evidence gates are stable.
 - Add or update tests only if protocol validators need stronger checks against stale handoff state.
 
 **Validation:**
@@ -77,7 +77,7 @@ Tasks 1-5 intentionally land mostly in Phases 1-3. Tasks 6-7 extend that local g
 - Write the task packet to the expected path, invoke the fixture command with a timeout, then require it to write the expected result evidence file.
 - Enforce task-carried allowed paths, command policy, runtime limit, and stop conditions before accepting the result.
 - Record audit for invocation start and result validation.
-- Keep real executor invocation blocked until branch policy and execution closeout gates land.
+- Keep real executor invocation blocked until branch/PR materialization, live evidence sync, resume verification, and remaining result-evidence gates land.
 - Keep commits, pushes, PR creation, release, merge, and package publication forbidden.
 - Do not claim named-host adapter support.
 
@@ -101,7 +101,7 @@ git diff --check
 
 ## Task 3: Wire Executor Results Into Epoch Closeout And Next Decision
 
-**Status:** Implemented in current tree; pending review and merge.
+**Status:** Merged in PR #66.
 
 **Phase:** Phase 2 governed execution.
 
@@ -150,7 +150,7 @@ git diff --check
 
 ## Task 4: Add Branch Policy To Local Loop Policy
 
-**Status:** Not started.
+**Status:** Implemented in current tree; pending review and merge.
 
 **Phase:** Phase 3 Git/PR governance, with policy carried back into Phase 2 execution packets.
 
@@ -171,6 +171,16 @@ git diff --check
 - Let `git-pr-plan` accept an optional policy file or task-carried branch policy and block generated plans that violate it.
 - Keep all behavior dry-run and local.
 - Keep live branch creation, commits, pushes, PR creation, release, merge, and package publication outside this slice.
+
+**Current-tree implementation:** Local loop policy now accepts a normalized
+`branch_policy` object with `allowed_base_branches`,
+`denied_target_branches`, `required_branch_prefixes`, and
+`allow_current_branch_main`. `loop-tick --emit-executor-task` copies the policy
+into emitted executor task packets, executor task validation rejects malformed
+task-carried branch policy, and `git-pr-plan` enforces task-carried plus
+optional `--policy-file` branch policy as additive dry-run blockers. The slice
+does not create branches, commit, push, call GitHub, open PRs, merge, release,
+or publish packages.
 
 **Validation:**
 - Policy accepts valid branch policy.

@@ -6,6 +6,7 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from codex_cadence.branch_policy import normalize_branch_policy
 from codex_cadence.store import read_json, utc_now
 
 AUDIT_SCHEMA_VERSION = "cadence-audit.v1"
@@ -478,6 +479,11 @@ def load_loop_policy(path: str | None) -> dict[str, Any]:
             "required_checks": [],
             "max_executor_time_minutes": None,
             "stop_conditions": [],
+            "branch_policy": normalize_branch_policy(
+                None,
+                label="loop policy branch_policy",
+                absent_allow_current_branch_main=True,
+            ),
         }
     source = Path(path)
     policy = read_json(source)
@@ -488,6 +494,18 @@ def load_loop_policy(path: str | None) -> dict[str, Any]:
     max_minutes = policy.get("max_executor_time_minutes")
     if max_minutes is not None and (isinstance(max_minutes, bool) or not isinstance(max_minutes, int) or max_minutes <= 0):
         raise ValueError("loop policy max_executor_time_minutes must be a positive integer")
+    if "branch_policy" in policy:
+        branch_policy = normalize_branch_policy(
+            policy.get("branch_policy"),
+            label="loop policy branch_policy",
+            require_object=True,
+        )
+    else:
+        branch_policy = normalize_branch_policy(
+            None,
+            label="loop policy branch_policy",
+            absent_allow_current_branch_main=True,
+        )
     return {
         "source": str(source),
         "allowed_paths": normalize_path_list(policy, "allowed_paths"),
@@ -497,6 +515,7 @@ def load_loop_policy(path: str | None) -> dict[str, Any]:
         "required_checks": normalize_string_list(policy, "required_checks"),
         "max_executor_time_minutes": max_minutes,
         "stop_conditions": normalize_string_list(policy, "stop_conditions"),
+        "branch_policy": branch_policy,
     }
 
 

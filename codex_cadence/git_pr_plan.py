@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from codex_cadence import PROTOCOL_VERSION
+from codex_cadence.branch_policy import normalize_branch_policy
 from codex_cadence.executor_contract import validate_executor_result_evidence, validate_executor_task_packet
 from codex_cadence.policy_audit import checksum_json
 from codex_cadence.pr_readiness import evaluate_pr_body_preflight
@@ -426,6 +427,60 @@ def _recommendation(blockers: list[dict[str, Any]]) -> str:
     return "review_git_pr_plan"
 
 
+def _branch_policy_blockers(
+    policy: dict[str, Any],
+    *,
+    source: str,
+    base_branch: str,
+    proposed_branch: str,
+    current_branch: str | None,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    allowed_base_branches = policy.get("allowed_base_branches", [])
+    if allowed_base_branches and base_branch not in allowed_base_branches:
+        blockers.append(
+            _issue(
+                "branch_policy_base_branch_disallowed",
+                f"base branch is not allowed by branch_policy: {base_branch}",
+                source=source,
+                base_branch=base_branch,
+                allowed_base_branches=allowed_base_branches,
+            )
+        )
+    denied_target_branches = policy.get("denied_target_branches", [])
+    if proposed_branch in denied_target_branches:
+        blockers.append(
+            _issue(
+                "branch_policy_target_branch_denied",
+                f"proposed branch is denied by branch_policy: {proposed_branch}",
+                source=source,
+                proposed_branch=proposed_branch,
+                denied_target_branches=denied_target_branches,
+            )
+        )
+    required_prefixes = policy.get("required_branch_prefixes", [])
+    if required_prefixes and not any(proposed_branch.startswith(prefix) for prefix in required_prefixes):
+        blockers.append(
+            _issue(
+                "branch_policy_required_prefix_missing",
+                f"proposed branch does not use a required branch_policy prefix: {proposed_branch}",
+                source=source,
+                proposed_branch=proposed_branch,
+                required_branch_prefixes=required_prefixes,
+            )
+        )
+    if policy.get("allow_current_branch_main") is False and current_branch == "main":
+        blockers.append(
+            _issue(
+                "branch_policy_current_branch_main_disallowed",
+                "current branch is main and branch_policy does not allow planning from main",
+                source=source,
+                current_branch=current_branch,
+            )
+        )
+    return blockers
+
+
 def evaluate_git_pr_plan(
     *,
     cwd: str | Path,
@@ -435,6 +490,7 @@ def evaluate_git_pr_plan(
     result_file: str | Path,
     base_branch: str = "main",
     branch_prefix: str = "cadence",
+    branch_policy: Any | None = None,
     required_body_sections: list[str] | None = None,
     runtime_root: str | Path | None = None,
 ) -> dict[str, Any]:
@@ -451,6 +507,29 @@ def evaluate_git_pr_plan(
     proposed_branch = _generated_branch_name(branch_prefix, task.get("id"))
     proposed_commit_message = str(task.get("title") or "").strip()
     proposed_pr_title = proposed_commit_message
+    branch_policy_sources: list[dict[str, Any]] = []
+    task_branch_policy = None
+    if isinstance(task_packet, dict) and "branch_policy" in task_packet:
+        try:
+            task_branch_policy = normalize_branch_policy(
+                task_packet.get("branch_policy"),
+                label="executor task branch_policy",
+                require_object=True,
+            )
+            branch_policy_sources.append({"source": "task_packet", "policy": task_branch_policy})
+        except ValueError:
+            task_branch_policy = None
+    policy_file_branch_policy = None
+    if branch_policy is not None:
+        try:
+            policy_file_branch_policy = normalize_branch_policy(
+                branch_policy,
+                label="git-pr-plan branch_policy",
+                require_object=True,
+            )
+            branch_policy_sources.append({"source": "policy_file", "policy": policy_file_branch_policy})
+        except ValueError as exc:
+            blockers.append(_issue("branch_policy_invalid", str(exc)))
 
     valid_task, task_reason = validate_executor_task_packet(task_packet)
     if not valid_task:
@@ -477,6 +556,16 @@ def evaluate_git_pr_plan(
 
     git_summary, git_blockers = _inspect_git_state(repo_cwd, base_branch=base_branch, proposed_branch=proposed_branch)
     blockers.extend(git_blockers)
+    for source_policy in branch_policy_sources:
+        blockers.extend(
+            _branch_policy_blockers(
+                source_policy["policy"],
+                source=source_policy["source"],
+                base_branch=base_branch,
+                proposed_branch=proposed_branch,
+                current_branch=git_summary.get("current_branch"),
+            )
+        )
 
     task_repo_path = repo.get("path")
     if isinstance(task_repo_path, str) and task_repo_path.strip():
@@ -604,6 +693,10 @@ def evaluate_git_pr_plan(
         "proposed_pr_body": pr_body,
         "pr_body_preflight": pr_body_preflight,
         "command_examples": _command_examples(proposed_branch, proposed_commit_message, proposed_pr_title) if ready else [],
+        "branch_policy": {
+            "task_packet": task_branch_policy,
+            "policy_file": policy_file_branch_policy,
+        },
         "blockers": blockers,
         "warnings": warnings,
         "active_stop": active_stop,

@@ -290,12 +290,16 @@ Current evidence:
 - `loop-tick --policy-file` accepts a local `cadence-loop-policy.v1` JSON file
   with `allowed_paths`, `denied_paths`, `allowed_commands`,
   `denied_commands`, `required_checks`, `max_executor_time_minutes`, and
-  `stop_conditions`;
+  `stop_conditions`, and `branch_policy`;
 - the policy file supplies defaults and caps for emitted executor task paths
   and runtime, keeps built-in stops plus policy required checks and stop
   conditions when CLI checks or stop conditions are added, and denies requested
   executor paths outside `allowed_paths`, overlapping `denied_paths`, or
   runtime above `max_executor_time_minutes`;
+- branch policy is carried into emitted executor task packets and `git-pr-plan`
+  blocks dry-run plans that violate allowed base branches, denied target
+  branches, required generated-branch prefixes, or a current `main` checkout
+  when `allow_current_branch_main` is false;
 - root-backed `loop-tick` appends compact `cadence-audit.v1` decision records
   to `<root>/audit/events.jsonl`;
 - root-backed `validate-executor-result` appends compact
@@ -314,7 +318,8 @@ Current evidence:
   during result validation;
 - active brake stops now prevent recording non-`stopped` executor completion
   evidence when `brake_not_drive` is one of the task stop conditions;
-- no branch policy exists yet.
+- branch policy is local and dry-run only; no live branch, commit, push, or PR
+  materialization exists yet.
 
 Why it matters: unattended confidence comes from bounded blast radius and
 recoverable evidence.
