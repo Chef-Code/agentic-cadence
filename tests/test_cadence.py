@@ -1911,6 +1911,45 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["policy"]["branch_policy"], branch_policy)
             self.assertEqual(output["executor_task"]["branch_policy"], branch_policy)
 
+    def test_loop_tick_policy_file_partial_branch_policy_allows_current_main_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "allowed_paths": ["codex_cadence"],
+                        "branch_policy": {
+                            "allowed_base_branches": ["main"],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--policy-file",
+                str(policy_file),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["policy"]["branch_policy"]["allow_current_branch_main"])
+            self.assertTrue(output["executor_task"]["branch_policy"]["allow_current_branch_main"])
+
     def test_loop_tick_policy_file_rejects_malformed_branch_policy(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -5093,7 +5132,9 @@ class CadenceCliTests(unittest.TestCase):
             self.assertTrue(output["valid"])
             self.assertEqual(output["closeout_status"], "completed")
             self.assertFalse(output["git_pr_plan"]["ready_to_review"])
-            self.assertEqual(output["next_decision"]["recommended_next_action"], "address_blockers")
+            self.assertEqual(output["next_decision"]["decision"], "generate_git_pr_plan")
+            self.assertFalse(output["next_decision"]["git_pr_plan_ready"])
+            self.assertEqual(output["git_pr_plan"]["recommended_next_action"], "address_blockers")
             self.assertIn(
                 "branch_policy_required_prefix_missing",
                 {blocker["code"] for blocker in output["git_pr_plan"]["blockers"]},

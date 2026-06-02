@@ -499,6 +499,7 @@ def load_loop_policy(path: str | None) -> dict[str, Any]:
             policy.get("branch_policy"),
             label="loop policy branch_policy",
             require_object=True,
+            missing_allow_current_branch_main=True,
         )
     else:
         branch_policy = normalize_branch_policy(
