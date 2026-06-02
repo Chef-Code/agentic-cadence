@@ -95,3 +95,20 @@ Signals:
 Do not:
 - Do not treat clean audit replay as approval to invoke a real executor.
 - Do not treat missing replay evidence as approval to invoke a real executor.
+
+## Controlled Executor Loop Needs Stable Gates
+
+Status: active
+Kind: risk
+Workflow: Controlled executor loop governance
+Time Saved: high
+Risk: high
+Pain: The roadmap's first execution path needs one bounded executor component, but real executor invocation remains blocked until policy, audit, branch policy, and result evidence gates are stable.
+Signals:
+- `loop-tick --emit-executor-task` can produce bounded task packets, but no command path starts even a fixture executor.
+- `validate-executor-result`, command policy, active stop checks, and audit replay exist, but branch policy and epoch closeout are still missing.
+- The next implementation slices should prove executor-as-component behavior with fake local evidence before any named host adapter or live code-modifying executor is allowed.
+Do not:
+- Do not invoke a real executor, create branches, commit, push, open PRs, merge, release, or publish packages from this backlog entry.
+- Do not make Cadence itself the product authority for implementation; it should govern a replaceable executor component.
+- Do not treat fixture success as approval for named-host adapter support or unattended live repository writes.
