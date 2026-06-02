@@ -1301,7 +1301,9 @@ class CiChecksTests(unittest.TestCase):
                 handoff.read_text(encoding="utf-8")
                 + "\n- Working branch: `codex/policy-stop-controls`\n"
                 + "- Current branch intent: Draft PR #58 is open for this branch.\n"
-                + "Continue PR #58 review, monitor CI and bot feedback, address any remaining findings, and merge only after the operator is satisfied.\n",
+                + "Continue PR #58 review, monitor CI and bot feedback, address any remaining findings, and merge only after the operator is satisfied.\n"
+                + "\n- Working branch: `codex/controlled-executor-fixture`\n"
+                + "- This branch starts only a controlled fake executor fixture.\n",
                 encoding="utf-8",
             )
 
@@ -1317,6 +1319,8 @@ class CiChecksTests(unittest.TestCase):
             "docs/session-handoff.md must not contain forbidden token: codex/policy-stop-controls",
             "docs/session-handoff.md must not contain forbidden token: Draft PR #58",
             "docs/session-handoff.md must not contain forbidden token: Continue PR #58",
+            "docs/session-handoff.md must not contain forbidden token: codex/controlled-executor-fixture",
+            "docs/session-handoff.md must not contain forbidden token: This branch starts only a controlled fake executor fixture",
         )
         for expected_error in expected_errors:
             with self.subTest(expected_error=expected_error):
