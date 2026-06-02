@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import codex_cadence.github_evidence as github_evidence
 from codex_cadence.executor_contract import DEFAULT_EXECUTOR_STOP_CONDITIONS, build_executor_task_packet
 from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.model import estimate_task
@@ -1735,6 +1736,7 @@ class CadenceCliTests(unittest.TestCase):
                             "repository": {
                                 "pullRequest": {
                                     "reviewThreads": {
+                                        "pageInfo": {"hasNextPage": False, "endCursor": None},
                                         "nodes": [
                                             {
                                                 "id": "thread-1",
@@ -1743,6 +1745,7 @@ class CadenceCliTests(unittest.TestCase):
                                                 "path": "codex_cadence/cli.py",
                                                 "line": 120,
                                                 "comments": {
+                                                    "pageInfo": {"hasNextPage": False, "endCursor": None},
                                                     "nodes": [
                                                         {
                                                             "id": "comment-1",
@@ -1876,6 +1879,221 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["recommended_next_action"], "inspect_github_evidence_sync")
             self.assertEqual({blocker["code"] for blocker in output["blockers"]}, {"repo_slug_invalid"})
             self.assertFalse(out_dir.exists())
+
+    def test_github_evidence_sync_malformed_json_returns_blocker_without_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "runtime"
+            out_dir = Path(tmp) / "evidence"
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            fake_script = Path(tmp) / "fake_gh.py"
+            pr_json = Path(tmp) / "pr-source.json"
+            review_threads_json = Path(tmp) / "threads-source.json"
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_script(fake_script)
+            write_fake_gh(fake_bin, fake_script)
+            pr_json.write_text("{not valid json", encoding="utf-8")
+            review_threads_json.write_text(
+                json.dumps(
+                    {
+                        "data": {
+                            "repository": {
+                                "pullRequest": {
+                                    "reviewThreads": {
+                                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                        "nodes": [],
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_PR_JSON"] = str(pr_json)
+            env["GH_REVIEW_THREADS_JSON"] = str(review_threads_json)
+            env["GH_CALL_LOG"] = str(gh_log)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(root),
+                    "github-evidence-sync",
+                    "--repo",
+                    "Chef-Code/agentic-cadence",
+                    "--pr-number",
+                    "67",
+                    "--out-dir",
+                    str(out_dir),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            output = json.loads(result.stdout)
+            self.assertFalse(output["valid"])
+            self.assertEqual({blocker["code"] for blocker in output["blockers"]}, {"gh_json_invalid"})
+            self.assertFalse(out_dir.exists())
+
+    def test_github_evidence_sync_incomplete_review_threads_returns_blocker_without_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "runtime"
+            out_dir = Path(tmp) / "evidence"
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            fake_script = Path(tmp) / "fake_gh.py"
+            pr_json = Path(tmp) / "pr-source.json"
+            review_threads_json = Path(tmp) / "threads-source.json"
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_script(fake_script)
+            write_fake_gh(fake_bin, fake_script)
+            pr_json.write_text(
+                json.dumps(
+                    {
+                        "number": 67,
+                        "title": "Task 5",
+                        "state": "OPEN",
+                        "isDraft": False,
+                        "mergeable": "MERGEABLE",
+                        "mergeStateStatus": "CLEAN",
+                        "reviewDecision": "",
+                        "body": "",
+                        "headRefName": "codex/task-5-github-evidence-sync",
+                        "baseRefName": "main",
+                        "headRefOid": "abc123",
+                        "statusCheckRollup": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            review_threads_json.write_text(
+                json.dumps(
+                    {
+                        "data": {
+                            "repository": {
+                                "pullRequest": {
+                                    "reviewThreads": {
+                                        "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+                                        "nodes": [],
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_PR_JSON"] = str(pr_json)
+            env["GH_REVIEW_THREADS_JSON"] = str(review_threads_json)
+            env["GH_CALL_LOG"] = str(gh_log)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(root),
+                    "github-evidence-sync",
+                    "--repo",
+                    "Chef-Code/agentic-cadence",
+                    "--pr-number",
+                    "67",
+                    "--out-dir",
+                    str(out_dir),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            output = json.loads(result.stdout)
+            self.assertFalse(output["valid"])
+            self.assertEqual({blocker["code"] for blocker in output["blockers"]}, {"review_thread_evidence_incomplete"})
+            self.assertFalse(out_dir.exists())
+
+    def test_github_evidence_sync_write_failure_removes_partial_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "evidence"
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            fake_script = Path(tmp) / "fake_gh.py"
+            pr_json = Path(tmp) / "pr-source.json"
+            review_threads_json = Path(tmp) / "threads-source.json"
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_script(fake_script)
+            fake_gh = write_fake_gh(fake_bin, fake_script)
+            pr_json.write_text(
+                json.dumps(
+                    {
+                        "number": 67,
+                        "title": "Task 5",
+                        "state": "OPEN",
+                        "isDraft": False,
+                        "mergeable": "MERGEABLE",
+                        "mergeStateStatus": "CLEAN",
+                        "reviewDecision": "",
+                        "body": "",
+                        "headRefName": "codex/task-5-github-evidence-sync",
+                        "baseRefName": "main",
+                        "headRefOid": "abc123",
+                        "statusCheckRollup": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            review_threads_json.write_text(
+                json.dumps(
+                    {
+                        "data": {
+                            "repository": {
+                                "pullRequest": {
+                                    "reviewThreads": {
+                                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                        "nodes": [],
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env["GH_PR_JSON"] = str(pr_json)
+            env["GH_REVIEW_THREADS_JSON"] = str(review_threads_json)
+            env["GH_CALL_LOG"] = str(gh_log)
+            real_replace = github_evidence.os.replace
+
+            def fail_on_review_threads_replace(src, dst):
+                if Path(dst).name == "pr-67-review-threads.json":
+                    raise OSError("simulated write failure")
+                return real_replace(src, dst)
+
+            with mock.patch.dict(os.environ, env, clear=False):
+                with mock.patch("codex_cadence.github_evidence.os.replace", side_effect=fail_on_review_threads_replace):
+                    output = github_evidence.sync_github_evidence(
+                        repo="Chef-Code/agentic-cadence",
+                        pr_number=67,
+                        out_dir=out_dir,
+                        gh_bin=str(fake_gh),
+                    )
+
+            self.assertFalse(output["valid"])
+            self.assertEqual({blocker["code"] for blocker in output["blockers"]}, {"evidence_write_failed"})
+            self.assertFalse((out_dir / "pr-67.json").exists())
+            self.assertFalse((out_dir / "pr-67-review-threads.json").exists())
+            self.assertFalse((out_dir / "pr-67-github-evidence.json").exists())
 
     def test_github_evidence_sync_failing_gh_returns_blockers_without_files(self):
         cases = [

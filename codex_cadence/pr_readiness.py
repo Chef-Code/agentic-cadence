@@ -568,7 +568,7 @@ def evaluate_pr_readiness(
     if review_threads is not None:
         review_findings, review_warnings = review_thread_findings_from_payload(review_threads)
         for warning in review_warnings:
-            warnings.append(_issue("review_thread_evidence_warning", warning))
+            review_feedback_blockers.append(_issue("review_thread_evidence_invalid", warning))
         review_feedback_summary = {
             "unresolved_actionable_comments": len(review_findings),
             "findings": [

@@ -228,12 +228,14 @@ git diff --check
 **Current-tree implementation:** `github-evidence-sync` explicitly shells out to
 read-only `gh pr view` and GitHub GraphQL review-thread reads, labels the live
 evidence, and writes saved PR JSON, saved review-thread JSON, and a summary
-packet only after both live reads succeed. Missing `gh`, auth failure, rate
-limit, network failure, and malformed JSON return blocked packets without
-partial evidence files. Candidate discovery can ingest saved PR JSON through
-`--pr-json-file` to create `pr_check_failure` candidates from failed check runs
-or status contexts, and `pr-readiness --review-threads-file` blocks unresolved
-actionable current review comments from saved review-thread evidence.
+packet only after both live reads succeed and all local evidence files can be
+written as a set. Missing `gh`, auth failure, rate limit, network failure,
+malformed JSON, and incomplete paginated review-thread evidence return blocked
+packets without partial evidence files. Candidate discovery can ingest saved PR
+JSON through `--pr-json-file` to create stable `pr_check_failure` candidates
+from failed check runs or status contexts, and
+`pr-readiness --review-threads-file` blocks unresolved actionable current
+review comments plus malformed or incomplete saved review-thread evidence.
 
 **Validation:**
 - Mocked `gh` success produces normalized saved evidence.
@@ -241,6 +243,8 @@ actionable current review comments from saved review-thread evidence.
 - Failing check becomes a candidate.
 - Resolved and outdated review comments are ignored.
 - Unresolved actionable review comments block merge readiness and become candidates.
+- Malformed JSON and incomplete paginated review-thread evidence block without
+  saved partial evidence.
 - No GitHub write actions, merge actions, release actions, or package publication actions are performed.
 
 Run:

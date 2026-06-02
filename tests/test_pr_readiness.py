@@ -61,6 +61,7 @@ def review_threads_payload(nodes):
             "repository": {
                 "pullRequest": {
                     "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
                         "nodes": nodes,
                     }
                 }
@@ -353,6 +354,7 @@ class PrReadinessTests(unittest.TestCase):
                         "path": "codex_cadence/cli.py",
                         "line": 120,
                         "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
                             "nodes": [
                                 {
                                     "id": "comment-1",
@@ -370,6 +372,7 @@ class PrReadinessTests(unittest.TestCase):
                         "path": "codex_cadence/cli.py",
                         "line": 130,
                         "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
                             "nodes": [
                                 {
                                     "id": "comment-2",
@@ -386,6 +389,7 @@ class PrReadinessTests(unittest.TestCase):
                         "path": "docs/protocol.md",
                         "line": 20,
                         "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
                             "nodes": [
                                 {
                                     "id": "comment-3",
@@ -404,6 +408,39 @@ class PrReadinessTests(unittest.TestCase):
         self.assertEqual({blocker["code"] for blocker in packet["blockers"]}, {"unresolved_review_comment"})
         self.assertEqual(packet["review_feedback_summary"]["unresolved_actionable_comments"], 1)
         self.assertEqual(packet["review_feedback_summary"]["findings"][0]["id"], "comment-1")
+
+    def test_malformed_review_threads_block_readiness(self):
+        packet = evaluate_pr_readiness(
+            base_pr(),
+            required_checks=["Python and protocol checks"],
+            review_threads={"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": "not-list"}}}}},
+        )
+
+        self.assertFalse(packet["ready_to_merge"])
+        self.assertEqual(packet["decision"], "blocked")
+        self.assertEqual({blocker["code"] for blocker in packet["blockers"]}, {"review_thread_evidence_invalid"})
+
+    def test_incomplete_review_threads_block_readiness(self):
+        packet = evaluate_pr_readiness(
+            base_pr(),
+            required_checks=["Python and protocol checks"],
+            review_threads={
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {
+                                "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+                                "nodes": [],
+                            }
+                        }
+                    }
+                }
+            },
+        )
+
+        self.assertFalse(packet["ready_to_merge"])
+        self.assertEqual(packet["decision"], "blocked")
+        self.assertEqual({blocker["code"] for blocker in packet["blockers"]}, {"review_thread_evidence_invalid"})
 
     def test_template_sections_are_extracted_from_markdown_headings(self):
         template = """<!--
@@ -719,6 +756,7 @@ class PrReadinessTests(unittest.TestCase):
                                 "path": "codex_cadence/cli.py",
                                 "line": 120,
                                 "comments": {
+                                    "pageInfo": {"hasNextPage": False, "endCursor": None},
                                     "nodes": [
                                         {
                                             "id": "comment-1",

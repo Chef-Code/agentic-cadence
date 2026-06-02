@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import tempfile
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
 from codex_cadence import PROTOCOL_VERSION
-from codex_cadence.store import atomic_write_json
-
-
 GITHUB_EVIDENCE_SYNC_SCHEMA_VERSION = "github-evidence-sync.v1"
 PR_VIEW_FIELDS = (
     "number",
@@ -39,9 +39,9 @@ REVIEW_THREADS_QUERY = (
     "query($owner:String!,$name:String!,$number:Int!){"
     "repository(owner:$owner,name:$name){"
     "pullRequest(number:$number){"
-    "reviewThreads(first:100){nodes{"
+    "reviewThreads(first:100){pageInfo{hasNextPage endCursor} nodes{"
     "id isResolved isOutdated path line originalLine "
-    "comments(first:50){nodes{id body path line originalLine outdated author{login}}}"
+    "comments(first:50){pageInfo{hasNextPage endCursor} nodes{id body path line originalLine outdated author{login}}}"
     "}}}}}"
 )
 
@@ -118,6 +118,79 @@ def _read_json_stdout(result: subprocess.CompletedProcess[str], *, command_name:
     if not isinstance(payload, dict):
         return None, _issue("gh_json_not_object", f"{command_name} must return a JSON object")
     return payload, None
+
+
+def _write_json_temp(path: Path, data: dict[str, Any]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        dir=path.parent,
+        delete=False,
+        newline="\n",
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+    ) as handle:
+        json.dump(data, handle, indent=2, sort_keys=True)
+        handle.write("\n")
+        return Path(handle.name)
+
+
+def _evidence_write_issue(message: str, *, detail: str | None = None) -> dict[str, Any]:
+    extra = {"detail": detail} if detail else {}
+    return _issue("evidence_write_failed", message, **extra)
+
+
+def write_evidence_files(files: list[tuple[Path, dict[str, Any]]]) -> dict[str, Any] | None:
+    temp_files: list[tuple[Path, Path]] = []
+    backups: dict[Path, Path] = {}
+    written: list[Path] = []
+    try:
+        for path, _data in files:
+            if path.exists() and not path.is_file():
+                return _issue(
+                    "evidence_target_not_file",
+                    f"evidence target is not a regular file: {path}",
+                    path=str(path),
+                )
+
+        for path, data in files:
+            temp_files.append((_write_json_temp(path, data), path))
+
+        for temp_path, final_path in temp_files:
+            if final_path.exists():
+                backup_path = final_path.with_name(f".{final_path.name}.{os.getpid()}.bak")
+                os.replace(final_path, backup_path)
+                backups[final_path] = backup_path
+            os.replace(temp_path, final_path)
+            written.append(final_path)
+    except OSError as exc:
+        for path in written:
+            try:
+                path.unlink()
+            except OSError:
+                pass
+        for final_path, backup_path in backups.items():
+            try:
+                if backup_path.exists():
+                    os.replace(backup_path, final_path)
+            except OSError:
+                pass
+        for temp_path, _final_path in temp_files:
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except OSError:
+                pass
+        return _evidence_write_issue("could not write complete GitHub evidence files", detail=str(exc))
+
+    for backup_path in backups.values():
+        try:
+            if backup_path.exists():
+                backup_path.unlink()
+        except OSError:
+            pass
+    return None
 
 
 def classify_gh_failure(result: subprocess.CompletedProcess[str], *, command_name: str) -> dict[str, Any]:
@@ -250,6 +323,19 @@ def sync_github_evidence(
             blocker=blocker,
             command_trace=command_trace,
         )
+    _findings, review_thread_warnings = review_thread_findings_from_payload(threads_payload)
+    if review_thread_warnings:
+        return _blocked_packet(
+            repo=repo,
+            pr_number=pr_number,
+            out_dir=out_dir,
+            blocker=_issue(
+                "review_thread_evidence_incomplete",
+                "review thread evidence is incomplete or malformed",
+                warnings=review_thread_warnings,
+            ),
+            command_trace=command_trace,
+        )
 
     captured_at = _utc_now()
     pr_payload = dict(pr_payload or {})
@@ -290,9 +376,21 @@ def sync_github_evidence(
         "github_write_started": False,
         "command_trace": command_trace,
     }
-    atomic_write_json(pr_file, pr_payload)
-    atomic_write_json(threads_file, threads_payload)
-    atomic_write_json(summary_file, packet)
+    blocker = write_evidence_files(
+        [
+            (pr_file, pr_payload),
+            (threads_file, threads_payload),
+            (summary_file, packet),
+        ]
+    )
+    if blocker is not None:
+        return _blocked_packet(
+            repo=repo,
+            pr_number=pr_number,
+            out_dir=out_dir,
+            blocker=blocker,
+            command_trace=command_trace,
+        )
     return packet
 
 
@@ -319,6 +417,23 @@ def _check_workflow(item: dict[str, Any]) -> str:
     return str(workflow or "").strip()
 
 
+def _check_url(item: dict[str, Any]) -> str:
+    url = item.get("detailsUrl") or item.get("targetUrl")
+    return url.strip() if isinstance(url, str) else ""
+
+
+def _check_finding_id(pr_number: Any, item: dict[str, Any], name: str, state: str, workflow: str) -> str:
+    identity = {
+        "check": name,
+        "source_type": item.get("__typename") or "",
+        "state": state,
+        "url": _check_url(item),
+        "workflow": workflow,
+    }
+    digest = sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
+    return f"pr-{pr_number or 'unknown'}-check-{digest}"
+
+
 def pr_check_failure_findings(pr: dict[str, Any]) -> list[dict[str, Any]]:
     checks = pr.get("statusCheckRollup")
     if not isinstance(checks, list):
@@ -334,16 +449,17 @@ def pr_check_failure_findings(pr: dict[str, Any]) -> list[dict[str, Any]]:
         state = _check_state(item)
         if state not in FAILED_STATES:
             continue
+        workflow = _check_workflow(item)
+        url = _check_url(item)
         finding: dict[str, Any] = {
-            "id": f"pr-{pr_number or 'unknown'}-check-{index}",
+            "id": _check_finding_id(pr_number, item, name, state, workflow),
             "check": name,
             "state": state,
-            "workflow": _check_workflow(item),
+            "workflow": workflow,
             "source": "status_check_rollup",
         }
-        url = item.get("detailsUrl") or item.get("targetUrl")
-        if isinstance(url, str) and url.strip():
-            finding["url"] = url.strip()
+        if url:
+            finding["url"] = url
         findings.append(finding)
     return findings
 
@@ -369,15 +485,45 @@ def actionable_review_body(body: Any) -> str | None:
     return stripped
 
 
-def review_threads_nodes(payload: Any) -> list[Any] | None:
+def review_threads_object(payload: Any) -> dict[str, Any] | None:
     if not isinstance(payload, dict):
         return None
     current: Any = payload
-    for key in ("data", "repository", "pullRequest", "reviewThreads", "nodes"):
+    for key in ("data", "repository", "pullRequest", "reviewThreads"):
         if not isinstance(current, dict) or key not in current:
             return None
         current = current[key]
-    return current if isinstance(current, list) else None
+    return current if isinstance(current, dict) else None
+
+
+def review_threads_nodes(payload: Any) -> list[Any] | None:
+    review_threads = review_threads_object(payload)
+    if review_threads is None:
+        return None
+    nodes = review_threads.get("nodes")
+    return nodes if isinstance(nodes, list) else None
+
+
+def _pagination_warnings(review_threads: dict[str, Any], nodes: list[Any]) -> list[str]:
+    warnings: list[str] = []
+    page_info = review_threads.get("pageInfo")
+    if not isinstance(page_info, dict) or not isinstance(page_info.get("hasNextPage"), bool):
+        warnings.append("reviewThreads pageInfo.hasNextPage is required")
+    elif page_info["hasNextPage"]:
+        warnings.append("reviewThreads payload is incomplete; more review threads are available")
+    for index, thread in enumerate(nodes, start=1):
+        if not isinstance(thread, dict):
+            continue
+        comments = thread.get("comments")
+        if not isinstance(comments, dict):
+            warnings.append(f"review thread {index} comments must be an object with nodes and pageInfo")
+            continue
+        comment_page_info = comments.get("pageInfo")
+        if not isinstance(comment_page_info, dict) or not isinstance(comment_page_info.get("hasNextPage"), bool):
+            warnings.append(f"review thread {index} comments pageInfo.hasNextPage is required")
+        elif comment_page_info["hasNextPage"]:
+            warnings.append(f"review thread {index} comments payload is incomplete; more comments are available")
+    return warnings
 
 
 def review_thread_comment_nodes(thread: dict[str, Any]) -> list[Any]:
@@ -397,11 +543,12 @@ def review_thread_author(comment: dict[str, Any]) -> str | None:
 
 
 def review_thread_findings_from_payload(payload: Any) -> tuple[list[dict[str, Any]], list[str]]:
-    nodes = review_threads_nodes(payload)
-    if nodes is None:
+    review_threads = review_threads_object(payload)
+    nodes = review_threads.get("nodes") if review_threads is not None else None
+    if review_threads is None or not isinstance(nodes, list):
         return [], ["review threads payload must contain a GitHub reviewThreads JSON object"]
 
-    warnings: list[str] = []
+    warnings: list[str] = _pagination_warnings(review_threads, nodes)
     findings: list[dict[str, Any]] = []
     for index, thread in enumerate(nodes, start=1):
         if not isinstance(thread, dict):

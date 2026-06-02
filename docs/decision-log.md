@@ -59,8 +59,9 @@ Alternatives considered:
 Consequences:
 - Operators can refresh PR evidence explicitly, then reuse saved JSON for local
   readiness and candidate decisions.
-- Missing `gh`, auth failure, rate limit, network failure, or malformed JSON
-  blocks sync without partial evidence files.
+- Missing `gh`, auth failure, rate limit, network failure, malformed JSON,
+  incomplete paginated review-thread evidence, or incomplete local write sets
+  block sync without partial evidence files.
 - Future materialization work must re-check saved evidence freshness before any
   branch, commit, push, or PR action.
 

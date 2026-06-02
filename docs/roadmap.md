@@ -221,10 +221,12 @@ These are the important boundaries that are not solved yet:
 - Current flows mostly assume one active implementation agent. Future work must
   avoid baking that assumption into packet schemas, audit records, review
   gates, or GitHub automation.
-- Review integration is deterministic and local. Candidate discovery can
-  ingest saved review findings and saved GitHub review-thread files, while
-  `pr-readiness` reads saved PR data; Cadence does not fetch, synchronize, or
-  resolve live GitHub review threads.
+- Review integration is deterministic after evidence capture. Candidate
+  discovery can ingest saved review findings and saved GitHub review-thread
+  files, `pr-readiness` reads saved PR data, and `github-evidence-sync` can
+  explicitly fetch read-only PR/check/review-thread evidence into local files;
+  Cadence does not write, continuously synchronize, or resolve live GitHub
+  review threads.
 - Release verification is documented and repeatable, and `release-dry-run` can
   inspect local release metadata and Git refs, but release tagging and GitHub
   release creation still require operator execution.
@@ -328,13 +330,15 @@ Status: implemented and merged in PR #47 as an immediate stabilization slice.
 Current evidence: repo snapshots now include `readiness_evidence` with
 `freshness: local_only` and limitations for unfetched PR/review state.
 `pr-readiness` packets now include `readiness_evidence` for `saved_input`,
-`stale`, and caller-asserted `live_like` evidence. Snapshot validation now
+`stale`, and caller-asserted `live_like` evidence, and
+`github-evidence-sync` can refresh PR/check/review-thread evidence into saved
+local files before those deterministic readers run. Snapshot validation now
 requires local snapshot readiness evidence. Saved PR JSON can be age-gated with
 `--max-pr-json-age-minutes`; stale or future-dated saved evidence waits before
 acting on PR blockers and recommends `refresh_pr_evidence`. Negative age limits
 are rejected. Caller-asserted `live_like` evidence is not gated by saved-JSON
-age policy. The CLI still evaluates saved JSON files only and does not call
-GitHub.
+age policy. `pr-readiness` still evaluates saved JSON files only and does not
+call GitHub.
 
 Implementation files: `codex_cadence/repo_state.py`,
 `codex_cadence/pr_readiness.py`, `codex_cadence/cli.py`, tests, docs.
@@ -345,7 +349,8 @@ stale and future-dated saved PR evidence with refresh recommendation before
 stale blockers, non-negative CLI age limits, and live-like evaluator labels
 that remain outside saved-JSON age policy.
 
-Follow-up: live GitHub fetching and reconciliation remain future work.
+Follow-up: continuous GitHub reconciliation and write-side PR/review actions
+remain future work.
 
 ## Short-Term Goals
 

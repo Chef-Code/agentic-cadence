@@ -193,7 +193,9 @@ execution candidates. `--review-findings-file` reads the existing normalized
 JSON list of findings. `--review-threads-file` reads saved GitHub GraphQL
 `reviewThreads` JSON with `isResolved`, `isOutdated`, and comment `outdated`
 status fields, then converts actionable unresolved, current review comments
-into the same `review_finding` candidate shape. This ingestion must stay
+into the same `review_finding` candidate shape. Candidate ingestion uses saved
+feedback as local work-discovery input; readiness decisions apply stricter
+completeness gates. This ingestion must stay
 deterministic and local: it must not call GitHub, trust PR body text, include
 resolved or outdated threads, assume missing status fields are current, include
 non-actionable summaries such as walkthroughs or no-actionable-comments
@@ -328,9 +330,12 @@ PR JSON, saved `reviewThreads` JSON, and a summary packet to local files. It
 must label the evidence as live read-only input, fail closed for missing `gh`,
 authentication failure, rate limit, network failure, malformed JSON, or
 malformed repo slugs, and does not write partial evidence when either live fetch
-fails. The command must not create branches, commit, push, call GitHub write
-endpoints, create or edit pull requests, spend paid review, merge, release, or
-publish packages.
+fails or evidence-file writes cannot complete as a set. Review-thread fetches
+must include `pageInfo.hasNextPage` for review threads and comments; if either
+reports more pages or omits pagination evidence, the sync must block instead of
+saving incomplete evidence as valid. The command must not create branches,
+commit, push, call GitHub write endpoints, create or edit pull requests, spend
+paid review, merge, release, or publish packages.
 
 PR readiness may check target-repository template compliance and review
 feedback from local files. `pr-readiness --pr-template-file <path>` must read a
@@ -338,7 +343,9 @@ Markdown pull request template, derive required PR body sections from its
 headings, and report missing template sections through the readiness packet.
 `pr-readiness --review-threads-file <path>` must read saved GitHub GraphQL
 `reviewThreads` JSON and block unresolved actionable current review comments
-while ignoring resolved, outdated, and non-actionable comments. It must include
+while ignoring resolved, outdated, and non-actionable comments. Malformed,
+missing-status, or incomplete paginated review-thread evidence must block
+readiness instead of being treated as zero feedback. It must include
 `readiness_evidence` labels so consumers can distinguish `saved_input`, `stale`,
 and caller-asserted `live_like` evidence. The CLI reads local saved PR JSON and
 labels it `saved_input`; when `--max-pr-json-age-minutes` is supplied and the

@@ -459,6 +459,8 @@ Current evidence:
   after both reads succeed;
 - missing `gh`, auth failure, rate limit, network failure, and malformed JSON
   return blocked packets without partial evidence files;
+- incomplete paginated review-thread evidence blocks instead of being saved as
+  valid readiness input;
 - candidate discovery can ingest saved PR JSON with `--pr-json-file` and turn
   failed check runs or status contexts into `pr_check_failure` execution
   candidates;
@@ -469,7 +471,8 @@ Current evidence:
 - PR readiness labels stale saved PR state so it is not treated as merge-ready
   when an explicit age policy says it must be refreshed;
 - no GitHub write sync, branch creation, commit, push, PR edit, merge, release,
-  package publication, or automatic response loop exists.
+  package publication, continuous reconciliation, or automatic response loop
+  exists.
 
 Why it matters: unattended operation fails quickly if Cadence cannot react to
 CI failures or review comments.
@@ -494,6 +497,7 @@ Validation needed:
 - outdated review comment is ignored;
 - non-actionable review summary is ignored;
 - merge readiness remains blocked while actionable feedback exists;
+- malformed or incomplete review-thread evidence blocks readiness;
 - read-only live fetch failures block without partial local evidence files.
 
 Codex implementation rule: Codex can implement local ingestion and explicit

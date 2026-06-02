@@ -261,6 +261,8 @@ REQUIRED_TOKENS = {
         "active-stop result-validation controls",
         "local branch policy for dry-run Git/PR planning",
         "read-only GitHub evidence sync",
+        "github-evidence-sync",
+        "continuous GitHub reconciliation and write-side PR/review actions",
         "still no hash chain or",
     ),
     "docs/autonomous-loop-readiness.md": (
@@ -388,6 +390,17 @@ REQUIRED_TOKENS = {
         "github_rate_limited",
         "github_network_failed",
         "pr_check_failure_findings",
+        "review_thread_findings_from_payload",
+        "pageInfo",
+        "hasNextPage",
+        "gh_json_invalid",
+        "gh_json_not_object",
+        "no_partial_evidence_written",
+        "review_thread_evidence_incomplete",
+        "evidence_write_failed",
+    ),
+    "codex_cadence/pr_readiness.py": (
+        "review_thread_evidence_invalid",
         "review_thread_findings_from_payload",
     ),
     "codex_cadence/executor_contract.py": (
@@ -521,6 +534,10 @@ FORBIDDEN_TOKENS = {
         "Implement the dry-run-only `git-pr-plan` slice test-first",
         "codex/controlled-executor-fixture",
         "This branch starts only a controlled fake executor fixture",
+    ),
+    "docs/roadmap.md": (
+        "Cadence does not fetch, synchronize, or",
+        "live GitHub fetching and reconciliation remain future work",
     ),
 }
 
