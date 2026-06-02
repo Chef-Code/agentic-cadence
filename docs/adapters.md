@@ -80,12 +80,14 @@ Successful evidence must not report a dirty worktree, must include command and
 validation evidence, must show every required check command with exit code `0`,
 and must include matching passed validation results. Changed files must stay
 within the task packet's allowed paths, and reported commands/results must not
-violate disabled commit, push, PR, or head-change permissions, including common
-absolute-path, git/gh global-option, and shell-wrapper forms.
+violate disabled commit, push, PR-creation, merge, release,
+package-publication, or head-change permissions, including common absolute-path,
+git/gh global-option, shell-wrapper, release, and publish forms.
 
 This contract only defines the boundary between Cadence and an external
 executor. It does not run a shell command, create a branch, commit, push, open a
-PR, spend review, merge, or claim named host support.
+PR, spend review, merge, release, publish packages, or claim named host
+support.
 
 ## Host/Session Signal Contract
 

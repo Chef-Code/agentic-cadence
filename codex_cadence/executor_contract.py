@@ -163,21 +163,29 @@ def _command_name(token: str) -> str:
     return PurePosixPath(token.replace("\\", "/")).name.lower()
 
 
+def _python_command_name(command_name: str) -> bool:
+    return command_name in {"py", "py.exe"} or re.fullmatch(
+        r"python(?:\d+(?:\.\d+)*)?(?:\.exe)?",
+        command_name,
+    ) is not None
+
+
 def _command_text_for_lexing(command: str) -> str:
     normalized = command.replace("\r\n", "\n").replace("\r", "\n")
     normalized = re.sub(r"\\\n[ \t]*", " ", normalized)
     return normalized.replace("\n", " ; ")
 
 
-def _command_tokens(command: str) -> list[str]:
+def _command_tokens(command: str, *, lower: bool = True) -> list[str]:
     shell_text = _command_text_for_lexing(command)
     try:
         lexer = shlex.shlex(shell_text, posix=True, punctuation_chars=True)
         lexer.commenters = ""
         lexer.whitespace_split = True
-        return [token.lower() for token in lexer]
+        tokens = list(lexer)
     except ValueError:
-        return _normalized_command(shell_text).split()
+        tokens = shell_text.strip().split()
+    return [token.lower() for token in tokens] if lower else tokens
 
 
 def _command_segments(tokens: list[str]) -> list[list[str]]:
@@ -616,6 +624,46 @@ def _embedded_shell_commands(tokens: list[str]) -> list[str]:
     return embedded
 
 
+def _git_alias_shell_commands(
+    alias_name: str,
+    aliases: dict[str, str | None],
+    seen: set[str] | None = None,
+) -> list[str]:
+    if alias_name not in aliases:
+        return []
+    seen_aliases = set() if seen is None else set(seen)
+    if alias_name in seen_aliases:
+        return []
+    seen_aliases.add(alias_name)
+    alias_value = aliases.get(alias_name)
+    if alias_value is None:
+        return []
+    shell_alias = alias_value.startswith("!")
+    alias_command = alias_value.removeprefix("!").strip()
+    if shell_alias:
+        return [alias_command] if alias_command else []
+    alias_tokens = _command_tokens(alias_command)
+    if not alias_tokens:
+        return []
+    nested_alias = alias_tokens[0]
+    if nested_alias in aliases:
+        return _git_alias_shell_commands(nested_alias, aliases, seen_aliases)
+    if _command_name(nested_alias) in {"git", "git.exe"}:
+        return _git_shell_alias_commands(alias_tokens)
+    return []
+
+
+def _git_shell_alias_commands(tokens: list[str]) -> list[str]:
+    index = _first_command_index(tokens)
+    if index is None or _command_name(tokens[index]) not in {"git", "git.exe"}:
+        return []
+    aliases = _git_aliases_before_subcommand(tokens, index)
+    next_subcommand = _next_git_subcommand(tokens, index)
+    if next_subcommand is None:
+        return []
+    return _git_alias_shell_commands(next_subcommand, aliases)
+
+
 def _command_substitution_spans(command: str) -> list[tuple[int, int, str]]:
     spans: list[tuple[int, int, str]] = []
     index = 0
@@ -774,6 +822,51 @@ def _has_command_substitution(command: str) -> bool:
     return bool(_command_substitution_spans(command))
 
 
+def _python_uses_code_option(tokens: list[str], index: int) -> bool:
+    current = index + 1
+    while current < len(tokens):
+        token = tokens[current]
+        token_lower = token.lower()
+        if token_lower in _COMMAND_SEPARATORS:
+            return False
+        if token_lower == "-c" or (token_lower.startswith("-c") and token_lower != "-c"):
+            return True
+        if token_lower == "-m" or (token_lower.startswith("-m") and token_lower != "-m"):
+            return False
+        if token_lower == "--":
+            return False
+        if token == "-W" or token_lower == "--check-hash-based-pycs":
+            current = min(current + 2, len(tokens))
+            continue
+        if (
+            (token.startswith("-W") and token != "-W")
+            or token == "-X"
+            or (token.startswith("-X") and token != "-X")
+            or token_lower.startswith("--check-hash-based-pycs=")
+        ):
+            current += 1 if token != "-X" else 2
+            continue
+        if not token_lower.startswith("-"):
+            return False
+        current += 1
+    return False
+
+
+def _has_opaque_interpreter_payload(tokens: list[str]) -> bool:
+    index = _first_command_index(tokens)
+    if index is None:
+        return False
+    command = _command_name(tokens[index])
+    if command in _POWERSHELL_COMMANDS and any(
+        token.lower() in {"-encodedcommand", "-enc", "-e", "/encodedcommand", "/enc", "/e"}
+        for token in tokens[index + 1 :]
+    ):
+        return True
+    if _python_command_name(command) and _python_uses_code_option(tokens, index):
+        return True
+    return False
+
+
 def _has_unsupported_shell_expansion(command: str, depth: int = 0) -> bool:
     if depth > _COMMAND_EXPANSION_DEPTH_LIMIT:
         return True
@@ -782,7 +875,11 @@ def _has_unsupported_shell_expansion(command: str, depth: int = 0) -> bool:
     expansion_text = _strip_single_quoted_ranges(command)
     if _PARAMETER_EXPANSION_PATTERN.search(expansion_text):
         return True
-    for segment_tokens in _command_segments(_command_tokens(command)):
+    tokens = _command_tokens(command)
+    for segment_tokens in _command_segments(_command_tokens(command, lower=False)):
+        if _has_opaque_interpreter_payload(segment_tokens):
+            return True
+    for segment_tokens in _command_segments(tokens):
         for embedded_command in _embedded_shell_commands(segment_tokens):
             if _has_unsupported_shell_expansion(embedded_command, depth + 1):
                 return True
@@ -802,12 +899,16 @@ def _effective_command_segments(command: str, depth: int = 0) -> list[str]:
     segments: list[str] = []
     for substitution in _raw_command_substitutions(command):
         segments.extend(_effective_command_segments(substitution, depth + 1))
+    for alias_command in _git_shell_alias_commands(tokens):
+        segments.extend(_effective_command_segments(alias_command, depth + 1))
     for variant in _command_substitution_output_variants(command):
         if variant != command:
             segments.extend(_effective_command_segments(variant, depth + 1))
     for variant in _shell_parameter_variants(command):
         segments.extend(_effective_command_segments(variant, depth + 1))
     for segment_tokens in _command_segments(tokens):
+        for alias_command in _git_shell_alias_commands(segment_tokens):
+            segments.extend(_effective_command_segments(alias_command, depth + 1))
         embedded = _embedded_shell_commands(segment_tokens)
         if embedded:
             for embedded_command in embedded:
@@ -837,6 +938,141 @@ def _command_invokes(command: str, invocation: str) -> bool:
     return _single_command_invokes(command, invocation) or any(
         _single_command_invokes(segment, invocation) for segment in _effective_command_segments(command)
     )
+
+
+def _command_publishes_package(command: str) -> bool:
+    segments = [command, *_effective_command_segments(command)]
+    return any(_single_command_publishes_package(segment) for segment in segments)
+
+
+def _single_command_publishes_package(command: str) -> bool:
+    tokens = _command_tokens(command)
+    index = _first_command_index(tokens)
+    if index is None:
+        return False
+    command_name = _command_name(tokens[index])
+    remaining = tokens[index + 1 :]
+    if command_name in {"twine", "twine.exe"}:
+        return "upload" in remaining
+    if _python_command_name(command_name):
+        for module_index in range(index + 1, len(tokens) - 1):
+            if tokens[module_index] == "-m" and _command_name(tokens[module_index + 1]) in {"twine", "twine.exe"}:
+                return "upload" in tokens[module_index + 2 :]
+    if command_name in {
+        "npm",
+        "npm.cmd",
+        "npm.exe",
+        "pnpm",
+        "pnpm.cmd",
+        "pnpm.exe",
+        "yarn",
+        "yarn.cmd",
+        "yarn.exe",
+        "poetry",
+        "poetry.exe",
+        "uv",
+        "uv.exe",
+        "hatch",
+        "hatch.exe",
+        "flit",
+        "flit.exe",
+    }:
+        return "publish" in remaining
+    return False
+
+
+def _command_merges(command: str) -> bool:
+    return any(
+        _command_invokes(command, invocation)
+        for invocation in (
+            "git merge",
+            "gh pr merge",
+        )
+    )
+
+
+def _single_git_tag_mutates(command: str) -> bool:
+    tokens = _command_tokens(command)
+    index = _first_command_index(tokens)
+    if index is None or _command_name(tokens[index]) not in {"git", "git.exe"}:
+        return False
+
+    current = index + 1
+    while current < len(tokens):
+        token = tokens[current]
+        if token == "--":
+            current += 1
+            break
+        if token in _COMMAND_SEPARATORS:
+            return False
+        if _option_uses_value(token, _GIT_OPTIONS_WITH_VALUE, _GIT_OPTIONS_WITH_EQUALS):
+            current += 2 if token in _GIT_OPTIONS_WITH_VALUE else 1
+            continue
+        if token.startswith("-"):
+            current += 1
+            continue
+        break
+    if current >= len(tokens) or tokens[current] != "tag":
+        return False
+
+    current += 1
+    read_only_mode = False
+    while current < len(tokens):
+        token = tokens[current]
+        if token in _COMMAND_SEPARATORS:
+            return False
+        if token == "--":
+            return current + 1 < len(tokens)
+        if token in {"-a", "--annotate", "-s", "--sign", "-f", "--force", "-d", "--delete"}:
+            return True
+        if token in {"-m", "--message", "-F", "--file", "-u", "--local-user", "--trailer"}:
+            return True
+        if token.startswith(("--message=", "--file=", "--local-user=", "--trailer=")):
+            return True
+        if token in {"-l", "--list", "-v", "--verify"} or token.startswith("-n"):
+            read_only_mode = True
+            current += 1
+            continue
+        if token in {"--contains", "--no-contains", "--points-at", "--merged", "--no-merged", "--sort", "--format"}:
+            read_only_mode = True
+            current += 2
+            continue
+        if token.startswith((
+            "--contains=",
+            "--no-contains=",
+            "--points-at=",
+            "--merged=",
+            "--no-merged=",
+            "--sort=",
+            "--format=",
+            "--column",
+            "--color",
+        )):
+            read_only_mode = True
+            current += 1
+            continue
+        if token.startswith("-"):
+            current += 1
+            continue
+        if read_only_mode:
+            current += 1
+            continue
+        return True
+    return False
+
+
+def _git_tag_mutates(command: str) -> bool:
+    return any(_single_git_tag_mutates(segment) for segment in [command, *_effective_command_segments(command)])
+
+
+def _command_creates_release(command: str) -> bool:
+    return any(
+        _command_invokes(command, invocation)
+        for invocation in (
+            "gh release create",
+            "gh release upload",
+        )
+    ) or _git_tag_mutates(command)
 
 
 def _command_allowed_by_policy(command: str, allowed_commands: list[str]) -> bool:
@@ -933,6 +1169,9 @@ def build_executor_task_packet(
             "may_commit": False,
             "may_push": False,
             "may_open_pr": False,
+            "may_merge": False,
+            "may_release": False,
+            "may_publish_packages": False,
             "named_host_adapter": None,
         },
         "limitations": [
@@ -1034,11 +1273,51 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
     permissions = packet.get("permissions")
     if not isinstance(permissions, dict):
         return False, "executor task permissions must be a JSON object"
-    for field in ("may_commit", "may_push", "may_open_pr"):
+    for field in ("may_commit", "may_push", "may_open_pr", "may_merge", "may_release", "may_publish_packages"):
         if permissions.get(field) is not False:
             return False, f"executor task permissions.{field} must be false"
     if permissions.get("named_host_adapter") is not None:
         return False, "executor task permissions.named_host_adapter must be null"
+    return True, "ok"
+
+
+def validate_executor_command(command: Any, task_packet: dict[str, Any]) -> tuple[bool, str]:
+    valid_task, task_reason = validate_executor_task_packet(task_packet)
+    if not valid_task:
+        return False, f"invalid executor task packet: {task_reason}"
+    if not _non_empty_string(command):
+        return False, "executor command is required"
+    command_text = str(command)
+    command_policy = task_packet.get("command_policy", {})
+    allowed_commands = command_policy.get("allowed_commands", []) if isinstance(command_policy, dict) else []
+    denied_commands = command_policy.get("denied_commands", []) if isinstance(command_policy, dict) else []
+    permissions = task_packet["permissions"]
+    unsupported_shell_expansion = _has_unsupported_shell_expansion(command_text)
+    if any(_command_invokes(command_text, denied) for denied in denied_commands):
+        return False, "executor command is denied by command_policy"
+    if denied_commands and not allowed_commands and (_has_command_substitution(command_text) or unsupported_shell_expansion):
+        return False, "executor command is denied by command_policy"
+    if allowed_commands and (
+        unsupported_shell_expansion or not _command_allowed_by_policy(command_text, allowed_commands)
+    ):
+        return False, "executor command is outside allowed command_policy"
+    if permissions.get("may_commit") is False and _command_invokes(command_text, "git commit"):
+        return False, "executor command violates disabled commit permission"
+    if permissions.get("may_push") is False and _command_invokes(command_text, "git push"):
+        return False, "executor command violates disabled push permission"
+    if permissions.get("may_open_pr") is False and _command_invokes(command_text, "gh pr create"):
+        return False, "executor command violates disabled PR creation permission"
+    if permissions.get("may_merge") is False and _command_merges(command_text):
+        return False, "executor command violates disabled merge permission"
+    if permissions.get("may_release") is False and _command_creates_release(command_text):
+        return False, "executor command violates disabled release permission"
+    if permissions.get("may_publish_packages") is False and _command_publishes_package(command_text):
+        return False, "executor command violates disabled package publication permission"
+    if unsupported_shell_expansion and any(
+        permissions.get(field) is False
+        for field in ("may_commit", "may_push", "may_open_pr", "may_merge", "may_release", "may_publish_packages")
+    ):
+        return False, "executor command contains unsupported shell expansion"
     return True, "ok"
 
 
@@ -1106,8 +1385,15 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
             return False, f"executor result commands_run[{index}] violates disabled push permission"
         if permissions.get("may_open_pr") is False and _command_invokes(command_text, "gh pr create"):
             return False, f"executor result commands_run[{index}] violates disabled PR creation permission"
+        if permissions.get("may_merge") is False and _command_merges(command_text):
+            return False, f"executor result commands_run[{index}] violates disabled merge permission"
+        if permissions.get("may_release") is False and _command_creates_release(command_text):
+            return False, f"executor result commands_run[{index}] violates disabled release permission"
+        if permissions.get("may_publish_packages") is False and _command_publishes_package(command_text):
+            return False, f"executor result commands_run[{index}] violates disabled package publication permission"
         if unsupported_shell_expansion and any(
-            permissions.get(field) is False for field in ("may_commit", "may_push", "may_open_pr")
+            permissions.get(field) is False
+            for field in ("may_commit", "may_push", "may_open_pr", "may_merge", "may_release", "may_publish_packages")
         ):
             return False, f"executor result commands_run[{index}] contains unsupported shell expansion"
         command_exit_codes.setdefault(command_text, []).append(exit_code)

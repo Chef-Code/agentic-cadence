@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-01
+Last updated: 2026-06-02
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,69 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-02 - Add controlled executor fixture runner
+
+Summary:
+- Added the `run-controlled-executor-fixture` CLI path and
+  `controlled-executor-fixture-run.v1` packet for tests/examples.
+- The runner validates a generic executor task packet and formatted fixture
+  command before launch, runs a fake external executor component with a timeout,
+  requires result evidence at the approved path, validates active-brake stops,
+  and appends invocation/result-validation audit records.
+- Review follow-up made the fixture boundary structural: the runner now
+  requires the current Python interpreter plus bundled fixture script by
+  absolute path, uses argv execution with `shell=False`, keeps result evidence
+  under the runtime root, refuses stale result files, preserves stopped
+  evidence over observed runtime cleanup overhead, and rejects successful
+  evidence from nonzero fixture exits.
+- Expanded disabled executor permissions to block merge, release, and
+  package-publication command forms, including git shell aliases after command
+  separators and versioned Python `twine` launchers, in addition to commit,
+  push, PR creation, and forbidden head changes.
+- Bot review follow-up made template placeholder formatting argv-safe for paths
+  with spaces, moved the fixture CLI to the runtime-root-only guard, converted
+  missing repos and malformed fixture evidence into controlled invalid packets,
+  aligned the example fixture process exit with evidence, and allowed read-only
+  `git tag` listing/verification while still blocking tag mutation.
+
+Completed slices:
+- Controlled executor component fixture.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Cadence can now govern a fake executor component, but real executor
+  invocation, epoch closeout, branch policy, live Git/PR actions, release
+  authority, package publication, and unattended loop execution remain blocked.
+
+Evidence:
+- `python -m unittest tests.test_executor_contract.ExecutorContractTests.test_validate_executor_command_rejects_disabled_live_git_actions tests.test_executor_contract.ExecutorContractTests.test_result_evidence_rejects_merge_release_or_package_publication_commands -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_controlled_executor_fixture_runs_success_and_validates_result tests.test_cadence.CadenceCliTests.test_controlled_executor_fixture_enforces_task_command_policy_before_running -v`
+- `python -m py_compile codex_cadence/executor_runner.py codex_cadence/cli.py codex_cadence/executor_contract.py codex_cadence/policy_audit.py scripts/validate_protocol.py examples/controlled-executor-fixture/run.py`
+- `python -m unittest tests.test_executor_contract tests.test_cadence -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+- `python -m unittest tests.test_candidates.CandidateDiscoveryGovernanceTests.test_repo_business_memory_current_entries_seed_controlled_executor_backlog_and_parse_without_warnings -v`
+
+New risks or blockers:
+- Fixture success is not real executor authority. Executor result closeout into
+  epochs, branch policy, real implementation execution, live Git/PR automation,
+  merge authority, release authority, and package-publication authority remain
+  future gates.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+- `docs/session-handoff.md`
+- `docs/adapters.md`
+- `docs/cadence/business-memory.md`
 
 ## 2026-06-01 - Implement dry-run Git/PR planning
 

@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus dry-run Git/PR planning for local generic executor task and result evidence.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus dry-run Git/PR planning for local generic executor task and result evidence and a fixture-only controlled executor runner for tests and examples.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -264,6 +264,25 @@ Executor result evidence can be checked without running an executor:
 ```bash
 agentic-cadence --root examples/first-run/work/runtime validate-executor-result --task-file executor-task.json --result-file executor-result.json
 ```
+
+For tests and examples, `run-controlled-executor-fixture` can launch a fake
+external executor component from an explicit command template. The template may
+use `{task_file}`, `{result_file}`, and `{repo_path}` placeholders, but it must
+invoke the bundled fixture script by absolute path through the current Python interpreter.
+Cadence validates the task packet and command policy before starting the
+fixture, runs the fixture as an argument vector without shell expansion,
+requires the expected result evidence file to stay inside the runtime root and not already exist, records
+`executor_fixture_invocation` and `executor_result_validation` audit records,
+and validates timeout or active-brake stop evidence before accepting the result:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime run-controlled-executor-fixture --task-file executor-task.json --command-template "\"/absolute/path/to/current-python\" \"/absolute/path/to/agentic-cadence/examples/controlled-executor-fixture/run.py\" --task-file \"{task_file}\" --result-file \"{result_file}\" --status succeeded --summary \"fixture completed\" --command \"python -m unittest discover -s tests\"" --timeout-seconds 60
+```
+
+The returned packet uses `controlled-executor-fixture-run.v1`. This command is
+fixture-only. It is not a real executor integration or named host adapter, and
+malformed templates fail closed before launch. It must not create branches,
+commit, push, open or merge PRs, create releases, or publish packages.
 
 Root-backed loop ticks and executor-result validation append compact
 `cadence-audit.v1` records under `<root>/audit/events.jsonl`. A local

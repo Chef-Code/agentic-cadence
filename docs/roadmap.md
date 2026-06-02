@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-01
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, and git-pr-plan current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, and controlled executor fixture current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -70,8 +70,8 @@ Agentic Cadence is not currently a magic-button autonomous builder or an
 agent-team orchestrator. The released 0.1.3 baseline is a local CLI and
 protocol substrate that can govern and document agentic work. The current
 development tree adds unreleased audit replay evidence, command-policy
-enforcement, active-stop result-validation controls, and dry-run Git/PR
-planning, but it still cannot independently implement code, push branches, open
+enforcement, active-stop result-validation controls, dry-run Git/PR planning,
+and a controlled executor fixture runner for tests/examples, but it still cannot independently implement code, push branches, open
 pull requests, assign agent roles, resolve review feedback, launch fresh
 sessions, coordinate an agent pool, or continue in an unattended loop.
 
@@ -109,6 +109,10 @@ command-policy and active-stop controls. It includes:
 - generic executor task/result packet validation, including local snapshot
   trust-anchor checks for repo name, absolute cwd/path, branch, head, dirty
   worktree, and low-confidence state;
+- fixture-only `run-controlled-executor-fixture` support that governs a fake
+  external executor component through task policy, timeout handling, audit
+  records, and result-evidence validation without claiming real executor or
+  named-host adapter support;
 - deterministic PR body preflight and PR readiness checks from saved local
   inputs;
 - dry-run-only `git-pr-plan` packets that turn validated executor evidence into

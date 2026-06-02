@@ -1,8 +1,8 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-06-01
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, and git-pr-plan current tree
+Last updated: 2026-06-02
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, and controlled executor fixture current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -61,11 +61,15 @@ runtime can do these things end-to-end:
   packet;
 - emit a generic executor task packet for operator approval without starting an
   executor;
+- run an explicit test/example-only controlled executor fixture command that
+  validates the task packet and command policy before launching a fake external
+  executor component, then validates the fixture's result evidence;
 - apply an initial local loop policy file to bound emitted executor task paths,
   command policy, required checks, runtime, and stop conditions while retaining
   built-in safety stops;
-- append compact audit records for root-backed loop decisions and executor
-  result validation, including task/result checksums for result validation;
+- append compact audit records for root-backed loop decisions, controlled
+  executor fixture invocation, and executor result validation, including
+  task/result checksums for result validation;
 - replay local audit history with a read-only `audit-replay` command that
   validates `cadence-audit.v1` JSONL shape, supported events, line counts, and
   checksum syntax;
@@ -75,7 +79,8 @@ runtime can do these things end-to-end:
   non-low repo confidence;
 - validate local generic executor result evidence against a task packet,
   including elapsed runtime bounds, expected evidence-path binding, command
-  allow/deny policy, and active brake stop handling;
+  allow/deny policy, disabled commit/push/PR/merge/release/package-publication
+  permissions, and active brake stop handling;
 - generate a dry-run Git/PR transition plan from validated executor evidence,
   with local branch/head/base checks, explicit materialized-change evidence,
   PR body preflight, operator-confirmation requirements, and no Git or GitHub
@@ -140,7 +145,7 @@ Agentic Cadence cannot currently:
 | Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, active brake stop handling, `<root>/audit/events.jsonl`, and read-only `audit-replay`; no branch policy, hash chain, or authenticated approval identity |
 | Agent-team orchestration | Not built | No agent pool, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
-| Executor adapter contract | Partial generic contract | Task/result packet validation exists, including snapshot trust-anchor checks, but no real executor |
+| Executor adapter contract | Partial generic contract | Task/result packet validation and a fake controlled fixture runner exist, including snapshot trust-anchor checks, but no real executor or named host adapter |
 | Autonomous implementation | Not built | Requires real executor integration |
 | Live GitHub sync | Not built | Planned slice |
 | Git/PR transition planning | Partial, dry-run only | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects |
@@ -155,8 +160,9 @@ No.
 
 It can inspect and suggest. It can run a read-only loop tick that produces a
 structured next action. It can emit a generic executor task packet for operator
-approval, validate the packet's local snapshot trust anchor, validate local
-executor result evidence, and produce a dry-run Git/PR transition plan for
+approval, validate the packet's local snapshot trust anchor, run a controlled
+fake executor fixture from an explicit command template for tests/examples,
+validate local executor result evidence, and produce a dry-run Git/PR transition plan for
 separate review. It can govern handoff and continuation decisions. It can
 evaluate saved PR evidence. It cannot perform the core build loop by
 itself, and it cannot yet coordinate a team of role-specific agents.
@@ -172,10 +178,11 @@ requested executor-task bounds.
 
 At `requires_executor_contract`, a human or external agent still has to request
 an executor task packet. At `approve_executor_task`, a human or external agent
-still has to approve execution, implement code changes, run checks, provide
-result evidence, and then hand the result to dry-run `git-pr-plan` for a
-separate Git/PR transition review. The remaining gaps are live commit, push, PR creation or update,
-review feedback fetching, and new-session launch; they remain external or
+still has to approve any real execution. The controlled fixture path can prove
+policy, timeout, audit, and result-evidence behavior with fake local evidence,
+but it does not implement product changes or close out epochs. Real code
+changes, epoch closeout, dry-run `git-pr-plan` handoff, live commit, push, PR creation or update,
+review feedback fetching, and new-session launch remain external or
 future approved slices. At
 `policy_denied`, an operator must adjust the task bounds or policy before
 execution can be considered. Audit history is now locally inspectable through
@@ -184,25 +191,28 @@ does not provide tamper evidence.
 
 ## What Would Break First
 
-The first hard stop in a real unattended run is still execution. Cadence can
-emit a bounded executor task packet and reject malformed, dirty, low-confidence,
-relative-path, or mismatched snapshot anchors, but it does not invoke a real
-executor or apply code changes.
+The first hard stop in a real unattended run is still governed execution.
+Cadence can emit a bounded executor task packet, reject malformed, dirty,
+low-confidence, relative-path, or mismatched snapshot anchors, and run a fake
+controlled fixture. It still does not invoke a real executor, apply code
+changes, or close execution into an epoch decision.
 
 The next likely failures are:
 
-1. no live branch/commit/push/PR workflow exists; the next increment is only a
-   dry-run planning packet for operator or future role review;
-2. missing live synchronization. Repo snapshots are local git snapshots, and PR
+1. executor result evidence is not yet wired into epoch closeout or the next
+   loop decision;
+2. no live branch/commit/push/PR workflow exists; the current Git/PR increment
+   is only a dry-run planning packet for operator or future role review;
+3. missing live synchronization. Repo snapshots are local git snapshots, and PR
    readiness reads saved input files. Cadence labels `local_only`,
    `saved_input`, `stale`, and caller-asserted `live_like` evidence, but it
    still does not fetch or reconcile live PR, review, or CI state;
-3. review comments and failing checks are not automatically synchronized back
+4. review comments and failing checks are not automatically synchronized back
    into the candidate loop;
-4. context pressure is only known when a host explicitly reports it;
-5. no agent-role identity or review-separation model exists, so Cadence cannot
+5. context pressure is only known when a host explicitly reports it;
+6. no agent-role identity or review-separation model exists, so Cadence cannot
    prove that a Builder Agent and Reviewer Agent are distinct actors;
-6. CLI root-using commands now block unignored repo-local runtime roots unless
+7. CLI root-using commands now block unignored repo-local runtime roots unless
    an operator explicitly allows them; residual risk remains for manual
    filesystem changes or future adapters that bypass the CLI guard.
 
@@ -254,22 +264,22 @@ Reasoning:
 - A read-only `loop-tick` now stitches snapshot, candidate election, Cadence
   state, and next-action reporting into one packet.
 - The generic executor task/result contract is now explicit and testable, but
-  it is not wired to a real executor.
+  it is only wired to a fake controlled executor fixture, not a real executor.
 - Executor task packets now fail closed on malformed local snapshots, missing
   repo identity, relative or unnormalizable cwd/path anchors, repo/cwd/branch/head
   mismatches, dirty worktrees, and low-confidence repo state.
 - Initial local policy/audit controls can bound emitted executor task packets,
   record loop/result-validation decisions, reject commands outside task
   command policy, stop non-`stopped` result completion after the brake changes,
-  and replay local audit history, but they do not invoke or govern a running
-  executor or provide tamper evidence.
+  run a controlled fixture, and replay local audit history, but they do not
+  govern a real executor or provide tamper evidence.
 - The handoff and task/epoch model is useful.
 - Candidate discovery is deterministic and conservative.
 - Adapter contracts are tested at the public CLI boundary.
 - Readiness packets now distinguish `local_only`, `saved_input`, `stale`, and
   caller-asserted `live_like` evidence.
-- The implementation executor, epoch execution flow, PR automation, live review
-  sync, continuous loop runner, and resume orchestration are not built.
+- The real implementation executor, epoch execution flow, PR automation, live
+  review sync, continuous loop runner, and resume orchestration are not built.
 
 The rating should stay low until a controlled loop can make a real change in a
 fixture repo, validate it, record evidence, and stop cleanly.

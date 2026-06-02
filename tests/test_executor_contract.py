@@ -6,6 +6,7 @@ from codex_cadence.executor_contract import (
     DEFAULT_EXECUTOR_STOP_CONDITIONS,
     _raw_command_substitutions,
     build_executor_task_packet,
+    validate_executor_command,
     validate_executor_result_evidence,
     validate_executor_task_packet,
 )
@@ -1426,7 +1427,6 @@ class ExecutorContractTests(unittest.TestCase):
             cases = [
                 "echo git push origin main",
                 "echo '$(git push origin main)'",
-                """python -c 'print("$(git push origin main)")'""",
                 "echo '$HOME'",
             ]
 
@@ -1446,6 +1446,25 @@ class ExecutorContractTests(unittest.TestCase):
                     valid, reason = validate_executor_result_evidence(evidence, task_packet)
 
                     self.assertTrue(valid, reason)
+
+    def test_result_evidence_rejects_opaque_python_payload(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            evidence = valid_result(
+                status="failed",
+                commands_run=[
+                    {
+                        "command": """python -c 'print("$(git push origin main)")'""",
+                        "exit_code": 0,
+                    },
+                ],
+                validation_results=[],
+            )
+
+            valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor result commands_run[0] contains unsupported shell expansion")
 
     def test_command_substitution_extraction_ignores_literal_parentheses(self):
         self.assertEqual(
@@ -1584,3 +1603,229 @@ class ExecutorContractTests(unittest.TestCase):
 
                     self.assertFalse(valid)
                     self.assertEqual(reason, "executor task expected_output.evidence_path must be absolute")
+
+    def test_validate_executor_command_uses_task_command_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            task_packet["command_policy"] = {
+                "allowed_commands": ["python examples/controlled-executor-fixture/run.py"],
+                "denied_commands": ["python -m pip install"],
+            }
+
+            valid, reason = validate_executor_command(
+                "python examples/controlled-executor-fixture/run.py --task-file task.json --result-file result.json",
+                task_packet,
+            )
+
+            self.assertTrue(valid, reason)
+
+            valid, reason = validate_executor_command(
+                "python -m pip install .",
+                task_packet,
+            )
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor command is denied by command_policy")
+
+    def test_validate_executor_command_rejects_disabled_live_git_actions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+
+            cases = [
+                ("git commit -m fixture", "executor command violates disabled commit permission"),
+                ("git push origin main", "executor command violates disabled push permission"),
+                ("gh pr create --fill", "executor command violates disabled PR creation permission"),
+                ("git merge feature", "executor command violates disabled merge permission"),
+                ("gh pr merge 63 --merge", "executor command violates disabled merge permission"),
+                ("gh release create v1.0.0", "executor command violates disabled release permission"),
+                ("gh release upload v1.0.0 dist/pkg.whl", "executor command violates disabled release permission"),
+                ("git tag v1.0.0", "executor command violates disabled release permission"),
+                ("twine upload dist/*", "executor command violates disabled package publication permission"),
+                ("twine --repository testpypi upload dist/*", "executor command violates disabled package publication permission"),
+                ("python3 -m twine upload dist/*", "executor command violates disabled package publication permission"),
+                (
+                    "python3.11 -m twine upload dist/*",
+                    "executor command violates disabled package publication permission",
+                ),
+                (
+                    "python -m twine --config-file .pypirc upload dist/*",
+                    "executor command violates disabled package publication permission",
+                ),
+                ("python -m twine upload dist/*", "executor command violates disabled package publication permission"),
+                ("py -m twine upload dist/*", "executor command violates disabled package publication permission"),
+                ("npm publish", "executor command violates disabled package publication permission"),
+                ("npm --registry https://registry.npmjs.org publish", "executor command violates disabled package publication permission"),
+                ("pnpm publish", "executor command violates disabled package publication permission"),
+                ("yarn publish", "executor command violates disabled package publication permission"),
+                ("yarn npm publish", "executor command violates disabled package publication permission"),
+                ("poetry -C pkg publish", "executor command violates disabled package publication permission"),
+                ("uv --directory pkg publish", "executor command violates disabled package publication permission"),
+                ("hatch publish", "executor command violates disabled package publication permission"),
+                ("flit publish", "executor command violates disabled package publication permission"),
+                ("git -c alias.x='!gh pr create --fill' x", "executor command violates disabled PR creation permission"),
+                ("git -c alias.x='!gh release create v1.0.0' x", "executor command violates disabled release permission"),
+                ("git -c alias.x='!twine upload dist/*' x", "executor command violates disabled package publication permission"),
+                (
+                    "echo ok ; git -c alias.x='!gh pr create --fill' x",
+                    "executor command violates disabled PR creation permission",
+                ),
+                (
+                    "echo ok && git -c alias.x='!gh release create v1.0.0' x",
+                    "executor command violates disabled release permission",
+                ),
+                (
+                    "echo ok | git -c alias.x='!twine upload dist/*' x",
+                    "executor command violates disabled package publication permission",
+                ),
+                ("powershell -EncodedCommand AAAA", "executor command contains unsupported shell expansion"),
+                ("powershell /EncodedCommand AAAA", "executor command contains unsupported shell expansion"),
+                ("powershell /enc AAAA", "executor command contains unsupported shell expansion"),
+                (
+                    "python -c \"import subprocess; subprocess.run(['git','push','origin','main'])\"",
+                    "executor command contains unsupported shell expansion",
+                ),
+                (
+                    "python -X dev -c \"import subprocess; subprocess.run(['git','push','origin','main'])\"",
+                    "executor command contains unsupported shell expansion",
+                ),
+            ]
+
+            for command, expected_reason in cases:
+                with self.subTest(command=command):
+                    valid, reason = validate_executor_command(command, task_packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
+
+    def test_validate_executor_command_allows_python_tool_config_flags_after_entrypoint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            cases = [
+                "python script.py -c config.yml",
+                "python -x script.py -c config.yml",
+                "python -m pytest -c pytest.ini",
+            ]
+
+            for command in cases:
+                with self.subTest(command=command):
+                    valid, reason = validate_executor_command(command, task_packet)
+
+                    self.assertTrue(valid, reason)
+
+    def test_validate_executor_command_allows_read_only_git_tag_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            cases = [
+                "git tag",
+                "git tag --list",
+                "git tag -l v*",
+                "git tag --points-at HEAD",
+                "git tag --verify v1.0.0",
+            ]
+
+            for command in cases:
+                with self.subTest(command=command):
+                    valid, reason = validate_executor_command(command, task_packet)
+
+                    self.assertTrue(valid, reason)
+
+    def test_result_evidence_rejects_merge_release_or_package_publication_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            cases = [
+                ("git merge feature", "executor result commands_run[0] violates disabled merge permission"),
+                ("gh pr merge 63 --merge", "executor result commands_run[0] violates disabled merge permission"),
+                ("gh release create v1.0.0", "executor result commands_run[0] violates disabled release permission"),
+                ("gh release upload v1.0.0 dist/pkg.whl", "executor result commands_run[0] violates disabled release permission"),
+                ("git tag v1.0.0", "executor result commands_run[0] violates disabled release permission"),
+                ("twine upload dist/*", "executor result commands_run[0] violates disabled package publication permission"),
+                (
+                    "twine --repository testpypi upload dist/*",
+                    "executor result commands_run[0] violates disabled package publication permission",
+                ),
+                (
+                    "python3 -m twine upload dist/*",
+                    "executor result commands_run[0] violates disabled package publication permission",
+                ),
+                (
+                    "python3.11 -m twine upload dist/*",
+                    "executor result commands_run[0] violates disabled package publication permission",
+                ),
+                (
+                    "python -m twine upload dist/*",
+                    "executor result commands_run[0] violates disabled package publication permission",
+                ),
+                (
+                    "python -m twine --config-file .pypirc upload dist/*",
+                    "executor result commands_run[0] violates disabled package publication permission",
+                ),
+                (
+                    "py -m twine upload dist/*",
+                    "executor result commands_run[0] violates disabled package publication permission",
+                ),
+                ("npm publish", "executor result commands_run[0] violates disabled package publication permission"),
+                (
+                    "npm --registry https://registry.npmjs.org publish",
+                    "executor result commands_run[0] violates disabled package publication permission",
+                ),
+                ("pnpm publish", "executor result commands_run[0] violates disabled package publication permission"),
+                ("yarn publish", "executor result commands_run[0] violates disabled package publication permission"),
+                ("yarn npm publish", "executor result commands_run[0] violates disabled package publication permission"),
+                ("poetry -C pkg publish", "executor result commands_run[0] violates disabled package publication permission"),
+                ("uv --directory pkg publish", "executor result commands_run[0] violates disabled package publication permission"),
+                ("hatch publish", "executor result commands_run[0] violates disabled package publication permission"),
+                ("flit publish", "executor result commands_run[0] violates disabled package publication permission"),
+                (
+                    "git -c alias.x='!gh pr create --fill' x",
+                    "executor result commands_run[0] violates disabled PR creation permission",
+                ),
+                (
+                    "git -c alias.x='!gh release create v1.0.0' x",
+                    "executor result commands_run[0] violates disabled release permission",
+                ),
+                (
+                    "git -c alias.x='!twine upload dist/*' x",
+                    "executor result commands_run[0] violates disabled package publication permission",
+                ),
+                (
+                    "echo ok ; git -c alias.x='!gh pr create --fill' x",
+                    "executor result commands_run[0] violates disabled PR creation permission",
+                ),
+                (
+                    "echo ok && git -c alias.x='!gh release create v1.0.0' x",
+                    "executor result commands_run[0] violates disabled release permission",
+                ),
+                (
+                    "echo ok | git -c alias.x='!twine upload dist/*' x",
+                    "executor result commands_run[0] violates disabled package publication permission",
+                ),
+                ("powershell -EncodedCommand AAAA", "executor result commands_run[0] contains unsupported shell expansion"),
+                ("powershell /EncodedCommand AAAA", "executor result commands_run[0] contains unsupported shell expansion"),
+                ("powershell /enc AAAA", "executor result commands_run[0] contains unsupported shell expansion"),
+                (
+                    "python -c \"import subprocess; subprocess.run(['git','push','origin','main'])\"",
+                    "executor result commands_run[0] contains unsupported shell expansion",
+                ),
+                (
+                    "python -X dev -c \"import subprocess; subprocess.run(['git','push','origin','main'])\"",
+                    "executor result commands_run[0] contains unsupported shell expansion",
+                ),
+            ]
+
+            for command, expected_reason in cases:
+                with self.subTest(command=command):
+                    evidence = valid_result(
+                        status="failed",
+                        commands_run=[
+                            {
+                                "command": command,
+                                "exit_code": 1,
+                            }
+                        ],
+                        validation_results=[],
+                    )
+
+                    valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
