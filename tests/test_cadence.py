@@ -260,10 +260,26 @@ def write_closeout_packets(root, repo, *, task_packet=None, result_evidence=None
             evidence_path=result_path,
         )
     if result_evidence is None:
+        task = task_packet.get("task") if isinstance(task_packet, dict) else None
+        repo_info = task_packet.get("repo") if isinstance(task_packet, dict) else None
+        task_id = task.get("id") if isinstance(task, dict) and isinstance(task.get("id"), str) else None
+        if not task_id and isinstance(task_packet, dict) and isinstance(task_packet.get("task_id"), str):
+            task_id = task_packet["task_id"]
+        if not task_id:
+            task_id = "candidate-1"
+        resulting_head = None
+        if isinstance(task_packet, dict) and isinstance(task_packet.get("resulting_head"), str):
+            resulting_head = task_packet["resulting_head"]
+        elif isinstance(repo_info, dict) and isinstance(repo_info.get("head"), str):
+            resulting_head = repo_info["head"]
+        elif isinstance(task_packet, dict) and isinstance(task_packet.get("head"), str):
+            resulting_head = task_packet["head"]
+        if not resulting_head:
+            resulting_head = current_head(repo)
         result_evidence = {
             "schema_version": "generic-executor-result.v1",
             "packet": "executor_result",
-            "task_id": "candidate-1",
+            "task_id": task_id,
             "executor_id": "fake-executor",
             "started_at": "2999-05-22T00:00:00Z",
             "ended_at": "2999-05-22T00:05:00Z",
@@ -286,12 +302,12 @@ def write_closeout_packets(root, repo, *, task_packet=None, result_evidence=None
             "confidence": "high",
             "blockers": [],
             "dirty_worktree": False,
-            "resulting_head": current_head(repo),
+            "resulting_head": resulting_head,
             "materialized_change_evidence": {
                 "status": "verified",
                 "source": "executor_result.materialized_change_evidence",
-                "task_id": "candidate-1",
-                "resulting_head": current_head(repo),
+                "task_id": task_id,
+                "resulting_head": resulting_head,
                 "files": ["README.md"],
                 "limitations": ["verified_against_result_metadata_not_local_diff"],
             },
@@ -327,6 +343,47 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(task_packet, {})
             self.assertEqual(result_evidence, {})
             self.assertEqual(json.loads(task_path.read_text(encoding="utf-8")), {})
+            self.assertEqual(json.loads(result_path.read_text(encoding="utf-8")), {})
+
+    def test_write_closeout_packets_derives_default_result_from_task_packet(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            _task_path, _result_path, _snapshot_after_path, task_packet, _result_evidence, _snapshot_after = (
+                write_closeout_packets(tmp, repo)
+            )
+            task_packet["task"]["id"] = "candidate-custom"
+            task_packet["repo"]["head"] = "f" * 40
+
+            _task_path, result_path, _snapshot_after_path, _task_packet, result_evidence, _snapshot_after = (
+                write_closeout_packets(
+                    tmp,
+                    repo,
+                    task_packet=task_packet,
+                )
+            )
+
+            self.assertEqual(result_evidence["task_id"], "candidate-custom")
+            self.assertEqual(result_evidence["resulting_head"], "f" * 40)
+            self.assertEqual(result_evidence["materialized_change_evidence"]["task_id"], "candidate-custom")
+            self.assertEqual(result_evidence["materialized_change_evidence"]["resulting_head"], "f" * 40)
+            self.assertEqual(json.loads(result_path.read_text(encoding="utf-8")), result_evidence)
+
+    def test_write_closeout_packets_preserves_explicit_empty_snapshot_override(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+
+            task_path, result_path, _snapshot_after_path, task_packet, result_evidence, _snapshot_after = (
+                write_closeout_packets(
+                    tmp,
+                    repo,
+                    result_evidence={},
+                    snapshot_before={},
+                )
+            )
+
+            self.assertEqual(task_packet["snapshot"], {})
+            self.assertEqual(json.loads(task_path.read_text(encoding="utf-8"))["snapshot"], {})
+            self.assertEqual(result_evidence, {})
             self.assertEqual(json.loads(result_path.read_text(encoding="utf-8")), {})
 
     def test_default_root_uses_cadence_runtime_name(self):
