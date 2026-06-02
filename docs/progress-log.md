@@ -33,6 +33,54 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-02 - Wire executor results into epoch closeout
+
+Summary:
+- Added `closeout-executor-result` and the `executor-epoch-closeout.v1` packet.
+- The command consumes local task/result/snapshot-after packets, validates
+  executor evidence, records partial task success while other epoch tasks
+  remain, completes terminal successful epochs, fails failed/blocked/stopped or
+  policy-violating evidence with stable reason codes, blocks stale or
+  conflicting epoch state, and can embed a dry-run `git-pr-plan.v1` packet after
+  terminal success.
+- Added compact `executor_epoch_closeout` audit records and audit-replay support
+  with snapshot-after path/checksum anchors.
+- Addressed review findings by requiring snapshot-after freshness at or after
+  executor result `ended_at` and validating optional PR-template inputs before
+  terminal epoch state mutation.
+
+Completed slices:
+- Task 3 current-tree implementation: executor result closeout and next decision.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Epoch closeout is now wired locally, but real executor invocation,
+  branch policy, live GitHub sync, operator-approved Git/PR materialization,
+  merge, release, package publication, and unattended loop execution remain
+  blocked.
+
+Evidence:
+- `python -m py_compile codex_cadence/cli.py codex_cadence/epochs.py codex_cadence/policy_audit.py`
+- `python -m unittest tests.test_epochs.EpochLifecycleTests.test_executor_result_failure_reason_uses_stable_codes -v`
+- `python -m unittest tests.test_audit_replay.AuditReplayCliTests.test_valid_records_are_counted_by_event_type -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_closeout_executor_result_completes_epoch_and_embeds_dry_run_git_pr_plan tests.test_cadence.CadenceCliTests.test_closeout_executor_result_fails_epoch_for_blocked_evidence tests.test_cadence.CadenceCliTests.test_closeout_executor_result_blocks_stale_task_snapshot_without_closing_epoch tests.test_cadence.CadenceCliTests.test_closeout_executor_result_blocks_active_epoch_conflict tests.test_cadence.CadenceCliTests.test_closeout_executor_result_rerun_reports_already_closed_without_second_completion -v`
+
+New risks or blockers:
+- Branch policy is still missing, so dry-run plans are not yet governed against
+  protected branch rules.
+- The command closes local epoch state only; it does not invoke real executors or
+  perform live Git/PR actions.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`
+- `docs/cadence/business-memory.md`
+- `docs/progress-log.md`
+
 ## 2026-06-02 - Extend roadmap and refresh handoff after PR 64
 
 Summary:

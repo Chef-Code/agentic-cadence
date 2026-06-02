@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus dry-run Git/PR planning for local generic executor task and result evidence and a fixture-only controlled executor runner for tests and examples.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus local executor epoch closeout, dry-run Git/PR planning for local generic executor task and result evidence, and a fixture-only controlled executor runner for tests and examples.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -265,6 +265,24 @@ Executor result evidence can be checked without running an executor:
 agentic-cadence --root examples/first-run/work/runtime validate-executor-result --task-file executor-task.json --result-file executor-result.json
 ```
 
+After an active epoch exists and a fresh `snapshot-repo` packet has been saved,
+`closeout-executor-result` can consume the local task packet, result evidence,
+and snapshot-after packet. It validates the same executor evidence gates,
+records a successful task result while keeping the epoch active when other epoch
+tasks remain, completes the epoch only when all recorded tasks are complete,
+fails the epoch for valid failed/blocked/stopped evidence or policy violations,
+and emits the next local decision:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime closeout-executor-result --epoch-id epoch-123 --task-file executor-task.json --result-file executor-result.json --snapshot-after-file snapshot-after.json --emit-git-pr-plan --cwd examples/first-run/work/repo --required-body-section Summary --required-body-section Validation
+```
+
+The optional Git/PR plan is embedded as a dry-run packet only after terminal
+epoch completion, and supplied PR-template inputs are validated before terminal
+state is mutated. The closeout command does not start an executor, create a
+branch, commit, push, call GitHub, open a pull request, merge, release, or
+publish packages.
+
 For tests and examples, `run-controlled-executor-fixture` can launch a fake
 external executor component from an explicit command template. The template may
 use `{task_file}`, `{result_file}`, and `{repo_path}` placeholders, but it must
@@ -284,8 +302,9 @@ fixture-only. It is not a real executor integration or named host adapter, and
 malformed templates fail closed before launch. It must not create branches,
 commit, push, open or merge PRs, create releases, or publish packages.
 
-Root-backed loop ticks and executor-result validation append compact
-`cadence-audit.v1` records under `<root>/audit/events.jsonl`. A local
+Root-backed loop ticks, executor-result validation, and executor closeout append compact
+`cadence-audit.v1` records under `<root>/audit/events.jsonl`; closeout audit
+anchors include the task packet, result evidence, and snapshot-after packet. A local
 `cadence-loop-policy.v1` file can bound emitted executor task paths, required
 checks, command allow/deny lists, runtime, and stop conditions. Result
 validation enforces task-carried command policy across compound commands,

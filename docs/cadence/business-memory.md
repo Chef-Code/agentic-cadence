@@ -103,12 +103,12 @@ Kind: risk
 Workflow: Controlled executor loop governance
 Time Saved: high
 Risk: high
-Pain: The roadmap's first execution path now has one controlled fixture component, but real executor invocation remains blocked until epoch closeout, branch policy, audit, branch/PR materialization policy, and result evidence gates are stable.
+Pain: The roadmap's first execution path now has one controlled fixture component and local epoch closeout wiring, but real executor invocation remains blocked until branch policy, branch/PR materialization policy, live evidence sync, resume verification, and result evidence gates are stable.
 Signals:
 - `loop-tick --emit-executor-task` can produce bounded task packets, and PR #64 added `run-controlled-executor-fixture` to govern a fake external executor component in tests/examples.
-- After PR #64 merged the Task 2 fixture branch, the next roadmap slice is Task 3 epoch closeout and next-decision wiring.
-- `validate-executor-result`, command policy, active stop checks, controlled fixture invocation audit, and audit replay exist, but epoch closeout, branch policy, live GitHub evidence sync, operator-approved Git/PR materialization, and resume verification are still missing.
-- The next implementation slices should wire validated executor evidence into epoch closeout, branch policy, GitHub evidence sync, operator-approved Git/PR materialization, and resume verification before any named host adapter or live code-modifying executor is allowed.
+- Task 3 current-tree work added `closeout-executor-result` so validated local executor evidence can mark a task complete while other epoch tasks remain, complete or fail terminal epochs, and emit continue, stop, handoff, validate-more-evidence, or dry-run Git/PR planning decisions.
+- `validate-executor-result`, command policy, active stop checks, controlled fixture invocation audit, epoch closeout audit, and audit replay exist, but branch policy, live GitHub evidence sync, operator-approved Git/PR materialization, and resume verification are still missing.
+- The next implementation slices should add branch policy, GitHub evidence sync, operator-approved Git/PR materialization, and resume verification before any named host adapter or live code-modifying executor is allowed.
 Do not:
 - Do not invoke a real executor, create branches, commit, push, open PRs, merge, release, or publish packages from this backlog entry.
 - Do not make Cadence itself the product authority for implementation; it should govern a replaceable executor component.

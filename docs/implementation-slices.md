@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-02
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, and controlled executor fixture current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, and local executor epoch closeout current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -43,10 +43,12 @@ and replay local audit history with a read-only `audit-replay.v1` packet.
 Active execution controls are partial: result validation enforces task-carried
 command policy and active brake stop evidence, `run-controlled-executor-fixture`
 can govern a fake external executor component in tests/examples, and
-`git-pr-plan` can produce a dry-run Git/PR transition plan for separate review.
-Real executor governance, epoch closeout, branch policy, live
-branch/commit/push or PR creation, and continuous loop orchestration remain
-missing.
+`closeout-executor-result` can record validated local executor evidence against
+an active epoch, complete or fail terminal epochs, and emit the next dry-run
+decision. `git-pr-plan` can
+produce a dry-run Git/PR transition plan for separate review. Real executor
+governance, branch policy, live branch/commit/push or PR creation, and
+continuous loop orchestration remain missing.
 Current unattended-operation confidence remains 10%.
 
 ## Vision Framing
@@ -105,8 +107,13 @@ Current evidence:
   `policy_denied`;
 - root-backed `loop-tick` packets append compact `cadence-audit.v1` decision
   records;
-- no command yet starts an epoch, hands work to an executor, records validation,
-  completes or fails the epoch, or chooses PR/handoff follow-up after execution.
+- `closeout-executor-result` can consume local task/result/snapshot-after
+  packets, mark a successful task complete while the epoch remains active when
+  other tasks remain, complete or fail terminal epochs, append closeout audit,
+  and choose continue, stop, handoff, validate-more-evidence, or dry-run Git/PR
+  planning as the next decision;
+- no command yet starts an epoch and hands work to a real executor in one
+  governed loop tick.
 
 Why it matters: this moves Cadence from advisor to controller without requiring
 full autonomy.
@@ -235,7 +242,7 @@ Validation needed:
 - done: disallowed changed path;
 - done: dirty successful result rejection;
 - remaining: real executor timeout behavior, real external executor invocation,
-  branch/commit handling, and epoch completion/failure integration.
+  branch/commit handling, and one-command loop integration.
 
 Codex implementation rule: Codex can implement the generic contract directly.
 Named host adapters require explicit operator approval.
@@ -297,6 +304,9 @@ Current evidence:
 - root-backed `run-controlled-executor-fixture` appends a compact
   `executor_fixture_invocation` audit record before starting the fake external
   fixture and an `executor_result_validation` record after evidence validation;
+- root-backed `closeout-executor-result` appends a compact
+  `executor_epoch_closeout` audit record with task/result and snapshot-after
+  anchors after a local epoch closeout decision;
 - `audit-replay` implements the read-only `audit-replay.v1` packet shape,
   blocker codes, counting rules, supported event validation, and corrupted-log
   failure behavior from the merged design;

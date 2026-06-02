@@ -210,9 +210,11 @@ root; they are not evidence that older audit history was preserved.
 Replay validates only the compact `cadence-audit.v1` record shape, supported
 event names, event-specific required fields, physical JSONL line counts, and
 `sha256:` checksum syntax. Supported events are `loop_tick_decision`,
-`executor_fixture_invocation`, and `executor_result_validation`. It does not recompute `payload_checksum`,
-`task_packet_checksum`, or `result_evidence_checksum` from original packet
-bodies because those bodies are not stored in the compact audit log.
+`executor_fixture_invocation`, `executor_result_validation`, and
+`executor_epoch_closeout`. It does not recompute `payload_checksum`,
+`task_packet_checksum`, `result_evidence_checksum`, or
+`snapshot_after_checksum` from original packet bodies because those bodies are
+not stored in the compact audit log.
 
 Invalid packets include stable blocker codes such as
 `audit_line_invalid_json`, `audit_record_not_object`,
@@ -237,6 +239,38 @@ The generic executor contract is an agent-neutral boundary, not a named host ada
 Executor result evidence uses `schema_version: generic-executor-result.v1` and `packet: executor_result`. It must include executor id, start/end timestamps, status `succeeded`, `failed`, `blocked`, or `stopped`, files changed, commands run, validation results, summary, confidence, blockers, dirty-worktree status, and resulting head SHA for successful results. `validate-executor-result` reads a task packet and result evidence from local JSON files and emits an `executor_result_validation` packet. Successful evidence must include command and validation evidence, must show every task-packet `required_checks` entry in both `commands_run` with exit code `0` and `validation_results` with matching `command` and `status: passed`, and all validation results in successful evidence must pass. Result evidence must stay within the task packet's max runtime based on `started_at` and `ended_at`, and the supplied result file must match the task packet's absolute `expected_output.evidence_path`. Result evidence must respect disabled permissions: it rejects reported `git commit`, `git push`, `gh pr create`, `git merge`, `gh pr merge`, release, or package-publication invocations while those permissions are false, including absolute-path, common git/gh global-option, git shell-alias, compound-command, shell-grouping, command-substitution, and shell-wrapper forms, and it rejects head changes when commits are forbidden. Release and package-publication guards cover `gh release create`, `gh release upload`, mutating `git tag` forms such as tag creation or deletion while allowing read-only listing/verification, `twine upload`, Python launcher `-m twine upload` forms including `python`, `python3`, versioned `python3.x`, and `py`, plus `npm publish`, `pnpm publish`, `yarn publish`, `yarn npm publish`, option-bearing `poetry publish` and `uv publish`, `hatch publish`, and `flit publish`. Result evidence must also respect task `command_policy`: any effective command segment matching `denied_commands` is invalid, and when `allowed_commands` is non-empty every effective command segment from direct compound commands, shell grouping, command substitutions, and shell-wrapper payloads must match that allowlist. If otherwise-valid non-`stopped` evidence includes `brake_not_drive` in the task stop conditions, rootless validation is invalid with `recommended_next_action: provide_runtime_root` because the current brake cannot be checked. When a runtime root is supplied, `validate-executor-result` must apply the runtime-root safety guard for the command working directory, the runtime-root location itself, and the task repo when the task repo path is valid, then check the current brake before recording completion. If `brake_not_drive` is in the task stop conditions and the current brake is not `DRIVE`, non-`stopped` result evidence must be invalid with `recommended_next_action: stop_active_loop`; stopped result evidence remains the valid way to report that the executor honored the active stop. The command then appends a compact `executor_result_validation` audit record with the task id, repo, branch, head, validity, recommendation, reason, local evidence paths, payload checksum, task-packet checksum, and result-evidence checksum. Invalid evidence exits nonzero. It must not run an executor, modify files, commit, push, open PRs, spend review, merge, release, publish packages, or infer named-host support.
 
 `run-controlled-executor-fixture` is a test/example-only command path for a fake external executor component. It reads a generic executor task packet from `--task-file`, validates the task packet, resolves the expected result file from `expected_output.evidence_path`, formats an explicit `--command-template` with `{task_file}`, `{result_file}`, and `{repo_path}`, and validates the formatted command against the task-carried `command_policy` and disabled permissions before starting the fixture. Malformed templates fail closed before launch. The formatted command must split into an argument vector whose entrypoint is the current Python interpreter running the bundled `examples/controlled-executor-fixture/run.py` script by absolute path; arbitrary non-fixture commands and untrusted Python executable paths are rejected before launch, and the subprocess must run with `shell=False`. The result evidence path must stay inside the runtime root and must not already exist, so the runner does not delete or overwrite stale evidence before launch. The command rewrites the canonical task packet to disk, appends an `executor_fixture_invocation` audit record, runs the fixture command in the task repo with a timeout capped by the task runtime limit, and requires the fixture to write result evidence at the expected path. Timeout writes `status: stopped` evidence with a `timeout` blocker. The command then validates result evidence with the same generic executor contract, including expected-path binding, observed runtime for non-`stopped` evidence, nonzero-success, and active-brake stop handling, appends an `executor_result_validation` audit record, and emits a `controlled-executor-fixture-run.v1` packet. It may start only the controlled fixture command; it must not claim real executor support, named-host adapter support, branch policy, execution closeout, Git/PR automation, merge authority, release authority, or package-publication authority.
+
+`closeout-executor-result` is the local epoch boundary after executor evidence
+has been written. It reads a generic executor task packet, generic executor
+result evidence, and a fresh `--snapshot-after-file`; validates the result with
+the same expected-path, command-policy, disabled-permission, runtime, and active
+brake gates as `validate-executor-result`; then binds the task packet to the
+requested active epoch. Binding requires exactly the requested active epoch, a
+task id recorded in that epoch, a task snapshot checksum matching the epoch
+`snapshot_before`, matching repo/branch/head anchors, and a valid
+snapshot-after packet captured after epoch start with a head matching the
+executor result and a `captured_at` timestamp at or after the executor result
+`ended_at`. Stale task snapshots, stale snapshot-after packets, head mismatches,
+active epoch conflicts, already-terminal epochs, malformed packets, and evidence
+that needs more validation block closeout without moving the active epoch.
+
+When closeout succeeds, the command emits `executor-epoch-closeout.v1`.
+Successful executor evidence records the task in active epoch `completed_tasks`
+when other epoch tasks remain, with `closeout_status: task_completed` and a
+`next_decision` of `continue`; successful evidence completes the epoch with
+`decision: STOP` only when all recorded epoch tasks are complete. Valid
+`failed`, `blocked`, `stopped`, timeout-shaped stopped evidence, and executor
+policy violations fail the epoch with stable reason codes. The packet includes a
+`next_decision` of `generate_git_pr_plan`, `continue`, `handoff`, `stop`, or
+`validate_more_evidence`. With `--emit-git-pr-plan`, a terminal successful
+closeout may embed a dry-run `git-pr-plan.v1` packet for review, and supplied PR
+template inputs are read before terminal epoch state is mutated. The command
+appends a compact `executor_epoch_closeout` audit record containing task/result
+and snapshot-after path/checksum anchors for fresh closeout decisions.
+Already-terminal reruns report `closeout_status: already_closed` without
+appending another closeout audit record. It must not start an executor, create a
+branch, commit, push, call GitHub, open a pull request, merge, release, or
+publish packages.
 
 ## Git/PR Dry-Run Planning
 

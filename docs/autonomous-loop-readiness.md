@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-02
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, and controlled executor fixture current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, and controlled executor fixture current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -81,6 +81,11 @@ runtime can do these things end-to-end:
   including elapsed runtime bounds, expected evidence-path binding, command
   allow/deny policy, disabled commit/push/PR/merge/release/package-publication
   permissions, and active brake stop handling;
+- close out an active epoch from local executor task/result/snapshot-after
+  packets, recording successful task evidence while other epoch tasks remain,
+  completing terminal successful epochs, failing failed/blocked/stopped or
+  policy-violating evidence with stable reason codes, and emitting a local next
+  decision;
 - generate a dry-run Git/PR transition plan from validated executor evidence,
   with local branch/head/base checks, explicit materialized-change evidence,
   PR body preflight, operator-confirmation requirements, and no Git or GitHub
@@ -137,7 +142,7 @@ Agentic Cadence cannot currently:
 | Local repo snapshot | Implemented, local only | `codex_cadence/repo_state.py` |
 | Candidate discovery | Implemented, read-only | `codex_cadence/candidates.py` |
 | Task sizing | Implemented | `codex_cadence/model.py` |
-| Epoch governance | Implemented | `codex_cadence/epochs.py` |
+| Epoch governance | Implemented | `codex_cadence/epochs.py`, `closeout-executor-result` |
 | Handoff lifecycle | Implemented | `codex_cadence/handoff_loop.py`, `codex_cadence/cli.py` |
 | PR body/readiness checks | Implemented from saved inputs | `codex_cadence/pr_readiness.py` |
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
@@ -162,7 +167,7 @@ It can inspect and suggest. It can run a read-only loop tick that produces a
 structured next action. It can emit a generic executor task packet for operator
 approval, validate the packet's local snapshot trust anchor, run a controlled
 fake executor fixture from an explicit command template for tests/examples,
-validate local executor result evidence, and produce a dry-run Git/PR transition plan for
+validate local executor result evidence, close out the active epoch, and produce a dry-run Git/PR transition plan for
 separate review. It can govern handoff and continuation decisions. It can
 evaluate saved PR evidence. It cannot perform the core build loop by
 itself, and it cannot yet coordinate a team of role-specific agents.
@@ -180,10 +185,12 @@ At `requires_executor_contract`, a human or external agent still has to request
 an executor task packet. At `approve_executor_task`, a human or external agent
 still has to approve any real execution. The controlled fixture path can prove
 policy, timeout, audit, and result-evidence behavior with fake local evidence,
-but it does not implement product changes or close out epochs. Real code
-changes, epoch closeout, dry-run `git-pr-plan` handoff, live commit, push, PR creation or update,
-review feedback fetching, and new-session launch remain external or
-future approved slices. At
+and local closeout can record task completion or terminally complete/fail the
+active epoch from that evidence, but it does not implement product changes. The
+dry-run `git-pr-plan` handoff remains
+review-only. Real code changes, branch policy, operator-approved Git/PR
+materialization, live commit, push, PR creation or update, review feedback
+fetching, and new-session launch remain external or future approved slices. At
 `policy_denied`, an operator must adjust the task bounds or policy before
 execution can be considered. Audit history is now locally inspectable through
 `audit-replay`, but clean replay evidence is not approval to execute work and
@@ -193,14 +200,14 @@ does not provide tamper evidence.
 
 The first hard stop in a real unattended run is still governed execution.
 Cadence can emit a bounded executor task packet, reject malformed, dirty,
-low-confidence, relative-path, or mismatched snapshot anchors, and run a fake
-controlled fixture. It still does not invoke a real executor, apply code
-changes, or close execution into an epoch decision.
+low-confidence, relative-path, or mismatched snapshot anchors, run a fake
+controlled fixture, and close local executor evidence into an epoch decision.
+It still does not invoke a real executor or apply code changes.
 
 The next likely failures are:
 
-1. executor result evidence is not yet wired into epoch closeout or the next
-   loop decision;
+1. no branch policy exists yet, so executor output is not governed against
+   protected base/target branch rules;
 2. no live branch/commit/push/PR workflow exists; the current Git/PR increment
    is only a dry-run planning packet for operator or future role review;
 3. missing live synchronization. Repo snapshots are local git snapshots, and PR

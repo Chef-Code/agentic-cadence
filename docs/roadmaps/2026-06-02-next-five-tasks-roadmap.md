@@ -101,7 +101,7 @@ git diff --check
 
 ## Task 3: Wire Executor Results Into Epoch Closeout And Next Decision
 
-**Status:** Not started; next implementation slice.
+**Status:** Implemented in current tree; pending review and merge.
 
 **Phase:** Phase 2 governed execution.
 
@@ -122,6 +122,14 @@ git diff --check
 - Emit the next decision: stop, handoff, validate more evidence, or generate a dry-run Git/PR plan.
 - Keep live Git/PR actions outside this slice.
 - Keep release and package publication outside this slice.
+
+**Current-tree implementation:** `closeout-executor-result` consumes local
+task/result/snapshot-after packets, validates executor evidence with the existing
+contract, binds the task packet to the active epoch baseline snapshot, records
+successful task completion without terminal closeout when other epoch tasks
+remain, completes or fails terminal epochs, appends `executor_epoch_closeout`
+audit with snapshot-after anchors, and optionally embeds a dry-run
+`git-pr-plan.v1` packet after terminal success.
 
 **Validation:**
 - Success evidence completes the active epoch and emits a next decision.

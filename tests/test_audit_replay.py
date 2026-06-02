@@ -126,6 +126,38 @@ def executor_result_record(valid: bool = True, **overrides):
     return record
 
 
+def executor_epoch_closeout_record(valid: bool = True, **overrides):
+    record = {
+        "schema_version": "cadence-audit.v1",
+        "recorded_at": "2999-05-22T00:00:00Z",
+        "event": "executor_epoch_closeout",
+        "action": "generate_git_pr_plan" if valid else "validate_more_evidence",
+        "reason": "executor result succeeded" if valid else "stale task snapshot",
+        "valid": valid,
+        "epoch_id": "epoch-1",
+        "closeout_status": "completed" if valid else "blocked",
+        "task_file": "C:/tmp/executor-task.json",
+        "result_file": "C:/tmp/executor-result.json",
+        "snapshot_after_file": "C:/tmp/snapshot-after.json",
+        "payload_checksum": GOOD_CHECKSUM,
+        "task_packet_checksum": GOOD_CHECKSUM,
+        "result_evidence_checksum": GOOD_CHECKSUM,
+        "snapshot_after_checksum": GOOD_CHECKSUM,
+    }
+    if valid:
+        record.update(
+            {
+                "epoch_status": "COMPLETED",
+                "task_id": "candidate-1",
+                "repo": "local/test",
+                "branch": "main",
+                "head": "abc123",
+            }
+        )
+    record.update(overrides)
+    return record
+
+
 def blocker_codes(output: dict) -> list[str]:
     return [blocker["code"] for blocker in output["blockers"]]
 
@@ -206,24 +238,41 @@ class AuditReplayCliTests(unittest.TestCase):
     def test_valid_records_are_counted_by_event_type(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            write_audit_records(root, loop_tick_record(), executor_result_record())
+            write_audit_records(root, loop_tick_record(), executor_result_record(), executor_epoch_closeout_record())
 
             result, output = run_cli(root, "audit-replay")
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(output["valid"])
-            self.assertEqual(output["lines_seen"], 2)
-            self.assertEqual(output["records_seen"], 2)
-            self.assertEqual(output["records_valid"], 2)
+            self.assertEqual(output["lines_seen"], 3)
+            self.assertEqual(output["records_seen"], 3)
+            self.assertEqual(output["records_valid"], 3)
             self.assertEqual(output["records_invalid"], 0)
             self.assertEqual(
                 output["events_by_type"],
                 {
+                    "executor_epoch_closeout": 1,
                     "executor_result_validation": 1,
                     "loop_tick_decision": 1,
                 },
             )
             self.assertEqual(output["recommended_next_action"], "use_audit_replay_evidence")
+
+    def test_executor_epoch_closeout_audit_requires_snapshot_after_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = executor_epoch_closeout_record()
+            record.pop("snapshot_after_file")
+            record.pop("snapshot_after_checksum")
+            write_audit_records(root, record)
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["records_valid"], 0)
+            self.assertEqual(output["records_invalid"], 1)
+            self.assertEqual(blocker_codes(output), ["audit_required_field_missing", "audit_required_field_missing"])
 
     def test_mixed_valid_blank_and_bad_json_lines_report_counts_and_line_blockers(self):
         with tempfile.TemporaryDirectory() as tmp:

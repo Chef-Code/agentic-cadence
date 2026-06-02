@@ -26,6 +26,8 @@ from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.git_pr_plan import evaluate_git_pr_plan
 from codex_cadence.epochs import complete_epoch as complete_epoch_record
 from codex_cadence.epochs import CONTINUE, ASK_APPROVAL
+from codex_cadence.epochs import EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION
+from codex_cadence.epochs import closeout_executor_result_epoch
 from codex_cadence.epochs import completed_continue_count
 from codex_cadence.epochs import continuation_task_limit
 from codex_cadence.epochs import epoch_elapsed_minutes
@@ -40,6 +42,7 @@ from codex_cadence.handoff_loop import prepare_handoff
 from codex_cadence.model import BUCKETS, TASK_TYPES, estimate_task, governance_permissions, policy_for_bucket
 from codex_cadence.policy_audit import (
     append_audit_record,
+    executor_epoch_closeout_audit_record,
     executor_result_validation_audit_record,
     load_loop_policy,
     loop_tick_audit_record,
@@ -1074,11 +1077,15 @@ def loop_tick_command(args: argparse.Namespace) -> int:
     return 0
 
 
-def validate_executor_result_command(args: argparse.Namespace) -> int:
-    task_file = Path(args.task_file)
-    result_file = Path(args.result_file)
-    task_packet = read_json(task_file)
-    result_evidence = read_json(result_file)
+def build_executor_result_validation_payload(
+    *,
+    root: Path | None,
+    task_file: Path,
+    result_file: Path,
+    task_packet: Any,
+    result_evidence: Any,
+    executor_started: bool,
+) -> dict[str, Any]:
     valid, reason = validate_executor_result_evidence(result_evidence, task_packet)
     if valid:
         expected_output = task_packet.get("expected_output") if isinstance(task_packet, dict) else {}
@@ -1086,14 +1093,6 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
         if expected_path is not None and Path(expected_path).expanduser().resolve() != result_file.expanduser().resolve():
             valid = False
             reason = "executor result file does not match task expected_output.evidence_path"
-    repo = {}
-    if getattr(args, "root", None) is not None:
-        repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
-        repo_path = repo.get("path")
-        if isinstance(repo_path, str) and repo_path and not args.allow_repo_local_root:
-            issue = runtime_root_safety_issue(args.root, repo_path)
-            if issue:
-                raise ValueError(issue)
     active_stop = None
     missing_runtime_root_for_stop = False
     stop_conditions = task_packet.get("stop_conditions") if isinstance(task_packet, dict) else []
@@ -1104,12 +1103,12 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
         and "brake_not_drive" in stop_conditions
         and result_status != "stopped"
     )
-    if needs_brake_check and getattr(args, "root", None) is None:
+    if needs_brake_check and root is None:
         valid = False
         reason = "runtime root is required to validate brake_not_drive stop condition"
         missing_runtime_root_for_stop = True
-    if getattr(args, "root", None) is not None:
-        brake = read_brake(args.root)
+    if root is not None:
+        brake = read_brake(root)
         if (
             needs_brake_check
             and valid
@@ -1138,18 +1137,150 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
         "reason": reason,
         "task_file": str(task_file),
         "result_file": str(result_file),
-        "executor_started": False,
+        "executor_started": executor_started,
         "recommended_next_action": recommended_next_action,
     }
     if active_stop is not None:
         payload["active_stop"] = active_stop
+    return payload
+
+
+def validate_executor_result_command(args: argparse.Namespace) -> int:
+    task_file = Path(args.task_file)
+    result_file = Path(args.result_file)
+    task_packet = read_json(task_file)
+    result_evidence = read_json(result_file)
+    if getattr(args, "root", None) is not None:
+        repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
+        repo_path = repo.get("path")
+        if isinstance(repo_path, str) and repo_path and not args.allow_repo_local_root:
+            issue = runtime_root_safety_issue(args.root, repo_path)
+            if issue:
+                raise ValueError(issue)
+    payload = build_executor_result_validation_payload(
+        root=getattr(args, "root", None),
+        task_file=task_file,
+        result_file=result_file,
+        task_packet=task_packet,
+        result_evidence=result_evidence,
+        executor_started=False,
+    )
     if getattr(args, "root", None) is not None:
         payload["audit_record"] = append_audit_record(
             args.root,
             executor_result_validation_audit_record(payload, task_packet, result_evidence),
         )
     emit(payload)
-    return 0 if valid else 1
+    return 0 if payload["valid"] else 1
+
+
+def closeout_executor_result_command(args: argparse.Namespace) -> int:
+    task_file = Path(args.task_file)
+    result_file = Path(args.result_file)
+    snapshot_after_file = Path(args.snapshot_after_file)
+    task_packet = read_json(task_file)
+    result_evidence = read_json(result_file)
+    snapshot_after = read_json(snapshot_after_file)
+    repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
+    repo_path = repo.get("path")
+    if isinstance(repo_path, str) and repo_path and not args.allow_repo_local_root:
+        issue = runtime_root_safety_issue(args.root, repo_path)
+        if issue:
+            raise ValueError(issue)
+
+    validation = build_executor_result_validation_payload(
+        root=args.root,
+        task_file=task_file,
+        result_file=result_file,
+        task_packet=task_packet,
+        result_evidence=result_evidence,
+        executor_started=False,
+    )
+    result_status = result_evidence.get("status") if isinstance(result_evidence, dict) else None
+    required_body_sections = list(args.required_body_section or [])
+    template_sections: list[str] | None = None
+
+    def validate_terminal_git_pr_plan_inputs() -> None:
+        nonlocal template_sections
+        if args.pr_template_file and template_sections is None:
+            template_sections = load_template_sections(Path(args.pr_template_file))
+
+    closeout = closeout_executor_result_epoch(
+        args.root,
+        epoch_id_value=args.epoch_id,
+        task_packet=task_packet,
+        result_evidence=result_evidence,
+        validation=validation,
+        task_file=str(task_file),
+        result_file=str(result_file),
+        snapshot_after=snapshot_after,
+        before_terminal_complete=validate_terminal_git_pr_plan_inputs if args.emit_git_pr_plan else None,
+    )
+    git_pr_plan_packet = None
+    next_decision = dict(closeout["next_decision"])
+    if args.emit_git_pr_plan and closeout["closeout_status"] == "completed":
+        if args.pr_template_file:
+            required_body_sections.extend(
+                template_sections if template_sections is not None else load_template_sections(Path(args.pr_template_file))
+            )
+        git_pr_plan_packet = evaluate_git_pr_plan(
+            cwd=Path(args.cwd),
+            task_packet=task_packet,
+            result_evidence=result_evidence,
+            task_file=task_file,
+            result_file=result_file,
+            base_branch=args.base_branch,
+            branch_prefix=args.branch_prefix,
+            required_body_sections=required_body_sections,
+            runtime_root=args.root,
+        )
+        next_decision["recommended_next_action"] = git_pr_plan_packet["recommended_next_action"]
+        next_decision["git_pr_plan_ready"] = git_pr_plan_packet["ready_to_review"]
+    side_effects = list(closeout["side_effects"])
+    append_closeout_audit = closeout["closeout_status"] != "already_closed"
+    if append_closeout_audit:
+        side_effects.append("audit_record_appended")
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION,
+        "packet": "executor_epoch_closeout",
+        "valid": closeout["valid"],
+        "reason": closeout["reason"],
+        "epoch_id": args.epoch_id,
+        "epoch_status": closeout["epoch_status"],
+        "closeout_status": closeout["closeout_status"],
+        "failure_reason": closeout["failure_reason"],
+        "blockers": closeout["blockers"],
+        "task_file": str(task_file),
+        "result_file": str(result_file),
+        "snapshot_after_file": str(snapshot_after_file),
+        "snapshot_after_checksum": checksum_epoch_json(snapshot_after),
+        "executor_result_status": result_status,
+        "executor_started": False,
+        "pr_action_started": False,
+        "operator_confirmation_required": next_decision["decision"] in {"generate_git_pr_plan", "handoff"},
+        "validation": validation,
+        "next_decision": next_decision,
+        "git_pr_plan": git_pr_plan_packet,
+        "side_effects": side_effects,
+        "limitations": [
+            "local_packets_only",
+            "does_not_start_executor",
+            "does_not_execute_git_commands",
+            "does_not_call_github",
+            "does_not_create_branch_commit_push_or_pr",
+            "does_not_merge_release_or_publish_packages",
+        ],
+    }
+    if payload["failure_reason"] is None:
+        payload.pop("failure_reason")
+    if append_closeout_audit:
+        payload["audit_record"] = append_audit_record(
+            args.root,
+            executor_epoch_closeout_audit_record(payload, task_packet, result_evidence),
+        )
+    emit(payload)
+    return 0 if payload["valid"] else 1
 
 
 def run_controlled_executor_fixture_command(args: argparse.Namespace) -> int:
@@ -1376,6 +1507,25 @@ def build_parser() -> argparse.ArgumentParser:
         func=validate_executor_result_command,
         requires_root=False,
         guards_optional_root=True,
+    )
+
+    closeout_parser = subparsers.add_parser(
+        "closeout-executor-result",
+        help="Close out the active epoch from validated local executor result evidence",
+    )
+    closeout_parser.add_argument("--epoch-id", required=True)
+    closeout_parser.add_argument("--task-file", required=True)
+    closeout_parser.add_argument("--result-file", required=True)
+    closeout_parser.add_argument("--snapshot-after-file", required=True)
+    closeout_parser.add_argument("--cwd", default=".")
+    closeout_parser.add_argument("--emit-git-pr-plan", action="store_true")
+    closeout_parser.add_argument("--base-branch", default="main")
+    closeout_parser.add_argument("--branch-prefix", default="cadence")
+    closeout_parser.add_argument("--pr-template-file")
+    closeout_parser.add_argument("--required-body-section", action="append", default=[])
+    closeout_parser.set_defaults(
+        func=closeout_executor_result_command,
+        requires_root=True,
     )
 
     controlled_fixture_parser = subparsers.add_parser(
