@@ -8,11 +8,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .executor_contract import validate_executor_task_packet
 from .model import DEFAULT_EPOCH_POLICY
 from .repo_state import validate_repo_snapshot
 from .store import atomic_write_json, ensure_layout, epoch_path, epoch_state_dir
 from .store import exclusive_lock, lock_path, read_json, snapshot_path, utc_now
 
+EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION = "executor-epoch-closeout.v1"
 EPOCH_DECISIONS = ("STOP", "CONTINUE", "HANDOFF", "ASK_APPROVAL")
 STOP, CONTINUE, HANDOFF, ASK_APPROVAL = EPOCH_DECISIONS
 EPOCH_ID_ATTEMPTS = 8
@@ -23,6 +25,20 @@ EPOCH_HEALTH_VALUES = ("good", "watch", "degraded")
 CANDIDATE_TASK_TYPES = ("execution", "discovery")
 CANDIDATE_BUCKETS = ("XS", "S", "M", "L", "XL")
 NEXT_EPOCH_REQUIREMENTS = ("green_ci_or_explicit_handoff", "none")
+POLICY_VIOLATION_MARKERS = (
+    "denied by command_policy",
+    "outside allowed command_policy",
+    "outside allowed_paths",
+    "violates disabled",
+    "contains unsupported shell expansion",
+    "resulting_head must match task repo head when commits are forbidden",
+)
+
+
+def closeout_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
 
 
 def epoch_id() -> str:
@@ -380,6 +396,402 @@ def write_terminal_epoch(target_path: Path, active_path: Path, data: dict[str, A
         except FileNotFoundError:
             pass
         raise
+
+
+def executor_result_failure_reason(validation_valid: bool, validation_reason: str, result_evidence: Any) -> str:
+    if validation_valid and isinstance(result_evidence, dict):
+        status = result_evidence.get("status")
+        if status == "failed":
+            return "executor_result_failed"
+        if status == "blocked":
+            return "executor_result_blocked"
+        if status == "stopped":
+            blockers = result_evidence.get("blockers")
+            blocker_text = " ".join(str(blocker).lower() for blocker in blockers) if isinstance(blockers, list) else ""
+            if "timeout" in blocker_text:
+                return "executor_result_timed_out"
+            return "executor_result_stopped"
+    if any(marker in validation_reason for marker in POLICY_VIOLATION_MARKERS):
+        return "executor_result_policy_violation"
+    return "executor_result_invalid"
+
+
+def invalid_executor_result_fails_epoch(validation: dict[str, Any], result_evidence: Any) -> bool:
+    if validation.get("valid") is True:
+        return False
+    if validation.get("recommended_next_action") == "stop_active_loop":
+        return False
+    reason = validation.get("reason")
+    if not isinstance(reason, str):
+        reason = ""
+    return executor_result_failure_reason(False, reason, result_evidence) == "executor_result_policy_violation"
+
+
+def closeout_next_decision(
+    *,
+    closeout_status: str,
+    result_status: str | None,
+    failure_reason: str | None,
+    validation: dict[str, Any],
+) -> dict[str, Any]:
+    if closeout_status == "completed":
+        return {
+            "decision": "generate_git_pr_plan",
+            "recommended_next_action": "run_git_pr_plan",
+            "reason": "executor result succeeded; dry-run Git/PR plan can be generated",
+        }
+    if closeout_status == "failed":
+        if result_status == "stopped" or failure_reason == "executor_result_timed_out":
+            return {
+                "decision": "stop",
+                "recommended_next_action": "stop_active_loop",
+                "reason": "executor stopped before completing the epoch",
+            }
+        return {
+            "decision": "handoff",
+            "recommended_next_action": "prepare_handoff",
+            "reason": "executor result did not complete successfully",
+        }
+    if closeout_status == "already_closed":
+        return {
+            "decision": "stop",
+            "recommended_next_action": "inspect_epoch_state",
+            "reason": "epoch is already terminal",
+        }
+    if validation.get("recommended_next_action") == "stop_active_loop":
+        return {
+            "decision": "stop",
+            "recommended_next_action": "stop_active_loop",
+            "reason": "active stop prevents result closeout",
+        }
+    return {
+        "decision": "validate_more_evidence",
+        "recommended_next_action": "fix_executor_evidence",
+        "reason": "executor result evidence cannot close the active epoch yet",
+    }
+
+
+def _task_id_from_packet(task_packet: Any) -> str | None:
+    task = task_packet.get("task") if isinstance(task_packet, dict) and isinstance(task_packet.get("task"), dict) else {}
+    task_id_value = task.get("id")
+    return task_id_value if isinstance(task_id_value, str) and task_id_value.strip() else None
+
+
+def _repo_from_packet(task_packet: Any) -> dict[str, Any]:
+    return task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
+
+
+def _snapshot_from_packet(task_packet: Any) -> dict[str, Any]:
+    return task_packet.get("snapshot") if isinstance(task_packet, dict) and isinstance(task_packet.get("snapshot"), dict) else {}
+
+
+def _epoch_task_ids(epoch: dict[str, Any]) -> set[str]:
+    tasks = epoch.get("tasks")
+    if not isinstance(tasks, list):
+        return set()
+    task_ids = set()
+    for task in tasks:
+        if isinstance(task, dict) and isinstance(task.get("id"), str):
+            task_ids.add(task["id"])
+    return task_ids
+
+
+def _validate_executor_epoch_binding(
+    epoch: dict[str, Any],
+    task_packet: Any,
+    result_evidence: Any,
+    snapshot_after: Any,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    valid_task, task_reason = validate_executor_task_packet(task_packet)
+    if not valid_task:
+        return [closeout_blocker("invalid_task_packet", task_reason)]
+    if not isinstance(result_evidence, dict):
+        return [closeout_blocker("invalid_result_evidence", "executor result must be a JSON object")]
+    task_id_value = _task_id_from_packet(task_packet)
+    if task_id_value is None:
+        blockers.append(closeout_blocker("invalid_task_packet", "executor task id is required"))
+    elif task_id_value not in _epoch_task_ids(epoch):
+        blockers.append(
+            closeout_blocker(
+                "task_not_in_epoch",
+                "executor task is not recorded in the active epoch",
+                task_id=task_id_value,
+            )
+        )
+
+    snapshot_before = epoch.get("snapshot_before")
+    if not isinstance(snapshot_before, dict):
+        blockers.append(closeout_blocker("invalid_active_epoch", "active epoch snapshot_before must be a JSON object"))
+        snapshot_before = {}
+    task_snapshot = _snapshot_from_packet(task_packet)
+    if task_snapshot.get("id") != snapshot_before.get("id") or checksum_json(task_snapshot) != checksum_json(snapshot_before):
+        blockers.append(
+            closeout_blocker(
+                "stale_task_snapshot",
+                "executor task snapshot does not match the active epoch baseline snapshot",
+                task_snapshot_id=task_snapshot.get("id"),
+                epoch_snapshot_id=snapshot_before.get("id"),
+            )
+        )
+
+    task_repo = _repo_from_packet(task_packet)
+    for field in ("name", "branch", "head"):
+        epoch_field = "repo" if field == "name" else field
+        epoch_value = snapshot_before.get("head") if field == "head" else epoch.get(epoch_field)
+        if task_repo.get(field) != epoch_value:
+            blockers.append(
+                closeout_blocker(
+                    "task_epoch_head_mismatch" if field == "head" else "task_epoch_mismatch",
+                    f"executor task repo.{field} does not match active epoch {epoch_field}",
+                    task_value=task_repo.get(field),
+                    epoch_value=epoch_value,
+                )
+            )
+
+    valid_after, after_reason = validate_repo_snapshot(
+        snapshot_after,
+        expected_repo=epoch.get("repo"),
+        expected_branch=epoch.get("branch"),
+    )
+    if not valid_after:
+        blockers.append(closeout_blocker("invalid_snapshot_after", after_reason))
+    elif isinstance(snapshot_after, dict):
+        try:
+            validate_snapshot_after_epoch(epoch, snapshot_after)
+        except (ValueError, FileNotFoundError) as exc:
+            blockers.append(closeout_blocker("stale_snapshot_after", str(exc)))
+        expected_head = result_evidence.get("resulting_head") if isinstance(result_evidence.get("resulting_head"), str) else None
+        expected_head = expected_head or task_repo.get("head")
+        if snapshot_after.get("head") != expected_head:
+            blockers.append(
+                closeout_blocker(
+                    "head_mismatch",
+                    "snapshot_after head does not match executor result head",
+                    snapshot_after_head=snapshot_after.get("head"),
+                    result_head=expected_head,
+                )
+            )
+    return blockers
+
+
+def _terminal_epoch_payload(
+    epoch: dict[str, Any],
+    *,
+    task_packet: Any,
+    result_evidence: Any,
+    validation: dict[str, Any],
+    task_file: str,
+    result_file: str,
+    snapshot_after: dict[str, Any],
+) -> dict[str, Any]:
+    task_id_value = _task_id_from_packet(task_packet)
+    return {
+        "task_id": task_id_value,
+        "executor_id": result_evidence.get("executor_id") if isinstance(result_evidence, dict) else None,
+        "result_status": result_evidence.get("status") if isinstance(result_evidence, dict) else None,
+        "result_summary": result_evidence.get("summary") if isinstance(result_evidence, dict) else None,
+        "validation_valid": validation.get("valid"),
+        "validation_reason": validation.get("reason"),
+        "task_file": task_file,
+        "result_file": result_file,
+        "snapshot_before_id": epoch.get("snapshot_before", {}).get("id") if isinstance(epoch.get("snapshot_before"), dict) else None,
+        "snapshot_before_checksum": checksum_json(epoch.get("snapshot_before", {})),
+        "snapshot_after_id": snapshot_after.get("id"),
+        "snapshot_after_checksum": checksum_json(snapshot_after),
+        "task_packet_checksum": checksum_json(task_packet),
+        "result_file_checksum": checksum_json(result_evidence),
+    }
+
+
+def closeout_executor_result_epoch(
+    root: Path,
+    *,
+    epoch_id_value: str,
+    task_packet: Any,
+    result_evidence: Any,
+    validation: dict[str, Any],
+    task_file: str,
+    result_file: str,
+    snapshot_after: dict[str, Any],
+) -> dict[str, Any]:
+    ensure_layout(root)
+    result_status = result_evidence.get("status") if isinstance(result_evidence, dict) else None
+    validation_reason = validation.get("reason") if isinstance(validation.get("reason"), str) else ""
+    with exclusive_lock(lock_path(root, "active-epoch")):
+        completed_path = epoch_path(root, "completed", epoch_id_value)
+        failed_path = epoch_path(root, "failed", epoch_id_value)
+        if completed_path.exists() or failed_path.exists():
+            terminal_path = completed_path if completed_path.exists() else failed_path
+            terminal_epoch = read_json(terminal_path)
+            closeout_status = "already_closed"
+            blockers = [
+                closeout_blocker(
+                    "epoch_already_closed",
+                    "epoch is already terminal and cannot be closed out again",
+                    epoch_status=terminal_epoch.get("status"),
+                )
+            ]
+            return {
+                "valid": False,
+                "closeout_status": closeout_status,
+                "epoch_status": terminal_epoch.get("status"),
+                "reason": "epoch is already terminal",
+                "failure_reason": terminal_epoch.get("failure_reason"),
+                "blockers": blockers,
+                "terminal_epoch": terminal_epoch,
+                "side_effects": [],
+                "next_decision": closeout_next_decision(
+                    closeout_status=closeout_status,
+                    result_status=result_status,
+                    failure_reason=terminal_epoch.get("failure_reason"),
+                    validation=validation,
+                ),
+            }
+
+        active_epochs = list(epoch_state_dir(root, "active").glob("*.json"))
+        active_path = epoch_path(root, "active", epoch_id_value)
+        if len(active_epochs) != 1 or not active_path.exists():
+            blockers = [
+                closeout_blocker(
+                    "active_epoch_conflict",
+                    "expected exactly the requested active epoch before executor closeout",
+                    active_epoch_count=len(active_epochs),
+                )
+            ]
+            return {
+                "valid": False,
+                "closeout_status": "blocked",
+                "epoch_status": "ACTIVE" if active_path.exists() else None,
+                "reason": "active epoch conflict blocks executor closeout",
+                "failure_reason": None,
+                "blockers": blockers,
+                "terminal_epoch": None,
+                "side_effects": [],
+                "next_decision": closeout_next_decision(
+                    closeout_status="blocked",
+                    result_status=result_status,
+                    failure_reason=None,
+                    validation=validation,
+                ),
+            }
+
+        epoch = read_json(active_path)
+        if epoch.get("id") != epoch_id_value:
+            blockers = [closeout_blocker("active_epoch_conflict", "active epoch id does not match path")]
+        elif epoch.get("status") != "ACTIVE":
+            blockers = [closeout_blocker("active_epoch_conflict", "active epoch status must be ACTIVE")]
+        else:
+            blockers = _validate_executor_epoch_binding(epoch, task_packet, result_evidence, snapshot_after)
+
+        if blockers:
+            return {
+                "valid": False,
+                "closeout_status": "blocked",
+                "epoch_status": epoch.get("status"),
+                "reason": blockers[0]["message"],
+                "failure_reason": None,
+                "blockers": blockers,
+                "terminal_epoch": None,
+                "side_effects": [],
+                "next_decision": closeout_next_decision(
+                    closeout_status="blocked",
+                    result_status=result_status,
+                    failure_reason=None,
+                    validation=validation,
+                ),
+            }
+
+        validation_valid = validation.get("valid") is True
+        should_complete = validation_valid and result_status == "succeeded"
+        should_fail = (
+            validation_valid and result_status in {"failed", "blocked", "stopped"}
+        ) or invalid_executor_result_fails_epoch(validation, result_evidence)
+        if not should_complete and not should_fail:
+            blockers = [
+                closeout_blocker(
+                    "executor_result_not_closeable",
+                    validation_reason or "executor result evidence is not ready for epoch closeout",
+                )
+            ]
+            return {
+                "valid": False,
+                "closeout_status": "blocked",
+                "epoch_status": "ACTIVE",
+                "reason": blockers[0]["message"],
+                "failure_reason": None,
+                "blockers": blockers,
+                "terminal_epoch": None,
+                "side_effects": [],
+                "next_decision": closeout_next_decision(
+                    closeout_status="blocked",
+                    result_status=result_status,
+                    failure_reason=None,
+                    validation=validation,
+                ),
+            }
+
+        now = utc_now()
+        closeout_data = _terminal_epoch_payload(
+            epoch,
+            task_packet=task_packet,
+            result_evidence=result_evidence,
+            validation=validation,
+            task_file=task_file,
+            result_file=result_file,
+            snapshot_after=snapshot_after,
+        )
+        task_id_value = _task_id_from_packet(task_packet)
+        completed_tasks = list(epoch.get("completed_tasks") or [])
+        if should_complete and task_id_value is not None and task_id_value not in completed_tasks:
+            completed_tasks.append(task_id_value)
+        if should_complete:
+            epoch.update(
+                {
+                    "status": "COMPLETED",
+                    "decision": STOP,
+                    "summary": result_evidence.get("summary") if isinstance(result_evidence, dict) else None,
+                    "completed_tasks": completed_tasks,
+                    "executor_closeout": closeout_data,
+                    "completed_at": now,
+                    "updated_at": now,
+                }
+            )
+            write_terminal_epoch(completed_path, active_path, epoch)
+            closeout_status = "completed"
+            failure_reason = None
+            side_effects = ["epoch_completed"]
+        else:
+            failure_reason = executor_result_failure_reason(validation_valid, validation_reason, result_evidence)
+            epoch.update(
+                {
+                    "status": "FAILED",
+                    "failure_reason": failure_reason,
+                    "failure_summary": result_evidence.get("summary") if isinstance(result_evidence, dict) else validation_reason,
+                    "executor_closeout": closeout_data,
+                    "failed_at": now,
+                    "updated_at": now,
+                }
+            )
+            write_terminal_epoch(failed_path, active_path, epoch)
+            closeout_status = "failed"
+            side_effects = ["epoch_failed"]
+        return {
+            "valid": True,
+            "closeout_status": closeout_status,
+            "epoch_status": epoch.get("status"),
+            "reason": "executor result succeeded" if should_complete else "executor result closed the epoch as failed",
+            "failure_reason": failure_reason,
+            "blockers": [],
+            "terminal_epoch": epoch,
+            "side_effects": side_effects,
+            "next_decision": closeout_next_decision(
+                closeout_status=closeout_status,
+                result_status=result_status,
+                failure_reason=failure_reason,
+                validation=validation,
+            ),
+        }
 
 
 def record_self_check(root: Path, epoch_id_value: str, check: dict[str, Any]) -> dict[str, Any]:

@@ -51,6 +51,14 @@ def git(cwd, *args):
     )
 
 
+def current_head(path):
+    return git(path, "rev-parse", "HEAD").stdout.strip()
+
+
+def current_branch(path):
+    return git(path, "branch", "--show-current").stdout.strip()
+
+
 def init_committed_repo(path):
     git(path, "init", "-b", "main")
     git(path, "config", "user.email", "test@example.com")
@@ -104,15 +112,15 @@ def valid_snapshot(**overrides):
     return snapshot
 
 
-def write_active_epoch(root, epoch_id, snapshot_before, policy=None):
+def write_active_epoch(root, epoch_id, snapshot_before, policy=None, tasks=None):
     path = Path(root) / "epochs" / "active" / f"{epoch_id}.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     data = {
         "id": epoch_id,
         "status": "ACTIVE",
-        "repo": "local/test",
-        "branch": "main",
-        "tasks": [],
+        "repo": snapshot_before.get("repo", "local/test") if isinstance(snapshot_before, dict) else "local/test",
+        "branch": snapshot_before.get("branch", "main") if isinstance(snapshot_before, dict) else "main",
+        "tasks": list(tasks or []),
         "completed_tasks": [],
         "snapshot_before": snapshot_before,
         "policy": policy if policy is not None else {"allow_recursive_discovery": False},
@@ -214,6 +222,84 @@ def write_controlled_fixture_task(root, repo, *, command_policy=None, evidence_n
     task_path = Path(root) / "executor-task.json"
     task_path.write_text(json.dumps(task_packet), encoding="utf-8")
     return task_path, evidence_path, task_packet
+
+
+def closeout_snapshot(repo, **overrides):
+    snapshot = valid_snapshot(
+        cwd=str(Path(repo).resolve()),
+        branch=current_branch(repo),
+        head=current_head(repo),
+    )
+    snapshot.update(overrides)
+    return snapshot
+
+
+def write_closeout_packets(root, repo, *, task_packet=None, result_evidence=None, snapshot_before=None):
+    result_path = Path(root) / "executor-result.json"
+    snapshot_before = snapshot_before or closeout_snapshot(repo)
+    task_packet = task_packet or build_executor_task_packet(
+        task={
+            "id": "candidate-1",
+            "title": "Implement epoch closeout",
+            "summary": "Wire executor evidence into epoch closeout.",
+            "task_type": "execution",
+            "bucket": "S",
+            "source": "text_marker",
+            "drivers": [],
+            "evidence": {"path": "docs/roadmap.md"},
+        },
+        snapshot=snapshot_before,
+        repo_path=repo,
+        allowed_paths=["README.md", "codex_cadence", "tests"],
+        required_checks=[],
+        max_minutes=30,
+        max_tasks=1,
+        stop_conditions=DEFAULT_EXECUTOR_STOP_CONDITIONS,
+        evidence_path=result_path,
+    )
+    result_evidence = result_evidence or {
+        "schema_version": "generic-executor-result.v1",
+        "packet": "executor_result",
+        "task_id": "candidate-1",
+        "executor_id": "fake-executor",
+        "started_at": "2999-05-22T00:00:00Z",
+        "ended_at": "2999-05-22T00:05:00Z",
+        "status": "succeeded",
+        "files_changed": ["README.md"],
+        "commands_run": [
+            {
+                "command": "python -m unittest tests.test_cadence",
+                "exit_code": 0,
+            }
+        ],
+        "validation_results": [
+            {
+                "name": "cadence-tests",
+                "status": "passed",
+                "command": "python -m unittest tests.test_cadence",
+            }
+        ],
+        "summary": "Closeout evidence is ready.",
+        "confidence": "high",
+        "blockers": [],
+        "dirty_worktree": False,
+        "resulting_head": current_head(repo),
+        "materialized_change_evidence": {
+            "status": "verified",
+            "source": "executor_result.materialized_change_evidence",
+            "task_id": "candidate-1",
+            "resulting_head": current_head(repo),
+            "files": ["README.md"],
+            "limitations": ["verified_against_result_metadata_not_local_diff"],
+        },
+    }
+    task_path = Path(root) / "executor-task.json"
+    snapshot_after_path = Path(root) / "snapshot-after.json"
+    snapshot_after = closeout_snapshot(repo, id="snapshot-after", captured_at="2999-05-22T00:10:00Z")
+    task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+    result_path.write_text(json.dumps(result_evidence), encoding="utf-8")
+    snapshot_after_path.write_text(json.dumps(snapshot_after), encoding="utf-8")
+    return task_path, result_path, snapshot_after_path, task_packet, result_evidence, snapshot_after
 
 
 def claimed_handoff_path(root, handoff_id):
@@ -4676,6 +4762,233 @@ class CadenceCliTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIsNone(output)
             self.assertIn("candidate 0 must be a JSON object", result.stderr)
+
+    def test_closeout_executor_result_completes_epoch_and_embeds_dry_run_git_pr_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            git(repo, "switch", "-c", "feature/epoch-closeout")
+            (Path(repo) / "README.md").write_text("hello\ncloseout\n", encoding="utf-8")
+            git(repo, "add", "README.md")
+            git(repo, "commit", "-m", "implement epoch closeout fixture")
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, _snapshot_after = write_closeout_packets(
+                tmp,
+                repo,
+            )
+            write_active_epoch(
+                tmp,
+                "epoch-closeout-success",
+                task_packet["snapshot"],
+                tasks=[task_packet["task"]],
+            )
+
+            result, output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-closeout-success",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--emit-git-pr-plan",
+                "--cwd",
+                repo,
+                "--required-body-section",
+                "Summary",
+                "--required-body-section",
+                "Validation",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "executor-epoch-closeout.v1")
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["closeout_status"], "completed")
+            self.assertEqual(output["epoch_status"], "COMPLETED")
+            self.assertEqual(output["executor_result_status"], "succeeded")
+            self.assertEqual(output["next_decision"]["decision"], "generate_git_pr_plan")
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["pr_action_started"])
+            self.assertEqual(output["side_effects"], ["epoch_completed", "audit_record_appended"])
+            self.assertTrue(output["git_pr_plan"]["dry_run"])
+            self.assertTrue(output["git_pr_plan"]["ready_to_review"])
+            self.assertEqual(output["git_pr_plan"]["side_effects"], [])
+            completed_path = Path(tmp) / "epochs" / "completed" / "epoch-closeout-success.json"
+            self.assertTrue(completed_path.exists())
+            self.assertFalse((Path(tmp) / "epochs" / "active" / "epoch-closeout-success.json").exists())
+            completed_epoch = json.loads(completed_path.read_text(encoding="utf-8"))
+            self.assertEqual(completed_epoch["decision"], "STOP")
+            self.assertEqual(completed_epoch["completed_tasks"], ["candidate-1"])
+            self.assertEqual(completed_epoch["executor_closeout"]["result_file_checksum"], checksum_json(result_evidence))
+            audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(audit_lines), 1)
+            audit_record = json.loads(audit_lines[0])
+            self.assertEqual(audit_record["event"], "executor_epoch_closeout")
+            self.assertEqual(audit_record["action"], "generate_git_pr_plan")
+            self.assertEqual(audit_record["epoch_id"], "epoch-closeout-success")
+            payload_without_audit = dict(output)
+            payload_without_audit.pop("audit_record")
+            self.assertEqual(audit_record["payload_checksum"], checksum_json(payload_without_audit))
+
+    def test_closeout_executor_result_fails_epoch_for_blocked_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+                tmp,
+                repo,
+                result_evidence={
+                    "schema_version": "generic-executor-result.v1",
+                    "packet": "executor_result",
+                    "task_id": "candidate-1",
+                    "executor_id": "fake-executor",
+                    "started_at": "2999-05-22T00:00:00Z",
+                    "ended_at": "2999-05-22T00:05:00Z",
+                    "status": "blocked",
+                    "files_changed": [],
+                    "commands_run": [],
+                    "validation_results": [],
+                    "summary": "Executor hit an operator approval blocker.",
+                    "confidence": "medium",
+                    "blockers": ["operator approval required"],
+                    "dirty_worktree": True,
+                    "resulting_head": None,
+                },
+            )
+            write_active_epoch(
+                tmp,
+                "epoch-closeout-blocked",
+                task_packet["snapshot"],
+                tasks=[task_packet["task"]],
+            )
+
+            result, output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-closeout-blocked",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["closeout_status"], "failed")
+            self.assertEqual(output["epoch_status"], "FAILED")
+            self.assertEqual(output["failure_reason"], "executor_result_blocked")
+            self.assertEqual(output["next_decision"]["decision"], "handoff")
+            failed_path = Path(tmp) / "epochs" / "failed" / "epoch-closeout-blocked.json"
+            self.assertTrue(failed_path.exists())
+            failed_epoch = json.loads(failed_path.read_text(encoding="utf-8"))
+            self.assertEqual(failed_epoch["failure_reason"], "executor_result_blocked")
+
+    def test_closeout_executor_result_blocks_stale_task_snapshot_without_closing_epoch(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+                tmp,
+                repo,
+            )
+            stale_epoch_snapshot = dict(task_packet["snapshot"])
+            stale_epoch_snapshot["id"] = "snapshot-before-different"
+            write_active_epoch(
+                tmp,
+                "epoch-closeout-stale",
+                stale_epoch_snapshot,
+                tasks=[task_packet["task"]],
+            )
+
+            result, output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-closeout-stale",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["closeout_status"], "blocked")
+            self.assertEqual(output["next_decision"]["decision"], "validate_more_evidence")
+            self.assertIn("stale_task_snapshot", {blocker["code"] for blocker in output["blockers"]})
+            self.assertTrue((Path(tmp) / "epochs" / "active" / "epoch-closeout-stale.json").exists())
+            self.assertFalse((Path(tmp) / "epochs" / "completed" / "epoch-closeout-stale.json").exists())
+            self.assertFalse((Path(tmp) / "epochs" / "failed" / "epoch-closeout-stale.json").exists())
+
+    def test_closeout_executor_result_blocks_active_epoch_conflict(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+                tmp,
+                repo,
+            )
+            write_active_epoch(tmp, "epoch-conflict-1", task_packet["snapshot"], tasks=[task_packet["task"]])
+            write_active_epoch(tmp, "epoch-conflict-2", task_packet["snapshot"], tasks=[task_packet["task"]])
+
+            result, output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-conflict-1",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["closeout_status"], "blocked")
+            self.assertIn("active_epoch_conflict", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(len(list((Path(tmp) / "epochs" / "active").glob("*.json"))), 2)
+
+    def test_closeout_executor_result_rerun_reports_already_closed_without_second_completion(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+                tmp,
+                repo,
+            )
+            write_active_epoch(
+                tmp,
+                "epoch-closeout-rerun",
+                task_packet["snapshot"],
+                tasks=[task_packet["task"]],
+            )
+            args = [
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-closeout-rerun",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            ]
+
+            first_result, first_output = run_cli(tmp, *args)
+            second_result, second_output = run_cli(tmp, *args)
+
+            self.assertEqual(first_result.returncode, 0, first_result.stderr)
+            self.assertTrue(first_output["valid"])
+            self.assertEqual(second_result.returncode, 1)
+            self.assertFalse(second_output["valid"])
+            self.assertEqual(second_output["closeout_status"], "already_closed")
+            self.assertIn("epoch_already_closed", {blocker["code"] for blocker in second_output["blockers"]})
+            self.assertEqual(len(list((Path(tmp) / "epochs" / "completed").glob("epoch-closeout-rerun.json"))), 1)
+            self.assertEqual(len(list((Path(tmp) / "epochs" / "failed").glob("epoch-closeout-rerun.json"))), 0)
 
 
 if __name__ == "__main__":

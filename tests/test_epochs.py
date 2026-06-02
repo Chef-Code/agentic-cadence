@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 from codex_cadence.epochs import checksum_json, complete_epoch, completed_continue_count, elect_candidates, fail_epoch
+from codex_cadence.epochs import executor_result_failure_reason
 from codex_cadence.epochs import self_check_decision, start_epoch
 from codex_cadence.store import epoch_path, snapshot_path
 
@@ -75,6 +76,20 @@ def valid_continue_check(epoch, completed_continues=0, snapshot_after=None):
 
 
 class EpochLifecycleTests(unittest.TestCase):
+    def test_executor_result_failure_reason_uses_stable_codes(self):
+        cases = [
+            (True, "ok", {"status": "failed"}, "executor_result_failed"),
+            (True, "ok", {"status": "blocked"}, "executor_result_blocked"),
+            (True, "ok", {"status": "stopped", "blockers": ["timeout"]}, "executor_result_timed_out"),
+            (True, "ok", {"status": "stopped", "blockers": ["operator stop"]}, "executor_result_stopped"),
+            (False, "executor result commands_run[0] is denied by command_policy", {}, "executor_result_policy_violation"),
+            (False, "executor result missing required check command", {}, "executor_result_invalid"),
+        ]
+
+        for valid, reason, evidence, expected in cases:
+            with self.subTest(expected=expected):
+                self.assertEqual(executor_result_failure_reason(valid, reason, evidence), expected)
+
     def test_start_epoch_records_policy_and_tasks(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

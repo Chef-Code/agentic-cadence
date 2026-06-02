@@ -143,6 +143,20 @@ def validate_executor_result_audit_record(record: dict[str, Any], line: int) -> 
     return blockers
 
 
+def validate_executor_epoch_closeout_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate executor_epoch_closeout audit-record fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in ("action", "reason", "epoch_id", "closeout_status", "task_file", "result_file"):
+        blockers.extend(required_string(record, field, line))
+    blockers.extend(required_bool(record, "valid", line))
+    for field in ("payload_checksum", "task_packet_checksum", "result_evidence_checksum"):
+        blockers.extend(required_checksum_present(record, field, line))
+    if record.get("valid") is True:
+        for field in ("epoch_status", "task_id", "repo", "branch", "head"):
+            blockers.extend(required_string(record, field, line))
+    return blockers
+
+
 def validate_executor_fixture_invocation_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
     """Validate controlled fixture invocation audit-record fields."""
     blockers: list[dict[str, Any]] = []
@@ -190,6 +204,8 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
         blockers.extend(validate_executor_fixture_invocation_audit_record(record, line))
     elif event == "executor_result_validation":
         blockers.extend(validate_executor_result_audit_record(record, line))
+    elif event == "executor_epoch_closeout":
+        blockers.extend(validate_executor_epoch_closeout_audit_record(record, line))
     else:
         blockers.append(audit_replay_blocker("audit_event_unsupported", f"unsupported audit event: {event}", line))
         return None, blockers
@@ -339,6 +355,36 @@ def executor_result_validation_audit_record(
         "action": payload.get("recommended_next_action"),
         "reason": payload.get("reason"),
         "valid": payload.get("valid"),
+        "task_id": task.get("id"),
+        "repo": repo.get("name"),
+        "branch": repo.get("branch"),
+        "head": repo.get("head"),
+        "task_file": payload.get("task_file"),
+        "result_file": payload.get("result_file"),
+        "payload_checksum": checksum_json(payload),
+        "task_packet_checksum": checksum_json(task_packet),
+        "result_evidence_checksum": checksum_json(result_evidence),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def executor_epoch_closeout_audit_record(
+    payload: dict[str, Any],
+    task_packet: Any,
+    result_evidence: Any,
+) -> dict[str, Any]:
+    task = task_packet.get("task") if isinstance(task_packet, dict) and isinstance(task_packet.get("task"), dict) else {}
+    repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
+    next_decision = payload.get("next_decision") if isinstance(payload.get("next_decision"), dict) else {}
+    record = {
+        "event": "executor_epoch_closeout",
+        "action": next_decision.get("decision") or payload.get("recommended_next_action"),
+        "reason": payload.get("reason"),
+        "valid": payload.get("valid"),
+        "epoch_id": payload.get("epoch_id"),
+        "epoch_status": payload.get("epoch_status"),
+        "closeout_status": payload.get("closeout_status"),
+        "failure_reason": payload.get("failure_reason"),
         "task_id": task.get("id"),
         "repo": repo.get("name"),
         "branch": repo.get("branch"),
