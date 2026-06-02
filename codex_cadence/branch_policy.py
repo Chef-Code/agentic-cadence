@@ -9,6 +9,7 @@ BRANCH_POLICY_LIST_FIELDS = (
     "denied_target_branches",
     "required_branch_prefixes",
 )
+BRANCH_POLICY_FIELDS = (*BRANCH_POLICY_LIST_FIELDS, "allow_current_branch_main")
 
 DEFAULT_BRANCH_POLICY: dict[str, Any] = {
     "allowed_base_branches": [],
@@ -46,6 +47,9 @@ def normalize_branch_policy(
         return default_branch_policy(allow_current_branch_main=absent_allow_current_branch_main)
     if not isinstance(value, dict):
         raise ValueError(f"{label} must be a JSON object")
+    unknown_keys = sorted(str(key) for key in value if key not in BRANCH_POLICY_FIELDS)
+    if unknown_keys:
+        raise ValueError(f"{label} contains unknown keys: {', '.join(unknown_keys)}")
 
     normalized = {
         field: _normalize_string_list(value.get(field), label=f"{label}.{field}")

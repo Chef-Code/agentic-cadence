@@ -1950,6 +1950,45 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIsNone(output)
             self.assertIn("loop policy branch_policy.allowed_base_branches must be a list", result.stderr)
 
+    def test_loop_tick_policy_file_rejects_unknown_branch_policy_keys(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "branch_policy": {
+                            "required_branch_prefix": ["codex/"],
+                            "allow_current_branch_main": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--policy-file",
+                str(policy_file),
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIsNone(output)
+            self.assertIn("loop policy branch_policy contains unknown keys: required_branch_prefix", result.stderr)
+
     def test_loop_tick_policy_file_keeps_policy_stop_conditions_with_cli_additions(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -2340,6 +2379,8 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["pr_action_started"])
             self.assertEqual(output["packet"], "controlled_executor_fixture_run")
             self.assertEqual(output["schema_version"], "controlled-executor-fixture-run.v1")
+            self.assertIn("controlled_fixture_only", output["limitations"])
+            self.assertNotIn("branch_policy_not_implemented", output["limitations"])
             self.assertEqual(output["result_status"], "succeeded")
             self.assertEqual(output["recommended_next_action"], "record_executor_result")
             self.assertEqual(output["task_file"], str(task_path))

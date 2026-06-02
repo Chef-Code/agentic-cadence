@@ -1530,6 +1530,10 @@ class ExecutorContractTests(unittest.TestCase):
                     {"allowed_base_branches": ["main"], "allow_current_branch_main": "false"},
                     "executor task branch_policy.allow_current_branch_main must be a boolean",
                 ),
+                (
+                    {"required_branch_prefix": ["codex/"], "allow_current_branch_main": False},
+                    "executor task branch_policy contains unknown keys: required_branch_prefix",
+                ),
             ]
 
             for branch_policy, expected_reason in cases:

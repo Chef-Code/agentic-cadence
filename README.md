@@ -309,8 +309,9 @@ anchors include the task packet, result evidence, and snapshot-after packet. A l
 checks, command allow/deny lists, runtime, stop conditions, and a dry-run
 `branch_policy`. The branch policy supports `allowed_base_branches`,
 `denied_target_branches`, `required_branch_prefixes`, and
-`allow_current_branch_main`, is copied into emitted executor task packets, and
-is enforced by `git-pr-plan` along with any local `--policy-file` branch policy.
+`allow_current_branch_main`; unknown branch-policy fields fail closed. It is
+copied into emitted executor task packets and enforced by `git-pr-plan` along
+with any local `--policy-file` branch policy.
 Result
 validation enforces task-carried command policy across compound commands,
 shell grouping, command substitutions, and shell-wrapper payloads, and it rejects non-`stopped`

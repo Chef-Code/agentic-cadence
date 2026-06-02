@@ -455,6 +455,48 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertFalse(packet["ready_to_review"])
             self.assertIn("branch_policy_required_prefix_missing", {blocker["code"] for blocker in packet["blockers"]})
 
+    def test_policy_file_rejects_unknown_branch_policy_keys(self):
+        """Malformed local branch policy fails before git-pr-plan emits a packet."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            task_path, result_path, _task_packet, _result_evidence = write_packets(tmp, repo)
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "branch_policy": {
+                            "required_branch_prefix": ["codex/"],
+                            "allow_current_branch_main": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+
+            result, packet = run_git_pr_plan(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--policy-file",
+                str(policy_file),
+                "--required-body-section",
+                "Summary",
+                "--required-body-section",
+                "Validation",
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIsNone(packet)
+            self.assertIn("loop policy branch_policy contains unknown keys: required_branch_prefix", result.stderr)
+
     def test_blocks_metadata_only_materialized_change_evidence(self):
         """Materialized evidence must match the local base diff."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
