@@ -1813,6 +1813,255 @@ class CadenceCliTests(unittest.TestCase):
             self.assertNotIn("pr merge", "\n".join(gh_calls))
             self.assertNotIn("pr edit", "\n".join(gh_calls))
 
+    def test_github_evidence_sync_paginates_review_threads_and_comments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "evidence"
+            pr_payload = {
+                "number": 68,
+                "title": "Task 5",
+                "state": "OPEN",
+                "isDraft": False,
+                "mergeable": "MERGEABLE",
+                "mergeStateStatus": "CLEAN",
+                "reviewDecision": "",
+                "body": "",
+                "headRefName": "codex/task-5-github-evidence-sync",
+                "baseRefName": "main",
+                "headRefOid": "abc123",
+                "statusCheckRollup": [],
+            }
+            review_page_1 = {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {
+                                "pageInfo": {"hasNextPage": True, "endCursor": "thread-cursor-1"},
+                                "nodes": [
+                                    {
+                                        "id": "thread-1",
+                                        "isResolved": False,
+                                        "isOutdated": False,
+                                        "path": "codex_cadence/github_evidence.py",
+                                        "line": 45,
+                                        "comments": {
+                                            "pageInfo": {"hasNextPage": True, "endCursor": "comment-cursor-1"},
+                                            "nodes": [
+                                                {
+                                                    "id": "comment-1",
+                                                    "body": "First actionable comment.",
+                                                    "path": "codex_cadence/github_evidence.py",
+                                                    "line": 45,
+                                                    "outdated": False,
+                                                    "author": {"login": "coderabbitai"},
+                                                }
+                                            ],
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    }
+                }
+            }
+            comment_page_2 = {
+                "data": {
+                    "node": {
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-2",
+                                    "body": "Second actionable comment.",
+                                    "path": "codex_cadence/github_evidence.py",
+                                    "line": 46,
+                                    "outdated": False,
+                                    "author": {"login": "coderabbitai"},
+                                }
+                            ],
+                        }
+                    }
+                }
+            }
+            review_page_2 = {
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {
+                                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                "nodes": [
+                                    {
+                                        "id": "thread-2",
+                                        "isResolved": True,
+                                        "isOutdated": False,
+                                        "path": "docs/session-handoff.md",
+                                        "line": 12,
+                                        "comments": {
+                                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                            "nodes": [],
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    }
+                }
+            }
+
+            def completed(payload):
+                return subprocess.CompletedProcess(["gh"], 0, stdout=json.dumps(payload), stderr="")
+
+            with mock.patch(
+                "codex_cadence.github_evidence.subprocess.run",
+                side_effect=[
+                    completed(pr_payload),
+                    completed(review_page_1),
+                    completed(comment_page_2),
+                    completed(review_page_2),
+                ],
+            ) as run_mock:
+                output = github_evidence.sync_github_evidence(
+                    repo="Chef-Code/agentic-cadence",
+                    pr_number=68,
+                    out_dir=out_dir,
+                    gh_bin="gh",
+                )
+
+            self.assertTrue(output["valid"])
+            saved_threads = json.loads(Path(output["files"]["review_threads_json"]).read_text(encoding="utf-8"))
+            review_threads = saved_threads["data"]["repository"]["pullRequest"]["reviewThreads"]
+            self.assertEqual(review_threads["pageInfo"], {"hasNextPage": False, "endCursor": None})
+            self.assertEqual([thread["id"] for thread in review_threads["nodes"]], ["thread-1", "thread-2"])
+            thread_1_comments = review_threads["nodes"][0]["comments"]
+            self.assertEqual(thread_1_comments["pageInfo"], {"hasNextPage": False, "endCursor": None})
+            self.assertEqual([comment["id"] for comment in thread_1_comments["nodes"]], ["comment-1", "comment-2"])
+            calls = [" ".join(str(part) for part in call.args[0]) for call in run_mock.call_args_list]
+            self.assertEqual(len(calls), 4)
+            self.assertTrue(any("threadId=thread-1" in call for call in calls))
+            self.assertTrue(any("commentsCursor=comment-cursor-1" in call for call in calls))
+            self.assertTrue(any("threadsCursor=thread-cursor-1" in call for call in calls))
+
+    def test_github_evidence_sync_timeout_returns_blocker_without_files(self):
+        pr_payload = {
+            "number": 68,
+            "title": "Task 5",
+            "state": "OPEN",
+            "isDraft": False,
+            "mergeable": "MERGEABLE",
+            "mergeStateStatus": "CLEAN",
+            "reviewDecision": "",
+            "body": "",
+            "headRefName": "codex/task-5-github-evidence-sync",
+            "baseRefName": "main",
+            "headRefOid": "abc123",
+            "statusCheckRollup": [],
+        }
+        cases = {
+            "pr": [subprocess.TimeoutExpired(cmd=["gh", "pr", "view"], timeout=60)],
+            "graphql": [
+                subprocess.CompletedProcess(["gh"], 0, stdout=json.dumps(pr_payload), stderr=""),
+                subprocess.TimeoutExpired(cmd=["gh", "api", "graphql"], timeout=60),
+            ],
+        }
+        for name, side_effect in cases.items():
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    out_dir = Path(tmp) / "evidence"
+                    with mock.patch("codex_cadence.github_evidence.subprocess.run", side_effect=side_effect):
+                        output = github_evidence.sync_github_evidence(
+                            repo="Chef-Code/agentic-cadence",
+                            pr_number=68,
+                            out_dir=out_dir,
+                            gh_bin="gh",
+                        )
+
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["recommended_next_action"], "retry_github_evidence_sync")
+                    self.assertEqual({blocker["code"] for blocker in output["blockers"]}, {"gh_command_timeout"})
+                    self.assertFalse(out_dir.exists())
+
+    def test_cli_github_evidence_sync_rejects_repo_local_out_dir(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "runtime"
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            init_committed_repo(repo)
+            out_dir = repo / "evidence"
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            fake_script = Path(tmp) / "fake_gh.py"
+            pr_json = Path(tmp) / "pr-source.json"
+            review_threads_json = Path(tmp) / "threads-source.json"
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_script(fake_script)
+            write_fake_gh(fake_bin, fake_script)
+            pr_json.write_text(
+                json.dumps(
+                    {
+                        "number": 68,
+                        "title": "Task 5",
+                        "state": "OPEN",
+                        "isDraft": False,
+                        "mergeable": "MERGEABLE",
+                        "mergeStateStatus": "CLEAN",
+                        "reviewDecision": "",
+                        "body": "",
+                        "headRefName": "codex/task-5-github-evidence-sync",
+                        "baseRefName": "main",
+                        "headRefOid": "abc123",
+                        "statusCheckRollup": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            review_threads_json.write_text(
+                json.dumps(
+                    {
+                        "data": {
+                            "repository": {
+                                "pullRequest": {
+                                    "reviewThreads": {
+                                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                        "nodes": [],
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_PR_JSON"] = str(pr_json)
+            env["GH_REVIEW_THREADS_JSON"] = str(review_threads_json)
+            env["GH_CALL_LOG"] = str(gh_log)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(root),
+                    "github-evidence-sync",
+                    "--repo",
+                    "Chef-Code/agentic-cadence",
+                    "--pr-number",
+                    "68",
+                    "--out-dir",
+                    str(out_dir),
+                ],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("github evidence out-dir is inside a git worktree", result.stderr)
+            self.assertEqual(result.stdout, "")
+            self.assertFalse(out_dir.exists())
+
     def test_github_evidence_sync_missing_gh_returns_blocker_without_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "runtime"

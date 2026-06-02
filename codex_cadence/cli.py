@@ -59,6 +59,8 @@ from codex_cadence.pr_readiness import (
 )
 from codex_cadence.release import evaluate_release_dry_run
 from codex_cadence.repo_state import (
+    git_repo_root,
+    path_is_relative_to,
     runtime_root_location_safety_issue,
     runtime_root_safety_issue,
     snapshot_repo,
@@ -1331,11 +1333,30 @@ def pr_readiness_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def github_evidence_out_dir_safety_issue(out_dir: Path) -> str | None:
+    target = out_dir.expanduser().resolve(strict=False)
+    cwd_repo_root = git_repo_root(Path.cwd())
+    if cwd_repo_root is not None and path_is_relative_to(target, cwd_repo_root):
+        return "github evidence out-dir is inside a git worktree; choose a runtime-owned directory outside the repository"
+
+    probe = target if target.exists() else target.parent
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    out_dir_repo_root = git_repo_root(probe)
+    if out_dir_repo_root is not None and path_is_relative_to(target, out_dir_repo_root):
+        return "github evidence out-dir is inside a git worktree; choose a runtime-owned directory outside the repository"
+    return None
+
+
 def github_evidence_sync_command(args: argparse.Namespace) -> int:
+    out_dir = Path(args.out_dir)
+    issue = github_evidence_out_dir_safety_issue(out_dir)
+    if issue:
+        raise ValueError(issue)
     payload = sync_github_evidence(
         repo=args.repo,
         pr_number=args.pr_number,
-        out_dir=Path(args.out_dir),
+        out_dir=out_dir,
     )
     emit(payload)
     return 0 if payload["valid"] else 1

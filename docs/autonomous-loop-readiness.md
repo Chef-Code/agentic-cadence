@@ -194,7 +194,7 @@ active epoch from that evidence, but it does not implement product changes. The
 dry-run `git-pr-plan` handoff remains
 review-only. Real code changes, operator-approved Git/PR
 materialization, live commit, push, PR creation or update, review feedback
-response writes, and new-session launch remain external or future approved slices. At
+response writes, and new-session launch remain external or future-approved slices. At
 `policy_denied`, an operator must adjust the task bounds or policy before
 execution can be considered. Audit history is now locally inspectable through
 `audit-replay`, but clean replay evidence is not approval to execute work and

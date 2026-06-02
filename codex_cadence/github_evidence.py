@@ -12,6 +12,7 @@ from typing import Any
 
 from codex_cadence import PROTOCOL_VERSION
 GITHUB_EVIDENCE_SYNC_SCHEMA_VERSION = "github-evidence-sync.v1"
+DEFAULT_GH_TIMEOUT_SECONDS = 60
 PR_VIEW_FIELDS = (
     "number",
     "title",
@@ -36,13 +37,20 @@ FAILED_STATES = {
     "TIMED_OUT",
 }
 REVIEW_THREADS_QUERY = (
-    "query($owner:String!,$name:String!,$number:Int!){"
+    "query($owner:String!,$name:String!,$number:Int!,$threadsCursor:String){"
     "repository(owner:$owner,name:$name){"
     "pullRequest(number:$number){"
-    "reviewThreads(first:100){pageInfo{hasNextPage endCursor} nodes{"
+    "reviewThreads(first:100,after:$threadsCursor){pageInfo{hasNextPage endCursor} nodes{"
     "id isResolved isOutdated path line originalLine "
     "comments(first:50){pageInfo{hasNextPage endCursor} nodes{id body path line originalLine outdated author{login}}}"
     "}}}}}"
+)
+REVIEW_THREAD_COMMENTS_QUERY = (
+    "query($threadId:ID!,$commentsCursor:String){"
+    "node(id:$threadId){... on PullRequestReviewThread{"
+    "comments(first:50,after:$commentsCursor){pageInfo{hasNextPage endCursor} "
+    "nodes{id body path line originalLine outdated author{login}}}"
+    "}}}"
 )
 
 NON_ACTIONABLE_REVIEW_MARKERS = (
@@ -118,6 +126,33 @@ def _read_json_stdout(result: subprocess.CompletedProcess[str], *, command_name:
     if not isinstance(payload, dict):
         return None, _issue("gh_json_not_object", f"{command_name} must return a JSON object")
     return payload, None
+
+
+def _run_gh_json(
+    gh_path: str,
+    args: list[str],
+    *,
+    command_name: str,
+    command_trace: list[dict[str, Any]],
+    timeout_seconds: int = DEFAULT_GH_TIMEOUT_SECONDS,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    command_trace.append({"argv": ["gh", *args], "read_only": True})
+    try:
+        result = subprocess.run(
+            [gh_path, *args],
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=timeout_seconds,
+        )
+    except subprocess.TimeoutExpired as exc:
+        return None, _issue(
+            "gh_command_timeout",
+            f"{command_name} timed out",
+            detail=f"{command_name} timed out after {exc.timeout} seconds",
+            timeout_seconds=exc.timeout,
+        )
+    return _read_json_stdout(result, command_name=command_name)
 
 
 def _write_json_temp(path: Path, data: dict[str, Any]) -> Path:
@@ -211,6 +246,178 @@ def classify_gh_failure(result: subprocess.CompletedProcess[str], *, command_nam
     return _issue(code, message, detail=detail, exit_code=result.returncode)
 
 
+def _review_threads_args(owner: str, name: str, pr_number: int, threads_cursor: str | None = None) -> list[str]:
+    args = [
+        "api",
+        "graphql",
+        "-f",
+        f"owner={owner}",
+        "-f",
+        f"name={name}",
+        "-F",
+        f"number={pr_number}",
+        "-f",
+        f"query={REVIEW_THREADS_QUERY}",
+    ]
+    if threads_cursor:
+        args.extend(["-f", f"threadsCursor={threads_cursor}"])
+    return args
+
+
+def _review_thread_comments_args(thread_id: str, comments_cursor: str | None = None) -> list[str]:
+    args = [
+        "api",
+        "graphql",
+        "-f",
+        f"threadId={thread_id}",
+        "-f",
+        f"query={REVIEW_THREAD_COMMENTS_QUERY}",
+    ]
+    if comments_cursor:
+        args.extend(["-f", f"commentsCursor={comments_cursor}"])
+    return args
+
+
+def review_thread_comments_object_from_payload(payload: Any) -> dict[str, Any] | None:
+    if not isinstance(payload, dict):
+        return None
+    current: Any = payload
+    for key in ("data", "node", "comments"):
+        if not isinstance(current, dict) or key not in current:
+            return None
+        current = current[key]
+    return current if isinstance(current, dict) else None
+
+
+def _page_info_is_complete(page_info: Any) -> bool:
+    return isinstance(page_info, dict) and page_info.get("hasNextPage") is False
+
+
+def _next_cursor(page_info: Any) -> str | None:
+    if not isinstance(page_info, dict) or page_info.get("hasNextPage") is not True:
+        return None
+    cursor = page_info.get("endCursor")
+    return cursor if isinstance(cursor, str) and cursor else None
+
+
+def _fetch_remaining_review_thread_comments(
+    *,
+    gh_path: str,
+    thread: dict[str, Any],
+    command_trace: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    comments = thread.get("comments")
+    if not isinstance(comments, dict) or not isinstance(comments.get("nodes"), list):
+        return None
+    page_info = comments.get("pageInfo")
+    if _page_info_is_complete(page_info):
+        return None
+    all_nodes = list(comments["nodes"])
+    seen_cursors: set[str] = set()
+    while isinstance(page_info, dict) and page_info.get("hasNextPage") is True:
+        cursor = _next_cursor(page_info)
+        if cursor is None:
+            break
+        if cursor in seen_cursors:
+            break
+        seen_cursors.add(cursor)
+        thread_id = thread.get("id")
+        if not isinstance(thread_id, str) or not thread_id:
+            break
+        payload, blocker = _run_gh_json(
+            gh_path,
+            _review_thread_comments_args(thread_id, cursor),
+            command_name="gh api graphql",
+            command_trace=command_trace,
+        )
+        if blocker is not None:
+            return blocker
+        next_comments = review_thread_comments_object_from_payload(payload)
+        next_nodes = next_comments.get("nodes") if next_comments is not None else None
+        if not isinstance(next_comments, dict) or not isinstance(next_nodes, list):
+            break
+        all_nodes.extend(next_nodes)
+        page_info = next_comments.get("pageInfo")
+
+    comments["nodes"] = all_nodes
+    if _page_info_is_complete(page_info):
+        comments["pageInfo"] = {"hasNextPage": False, "endCursor": None}
+    else:
+        comments["pageInfo"] = page_info
+    return None
+
+
+def _fetch_review_threads_payload(
+    *,
+    gh_path: str,
+    owner: str,
+    name: str,
+    pr_number: int,
+    command_trace: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    threads_cursor: str | None = None
+    aggregate_payload: dict[str, Any] | None = None
+    aggregate_nodes: list[Any] = []
+    page_info: Any = None
+    seen_cursors: set[str] = set()
+
+    while True:
+        payload, blocker = _run_gh_json(
+            gh_path,
+            _review_threads_args(owner, name, pr_number, threads_cursor),
+            command_name="gh api graphql",
+            command_trace=command_trace,
+        )
+        if blocker is not None:
+            return None, blocker
+        review_threads = review_threads_object(payload)
+        nodes = review_threads.get("nodes") if review_threads is not None else None
+        if review_threads is None or not isinstance(nodes, list):
+            return payload, None
+        if aggregate_payload is None:
+            aggregate_payload = payload
+
+        for thread in nodes:
+            if not isinstance(thread, dict):
+                aggregate_nodes.append(thread)
+                continue
+            completed_thread = dict(thread)
+            comments = completed_thread.get("comments")
+            if isinstance(comments, dict):
+                completed_thread["comments"] = dict(comments)
+            blocker = _fetch_remaining_review_thread_comments(
+                gh_path=gh_path,
+                thread=completed_thread,
+                command_trace=command_trace,
+            )
+            if blocker is not None:
+                return None, blocker
+            aggregate_nodes.append(completed_thread)
+
+        page_info = review_threads.get("pageInfo")
+        if _page_info_is_complete(page_info):
+            break
+        next_cursor = _next_cursor(page_info)
+        if next_cursor is None:
+            break
+        if next_cursor in seen_cursors:
+            break
+        seen_cursors.add(next_cursor)
+        threads_cursor = next_cursor
+
+    if aggregate_payload is None:
+        return None, _issue("gh_json_not_object", "gh api graphql must return a JSON object")
+    aggregate_review_threads = review_threads_object(aggregate_payload)
+    if aggregate_review_threads is not None:
+        aggregate_review_threads["nodes"] = aggregate_nodes
+        aggregate_review_threads["pageInfo"] = (
+            {"hasNextPage": False, "endCursor": None}
+            if _page_info_is_complete(page_info)
+            else page_info
+        )
+    return aggregate_payload, None
+
+
 def _blocked_packet(
     *,
     repo: str,
@@ -222,7 +429,7 @@ def _blocked_packet(
     code = blocker["code"]
     if code in {"gh_missing", "gh_auth_failed"}:
         action = "install_or_authenticate_gh"
-    elif code in {"github_rate_limited", "github_network_failed"}:
+    elif code in {"github_rate_limited", "github_network_failed", "gh_command_timeout"}:
         action = "retry_github_evidence_sync"
     else:
         action = "inspect_github_evidence_sync"
@@ -287,34 +494,28 @@ def sync_github_evidence(
         "--json",
         ",".join(PR_VIEW_FIELDS),
     ]
-    threads_args = [
-        "api",
-        "graphql",
-        "-f",
-        f"owner={owner}",
-        "-f",
-        f"name={name}",
-        "-F",
-        f"number={pr_number}",
-        "-f",
-        f"query={REVIEW_THREADS_QUERY}",
-    ]
-    command_trace = [
-        {"argv": ["gh", *pr_args], "read_only": True},
-        {"argv": ["gh", *threads_args], "read_only": True},
-    ]
-    pr_result = subprocess.run([gh_path, *pr_args], text=True, capture_output=True, check=False)
-    pr_payload, blocker = _read_json_stdout(pr_result, command_name="gh pr view")
+    command_trace: list[dict[str, Any]] = []
+    pr_payload, blocker = _run_gh_json(
+        gh_path,
+        pr_args,
+        command_name="gh pr view",
+        command_trace=command_trace,
+    )
     if blocker is not None:
         return _blocked_packet(
             repo=repo,
             pr_number=pr_number,
             out_dir=out_dir,
             blocker=blocker,
-            command_trace=command_trace[:1],
+            command_trace=command_trace,
         )
-    threads_result = subprocess.run([gh_path, *threads_args], text=True, capture_output=True, check=False)
-    threads_payload, blocker = _read_json_stdout(threads_result, command_name="gh api graphql")
+    threads_payload, blocker = _fetch_review_threads_payload(
+        gh_path=gh_path,
+        owner=owner,
+        name=name,
+        pr_number=pr_number,
+        command_trace=command_trace,
+    )
     if blocker is not None:
         return _blocked_packet(
             repo=repo,

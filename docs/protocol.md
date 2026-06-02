@@ -331,11 +331,14 @@ must label the evidence as live read-only input, fail closed for missing `gh`,
 authentication failure, rate limit, network failure, malformed JSON, or
 malformed repo slugs, and does not write partial evidence when either live fetch
 fails or evidence-file writes cannot complete as a set. Review-thread fetches
-must include `pageInfo.hasNextPage` for review threads and comments; if either
-reports more pages or omits pagination evidence, the sync must block instead of
-saving incomplete evidence as valid. The command must not create branches,
-commit, push, call GitHub write endpoints, create or edit pull requests, spend
-paid review, merge, release, or publish packages.
+must include `pageInfo.hasNextPage` for review threads and comments and follow
+GitHub cursors until all pages have been captured; if pagination cannot be
+completed or pagination evidence is omitted, the sync must block instead of
+saving incomplete evidence as valid. `--out-dir` must be outside the current
+Git worktree so local evidence capture does not dirty the repository. The
+command must not create branches, commit, push, call GitHub write endpoints,
+create or edit pull requests, spend paid review, merge, release, or publish
+packages.
 
 PR readiness may check target-repository template compliance and review
 feedback from local files. `pr-readiness --pr-template-file <path>` must read a

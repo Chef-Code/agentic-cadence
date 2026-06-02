@@ -457,10 +457,11 @@ Current evidence:
   fetch that uses `gh pr view` and GitHub GraphQL review-thread reads, then
   writes saved PR JSON, saved review-thread JSON, and a summary packet only
   after both reads succeed;
-- missing `gh`, auth failure, rate limit, network failure, and malformed JSON
-  return blocked packets without partial evidence files;
-- incomplete paginated review-thread evidence blocks instead of being saved as
-  valid readiness input;
+- missing `gh`, auth failure, rate limit, network failure, command timeout, and
+  malformed JSON return blocked packets without partial evidence files;
+- review-thread and comment pagination is followed before saving evidence;
+  incomplete paginated review-thread evidence still blocks instead of being
+  saved as valid readiness input;
 - candidate discovery can ingest saved PR JSON with `--pr-json-file` and turn
   failed check runs or status contexts into `pr_check_failure` execution
   candidates;

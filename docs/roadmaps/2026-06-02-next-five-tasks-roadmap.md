@@ -230,10 +230,11 @@ read-only `gh pr view` and GitHub GraphQL review-thread reads, labels the live
 evidence, and writes saved PR JSON, saved review-thread JSON, and a summary
 packet only after both live reads succeed and all local evidence files can be
 written as a set. Missing `gh`, auth failure, rate limit, network failure,
-malformed JSON, and incomplete paginated review-thread evidence return blocked
-packets without partial evidence files. Candidate discovery can ingest saved PR
-JSON through `--pr-json-file` to create stable `pr_check_failure` candidates
-from failed check runs or status contexts, and
+command timeout, malformed JSON, and incomplete paginated review-thread evidence
+return blocked packets without partial evidence files. Review-thread and comment
+pagination is followed before saved review evidence is accepted. Candidate
+discovery can ingest saved PR JSON through `--pr-json-file` to create stable
+`pr_check_failure` candidates from failed check runs or status contexts, and
 `pr-readiness --review-threads-file` blocks unresolved actionable current
 review comments plus malformed or incomplete saved review-thread evidence.
 
