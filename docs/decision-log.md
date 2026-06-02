@@ -28,6 +28,48 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-02 - Keep GitHub evidence sync read-only and local-file based
+
+Decision:
+- Add `github-evidence-sync` as an explicit operator-invoked command that uses
+  read-only `gh pr view` and GitHub GraphQL review-thread reads, then saves PR,
+  check, review-thread, and summary evidence as local JSON files.
+- Let deterministic local commands consume those saved files: candidate
+  discovery turns failed checks into `pr_check_failure` candidates, and PR
+  readiness blocks unresolved actionable current review comments.
+- Keep branch creation, commits, pushes, pull request creation or update,
+  review-response writes, merge, release, and package publication outside this
+  slice.
+
+Why:
+- Cadence needs current CI and review evidence before any future Git/PR
+  materialization can be trusted, but fetching that evidence should not imply
+  write authority.
+- Saved local packets preserve deterministic replay and make stale/freshness
+  policy reviewable before a later approved side-effecting action.
+
+Alternatives considered:
+- Call GitHub from `pr-readiness` or `discover-candidates` automatically.
+  Rejected because those commands are deterministic local consumers and should
+  not acquire hidden network side effects.
+- Start responding to review comments or editing PRs in the same slice.
+  Rejected because write-side GitHub actions require operator approval,
+  branch-policy re-checks, freshness gates, and audit evidence.
+
+Consequences:
+- Operators can refresh PR evidence explicitly, then reuse saved JSON for local
+  readiness and candidate decisions.
+- Missing `gh`, auth failure, rate limit, network failure, or malformed JSON
+  blocks sync without partial evidence files.
+- Future materialization work must re-check saved evidence freshness before any
+  branch, commit, push, or PR action.
+
+Open questions:
+- What freshness policy should Task 6 require immediately before
+  operator-approved Git/PR materialization?
+- Should future review-response packets distinguish Builder, Reviewer, and
+  Maintainer roles before any write-side response loop exists?
+
 ## 2026-06-02 - Keep first executor launch fixture-only
 
 Decision:

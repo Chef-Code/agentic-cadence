@@ -33,6 +33,48 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-02 - Add read-only GitHub evidence sync
+
+Summary:
+- Added an explicit read-only `github-evidence-sync` path that captures live PR
+  metadata, status checks, and review threads into saved local evidence files.
+- Candidate discovery can now turn saved PR check failures into
+  `pr_check_failure` candidates, and PR readiness can block on unresolved
+  actionable current review-thread comments from saved evidence.
+
+Completed slices:
+- Task 5 current-tree implementation: read-only GitHub evidence sync and
+  feedback candidates.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: CI and review evidence can now enter the local loop from explicit
+  read-only sync, but real executor invocation, operator-approved Git/PR
+  materialization, merge, release, package publication, resume verification,
+  and unattended loop execution remain blocked.
+
+Evidence:
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_github_evidence_sync_writes_read_only_evidence_files tests.test_cadence.CadenceCliTests.test_github_evidence_sync_missing_gh_returns_blocker_without_files tests.test_cadence.CadenceCliTests.test_github_evidence_sync_malformed_repo_returns_blocker_without_files tests.test_cadence.CadenceCliTests.test_github_evidence_sync_failing_gh_returns_blockers_without_files tests.test_cadence.CadenceCliTests.test_discover_candidates_accepts_pr_json_file tests.test_cadence.CadenceCliTests.test_discover_candidates_accepts_review_threads_file tests.test_candidates.CandidateDiscoveryBudgetTests.test_pr_json_failed_checks_create_execution_candidates tests.test_pr_readiness.PrReadinessTests.test_unresolved_actionable_review_threads_block_readiness tests.test_pr_readiness.PrReadinessTests.test_cli_pr_readiness_reads_review_threads_file -v`
+- `python -m py_compile codex_cadence/github_evidence.py codex_cadence/cli.py codex_cadence/candidates.py codex_cadence/pr_readiness.py`
+
+New risks or blockers:
+- Sync is explicit, read-only, and local-file based; Task 6 still needs to
+  re-check freshness and branch policy immediately before any approved branch,
+  commit, push, or PR action.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`
+- `docs/cadence/business-memory.md`
+- `docs/session-handoff.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
 ## 2026-06-02 - Add local branch policy to dry-run planning
 
 Summary:

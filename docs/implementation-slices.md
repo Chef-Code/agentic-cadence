@@ -453,10 +453,23 @@ Current evidence:
 
 - candidate discovery can ingest saved review findings;
 - candidate discovery can ingest saved GitHub review-thread files;
+- current-tree Task 5 adds `github-evidence-sync`, an explicit read-only live
+  fetch that uses `gh pr view` and GitHub GraphQL review-thread reads, then
+  writes saved PR JSON, saved review-thread JSON, and a summary packet only
+  after both reads succeed;
+- missing `gh`, auth failure, rate limit, network failure, and malformed JSON
+  return blocked packets without partial evidence files;
+- candidate discovery can ingest saved PR JSON with `--pr-json-file` and turn
+  failed check runs or status contexts into `pr_check_failure` execution
+  candidates;
 - PR readiness reports blockers;
+- PR readiness can ingest saved review-thread JSON with
+  `--review-threads-file` and block unresolved actionable current review
+  comments;
 - PR readiness labels stale saved PR state so it is not treated as merge-ready
   when an explicit age policy says it must be refreshed;
-- no live sync or automatic response loop exists.
+- no GitHub write sync, branch creation, commit, push, PR edit, merge, release,
+  package publication, or automatic response loop exists.
 
 Why it matters: unattended operation fails quickly if Cadence cannot react to
 CI failures or review comments.
@@ -480,10 +493,12 @@ Validation needed:
 - resolved review comment is ignored;
 - outdated review comment is ignored;
 - non-actionable review summary is ignored;
-- merge readiness remains blocked while actionable feedback exists.
+- merge readiness remains blocked while actionable feedback exists;
+- read-only live fetch failures block without partial local evidence files.
 
-Codex implementation rule: Codex can implement local ingestion directly. Live
-GitHub synchronization or permission changes require operator approval.
+Codex implementation rule: Codex can implement local ingestion and explicit
+read-only GitHub evidence capture directly. GitHub writes or permission changes
+require operator approval.
 
 ## Expected Confidence Impact
 

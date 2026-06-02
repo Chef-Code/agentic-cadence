@@ -11,6 +11,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .epochs import elect_candidates
+from .github_evidence import pr_check_failure_findings
 
 DISCOVERY_INTENTS = ("merge_readiness", "repo_health", "product_evolution", "hybrid")
 DISCOVERY_MODES = ("off", "local", "expanded")
@@ -113,7 +114,7 @@ SKIP_DIRS = {
     "node_modules",
     "venv",
 }
-MERGE_BLOCKER_SOURCES = {"git_status", "known_failure", "review_finding"}
+MERGE_BLOCKER_SOURCES = {"git_status", "known_failure", "pr_check_failure", "review_finding"}
 HYBRID_PRODUCT_EVOLUTION_SOURCES = {BUSINESS_MEMORY_SOURCE, "agent_proposal"}
 HYBRID_BLOCKED_BY_MERGE_BLOCKER_SOURCES = HYBRID_PRODUCT_EVOLUTION_SOURCES
 MARKDOWN_MARKER_PREFIXES = ("- [ ] ", "- [x] ", "- ", "* ", "+ ", "> ")
@@ -125,6 +126,7 @@ UTF32_BOMS = (b"\xff\xfe\x00\x00", b"\x00\x00\xfe\xff")
 INTENT_SCORE_ADJUSTMENTS = {
     "merge_readiness": {
         "known_failure": 10,
+        "pr_check_failure": 10,
         "review_finding": 10,
         "git_status": 5,
         "text_marker": -15,
@@ -133,6 +135,7 @@ INTENT_SCORE_ADJUSTMENTS = {
     },
     "repo_health": {
         "known_failure": -45,
+        "pr_check_failure": -45,
         "review_finding": -35,
         "git_status": -15,
         "text_marker": 65,
@@ -141,6 +144,7 @@ INTENT_SCORE_ADJUSTMENTS = {
     },
     "product_evolution": {
         "known_failure": -35,
+        "pr_check_failure": -35,
         "review_finding": -25,
         "git_status": -20,
         "text_marker": 10,
@@ -149,6 +153,7 @@ INTENT_SCORE_ADJUSTMENTS = {
     },
     "hybrid": {
         "known_failure": 10,
+        "pr_check_failure": 10,
         "review_finding": 10,
         "git_status": 5,
         "text_marker": 0,
@@ -444,6 +449,48 @@ def known_failure_candidates(known_failures: list[str]) -> list[dict[str, Any]]:
             )
         )
     return candidates
+
+
+def pr_check_failure_candidates(path: Path, *, start_index: int = 1) -> tuple[list[dict[str, Any]], list[str]]:
+    try:
+        pr = json.loads(path.read_text(encoding="utf-8-sig"))
+    except OSError as exc:
+        return [], [f"could not read PR JSON file {path}: {exc}"]
+    except json.JSONDecodeError as exc:
+        return [], [f"could not parse PR JSON file {path}: {exc}"]
+    if not isinstance(pr, dict):
+        return [], [f"PR JSON file {path} must contain a JSON object"]
+
+    candidates = []
+    for index, finding in enumerate(pr_check_failure_findings(pr), start=start_index):
+        check = finding["check"]
+        state = finding["state"]
+        evidence = {
+            "id": finding["id"],
+            "check": check,
+            "state": state,
+            "workflow": finding.get("workflow", ""),
+            "source": finding.get("source", "status_check_rollup"),
+        }
+        if finding.get("url"):
+            evidence["url"] = finding["url"]
+        candidates.append(
+            candidate_record(
+                candidate_id=f"pr-check-failure-{index:03d}",
+                title=f"Resolve failing PR check: {check}",
+                task_type="execution",
+                bucket="S",
+                score=90,
+                drivers=["ci_verification"],
+                uncertainty="low",
+                dependency_fan_out="low",
+                source="pr_check_failure",
+                fingerprint=f"pr-check-failure:{finding['id']}:{fingerprint_component(check)}:{state}",
+                risk_surface=["ci"],
+                evidence=evidence,
+            )
+        )
+    return candidates, []
 
 
 NON_ACTIONABLE_REVIEW_MARKERS = (
@@ -1290,6 +1337,7 @@ def empty_sources() -> dict[str, Any]:
     return {
         "git_status": False,
         "known_failures": 0,
+        "pr_check_failures": 0,
         "review_findings": 0,
         "text_markers": 0,
         "proposals": 0,
@@ -1304,6 +1352,7 @@ def discover_candidates(
     discovery_mode: str = "local",
     proposal_allowance: str = "none",
     known_failures: list[str] | None = None,
+    pr_json_file: Path | None = None,
     review_findings_file: Path | None = None,
     review_threads_file: Path | None = None,
     elect: bool = False,
@@ -1338,6 +1387,10 @@ def discover_candidates(
     failures = known_failures or []
     repo_root = git_top_level(cwd)
     failure_candidates = known_failure_candidates(failures)
+    check_candidates = []
+    if pr_json_file is not None:
+        check_candidates, check_warnings = pr_check_failure_candidates(pr_json_file)
+        warnings.extend(check_warnings)
     status_candidates = git_status_candidates(cwd, start_index=len(failure_candidates) + 1, repo_root=repo_root)
     review_candidates = []
     next_review_finding_index = 1
@@ -1366,18 +1419,25 @@ def discover_candidates(
     warnings.extend(memory_warnings)
     proposal_items = proposal_candidates(intent, proposal_allowance, active_budget)
     raw_candidates = (
-        failure_candidates + status_candidates + review_candidates + marker_candidates + memory_candidates + proposal_items
+        failure_candidates
+        + check_candidates
+        + status_candidates
+        + review_candidates
+        + marker_candidates
+        + memory_candidates
+        + proposal_items
     )
     candidates = apply_budget(apply_intent_scoring(deduplicate_candidates(raw_candidates), intent), active_budget)
     pool, intent_drift = election_pool(candidates, intent, proposal_allowance, active_budget)
     elected_next = elect_candidates(pool, max_tasks=max_tasks) if elect else []
     sources["known_failures"] = len(failures)
+    sources["pr_check_failures"] = sum(1 for candidate in candidates if candidate["source"] == "pr_check_failure")
     sources["git_status"] = True
     sources["review_findings"] = sum(1 for candidate in candidates if candidate["source"] == "review_finding")
     sources["text_markers"] = sum(1 for candidate in candidates if candidate["source"] == "text_marker")
     sources["proposals"] = sum(1 for candidate in candidates if candidate["source"] == "agent_proposal")
     sources["business_memory"] = sum(1 for candidate in candidates if candidate["source"] == BUSINESS_MEMORY_SOURCE)
-    repo_confidence = "low" if status_candidates or failure_candidates else "high"
+    repo_confidence = "low" if status_candidates or failure_candidates or check_candidates else "high"
 
     return {
         "intent": intent,

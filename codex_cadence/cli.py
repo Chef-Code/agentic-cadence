@@ -24,6 +24,7 @@ from codex_cadence.executor_contract import (
 )
 from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.git_pr_plan import evaluate_git_pr_plan
+from codex_cadence.github_evidence import sync_github_evidence
 from codex_cadence.epochs import complete_epoch as complete_epoch_record
 from codex_cadence.epochs import CONTINUE, ASK_APPROVAL
 from codex_cadence.epochs import EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION
@@ -929,6 +930,7 @@ def discover_candidates_command(args: argparse.Namespace) -> int:
         discovery_mode=args.discovery_mode,
         proposal_allowance=args.proposal_allowance,
         known_failures=args.known_failure or [],
+        pr_json_file=Path(args.pr_json_file) if args.pr_json_file else None,
         review_findings_file=Path(args.review_findings_file) if args.review_findings_file else None,
         review_threads_file=Path(args.review_threads_file) if args.review_threads_file else None,
         elect=args.elect,
@@ -986,6 +988,7 @@ def loop_tick_command(args: argparse.Namespace) -> int:
         discovery_mode=args.discovery_mode,
         proposal_allowance=args.proposal_allowance,
         known_failures=known_failures,
+        pr_json_file=Path(args.pr_json_file) if args.pr_json_file else None,
         review_findings_file=Path(args.review_findings_file) if args.review_findings_file else None,
         review_threads_file=Path(args.review_threads_file) if args.review_threads_file else None,
         elect=True,
@@ -1311,6 +1314,7 @@ def audit_replay_command(args: argparse.Namespace) -> int:
 def pr_readiness_command(args: argparse.Namespace) -> int:
     pr_json_file = Path(args.pr_json_file)
     pr = load_pr_json(pr_json_file)
+    review_threads = read_json(Path(args.review_threads_file)) if args.review_threads_file else None
     required_body_sections = list(args.required_body_section or [])
     if args.pr_template_file:
         required_body_sections.extend(load_template_sections(Path(args.pr_template_file)))
@@ -1319,11 +1323,22 @@ def pr_readiness_command(args: argparse.Namespace) -> int:
         pr,
         required_checks=args.required_check or [],
         required_body_sections=required_body_sections,
+        review_threads=review_threads,
         evidence_captured_at=evidence_captured_at,
         max_evidence_age_minutes=args.max_pr_json_age_minutes,
     )
     emit(payload)
     return 0
+
+
+def github_evidence_sync_command(args: argparse.Namespace) -> int:
+    payload = sync_github_evidence(
+        repo=args.repo,
+        pr_number=args.pr_number,
+        out_dir=Path(args.out_dir),
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 1
 
 
 def pr_body_preflight_command(args: argparse.Namespace) -> int:
@@ -1464,6 +1479,7 @@ def build_parser() -> argparse.ArgumentParser:
     discover_parser.add_argument("--discovery-mode", choices=DISCOVERY_MODES, default="local")
     discover_parser.add_argument("--proposal-allowance", choices=PROPOSAL_ALLOWANCES, default="none")
     discover_parser.add_argument("--known-failure", action="append", default=[])
+    discover_parser.add_argument("--pr-json-file")
     discover_parser.add_argument("--review-findings-file")
     discover_parser.add_argument("--review-threads-file")
     discover_parser.add_argument("--elect", action="store_true")
@@ -1486,6 +1502,7 @@ def build_parser() -> argparse.ArgumentParser:
     loop_tick_parser.add_argument("--discovery-mode", choices=DISCOVERY_MODES, default="local")
     loop_tick_parser.add_argument("--proposal-allowance", choices=PROPOSAL_ALLOWANCES, default="none")
     loop_tick_parser.add_argument("--known-failure", action="append", default=[])
+    loop_tick_parser.add_argument("--pr-json-file")
     loop_tick_parser.add_argument("--review-findings-file")
     loop_tick_parser.add_argument("--review-threads-file")
     loop_tick_parser.add_argument("--max-tasks", type=int, default=1)
@@ -1562,11 +1579,21 @@ def build_parser() -> argparse.ArgumentParser:
 
     readiness_parser = subparsers.add_parser("pr-readiness", help="Evaluate a saved PR JSON readiness packet")
     readiness_parser.add_argument("--pr-json-file", required=True)
+    readiness_parser.add_argument("--review-threads-file")
     readiness_parser.add_argument("--required-check", action="append", default=[])
     readiness_parser.add_argument("--required-body-section", action="append", default=[])
     readiness_parser.add_argument("--pr-template-file")
     readiness_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
     readiness_parser.set_defaults(func=pr_readiness_command, requires_root=False)
+
+    github_evidence_parser = subparsers.add_parser(
+        "github-evidence-sync",
+        help="Fetch read-only GitHub PR evidence into local JSON files",
+    )
+    github_evidence_parser.add_argument("--repo", required=True)
+    github_evidence_parser.add_argument("--pr-number", type=positive_int, required=True)
+    github_evidence_parser.add_argument("--out-dir", required=True)
+    github_evidence_parser.set_defaults(func=github_evidence_sync_command, requires_root=False)
 
     body_preflight_parser = subparsers.add_parser("pr-body-preflight", help="Evaluate a draft PR body before publishing")
     body_preflight_parser.add_argument("--body-file", required=True)

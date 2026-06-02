@@ -180,6 +180,53 @@ def controlled_fixture_command(
     return " ".join(parts)
 
 
+def write_fake_gh(bin_dir: Path, script: Path) -> Path:
+    """Create a fake gh executable that delegates to a Python script."""
+    if os.name == "nt":
+        fake_gh = bin_dir / "gh.cmd"
+        fake_gh.write_text(f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
+    else:
+        fake_gh = bin_dir / "gh"
+        fake_gh.write_text(f'#!/bin/sh\n"{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
+        fake_gh.chmod(0o755)
+    return fake_gh
+
+
+def write_fake_gh_script(path: Path) -> None:
+    path.write_text(
+        """
+import os
+import sys
+from pathlib import Path
+
+log = Path(os.environ["GH_CALL_LOG"])
+with log.open("a", encoding="utf-8") as handle:
+    handle.write(" ".join(sys.argv[1:]) + "\\n")
+
+args = sys.argv[1:]
+fail_mode = os.environ.get("GH_FAIL_MODE")
+if fail_mode == "auth":
+    sys.stderr.write("not logged into GitHub")
+    raise SystemExit(1)
+if fail_mode == "rate":
+    sys.stderr.write("API rate limit exceeded")
+    raise SystemExit(1)
+if fail_mode == "network":
+    sys.stderr.write("failed to connect to github.com")
+    raise SystemExit(1)
+if args[:2] == ["pr", "view"]:
+    sys.stdout.write(Path(os.environ["GH_PR_JSON"]).read_text(encoding="utf-8"))
+    raise SystemExit(0)
+if args[:2] == ["api", "graphql"]:
+    sys.stdout.write(Path(os.environ["GH_REVIEW_THREADS_JSON"]).read_text(encoding="utf-8"))
+    raise SystemExit(0)
+sys.stderr.write("unexpected gh arguments: " + " ".join(args))
+raise SystemExit(99)
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+
 def unquoted_controlled_fixture_command(*, status="succeeded") -> str:
     return (
         f'"{sys.executable}" "{controlled_fixture_script()}" '
@@ -1552,6 +1599,44 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(output["elected_next"][0]["source"], "known_failure")
 
+    def test_discover_candidates_accepts_pr_json_file(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            pr_json = Path(tmp) / "pr.json"
+            pr_json.write_text(
+                json.dumps(
+                    {
+                        "number": 67,
+                        "statusCheckRollup": [
+                            {
+                                "__typename": "CheckRun",
+                                "name": "Python and protocol checks",
+                                "status": "COMPLETED",
+                                "conclusion": "FAILURE",
+                                "workflowName": "PR Checks",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "discover-candidates",
+                "--cwd",
+                repo,
+                "--intent",
+                "merge_readiness",
+                "--pr-json-file",
+                str(pr_json),
+                "--elect",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["sources"]["pr_check_failures"], 1)
+            self.assertEqual(output["elected_next"][0]["source"], "pr_check_failure")
+
     def test_discover_candidates_accepts_review_threads_file(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -1603,6 +1688,243 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(output["sources"]["review_findings"], 1)
             self.assertEqual(output["elected_next"][0]["source"], "review_finding")
+
+    def test_github_evidence_sync_writes_read_only_evidence_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "runtime"
+            out_dir = Path(tmp) / "evidence"
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            fake_script = Path(tmp) / "fake_gh.py"
+            pr_json = Path(tmp) / "pr-source.json"
+            review_threads_json = Path(tmp) / "threads-source.json"
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_script(fake_script)
+            write_fake_gh(fake_bin, fake_script)
+            pr_json.write_text(
+                json.dumps(
+                    {
+                        "number": 67,
+                        "title": "[codex] Add local branch policy gates",
+                        "state": "OPEN",
+                        "isDraft": False,
+                        "mergeable": "MERGEABLE",
+                        "mergeStateStatus": "CLEAN",
+                        "reviewDecision": "",
+                        "body": "## Summary\nReady.\n\n## Validation\nTests.\n",
+                        "headRefName": "codex/task-4-branch-policy",
+                        "baseRefName": "main",
+                        "headRefOid": "abc123",
+                        "statusCheckRollup": [
+                            {
+                                "__typename": "CheckRun",
+                                "name": "Python and protocol checks",
+                                "status": "COMPLETED",
+                                "conclusion": "SUCCESS",
+                                "workflowName": "PR Checks",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            review_threads_json.write_text(
+                json.dumps(
+                    {
+                        "data": {
+                            "repository": {
+                                "pullRequest": {
+                                    "reviewThreads": {
+                                        "nodes": [
+                                            {
+                                                "id": "thread-1",
+                                                "isResolved": False,
+                                                "isOutdated": False,
+                                                "path": "codex_cadence/cli.py",
+                                                "line": 120,
+                                                "comments": {
+                                                    "nodes": [
+                                                        {
+                                                            "id": "comment-1",
+                                                            "body": "Handle this actionable review finding.",
+                                                            "outdated": False,
+                                                            "author": {"login": "coderabbitai"},
+                                                        }
+                                                    ]
+                                                },
+                                            }
+                                        ]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_PR_JSON"] = str(pr_json)
+            env["GH_REVIEW_THREADS_JSON"] = str(review_threads_json)
+            env["GH_CALL_LOG"] = str(gh_log)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(root),
+                    "github-evidence-sync",
+                    "--repo",
+                    "Chef-Code/agentic-cadence",
+                    "--pr-number",
+                    "67",
+                    "--out-dir",
+                    str(out_dir),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            output = json.loads(result.stdout)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["schema_version"], "github-evidence-sync.v1")
+            self.assertEqual(output["packet"], "github_evidence_sync")
+            self.assertFalse(output["github_write_started"])
+            self.assertEqual(output["side_effects"], ["wrote_pr_json", "wrote_review_threads_json", "wrote_evidence_summary"])
+            self.assertIn("read_only_gh", output["evidence"]["limitations"])
+            self.assertTrue(Path(output["files"]["pr_json"]).exists())
+            self.assertTrue(Path(output["files"]["review_threads_json"]).exists())
+            saved_pr = json.loads(Path(output["files"]["pr_json"]).read_text(encoding="utf-8"))
+            saved_threads = json.loads(Path(output["files"]["review_threads_json"]).read_text(encoding="utf-8"))
+            self.assertEqual(saved_pr["number"], 67)
+            self.assertEqual(saved_pr["github_evidence"]["freshness"], "live")
+            self.assertEqual(saved_threads["github_evidence"]["freshness"], "live")
+            gh_calls = gh_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(gh_calls), 2)
+            self.assertTrue(gh_calls[0].startswith("pr view 67 "))
+            self.assertTrue(gh_calls[1].startswith("api graphql "))
+            self.assertNotIn("pr merge", "\n".join(gh_calls))
+            self.assertNotIn("pr edit", "\n".join(gh_calls))
+
+    def test_github_evidence_sync_missing_gh_returns_blocker_without_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "runtime"
+            out_dir = Path(tmp) / "evidence"
+            empty_bin = Path(tmp) / "empty-bin"
+            empty_bin.mkdir()
+            env = os.environ.copy()
+            env["PATH"] = str(empty_bin)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(root),
+                    "github-evidence-sync",
+                    "--repo",
+                    "Chef-Code/agentic-cadence",
+                    "--pr-number",
+                    "67",
+                    "--out-dir",
+                    str(out_dir),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            output = json.loads(result.stdout)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "install_or_authenticate_gh")
+            self.assertEqual({blocker["code"] for blocker in output["blockers"]}, {"gh_missing"})
+            self.assertFalse(out_dir.exists())
+
+    def test_github_evidence_sync_malformed_repo_returns_blocker_without_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "runtime"
+            out_dir = Path(tmp) / "evidence"
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(root),
+                    "github-evidence-sync",
+                    "--repo",
+                    "not-a-slug",
+                    "--pr-number",
+                    "67",
+                    "--out-dir",
+                    str(out_dir),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            output = json.loads(result.stdout)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "inspect_github_evidence_sync")
+            self.assertEqual({blocker["code"] for blocker in output["blockers"]}, {"repo_slug_invalid"})
+            self.assertFalse(out_dir.exists())
+
+    def test_github_evidence_sync_failing_gh_returns_blockers_without_files(self):
+        cases = [
+            ("auth", "gh_auth_failed", "install_or_authenticate_gh"),
+            ("rate", "github_rate_limited", "retry_github_evidence_sync"),
+            ("network", "github_network_failed", "retry_github_evidence_sync"),
+        ]
+        for fail_mode, expected_code, expected_action in cases:
+            with self.subTest(fail_mode=fail_mode):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp) / "runtime"
+                    out_dir = Path(tmp) / "evidence"
+                    fake_bin = Path(tmp) / "bin"
+                    fake_bin.mkdir()
+                    fake_script = Path(tmp) / "fake_gh.py"
+                    gh_log = Path(tmp) / "gh.log"
+                    write_fake_gh_script(fake_script)
+                    write_fake_gh(fake_bin, fake_script)
+                    env = os.environ.copy()
+                    env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+                    env["GH_FAIL_MODE"] = fail_mode
+                    env["GH_CALL_LOG"] = str(gh_log)
+
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            str(SCRIPT),
+                            "--root",
+                            str(root),
+                            "github-evidence-sync",
+                            "--repo",
+                            "Chef-Code/agentic-cadence",
+                            "--pr-number",
+                            "67",
+                            "--out-dir",
+                            str(out_dir),
+                        ],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        env=env,
+                    )
+
+                    self.assertEqual(result.returncode, 1)
+                    output = json.loads(result.stdout)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["recommended_next_action"], expected_action)
+                    self.assertEqual({blocker["code"] for blocker in output["blockers"]}, {expected_code})
+                    self.assertFalse(out_dir.exists())
 
     def test_discover_candidates_interactive_reads_intent(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

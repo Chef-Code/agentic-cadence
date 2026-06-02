@@ -28,7 +28,9 @@ Tasks 1-5 intentionally land mostly in Phases 1-3. Tasks 6-7 extend that local g
 - PR #63 completed Task 1 by refreshing the handoff and seeding the active business-memory backlog.
 - PR #64 completed Task 2 by adding and hardening the controlled executor component fixture.
 - `python scripts/validate_protocol.py` passed after PR #64 merged.
-- The remaining immediate work starts at Task 4: carry local branch policy into executor task packets and dry-run Git/PR planning.
+- PR #66 completed Task 3 by wiring executor closeout into epoch state and next-decision logic.
+- PR #67 completed Task 4 by carrying local branch policy into executor task packets and dry-run Git/PR planning.
+- The remaining immediate work starts at Task 5: add read-only GitHub evidence sync and feedback candidates.
 
 ## Task 1: Refresh Handoff And Seed The Active Backlog
 
@@ -45,7 +47,7 @@ Tasks 1-5 intentionally land mostly in Phases 1-3. Tasks 6-7 extend that local g
 **Implementation outline:**
 - Update the handoff document to state that #61 is merged and `main` is at `209ee61`.
 - Replace the old "finish git-pr-plan branch" next action with the selected next slice.
-- Add one active business-memory entry for the controlled executor loop path. The entry should describe why real executor invocation remains blocked until policy, audit, branch/PR materialization, live evidence sync, resume verification, and result evidence gates are stable.
+- Add one active business-memory entry for the controlled executor loop path. The entry should describe why real executor invocation remains blocked until policy, audit, branch/PR materialization, evidence freshness, resume verification, and result evidence gates are stable.
 - Add or update tests only if protocol validators need stronger checks against stale handoff state.
 
 **Validation:**
@@ -77,7 +79,7 @@ Tasks 1-5 intentionally land mostly in Phases 1-3. Tasks 6-7 extend that local g
 - Write the task packet to the expected path, invoke the fixture command with a timeout, then require it to write the expected result evidence file.
 - Enforce task-carried allowed paths, command policy, runtime limit, and stop conditions before accepting the result.
 - Record audit for invocation start and result validation.
-- Keep real executor invocation blocked until branch/PR materialization, live evidence sync, resume verification, and remaining result-evidence gates land.
+- Keep real executor invocation blocked until branch/PR materialization, evidence freshness, resume verification, and remaining result-evidence gates land.
 - Keep commits, pushes, PR creation, release, merge, and package publication forbidden.
 - Do not claim named-host adapter support.
 
@@ -150,7 +152,7 @@ git diff --check
 
 ## Task 4: Add Branch Policy To Local Loop Policy
 
-**Status:** Implemented in current tree; pending review and merge.
+**Status:** Merged in PR #67.
 
 **Phase:** Phase 3 Git/PR governance, with policy carried back into Phase 2 execution packets.
 
@@ -201,7 +203,7 @@ git diff --check
 
 ## Task 5: Add Read-Only GitHub Evidence Sync And Feedback Candidates
 
-**Status:** Not started.
+**Status:** Implemented in current tree; pending review and merge.
 
 **Phase:** Phase 3 Git/PR governance, preparing later Phase 4 worker coordination.
 
@@ -222,6 +224,16 @@ git diff --check
 - Extend candidate discovery so failing checks and unresolved current actionable review comments become bounded candidates.
 - Ignore resolved, outdated, non-actionable, and summary-only feedback.
 - Keep GitHub writes, branch changes, PR edits, merges, releases, and package publication outside this slice.
+
+**Current-tree implementation:** `github-evidence-sync` explicitly shells out to
+read-only `gh pr view` and GitHub GraphQL review-thread reads, labels the live
+evidence, and writes saved PR JSON, saved review-thread JSON, and a summary
+packet only after both live reads succeed. Missing `gh`, auth failure, rate
+limit, network failure, and malformed JSON return blocked packets without
+partial evidence files. Candidate discovery can ingest saved PR JSON through
+`--pr-json-file` to create `pr_check_failure` candidates from failed check runs
+or status contexts, and `pr-readiness --review-threads-file` blocks unresolved
+actionable current review comments from saved review-thread evidence.
 
 **Validation:**
 - Mocked `gh` success produces normalized saved evidence.
