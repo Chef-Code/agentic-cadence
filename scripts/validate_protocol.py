@@ -297,6 +297,7 @@ REQUIRED_TOKENS = {
         "shell-wrapper payloads",
         "provide_runtime_root",
         "The controlled fake executor fixture is merged",
+        "Start Task 3 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`",
         "run-controlled-executor-fixture",
         "executor_fixture_invocation",
         "reject stale result files",
@@ -476,6 +477,8 @@ FORBIDDEN_TOKENS = {
         "design and implement the first dry-run-only Git/PR planning slice",
         "contract and implementation without live",
         "Implement the dry-run-only `git-pr-plan` slice test-first",
+        "codex/controlled-executor-fixture",
+        "This branch starts only a controlled fake executor fixture",
     ),
 }
 

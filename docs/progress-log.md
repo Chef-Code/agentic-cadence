@@ -42,6 +42,9 @@ Summary:
   Git/PR materialization and resume verification as follow-on gates.
 - Updated protocol validation so the handoff freshness guard requires the
   post-merge fixture boundary instead of the pre-merge Task 2 branch wording.
+- Review-agent follow-up tightened the same guard to forbid retired Task 2
+  branch tokens, required the Task 3 next-action wording, and clarified Task 6
+  as a live-executor gate.
 
 Completed slices:
 - None. This was planning and handoff alignment only.
@@ -68,6 +71,8 @@ Docs updated:
 - `docs/cadence/business-memory.md`
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`
 - `docs/progress-log.md`
+- `scripts/validate_protocol.py`
+- `tests/test_ci_checks.py`
 
 ## 2026-06-02 - Add controlled executor fixture runner
 

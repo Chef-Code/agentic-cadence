@@ -302,8 +302,8 @@ git diff --check
 
 ## Recommended Order
 
-1. Task 1, because the repo handoff is stale and the backlog is empty.
-2. Task 2, because the single-executor component path is the first real loop blocker and should prove executor-as-component, not Cadence-as-executor.
+1. Task 1, already complete in PR #63, refreshed the stale repo handoff and seeded the backlog.
+2. Task 2, already complete in PR #64, proved the first executor-as-component path with a controlled fixture.
 3. Task 3, because executor evidence must affect epochs and next decisions before the loop is meaningfully governed.
 4. Task 4, because branch policy is the Git/PR governance boundary before executor output becomes branch or PR work.
 5. Task 5, because review and CI feedback only become useful after the loop can consume post-execution state.

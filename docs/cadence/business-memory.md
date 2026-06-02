@@ -108,7 +108,7 @@ Signals:
 - `loop-tick --emit-executor-task` can produce bounded task packets, and PR #64 added `run-controlled-executor-fixture` to govern a fake external executor component in tests/examples.
 - After PR #64 merged the Task 2 fixture branch, the next roadmap slice is Task 3 epoch closeout and next-decision wiring.
 - `validate-executor-result`, command policy, active stop checks, controlled fixture invocation audit, and audit replay exist, but epoch closeout, branch policy, live GitHub evidence sync, operator-approved Git/PR materialization, and resume verification are still missing.
-- The next implementation slices should wire validated executor evidence into epoch closeout, branch policy, GitHub evidence sync, and resume verification before any named host adapter or live code-modifying executor is allowed.
+- The next implementation slices should wire validated executor evidence into epoch closeout, branch policy, GitHub evidence sync, operator-approved Git/PR materialization, and resume verification before any named host adapter or live code-modifying executor is allowed.
 Do not:
 - Do not invoke a real executor, create branches, commit, push, open PRs, merge, release, or publish packages from this backlog entry.
 - Do not make Cadence itself the product authority for implementation; it should govern a replaceable executor component.
