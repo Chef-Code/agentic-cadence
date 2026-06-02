@@ -1,4 +1,4 @@
-# Next Five Tasks Roadmap
+# Next Seven Tasks Roadmap
 
 > **For agentic workers:** Use `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` as a public planning artifact. Implement each task on its own branch and update the living docs with evidence before merge.
 
@@ -20,18 +20,19 @@ These tasks preserve the long-term orchestration path:
 4. **Phase 4: Multiple workers** - later, introduce worker ownership and conflict controls after the single-executor path is governed.
 5. **Phase 5: Agent-team orchestration** - later, coordinate role-aware Planning, Builder, Reviewer, QA, Documentation, Release, and Handoff agents through GitHub-native evidence.
 
-The next five tasks intentionally land mostly in Phases 1-3. Phases 4-5 remain explicit future gates, not hidden scope inside the executor fixture.
+Tasks 1-5 intentionally land mostly in Phases 1-3. Tasks 6-7 extend that local governance path without crossing into autonomous merge, release, package publication, or full agent-team orchestration. Phases 4-5 remain explicit future gates, not hidden scope inside the executor fixture.
 
 ## Evidence Captured On 2026-06-02
 
-- Post-#61 local `main` was clean and synced at merge commit `209ee61`.
-- `gh pr list --state open` and `gh issue list --state open --limit 50` returned no open PRs or issues during this pass.
-- `python scripts/validate_protocol.py` passed.
-- `python -m unittest tests.test_ci_checks.CiChecksTests.test_protocol_validator_accepts_current_repo -v` passed.
-- A read-only Cadence `loop-tick` against the repo returned `recommended_next_action: "no_candidates"`, high repo confidence, and no elected candidates.
-- `docs/session-handoff.md` still describes the pre-merge #61 branch as current state. This is not a validator failure, but it is stale handoff context.
+- Post-#64 local `main` was clean and synced at merge commit `eb7baa1`.
+- PR #63 completed Task 1 by refreshing the handoff and seeding the active business-memory backlog.
+- PR #64 completed Task 2 by adding and hardening the controlled executor component fixture.
+- `python scripts/validate_protocol.py` passed after PR #64 merged.
+- The remaining immediate work starts at Task 3: wire executor results into epoch closeout and next-decision logic.
 
 ## Task 1: Refresh Handoff And Seed The Active Backlog
+
+**Status:** Complete in PR #63.
 
 **Why now:** Cadence has no active candidates because open issues, open PRs, and business-memory candidates are empty or fulfilled. Before implementation work starts, the repo should record the post-#61 baseline and seed the next bounded work item explicitly.
 
@@ -54,6 +55,8 @@ The next five tasks intentionally land mostly in Phases 1-3. Phases 4-5 remain e
 - `git diff --check`
 
 ## Task 2: Add A Controlled Executor Component Fixture
+
+**Status:** Complete in PR #64.
 
 **Phase:** Phase 1 single executor, entering Phase 2 governed execution.
 
@@ -98,6 +101,8 @@ git diff --check
 
 ## Task 3: Wire Executor Results Into Epoch Closeout And Next Decision
 
+**Status:** Not started; next implementation slice.
+
 **Phase:** Phase 2 governed execution.
 
 **Why now:** A validated executor result is currently a standalone packet. The loop needs to complete or fail an epoch and decide whether to stop, hand off, or produce a Git/PR plan.
@@ -136,6 +141,8 @@ git diff --check
 ```
 
 ## Task 4: Add Branch Policy To Local Loop Policy
+
+**Status:** Not started.
 
 **Phase:** Phase 3 Git/PR governance, with policy carried back into Phase 2 execution packets.
 
@@ -176,6 +183,8 @@ git diff --check
 
 ## Task 5: Add Read-Only GitHub Evidence Sync And Feedback Candidates
 
+**Status:** Not started.
+
 **Phase:** Phase 3 Git/PR governance, preparing later Phase 4 worker coordination.
 
 **Why now:** Review and CI feedback are already documented as the fifth confidence slice. Local saved review ingestion exists, but live fetching and failing-check candidate creation are missing.
@@ -214,6 +223,83 @@ python scripts/ci_smoke.py
 git diff --check
 ```
 
+## Task 6: Add Operator-Approved Git/PR Materialization
+
+**Status:** Not started.
+
+**Phase:** Phase 3 Git/PR governance, after branch policy and read-only GitHub evidence sync.
+
+**Why now:** `git-pr-plan` is intentionally dry-run. Once branch policy and live read-only evidence are stable, Cadence needs an explicit operator-approved path that can materialize a reviewed plan into local branch, commit, push, and PR creation actions without giving executors autonomous Git authority.
+
+**Files:**
+- Modify: `codex_cadence/git_pr_plan.py`
+- Modify: `codex_cadence/cli.py`
+- Modify: `codex_cadence/policy_audit.py`
+- Modify: `codex_cadence/pr_readiness.py`
+- Test: `tests/test_git_pr_plan.py`, `tests/test_cadence.py`, `tests/test_pr_readiness.py`
+- Docs: `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`, `docs/implementation-slices.md`, `docs/progress-log.md`, `docs/decision-log.md`
+
+**Implementation outline:**
+- Add an explicit command that consumes a validated `git-pr-plan.v1` packet, policy evidence, and operator confirmation.
+- Enforce current branch/head, branch policy, materialized-change evidence, PR body preflight, and freshness gates immediately before any Git or `gh` action.
+- Create the branch, commit, push, and open or update a PR only when the operator approval token and policy gates match the packet under review.
+- Append audit records for each intended and completed side effect.
+- Keep auto-merge, release, package publication, and real executor invocation outside this slice.
+
+**Validation:**
+- Approved dry-run plan materializes into the expected mocked Git/PR command sequence.
+- Missing or mismatched approval blocks before side effects.
+- Branch policy, stale head, dirty worktree, missing materialized evidence, and PR body failures block before side effects.
+- Failed Git or `gh` commands return stable blocker packets and audit evidence.
+- No merge, release, or package-publication commands are performed.
+
+Run:
+
+```powershell
+python -m py_compile codex_cadence/git_pr_plan.py codex_cadence/cli.py codex_cadence/policy_audit.py codex_cadence/pr_readiness.py
+python -m unittest tests.test_git_pr_plan tests.test_cadence tests.test_pr_readiness -v
+python scripts/validate_protocol.py
+python scripts/ci_smoke.py
+git diff --check
+```
+
+## Task 7: Add Resume Verifier And Handoff Pickup Gate
+
+**Status:** Not started.
+
+**Phase:** Phase 2 governed execution hardening, preparing future Phase 4 worker coordination.
+
+**Why now:** As execution and PR planning span more sessions, a fresh session needs a deterministic gate that proves the handoff, clean-square, repo state, Cadence state, policy, and claimed work still match before continuing.
+
+**Files:**
+- Modify: `codex_cadence/handoff_loop.py`
+- Modify: `codex_cadence/cli.py`
+- Modify: `codex_cadence/repo_state.py`
+- Modify: `codex_cadence/epochs.py`
+- Test: `tests/test_cadence.py`, `tests/test_handoff_loop.py`, `tests/test_epochs.py`
+- Docs: `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`, `docs/implementation-slices.md`, `docs/progress-log.md`, `docs/decision-log.md`
+
+**Implementation outline:**
+- Add a read-only resume-verification command that checks handoff signature, claimed state, clean-square evidence, repo branch/head, dirty worktree state, active brake, active epoch, and policy evidence.
+- Return a resume decision packet with stable blocker codes and recommended next action.
+- Require stale or mismatched handoffs to be re-created or explicitly failed rather than silently resumed.
+- Keep new-session launch, host context-pressure detection, real executor invocation, branch creation, PR writes, merge, release, and package publication outside this slice.
+
+**Validation:**
+- Valid handoff, clean-square, repo head, policy, and Cadence state produce a resumable packet.
+- Stale SHA, wrong branch, dirty worktree, missing clean-square, missing approval, double claim, active stop, and active epoch conflict block resume with stable reason codes.
+- The command is read-only and does not claim, complete, fail, or mutate handoffs.
+
+Run:
+
+```powershell
+python -m py_compile codex_cadence/handoff_loop.py codex_cadence/cli.py codex_cadence/repo_state.py codex_cadence/epochs.py
+python -m unittest tests.test_cadence tests.test_handoff_loop tests.test_epochs -v
+python scripts/validate_protocol.py
+python scripts/ci_smoke.py
+git diff --check
+```
+
 ## Recommended Order
 
 1. Task 1, because the repo handoff is stale and the backlog is empty.
@@ -221,3 +307,5 @@ git diff --check
 3. Task 3, because executor evidence must affect epochs and next decisions before the loop is meaningfully governed.
 4. Task 4, because branch policy is the Git/PR governance boundary before executor output becomes branch or PR work.
 5. Task 5, because review and CI feedback only become useful after the loop can consume post-execution state.
+6. Task 6, because live Git/PR materialization should come only after branch policy and read-only GitHub evidence make the approval decision reviewable.
+7. Task 7, because resume verification should harden continuation before the same governed loop spans more sessions, roles, or handoffs.

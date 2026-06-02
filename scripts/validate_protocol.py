@@ -296,7 +296,7 @@ REQUIRED_TOKENS = {
         "command substitutions",
         "shell-wrapper payloads",
         "provide_runtime_root",
-        "This branch starts only a controlled fake executor fixture",
+        "The controlled fake executor fixture is merged",
         "run-controlled-executor-fixture",
         "executor_fixture_invocation",
         "reject stale result files",

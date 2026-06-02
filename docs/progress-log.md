@@ -33,6 +33,42 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-02 - Extend roadmap and refresh handoff after PR 64
+
+Summary:
+- Updated the session handoff and business-memory backlog to record PR #64 as
+  merged and make Task 3 the next implementation slice.
+- Extended the roadmap from five tasks to seven by adding operator-approved
+  Git/PR materialization and resume verification as follow-on gates.
+- Updated protocol validation so the handoff freshness guard requires the
+  post-merge fixture boundary instead of the pre-merge Task 2 branch wording.
+
+Completed slices:
+- None. This was planning and handoff alignment only.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: The update clarifies sequencing, but it does not implement epoch
+  closeout, branch policy, live GitHub sync, Git/PR materialization, resume
+  verification, real executor invocation, or unattended loop execution.
+
+Evidence:
+- `python -m py_compile scripts/validate_protocol.py`
+- `python scripts/validate_protocol.py`
+- `python -m unittest tests.test_candidates.CandidateDiscoveryGovernanceTests.test_repo_business_memory_current_entries_seed_controlled_executor_backlog_and_parse_without_warnings -v`
+- `python -m unittest tests.test_ci_checks.CiChecksTests.test_protocol_validator_accepts_current_repo tests.test_ci_checks.CiChecksTests.test_protocol_validator_rejects_stale_handoff_pr_state -v`
+- `git diff --check`
+
+New risks or blockers:
+- None beyond the existing gates documented in the roadmap.
+
+Docs updated:
+- `docs/session-handoff.md`
+- `docs/cadence/business-memory.md`
+- `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-02 - Add controlled executor fixture runner
 
 Summary:
