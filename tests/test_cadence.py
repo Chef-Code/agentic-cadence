@@ -129,6 +129,75 @@ def write_active_epoch_raw(root, epoch_id):
     return path
 
 
+def controlled_fixture_script() -> Path:
+    return ROOT / "examples" / "controlled-executor-fixture" / "run.py"
+
+
+def controlled_fixture_command(
+    *,
+    status="succeeded",
+    exit_code=0,
+    summary="Controlled fixture completed.",
+    sleep_seconds=None,
+) -> str:
+    parts = [
+        f'"{sys.executable}"',
+        f'"{controlled_fixture_script()}"',
+        "--task-file",
+        '"{task_file}"',
+        "--result-file",
+        '"{result_file}"',
+        "--status",
+        status,
+        "--summary",
+        f'"{summary}"',
+        "--command",
+        '"python -m unittest tests.test_cadence"',
+        "--validation-name",
+        "cadence-tests",
+        "--validation-status",
+        "passed" if status == "succeeded" else "failed",
+        "--exit-code",
+        str(exit_code),
+        "--changed-file",
+        "codex_cadence/executor_runner.py",
+    ]
+    if status != "succeeded":
+        parts.extend(["--blocker", f'"{status} fixture evidence"'])
+    if sleep_seconds is not None:
+        parts.extend(["--sleep-seconds", str(sleep_seconds)])
+    return " ".join(parts)
+
+
+def write_controlled_fixture_task(root, repo, *, command_policy=None, evidence_name="executor-result.json"):
+    evidence_path = Path(root) / evidence_name
+    task_packet = build_executor_task_packet(
+        task={
+            "id": "candidate-1",
+            "title": "Implement bounded executor task",
+            "summary": "Create generic executor evidence.",
+            "task_type": "execution",
+            "bucket": "S",
+            "source": "text_marker",
+            "drivers": [],
+            "evidence": {"path": "docs/roadmap.md"},
+        },
+        snapshot=valid_snapshot(cwd=str(repo)),
+        repo_path=repo,
+        allowed_paths=["codex_cadence", "tests"],
+        required_checks=["python -m unittest tests.test_cadence"],
+        max_minutes=1,
+        max_tasks=1,
+        stop_conditions=DEFAULT_EXECUTOR_STOP_CONDITIONS,
+        evidence_path=evidence_path,
+        allowed_commands=(command_policy or {}).get("allowed_commands"),
+        denied_commands=(command_policy or {}).get("denied_commands"),
+    )
+    task_path = Path(root) / "executor-task.json"
+    task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+    return task_path, evidence_path, task_packet
+
+
 def claimed_handoff_path(root, handoff_id):
     return Path(root) / "handoffs" / "claimed" / f"{handoff_id}.json"
 
@@ -1982,6 +2051,194 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["cadence"]["can_start_work"])
             self.assertFalse(output["executor_started"])
             self.assertFalse(output["epoch_started"])
+
+    def test_controlled_executor_fixture_runs_success_and_validates_result(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, evidence_path, task_packet = write_controlled_fixture_task(tmp, repo)
+
+            result, output = run_cli(
+                tmp,
+                "run-controlled-executor-fixture",
+                "--task-file",
+                str(task_path),
+                "--command-template",
+                controlled_fixture_command(status="succeeded"),
+                "--timeout-seconds",
+                "10",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertTrue(output["executor_started"])
+            self.assertFalse(output["pr_action_started"])
+            self.assertEqual(output["packet"], "controlled_executor_fixture_run")
+            self.assertEqual(output["schema_version"], "controlled-executor-fixture-run.v1")
+            self.assertEqual(output["result_status"], "succeeded")
+            self.assertEqual(output["recommended_next_action"], "record_executor_result")
+            self.assertEqual(output["task_file"], str(task_path))
+            self.assertEqual(output["result_file"], str(evidence_path))
+            result_evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            self.assertEqual(result_evidence["task_id"], task_packet["task"]["id"])
+            self.assertEqual(result_evidence["resulting_head"], task_packet["repo"]["head"])
+            audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(audit_lines), 2)
+            invocation_record = json.loads(audit_lines[0])
+            validation_record = json.loads(audit_lines[1])
+            self.assertEqual(invocation_record["event"], "executor_fixture_invocation")
+            self.assertEqual(invocation_record["action"], "start_controlled_executor_fixture")
+            self.assertEqual(invocation_record["task_id"], "candidate-1")
+            self.assertEqual(validation_record["event"], "executor_result_validation")
+            self.assertTrue(validation_record["valid"])
+            replay_result, replay_output = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay_output["valid"])
+            self.assertEqual(replay_output["records_valid"], 2)
+            self.assertEqual(replay_output["events_by_type"]["executor_fixture_invocation"], 1)
+            self.assertEqual(replay_output["events_by_type"]["executor_result_validation"], 1)
+
+    def test_controlled_executor_fixture_accepts_failed_evidence_from_nonzero_command(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _evidence_path, _task_packet = write_controlled_fixture_task(tmp, repo)
+
+            result, output = run_cli(
+                tmp,
+                "run-controlled-executor-fixture",
+                "--task-file",
+                str(task_path),
+                "--command-template",
+                controlled_fixture_command(status="failed", exit_code=7, summary="Fixture command failed."),
+                "--timeout-seconds",
+                "10",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["command_exit_code"], 7)
+            self.assertEqual(output["result_status"], "failed")
+            self.assertEqual(output["recommended_next_action"], "record_executor_result")
+
+    def test_controlled_executor_fixture_timeout_writes_stopped_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, evidence_path, _task_packet = write_controlled_fixture_task(tmp, repo)
+
+            result, output = run_cli(
+                tmp,
+                "run-controlled-executor-fixture",
+                "--task-file",
+                str(task_path),
+                "--command-template",
+                controlled_fixture_command(status="succeeded", sleep_seconds=5),
+                "--timeout-seconds",
+                "1",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertTrue(output["timed_out"])
+            self.assertEqual(output["result_status"], "stopped")
+            self.assertEqual(output["recommended_next_action"], "record_executor_result")
+            result_evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            self.assertEqual(result_evidence["status"], "stopped")
+            self.assertIn("timeout", result_evidence["blockers"])
+
+    def test_controlled_executor_fixture_rejects_success_after_active_brake_stop(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _evidence_path, _task_packet = write_controlled_fixture_task(tmp, repo)
+            brake_result, _ = run_cli(tmp, "set-brake", "PARK", "--reason", "operator stop")
+            self.assertEqual(brake_result.returncode, 0, brake_result.stderr)
+
+            result, output = run_cli(
+                tmp,
+                "run-controlled-executor-fixture",
+                "--task-file",
+                str(task_path),
+                "--command-template",
+                controlled_fixture_command(status="succeeded"),
+                "--timeout-seconds",
+                "10",
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "stop_active_loop")
+            self.assertEqual(output["active_stop"]["brake_status"], "PARK")
+
+    def test_controlled_executor_fixture_blocks_disallowed_command_template_before_running(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, evidence_path, _task_packet = write_controlled_fixture_task(tmp, repo)
+
+            result, output = run_cli(
+                tmp,
+                "run-controlled-executor-fixture",
+                "--task-file",
+                str(task_path),
+                "--command-template",
+                "git push origin main",
+                "--timeout-seconds",
+                "10",
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["reason"], "executor command violates disabled push permission")
+            self.assertEqual(output["recommended_next_action"], "fix_executor_command_policy")
+            self.assertFalse(evidence_path.exists())
+
+    def test_controlled_executor_fixture_enforces_task_command_policy_before_running(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, evidence_path, _task_packet = write_controlled_fixture_task(
+                tmp,
+                repo,
+                command_policy={"denied_commands": ["python -m pip install"]},
+            )
+
+            result, output = run_cli(
+                tmp,
+                "run-controlled-executor-fixture",
+                "--task-file",
+                str(task_path),
+                "--command-template",
+                "python -m pip install .",
+                "--timeout-seconds",
+                "10",
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["reason"], "executor command is denied by command_policy")
+            self.assertEqual(output["recommended_next_action"], "fix_executor_command_policy")
+            self.assertFalse(evidence_path.exists())
+
+    def test_controlled_executor_fixture_rejects_malformed_command_template_before_running(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, evidence_path, _task_packet = write_controlled_fixture_task(tmp, repo)
+
+            result, output = run_cli(
+                tmp,
+                "run-controlled-executor-fixture",
+                "--task-file",
+                str(task_path),
+                "--command-template",
+                "python -c {missing_placeholder}",
+                "--timeout-seconds",
+                "10",
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["executor_started"])
+            self.assertIn("invalid executor command template", output["reason"])
+            self.assertEqual(output["recommended_next_action"], "fix_executor_command_template")
+            self.assertFalse(evidence_path.exists())
 
     def test_validate_executor_result_command_reports_valid_evidence(self):
         with tempfile.TemporaryDirectory() as tmp:

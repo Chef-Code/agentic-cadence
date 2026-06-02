@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-06-01
+Last updated: 2026-06-02
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption
@@ -27,6 +27,50 @@ Consequences:
 Open questions:
 - Remaining unknowns.
 ```
+
+## 2026-06-02 - Keep first executor launch fixture-only
+
+Decision:
+- Add `run-controlled-executor-fixture` as a test/example-only command that
+  launches a fake external executor component from an explicit command
+  template.
+- Validate the generic executor task packet and formatted command before
+  launch, require result evidence at the approved path, and record both
+  `executor_fixture_invocation` and `executor_result_validation` audit events.
+- Keep real executor invocation, named-host adapter support, epoch closeout,
+  branch policy, live Git/PR actions, merge authority, release authority, and
+  package-publication authority outside this slice.
+
+Why:
+- The next execution risk is proving Cadence can govern an executor-shaped
+  component without becoming the implementation authority itself.
+- A fixture command gives reviewers a deterministic way to test success,
+  failed evidence, timeout/stopped evidence, active brake stops, command policy,
+  disabled live actions, and audit replay before any real executor is allowed.
+- The current policy surface still lacks branch policy, execution closeout,
+  approval identity, hash chaining, and live GitHub synchronization.
+
+Alternatives considered:
+- Integrate a named host adapter first. Rejected because it would overfit the
+  governance boundary before the generic component contract is proven.
+- Let `loop-tick` directly execute implementation work. Rejected because
+  `loop-tick` remains the read-only election and task-packet emission boundary.
+- Add live commit, push, PR, merge, release, or package-publication flags.
+  Rejected because those actions require branch ownership, role separation,
+  approval identity, and release governance that are not implemented.
+
+Consequences:
+- The fixture proves executor-as-component behavior while preserving Cadence as
+  the policy, evidence, and audit governor.
+- Successful fixture evidence can be recorded, but it is not permission to
+  merge, release, publish, or claim unattended repository writes.
+- The next execution slice should wire validated executor results into epoch
+  closeout and next-decision logic.
+
+Open questions:
+- What should the epoch closeout packet contain when a fixture or real executor
+  returns failed, blocked, stopped, or timed-out evidence?
+- Which audit fields must be hash-chained before real executor invocation?
 
 ## 2026-06-01 - Keep Git/PR planning dry-run and role-separated
 

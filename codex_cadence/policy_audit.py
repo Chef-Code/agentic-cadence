@@ -143,6 +143,16 @@ def validate_executor_result_audit_record(record: dict[str, Any], line: int) -> 
     return blockers
 
 
+def validate_executor_fixture_invocation_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate controlled fixture invocation audit-record fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in ("action", "reason", "task_file", "result_file", "command", "task_id", "repo", "branch", "head"):
+        blockers.extend(required_string(record, field, line))
+    for field in ("payload_checksum", "task_packet_checksum"):
+        blockers.extend(required_checksum_present(record, field, line))
+    return blockers
+
+
 def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict[str, Any]]]:
     """Validate one decoded audit record and return its countable event."""
     if not isinstance(record, dict):
@@ -176,6 +186,8 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
     event = record["event"]
     if event == "loop_tick_decision":
         blockers.extend(validate_loop_tick_audit_record(record, line))
+    elif event == "executor_fixture_invocation":
+        blockers.extend(validate_executor_fixture_invocation_audit_record(record, line))
     elif event == "executor_result_validation":
         blockers.extend(validate_executor_result_audit_record(record, line))
     else:
@@ -336,6 +348,26 @@ def executor_result_validation_audit_record(
         "payload_checksum": checksum_json(payload),
         "task_packet_checksum": checksum_json(task_packet),
         "result_evidence_checksum": checksum_json(result_evidence),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def executor_fixture_invocation_audit_record(payload: dict[str, Any], task_packet: Any) -> dict[str, Any]:
+    task = task_packet.get("task") if isinstance(task_packet, dict) and isinstance(task_packet.get("task"), dict) else {}
+    repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
+    record = {
+        "event": "executor_fixture_invocation",
+        "action": "start_controlled_executor_fixture",
+        "reason": payload.get("reason"),
+        "task_id": task.get("id"),
+        "repo": repo.get("name"),
+        "branch": repo.get("branch"),
+        "head": repo.get("head"),
+        "task_file": payload.get("task_file"),
+        "result_file": payload.get("result_file"),
+        "command": payload.get("command"),
+        "payload_checksum": checksum_json(payload),
+        "task_packet_checksum": checksum_json(task_packet),
     }
     return {key: value for key, value in record.items() if value is not None}
 

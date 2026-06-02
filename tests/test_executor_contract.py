@@ -6,6 +6,7 @@ from codex_cadence.executor_contract import (
     DEFAULT_EXECUTOR_STOP_CONDITIONS,
     _raw_command_substitutions,
     build_executor_task_packet,
+    validate_executor_command,
     validate_executor_result_evidence,
     validate_executor_task_packet,
 )
@@ -1584,3 +1585,89 @@ class ExecutorContractTests(unittest.TestCase):
 
                     self.assertFalse(valid)
                     self.assertEqual(reason, "executor task expected_output.evidence_path must be absolute")
+
+    def test_validate_executor_command_uses_task_command_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            task_packet["command_policy"] = {
+                "allowed_commands": ["python examples/controlled-executor-fixture/run.py"],
+                "denied_commands": ["python -m pip install"],
+            }
+
+            valid, reason = validate_executor_command(
+                "python examples/controlled-executor-fixture/run.py --task-file task.json --result-file result.json",
+                task_packet,
+            )
+
+            self.assertTrue(valid, reason)
+
+            valid, reason = validate_executor_command(
+                "python -m pip install .",
+                task_packet,
+            )
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor command is denied by command_policy")
+
+    def test_validate_executor_command_rejects_disabled_live_git_actions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+
+            cases = [
+                ("git commit -m fixture", "executor command violates disabled commit permission"),
+                ("git push origin main", "executor command violates disabled push permission"),
+                ("gh pr create --fill", "executor command violates disabled PR creation permission"),
+                ("git merge feature", "executor command violates disabled merge permission"),
+                ("gh pr merge 63 --merge", "executor command violates disabled merge permission"),
+                ("gh release create v1.0.0", "executor command violates disabled release permission"),
+                ("twine upload dist/*", "executor command violates disabled package publication permission"),
+                ("python3 -m twine upload dist/*", "executor command violates disabled package publication permission"),
+                ("python -m twine upload dist/*", "executor command violates disabled package publication permission"),
+                ("npm publish", "executor command violates disabled package publication permission"),
+                ("yarn publish", "executor command violates disabled package publication permission"),
+            ]
+
+            for command, expected_reason in cases:
+                with self.subTest(command=command):
+                    valid, reason = validate_executor_command(command, task_packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
+
+    def test_result_evidence_rejects_merge_release_or_package_publication_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            cases = [
+                ("git merge feature", "executor result commands_run[0] violates disabled merge permission"),
+                ("gh pr merge 63 --merge", "executor result commands_run[0] violates disabled merge permission"),
+                ("gh release create v1.0.0", "executor result commands_run[0] violates disabled release permission"),
+                ("twine upload dist/*", "executor result commands_run[0] violates disabled package publication permission"),
+                (
+                    "python3 -m twine upload dist/*",
+                    "executor result commands_run[0] violates disabled package publication permission",
+                ),
+                (
+                    "python -m twine upload dist/*",
+                    "executor result commands_run[0] violates disabled package publication permission",
+                ),
+                ("npm publish", "executor result commands_run[0] violates disabled package publication permission"),
+                ("yarn publish", "executor result commands_run[0] violates disabled package publication permission"),
+            ]
+
+            for command, expected_reason in cases:
+                with self.subTest(command=command):
+                    evidence = valid_result(
+                        status="failed",
+                        commands_run=[
+                            {
+                                "command": command,
+                                "exit_code": 1,
+                            }
+                        ],
+                        validation_results=[],
+                    )
+
+                    valid, reason = validate_executor_result_evidence(evidence, task_packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)

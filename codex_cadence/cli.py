@@ -22,6 +22,7 @@ from codex_cadence.executor_contract import (
     validate_executor_result_evidence,
     validate_executor_task_packet,
 )
+from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.git_pr_plan import evaluate_git_pr_plan
 from codex_cadence.epochs import complete_epoch as complete_epoch_record
 from codex_cadence.epochs import CONTINUE, ASK_APPROVAL
@@ -1151,6 +1152,18 @@ def validate_executor_result_command(args: argparse.Namespace) -> int:
     return 0 if valid else 1
 
 
+def run_controlled_executor_fixture_command(args: argparse.Namespace) -> int:
+    payload = run_controlled_executor_fixture(
+        root=args.root,
+        task_file=args.task_file,
+        command_template=args.command_template,
+        timeout_seconds=args.timeout_seconds,
+        allow_repo_local_root=args.allow_repo_local_root,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def audit_replay_command(args: argparse.Namespace) -> int:
     """Emit a read-only audit replay packet for the runtime root."""
     payload = replay_audit_log(args.root)
@@ -1364,6 +1377,15 @@ def build_parser() -> argparse.ArgumentParser:
         requires_root=False,
         guards_optional_root=True,
     )
+
+    controlled_fixture_parser = subparsers.add_parser(
+        "run-controlled-executor-fixture",
+        help="Run a test/example-only controlled executor fixture command",
+    )
+    controlled_fixture_parser.add_argument("--task-file", required=True)
+    controlled_fixture_parser.add_argument("--command-template", required=True)
+    controlled_fixture_parser.add_argument("--timeout-seconds", type=positive_int, default=60)
+    controlled_fixture_parser.set_defaults(func=run_controlled_executor_fixture_command)
 
     audit_replay_parser = subparsers.add_parser(
         "audit-replay",

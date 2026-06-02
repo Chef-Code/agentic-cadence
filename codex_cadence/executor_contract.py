@@ -839,6 +839,44 @@ def _command_invokes(command: str, invocation: str) -> bool:
     )
 
 
+def _command_publishes_package(command: str) -> bool:
+    return any(
+        _command_invokes(command, invocation)
+        for invocation in (
+            "twine upload",
+            "python -m twine upload",
+            "python3 -m twine upload",
+            "npm publish",
+            "pnpm publish",
+            "yarn publish",
+            "yarn npm publish",
+            "poetry publish",
+            "uv publish",
+        )
+    )
+
+
+def _command_merges(command: str) -> bool:
+    return any(
+        _command_invokes(command, invocation)
+        for invocation in (
+            "git merge",
+            "gh pr merge",
+        )
+    )
+
+
+def _command_creates_release(command: str) -> bool:
+    return any(
+        _command_invokes(command, invocation)
+        for invocation in (
+            "gh release create",
+            "gh release upload",
+            "git tag",
+        )
+    )
+
+
 def _command_allowed_by_policy(command: str, allowed_commands: list[str]) -> bool:
     segments = _effective_command_segments(command)
     if not segments:
@@ -933,6 +971,9 @@ def build_executor_task_packet(
             "may_commit": False,
             "may_push": False,
             "may_open_pr": False,
+            "may_merge": False,
+            "may_release": False,
+            "may_publish_packages": False,
             "named_host_adapter": None,
         },
         "limitations": [
@@ -1034,11 +1075,51 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
     permissions = packet.get("permissions")
     if not isinstance(permissions, dict):
         return False, "executor task permissions must be a JSON object"
-    for field in ("may_commit", "may_push", "may_open_pr"):
+    for field in ("may_commit", "may_push", "may_open_pr", "may_merge", "may_release", "may_publish_packages"):
         if permissions.get(field) is not False:
             return False, f"executor task permissions.{field} must be false"
     if permissions.get("named_host_adapter") is not None:
         return False, "executor task permissions.named_host_adapter must be null"
+    return True, "ok"
+
+
+def validate_executor_command(command: Any, task_packet: dict[str, Any]) -> tuple[bool, str]:
+    valid_task, task_reason = validate_executor_task_packet(task_packet)
+    if not valid_task:
+        return False, f"invalid executor task packet: {task_reason}"
+    if not _non_empty_string(command):
+        return False, "executor command is required"
+    command_text = str(command)
+    command_policy = task_packet.get("command_policy", {})
+    allowed_commands = command_policy.get("allowed_commands", []) if isinstance(command_policy, dict) else []
+    denied_commands = command_policy.get("denied_commands", []) if isinstance(command_policy, dict) else []
+    permissions = task_packet["permissions"]
+    unsupported_shell_expansion = _has_unsupported_shell_expansion(command_text)
+    if any(_command_invokes(command_text, denied) for denied in denied_commands):
+        return False, "executor command is denied by command_policy"
+    if denied_commands and not allowed_commands and (_has_command_substitution(command_text) or unsupported_shell_expansion):
+        return False, "executor command is denied by command_policy"
+    if allowed_commands and (
+        unsupported_shell_expansion or not _command_allowed_by_policy(command_text, allowed_commands)
+    ):
+        return False, "executor command is outside allowed command_policy"
+    if permissions.get("may_commit") is False and _command_invokes(command_text, "git commit"):
+        return False, "executor command violates disabled commit permission"
+    if permissions.get("may_push") is False and _command_invokes(command_text, "git push"):
+        return False, "executor command violates disabled push permission"
+    if permissions.get("may_open_pr") is False and _command_invokes(command_text, "gh pr create"):
+        return False, "executor command violates disabled PR creation permission"
+    if permissions.get("may_merge") is False and _command_merges(command_text):
+        return False, "executor command violates disabled merge permission"
+    if permissions.get("may_release") is False and _command_creates_release(command_text):
+        return False, "executor command violates disabled release permission"
+    if permissions.get("may_publish_packages") is False and _command_publishes_package(command_text):
+        return False, "executor command violates disabled package publication permission"
+    if unsupported_shell_expansion and any(
+        permissions.get(field) is False
+        for field in ("may_commit", "may_push", "may_open_pr", "may_merge", "may_release", "may_publish_packages")
+    ):
+        return False, "executor command contains unsupported shell expansion"
     return True, "ok"
 
 
@@ -1106,8 +1187,15 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
             return False, f"executor result commands_run[{index}] violates disabled push permission"
         if permissions.get("may_open_pr") is False and _command_invokes(command_text, "gh pr create"):
             return False, f"executor result commands_run[{index}] violates disabled PR creation permission"
+        if permissions.get("may_merge") is False and _command_merges(command_text):
+            return False, f"executor result commands_run[{index}] violates disabled merge permission"
+        if permissions.get("may_release") is False and _command_creates_release(command_text):
+            return False, f"executor result commands_run[{index}] violates disabled release permission"
+        if permissions.get("may_publish_packages") is False and _command_publishes_package(command_text):
+            return False, f"executor result commands_run[{index}] violates disabled package publication permission"
         if unsupported_shell_expansion and any(
-            permissions.get(field) is False for field in ("may_commit", "may_push", "may_open_pr")
+            permissions.get(field) is False
+            for field in ("may_commit", "may_push", "may_open_pr", "may_merge", "may_release", "may_publish_packages")
         ):
             return False, f"executor result commands_run[{index}] contains unsupported shell expansion"
         command_exit_codes.setdefault(command_text, []).append(exit_code)

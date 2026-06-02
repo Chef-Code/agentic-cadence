@@ -123,6 +123,9 @@ REQUIRED_TOKENS = {
         "command substitutions",
         "shell-wrapper payloads",
         "provide_runtime_root",
+        "run-controlled-executor-fixture",
+        "executor_fixture_invocation",
+        "controlled-executor-fixture-run.v1",
     ),
     "docs/protocol.md": (
         "New handoffs must declare `--task-type`",
@@ -229,6 +232,11 @@ REQUIRED_TOKENS = {
         "command substitutions",
         "shell-wrapper payloads",
         "provide_runtime_root",
+        "run-controlled-executor-fixture",
+        "executor_fixture_invocation",
+        "controlled-executor-fixture-run.v1",
+        "gh pr merge",
+        "yarn publish",
     ),
     "docs/roadmap.md": (
         "audit replay evidence, command-policy",
@@ -277,7 +285,9 @@ REQUIRED_TOKENS = {
         "command substitutions",
         "shell-wrapper payloads",
         "provide_runtime_root",
-        "No executor invocation, branch policy, branch/PR automation, live GitHub sync, merge authority, release behavior, hash chain, or authenticated approval identity",
+        "This branch starts only a controlled fake executor fixture",
+        "run-controlled-executor-fixture",
+        "executor_fixture_invocation",
     ),
     "codex_cadence/cli.py": (
         "create_parser.add_argument(\"--task-type\"",

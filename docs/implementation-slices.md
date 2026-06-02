@@ -1,8 +1,8 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-06-01
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, and git-pr-plan current tree
+Last updated: 2026-06-02
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, and controlled executor fixture current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -41,10 +41,12 @@ or enforced review separation. The first local policy/audit controls can bound
 emitted executor task packets, append decision/result-validation audit records,
 and replay local audit history with a read-only `audit-replay.v1` packet.
 Active execution controls are partial: result validation enforces task-carried
-command policy and active brake stop evidence, and `git-pr-plan` can produce a
-dry-run Git/PR transition plan for separate review. Real executor governance,
-branch policy, live branch/commit/push or PR creation, and continuous loop
-orchestration remain missing.
+command policy and active brake stop evidence, `run-controlled-executor-fixture`
+can govern a fake external executor component in tests/examples, and
+`git-pr-plan` can produce a dry-run Git/PR transition plan for separate review.
+Real executor governance, epoch closeout, branch policy, live
+branch/commit/push or PR creation, and continuous loop orchestration remain
+missing.
 Current unattended-operation confidence remains 10%.
 
 ## Vision Framing
@@ -184,6 +186,9 @@ Current evidence:
   for operator approval without starting execution;
 - `validate-executor-result` can validate local result evidence against the
   task packet;
+- `run-controlled-executor-fixture` can launch a fake external executor
+  component from an explicit command template, require it to write the expected
+  evidence file, and validate the result;
 - task-packet validation checks the embedded local repo snapshot, requires its
   repo/cwd/branch/head to match the packet repo anchor, and rejects missing
   repo identity, missing built-in safety stops, relative expected evidence
@@ -191,8 +196,9 @@ Current evidence:
 - successful result evidence must include command evidence, validation
   evidence, a resulting head attestation, elapsed time within the task runtime
   limit, and the absolute expected evidence path;
-- disabled commit, push, and PR-creation permissions reject common
-  absolute-path, git/gh global-option, and shell-wrapper command forms;
+- disabled commit, push, PR-creation, merge, release, and package-publication
+  permissions reject common absolute-path, git/gh global-option,
+  shell-wrapper, release, and publish command forms;
 - no real executor or named host adapter exists.
 
 Why it matters: Cadence cannot implement work until execution is a formal,
@@ -220,12 +226,15 @@ Validation needed:
   evidence;
 - done: forbidden commit, push, PR creation, and head-change evidence
   rejection;
+- done: forbidden merge, release, and package-publication command rejection;
+- done: controlled fixture success, failed-result, timeout/stopped, active-stop,
+  command-policy, and audit-replay paths;
 - done: malformed, missing-name, relative-path, dirty, low-confidence,
   branch/head-mismatched, or repo/cwd anchor-mismatched embedded task
   snapshots;
 - done: disallowed changed path;
 - done: dirty successful result rejection;
-- remaining: real executor timeout behavior, external executor invocation,
+- remaining: real executor timeout behavior, real external executor invocation,
   branch/commit handling, and epoch completion/failure integration.
 
 Codex implementation rule: Codex can implement the generic contract directly.
@@ -285,6 +294,9 @@ Current evidence:
 - root-backed `validate-executor-result` appends compact
   `executor_result_validation` audit records with packet and evidence
   checksums;
+- root-backed `run-controlled-executor-fixture` appends a compact
+  `executor_fixture_invocation` audit record before starting the fake external
+  fixture and an `executor_result_validation` record after evidence validation;
 - `audit-replay` implements the read-only `audit-replay.v1` packet shape,
   blocker codes, counting rules, supported event validation, and corrupted-log
   failure behavior from the merged design;
@@ -316,6 +328,7 @@ Validation needed:
   max runtime, and stop conditions: complete for Phase 1;
 - loop decision audit record: complete for Phase 1;
 - executor result validation audit record: complete for Phase 1;
+- controlled executor fixture invocation audit record: complete for Phase 1;
 - denied command test: complete for Phase 1;
 - stop brake during active loop: complete for Phase 1;
 - audit append ordering;
