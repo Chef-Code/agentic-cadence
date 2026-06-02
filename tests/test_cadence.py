@@ -5034,6 +5034,71 @@ class CadenceCliTests(unittest.TestCase):
             payload_without_audit.pop("audit_record")
             self.assertEqual(audit_record["payload_checksum"], checksum_json(payload_without_audit))
 
+    def test_closeout_executor_result_policy_file_blocks_embedded_git_pr_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            git(repo, "switch", "-c", "feature/epoch-closeout")
+            (Path(repo) / "README.md").write_text("hello\nbranch policy closeout\n", encoding="utf-8")
+            git(repo, "add", "README.md")
+            git(repo, "commit", "-m", "implement branch policy closeout fixture")
+            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+                tmp,
+                repo,
+            )
+            write_active_epoch(
+                tmp,
+                "epoch-closeout-branch-policy",
+                task_packet["snapshot"],
+                tasks=[task_packet["task"]],
+            )
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "branch_policy": {
+                            "allowed_base_branches": ["main"],
+                            "denied_target_branches": [],
+                            "required_branch_prefixes": ["codex/"],
+                            "allow_current_branch_main": True,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-closeout-branch-policy",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--emit-git-pr-plan",
+                "--cwd",
+                repo,
+                "--policy-file",
+                str(policy_file),
+                "--required-body-section",
+                "Summary",
+                "--required-body-section",
+                "Validation",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["closeout_status"], "completed")
+            self.assertFalse(output["git_pr_plan"]["ready_to_review"])
+            self.assertEqual(output["next_decision"]["recommended_next_action"], "address_blockers")
+            self.assertIn(
+                "branch_policy_required_prefix_missing",
+                {blocker["code"] for blocker in output["git_pr_plan"]["blockers"]},
+            )
+
     def test_closeout_executor_result_keeps_epoch_active_when_other_tasks_remain(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)

@@ -1,7 +1,7 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-01
+Last updated: 2026-06-02
 Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, and controlled executor fixture current tree
 Current unattended-operation confidence: 10%
 

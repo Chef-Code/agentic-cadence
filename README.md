@@ -312,8 +312,7 @@ checks, command allow/deny lists, runtime, stop conditions, and a dry-run
 `allow_current_branch_main`; unknown branch-policy fields fail closed. It is
 copied into emitted executor task packets and enforced by `git-pr-plan` along
 with any local `--policy-file` branch policy.
-Result
-validation enforces task-carried command policy across compound commands,
+Result validation enforces task-carried command policy across compound commands,
 shell grouping, command substitutions, and shell-wrapper payloads, and it rejects non-`stopped`
 completion evidence after an active brake stop. If a task includes `brake_not_drive`, otherwise-valid
 non-`stopped` completion evidence requires a runtime root so the current brake

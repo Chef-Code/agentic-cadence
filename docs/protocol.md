@@ -263,8 +263,10 @@ when other epoch tasks remain, with `closeout_status: task_completed` and a
 policy violations fail the epoch with stable reason codes. The packet includes a
 `next_decision` of `generate_git_pr_plan`, `continue`, `handoff`, `stop`, or
 `validate_more_evidence`. With `--emit-git-pr-plan`, a terminal successful
-closeout may embed a dry-run `git-pr-plan.v1` packet for review, and supplied PR
-template inputs are read before terminal epoch state is mutated. The command
+closeout may embed a dry-run `git-pr-plan.v1` packet for review; supplied PR
+template inputs and local policy files are read before terminal epoch state is
+mutated, and any policy-file `branch_policy` is passed into the embedded
+dry-run plan. The command
 appends a compact `executor_epoch_closeout` audit record containing task/result
 and snapshot-after path/checksum anchors for fresh closeout decisions.
 Already-terminal reruns report `closeout_status: already_closed` without
