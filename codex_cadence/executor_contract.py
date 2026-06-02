@@ -163,21 +163,29 @@ def _command_name(token: str) -> str:
     return PurePosixPath(token.replace("\\", "/")).name.lower()
 
 
+def _python_command_name(command_name: str) -> bool:
+    return command_name in {"py", "py.exe"} or re.fullmatch(
+        r"python(?:\d+(?:\.\d+)*)?(?:\.exe)?",
+        command_name,
+    ) is not None
+
+
 def _command_text_for_lexing(command: str) -> str:
     normalized = command.replace("\r\n", "\n").replace("\r", "\n")
     normalized = re.sub(r"\\\n[ \t]*", " ", normalized)
     return normalized.replace("\n", " ; ")
 
 
-def _command_tokens(command: str) -> list[str]:
+def _command_tokens(command: str, *, lower: bool = True) -> list[str]:
     shell_text = _command_text_for_lexing(command)
     try:
         lexer = shlex.shlex(shell_text, posix=True, punctuation_chars=True)
         lexer.commenters = ""
         lexer.whitespace_split = True
-        return [token.lower() for token in lexer]
+        tokens = list(lexer)
     except ValueError:
-        return _normalized_command(shell_text).split()
+        tokens = shell_text.strip().split()
+    return [token.lower() for token in tokens] if lower else tokens
 
 
 def _command_segments(tokens: list[str]) -> list[list[str]]:
@@ -616,6 +624,46 @@ def _embedded_shell_commands(tokens: list[str]) -> list[str]:
     return embedded
 
 
+def _git_alias_shell_commands(
+    alias_name: str,
+    aliases: dict[str, str | None],
+    seen: set[str] | None = None,
+) -> list[str]:
+    if alias_name not in aliases:
+        return []
+    seen_aliases = set() if seen is None else set(seen)
+    if alias_name in seen_aliases:
+        return []
+    seen_aliases.add(alias_name)
+    alias_value = aliases.get(alias_name)
+    if alias_value is None:
+        return []
+    shell_alias = alias_value.startswith("!")
+    alias_command = alias_value.removeprefix("!").strip()
+    if shell_alias:
+        return [alias_command] if alias_command else []
+    alias_tokens = _command_tokens(alias_command)
+    if not alias_tokens:
+        return []
+    nested_alias = alias_tokens[0]
+    if nested_alias in aliases:
+        return _git_alias_shell_commands(nested_alias, aliases, seen_aliases)
+    if _command_name(nested_alias) in {"git", "git.exe"}:
+        return _git_shell_alias_commands(alias_tokens)
+    return []
+
+
+def _git_shell_alias_commands(tokens: list[str]) -> list[str]:
+    index = _first_command_index(tokens)
+    if index is None or _command_name(tokens[index]) not in {"git", "git.exe"}:
+        return []
+    aliases = _git_aliases_before_subcommand(tokens, index)
+    next_subcommand = _next_git_subcommand(tokens, index)
+    if next_subcommand is None:
+        return []
+    return _git_alias_shell_commands(next_subcommand, aliases)
+
+
 def _command_substitution_spans(command: str) -> list[tuple[int, int, str]]:
     spans: list[tuple[int, int, str]] = []
     index = 0
@@ -774,6 +822,51 @@ def _has_command_substitution(command: str) -> bool:
     return bool(_command_substitution_spans(command))
 
 
+def _python_uses_code_option(tokens: list[str], index: int) -> bool:
+    current = index + 1
+    while current < len(tokens):
+        token = tokens[current]
+        token_lower = token.lower()
+        if token_lower in _COMMAND_SEPARATORS:
+            return False
+        if token_lower == "-c" or (token_lower.startswith("-c") and token_lower != "-c"):
+            return True
+        if token_lower == "-m" or (token_lower.startswith("-m") and token_lower != "-m"):
+            return False
+        if token_lower == "--":
+            return False
+        if token == "-W" or token_lower == "--check-hash-based-pycs":
+            current = min(current + 2, len(tokens))
+            continue
+        if (
+            (token.startswith("-W") and token != "-W")
+            or token == "-X"
+            or (token.startswith("-X") and token != "-X")
+            or token_lower.startswith("--check-hash-based-pycs=")
+        ):
+            current += 1 if token != "-X" else 2
+            continue
+        if not token_lower.startswith("-"):
+            return False
+        current += 1
+    return False
+
+
+def _has_opaque_interpreter_payload(tokens: list[str]) -> bool:
+    index = _first_command_index(tokens)
+    if index is None:
+        return False
+    command = _command_name(tokens[index])
+    if command in _POWERSHELL_COMMANDS and any(
+        token.lower() in {"-encodedcommand", "-enc", "-e", "/encodedcommand", "/enc", "/e"}
+        for token in tokens[index + 1 :]
+    ):
+        return True
+    if _python_command_name(command) and _python_uses_code_option(tokens, index):
+        return True
+    return False
+
+
 def _has_unsupported_shell_expansion(command: str, depth: int = 0) -> bool:
     if depth > _COMMAND_EXPANSION_DEPTH_LIMIT:
         return True
@@ -782,7 +875,11 @@ def _has_unsupported_shell_expansion(command: str, depth: int = 0) -> bool:
     expansion_text = _strip_single_quoted_ranges(command)
     if _PARAMETER_EXPANSION_PATTERN.search(expansion_text):
         return True
-    for segment_tokens in _command_segments(_command_tokens(command)):
+    tokens = _command_tokens(command)
+    for segment_tokens in _command_segments(_command_tokens(command, lower=False)):
+        if _has_opaque_interpreter_payload(segment_tokens):
+            return True
+    for segment_tokens in _command_segments(tokens):
         for embedded_command in _embedded_shell_commands(segment_tokens):
             if _has_unsupported_shell_expansion(embedded_command, depth + 1):
                 return True
@@ -802,12 +899,16 @@ def _effective_command_segments(command: str, depth: int = 0) -> list[str]:
     segments: list[str] = []
     for substitution in _raw_command_substitutions(command):
         segments.extend(_effective_command_segments(substitution, depth + 1))
+    for alias_command in _git_shell_alias_commands(tokens):
+        segments.extend(_effective_command_segments(alias_command, depth + 1))
     for variant in _command_substitution_output_variants(command):
         if variant != command:
             segments.extend(_effective_command_segments(variant, depth + 1))
     for variant in _shell_parameter_variants(command):
         segments.extend(_effective_command_segments(variant, depth + 1))
     for segment_tokens in _command_segments(tokens):
+        for alias_command in _git_shell_alias_commands(segment_tokens):
+            segments.extend(_effective_command_segments(alias_command, depth + 1))
         embedded = _embedded_shell_commands(segment_tokens)
         if embedded:
             for embedded_command in embedded:
@@ -840,20 +941,44 @@ def _command_invokes(command: str, invocation: str) -> bool:
 
 
 def _command_publishes_package(command: str) -> bool:
-    return any(
-        _command_invokes(command, invocation)
-        for invocation in (
-            "twine upload",
-            "python -m twine upload",
-            "python3 -m twine upload",
-            "npm publish",
-            "pnpm publish",
-            "yarn publish",
-            "yarn npm publish",
-            "poetry publish",
-            "uv publish",
-        )
-    )
+    segments = [command, *_effective_command_segments(command)]
+    return any(_single_command_publishes_package(segment) for segment in segments)
+
+
+def _single_command_publishes_package(command: str) -> bool:
+    tokens = _command_tokens(command)
+    index = _first_command_index(tokens)
+    if index is None:
+        return False
+    command_name = _command_name(tokens[index])
+    remaining = tokens[index + 1 :]
+    if command_name in {"twine", "twine.exe"}:
+        return "upload" in remaining
+    if _python_command_name(command_name):
+        for module_index in range(index + 1, len(tokens) - 1):
+            if tokens[module_index] == "-m" and _command_name(tokens[module_index + 1]) in {"twine", "twine.exe"}:
+                return "upload" in tokens[module_index + 2 :]
+    if command_name in {
+        "npm",
+        "npm.cmd",
+        "npm.exe",
+        "pnpm",
+        "pnpm.cmd",
+        "pnpm.exe",
+        "yarn",
+        "yarn.cmd",
+        "yarn.exe",
+        "poetry",
+        "poetry.exe",
+        "uv",
+        "uv.exe",
+        "hatch",
+        "hatch.exe",
+        "flit",
+        "flit.exe",
+    }:
+        return "publish" in remaining
+    return False
 
 
 def _command_merges(command: str) -> bool:

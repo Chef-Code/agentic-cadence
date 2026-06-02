@@ -267,15 +267,16 @@ agentic-cadence --root examples/first-run/work/runtime validate-executor-result 
 
 For tests and examples, `run-controlled-executor-fixture` can launch a fake
 external executor component from an explicit command template. The template may
-use `{task_file}`, `{result_file}`, and `{repo_path}` placeholders. Cadence
-validates the task packet and command policy before starting the fixture,
-requires the fixture to write the expected result evidence file, records
+use `{task_file}`, `{result_file}`, and `{repo_path}` placeholders, but it must
+invoke the bundled fixture script by absolute path through the current Python interpreter.
+Cadence validates the task packet and command policy before starting the
+fixture, runs the fixture as an argument vector without shell expansion,
+requires the expected result evidence file to stay inside the runtime root and not already exist, records
 `executor_fixture_invocation` and `executor_result_validation` audit records,
-and validates timeout or active-brake stop evidence before accepting the
-result:
+and validates timeout or active-brake stop evidence before accepting the result:
 
 ```bash
-agentic-cadence --root examples/first-run/work/runtime run-controlled-executor-fixture --task-file executor-task.json --command-template "python examples/controlled-executor-fixture/run.py --task-file \"{task_file}\" --result-file \"{result_file}\" --status succeeded --summary \"fixture completed\" --command \"python -m unittest discover -s tests\"" --timeout-seconds 60
+agentic-cadence --root examples/first-run/work/runtime run-controlled-executor-fixture --task-file executor-task.json --command-template "\"/absolute/path/to/current-python\" \"/absolute/path/to/agentic-cadence/examples/controlled-executor-fixture/run.py\" --task-file \"{task_file}\" --result-file \"{result_file}\" --status succeeded --summary \"fixture completed\" --command \"python -m unittest discover -s tests\"" --timeout-seconds 60
 ```
 
 The returned packet uses `controlled-executor-fixture-run.v1`. This command is

@@ -42,9 +42,16 @@ Summary:
   command before launch, runs a fake external executor component with a timeout,
   requires result evidence at the approved path, validates active-brake stops,
   and appends invocation/result-validation audit records.
+- Review follow-up made the fixture boundary structural: the runner now
+  requires the current Python interpreter plus bundled fixture script by
+  absolute path, uses argv execution with `shell=False`, keeps result evidence
+  under the runtime root, refuses stale result files, preserves stopped
+  evidence over observed runtime cleanup overhead, and rejects successful
+  evidence from nonzero fixture exits.
 - Expanded disabled executor permissions to block merge, release, and
-  package-publication command forms in addition to commit, push, PR creation,
-  and forbidden head changes.
+  package-publication command forms, including git shell aliases after command
+  separators and versioned Python `twine` launchers, in addition to commit,
+  push, PR creation, and forbidden head changes.
 
 Completed slices:
 - Controlled executor component fixture.

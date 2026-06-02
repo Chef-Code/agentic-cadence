@@ -106,6 +106,7 @@ Risk: high
 Pain: The roadmap's first execution path now has one controlled fixture component, but real executor invocation remains blocked until epoch closeout, branch policy, audit, and result evidence gates are stable.
 Signals:
 - `loop-tick --emit-executor-task` can produce bounded task packets, and `run-controlled-executor-fixture` can govern a fake external executor component in tests/examples.
+- After PR #63 refreshed the backlog, `codex/controlled-executor-fixture` is the Task 2 fixture branch; the next roadmap slice is Task 3 epoch closeout and next-decision wiring.
 - `validate-executor-result`, command policy, active stop checks, controlled fixture invocation audit, and audit replay exist, but branch policy and epoch closeout are still missing.
 - The next implementation slices should wire validated executor evidence into epoch closeout and branch policy before any named host adapter or live code-modifying executor is allowed.
 Do not:

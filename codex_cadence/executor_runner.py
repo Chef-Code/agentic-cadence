@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import shlex
 import subprocess
+import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +32,32 @@ class CommandTemplateError(ValueError):
     """Raised when the fixture command template cannot be formatted safely."""
 
 
+def _failure_payload(
+    *,
+    reason: str,
+    task_file: Path,
+    result_file: Path | None,
+    recommended_next_action: str,
+    command: str | None = None,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": CONTROLLED_EXECUTOR_FIXTURE_SCHEMA_VERSION,
+        "packet": "controlled_executor_fixture_run",
+        "valid": False,
+        "reason": reason,
+        "task_file": str(task_file),
+        "result_file": str(result_file) if result_file is not None else None,
+        "executor_started": False,
+        "pr_action_started": False,
+        "timed_out": False,
+        "recommended_next_action": recommended_next_action,
+    }
+    if command is not None:
+        payload["command"] = command
+    return payload
+
+
 def _cadence_state(brake: dict[str, Any]) -> str:
     status = brake.get("status")
     if status == "DRIVE":
@@ -43,8 +74,72 @@ def _format_fixture_command(command_template: str, *, task_file: Path, result_fi
             result_file=str(result_file),
             repo_path=str(repo_path),
         )
-    except (KeyError, IndexError, ValueError) as exc:
+    except (AttributeError, KeyError, IndexError, ValueError) as exc:
         raise CommandTemplateError(f"invalid executor command template: {exc}") from exc
+
+
+def _controlled_fixture_script() -> Path:
+    return Path(__file__).resolve().parents[1] / "examples" / "controlled-executor-fixture" / "run.py"
+
+
+def _path_inside(base: Path, candidate: Path) -> bool:
+    try:
+        candidate.relative_to(base)
+    except ValueError:
+        return False
+    return True
+
+
+def _normalized_local_path(value: Path) -> str:
+    return os.path.normcase(str(value.expanduser().resolve(strict=False)))
+
+
+def _trusted_python_executable(value: str) -> bool:
+    raw = Path(value).expanduser()
+    if raw.is_absolute():
+        candidate = raw
+    else:
+        if raw.name != value:
+            return False
+        resolved = shutil.which(value)
+        if resolved is None:
+            return False
+        candidate = Path(resolved)
+    return _normalized_local_path(candidate) == _normalized_local_path(Path(sys.executable))
+
+
+def _fixture_argv(command: str) -> list[str]:
+    try:
+        argv = shlex.split(command, posix=True)
+    except ValueError as exc:
+        raise CommandTemplateError(f"invalid executor command template: {exc}") from exc
+    expected_script = _controlled_fixture_script().resolve(strict=False)
+    if len(argv) < 2:
+        raise CommandTemplateError("executor command template must invoke the controlled fixture script")
+    if not _trusted_python_executable(argv[0]):
+        raise CommandTemplateError("executor command template must use the current Python interpreter")
+    script_path = Path(argv[1]).expanduser()
+    if not script_path.is_absolute() or script_path.resolve(strict=False) != expected_script:
+        raise CommandTemplateError("executor command template must invoke the controlled fixture script")
+    argv[0] = str(Path(sys.executable).expanduser().resolve(strict=False))
+    return argv
+
+
+def _fixture_declared_commands(argv: list[str]) -> list[str]:
+    commands: list[str] = []
+    index = 2
+    while index < len(argv):
+        token = argv[index]
+        if token == "--command" and index + 1 < len(argv):
+            commands.append(argv[index + 1])
+            index += 2
+            continue
+        if token.startswith("--command="):
+            command = token.removeprefix("--command=")
+            if command:
+                commands.append(command)
+        index += 1
+    return commands
 
 
 def _stopped_timeout_evidence(task_packet: dict[str, Any], command: str, *, started_at: str, ended_at: str) -> dict[str, Any]:
@@ -152,23 +247,26 @@ def run_controlled_executor_fixture(
     task_packet = read_json(task_path)
     valid_task, task_reason = validate_executor_task_packet(task_packet)
     if not valid_task:
-        return {
-            "protocol_version": PROTOCOL_VERSION,
-            "schema_version": CONTROLLED_EXECUTOR_FIXTURE_SCHEMA_VERSION,
-            "packet": "controlled_executor_fixture_run",
-            "valid": False,
-            "reason": f"invalid executor task packet: {task_reason}",
-            "task_file": str(task_path),
-            "result_file": None,
-            "executor_started": False,
-            "recommended_next_action": "fix_executor_task_packet",
-        }
+        return _failure_payload(
+            reason=f"invalid executor task packet: {task_reason}",
+            task_file=task_path,
+            result_file=None,
+            recommended_next_action="fix_executor_task_packet",
+        )
     repo_path = Path(task_packet["repo"]["path"]).expanduser().resolve(strict=False)
     if not allow_repo_local_root:
         issue = runtime_root_safety_issue(root, repo_path)
         if issue:
             raise ValueError(issue)
     result_file = Path(task_packet["expected_output"]["evidence_path"]).expanduser().resolve(strict=False)
+    root_path = Path(root).expanduser().resolve(strict=False)
+    if not _path_inside(root_path, result_file):
+        return _failure_payload(
+            reason="executor result evidence path must stay inside the runtime root",
+            task_file=task_path,
+            result_file=result_file,
+            recommended_next_action="fix_executor_task_packet",
+        )
     try:
         command = _format_fixture_command(
             command_template,
@@ -177,41 +275,44 @@ def run_controlled_executor_fixture(
             repo_path=repo_path,
         )
     except CommandTemplateError as exc:
-        return {
-            "protocol_version": PROTOCOL_VERSION,
-            "schema_version": CONTROLLED_EXECUTOR_FIXTURE_SCHEMA_VERSION,
-            "packet": "controlled_executor_fixture_run",
-            "valid": False,
-            "reason": str(exc),
-            "task_file": str(task_path),
-            "result_file": str(result_file),
-            "executor_started": False,
-            "pr_action_started": False,
-            "timed_out": False,
-            "recommended_next_action": "fix_executor_command_template",
-        }
-    valid_command, command_reason = validate_executor_command(command, task_packet)
-    if not valid_command:
-        return {
-            "protocol_version": PROTOCOL_VERSION,
-            "schema_version": CONTROLLED_EXECUTOR_FIXTURE_SCHEMA_VERSION,
-            "packet": "controlled_executor_fixture_run",
-            "valid": False,
-            "reason": command_reason,
-            "task_file": str(task_path),
-            "result_file": str(result_file),
-            "command": command,
-            "executor_started": False,
-            "pr_action_started": False,
-            "timed_out": False,
-            "recommended_next_action": "fix_executor_command_policy",
-        }
+        return _failure_payload(
+            reason=str(exc),
+            task_file=task_path,
+            result_file=result_file,
+            recommended_next_action="fix_executor_command_template",
+        )
+    try:
+        argv = _fixture_argv(command)
+    except CommandTemplateError as exc:
+        return _failure_payload(
+            reason=str(exc),
+            task_file=task_path,
+            result_file=result_file,
+            recommended_next_action="fix_executor_command_template",
+            command=command,
+        )
+    for declared_command in _fixture_declared_commands(argv):
+        valid_command, command_reason = validate_executor_command(declared_command, task_packet)
+        if not valid_command:
+            return _failure_payload(
+                reason=command_reason,
+                task_file=task_path,
+                result_file=result_file,
+                recommended_next_action="fix_executor_command_policy",
+                command=command,
+            )
+    if result_file.exists():
+        return _failure_payload(
+            reason="executor result evidence file already exists",
+            task_file=task_path,
+            result_file=result_file,
+            recommended_next_action="remove_stale_executor_evidence",
+            command=command,
+        )
 
     task_path.parent.mkdir(parents=True, exist_ok=True)
     task_path.write_text(json.dumps(task_packet, indent=2, sort_keys=True), encoding="utf-8")
     result_file.parent.mkdir(parents=True, exist_ok=True)
-    if result_file.exists():
-        result_file.unlink()
 
     invocation_payload = {
         "protocol_version": PROTOCOL_VERSION,
@@ -232,14 +333,16 @@ def run_controlled_executor_fixture(
     command_exit_code: int | None = None
     stdout = ""
     stderr = ""
+    observed_started = time.monotonic()
+    effective_timeout_seconds = min(timeout_seconds, task_packet["limits"]["max_minutes"] * 60)
     try:
         completed = subprocess.run(
-            command,
+            argv,
             cwd=repo_path,
-            shell=True,
+            shell=False,
             text=True,
             capture_output=True,
-            timeout=timeout_seconds,
+            timeout=effective_timeout_seconds,
             check=False,
         )
         command_exit_code = completed.returncode
@@ -258,6 +361,7 @@ def run_controlled_executor_fixture(
             ),
             encoding="utf-8",
         )
+    observed_elapsed_seconds = time.monotonic() - observed_started
 
     if result_file.exists():
         result_evidence = read_json(result_file)
@@ -275,6 +379,15 @@ def run_controlled_executor_fixture(
             task_packet=task_packet,
             result_evidence=result_evidence,
         )
+        result_status = result_evidence.get("status") if isinstance(result_evidence, dict) else None
+        if valid and result_status == "succeeded" and command_exit_code != 0:
+            valid = False
+            reason = "executor fixture command exit code must be 0 when result status is succeeded"
+            recommended_next_action = "fix_executor_evidence"
+        if valid and result_status != "stopped" and observed_elapsed_seconds > task_packet["limits"]["max_minutes"] * 60:
+            valid = False
+            reason = "executor fixture observed runtime exceeds task limit"
+            recommended_next_action = "fix_executor_evidence"
 
     validation_payload = _validation_payload(
         valid=valid,
