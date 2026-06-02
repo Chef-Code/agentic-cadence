@@ -1507,6 +1507,45 @@ class ExecutorContractTests(unittest.TestCase):
                     self.assertFalse(valid)
                     self.assertEqual(reason, expected_reason)
 
+    def test_task_packet_rejects_malformed_branch_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = [
+                (
+                    None,
+                    "executor task branch_policy must be a JSON object",
+                ),
+                (
+                    {"allowed_base_branches": "main", "allow_current_branch_main": False},
+                    "executor task branch_policy.allowed_base_branches must be a list of non-empty strings",
+                ),
+                (
+                    {"denied_target_branches": [""], "allow_current_branch_main": False},
+                    "executor task branch_policy.denied_target_branches must be a list of non-empty strings",
+                ),
+                (
+                    {"required_branch_prefixes": [123], "allow_current_branch_main": False},
+                    "executor task branch_policy.required_branch_prefixes must be a list of non-empty strings",
+                ),
+                (
+                    {"allowed_base_branches": ["main"], "allow_current_branch_main": "false"},
+                    "executor task branch_policy.allow_current_branch_main must be a boolean",
+                ),
+                (
+                    {"required_branch_prefix": ["codex/"], "allow_current_branch_main": False},
+                    "executor task branch_policy contains unknown keys: required_branch_prefix",
+                ),
+            ]
+
+            for branch_policy, expected_reason in cases:
+                with self.subTest(branch_policy=branch_policy):
+                    packet = valid_task_packet(Path(tmp))
+                    packet["branch_policy"] = branch_policy
+
+                    valid, reason = validate_executor_task_packet(packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
+
     def test_result_evidence_rejects_null_command_policy_fields_without_crashing(self):
         with tempfile.TemporaryDirectory() as tmp:
             cases = [

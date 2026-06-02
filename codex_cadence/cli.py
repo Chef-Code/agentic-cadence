@@ -1030,6 +1030,7 @@ def loop_tick_command(args: argparse.Namespace) -> int:
                 evidence_path=evidence_path,
                 allowed_commands=policy["effective_allowed_commands"],
                 denied_commands=policy["effective_denied_commands"],
+                branch_policy=policy["branch_policy"],
             )
             valid_task, invalid_reason = validate_executor_task_packet(executor_task)
             if not valid_task:
@@ -1199,11 +1200,15 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
     result_status = result_evidence.get("status") if isinstance(result_evidence, dict) else None
     required_body_sections = list(args.required_body_section or [])
     template_sections: list[str] | None = None
+    policy = None
 
     def validate_terminal_git_pr_plan_inputs() -> None:
-        nonlocal template_sections
+        nonlocal template_sections, policy
         if args.pr_template_file and template_sections is None:
             template_sections = load_template_sections(Path(args.pr_template_file))
+        policy_file = getattr(args, "policy_file", None)
+        if policy_file and policy is None:
+            policy = load_loop_policy(policy_file)
 
     closeout = closeout_executor_result_epoch(
         args.root,
@@ -1231,6 +1236,7 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
             result_file=result_file,
             base_branch=args.base_branch,
             branch_prefix=args.branch_prefix,
+            branch_policy=policy["branch_policy"] if policy else None,
             required_body_sections=required_body_sections,
             runtime_root=args.root,
         )
@@ -1348,6 +1354,7 @@ def git_pr_plan_command(args: argparse.Namespace) -> int:
     required_body_sections = list(args.required_body_section or [])
     if args.pr_template_file:
         required_body_sections.extend(load_template_sections(Path(args.pr_template_file)))
+    policy = load_loop_policy(args.policy_file) if args.policy_file else None
     payload = evaluate_git_pr_plan(
         cwd=Path(args.cwd),
         task_packet=task_packet,
@@ -1356,6 +1363,7 @@ def git_pr_plan_command(args: argparse.Namespace) -> int:
         result_file=result_file,
         base_branch=args.base_branch,
         branch_prefix=args.branch_prefix,
+        branch_policy=policy["branch_policy"] if policy else None,
         required_body_sections=required_body_sections,
         runtime_root=args.root,
     )
@@ -1521,6 +1529,7 @@ def build_parser() -> argparse.ArgumentParser:
     closeout_parser.add_argument("--emit-git-pr-plan", action="store_true")
     closeout_parser.add_argument("--base-branch", default="main")
     closeout_parser.add_argument("--branch-prefix", default="cadence")
+    closeout_parser.add_argument("--policy-file")
     closeout_parser.add_argument("--pr-template-file")
     closeout_parser.add_argument("--required-body-section", action="append", default=[])
     closeout_parser.set_defaults(
@@ -1574,6 +1583,7 @@ def build_parser() -> argparse.ArgumentParser:
     git_pr_plan_parser.add_argument("--result-file", required=True)
     git_pr_plan_parser.add_argument("--base-branch", default="main")
     git_pr_plan_parser.add_argument("--branch-prefix", default="cadence")
+    git_pr_plan_parser.add_argument("--policy-file")
     git_pr_plan_parser.add_argument("--pr-template-file")
     git_pr_plan_parser.add_argument("--required-body-section", action="append", default=[])
     git_pr_plan_parser.set_defaults(

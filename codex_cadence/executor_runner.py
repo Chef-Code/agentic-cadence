@@ -445,7 +445,6 @@ def run_controlled_executor_fixture(
         "limitations": [
             "controlled_fixture_only",
             "real_executor_invocation_blocked",
-            "branch_policy_not_implemented",
             "git_pr_automation_not_started",
         ],
     }

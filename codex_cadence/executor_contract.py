@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from codex_cadence import PROTOCOL_VERSION
+from codex_cadence.branch_policy import normalize_branch_policy
 from codex_cadence.model import BUCKETS, TASK_TYPES
 from codex_cadence.repo_state import validate_repo_snapshot
 from codex_cadence.store import utc_now
@@ -1125,6 +1126,7 @@ def build_executor_task_packet(
     evidence_path: str | Path,
     allowed_commands: list[str] | None = None,
     denied_commands: list[str] | None = None,
+    branch_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -1161,6 +1163,11 @@ def build_executor_task_packet(
             "allowed_commands": list(allowed_commands or []),
             "denied_commands": list(denied_commands or []),
         },
+        "branch_policy": normalize_branch_policy(
+            branch_policy,
+            label="executor task branch_policy",
+            absent_allow_current_branch_main=True,
+        ),
         "expected_output": {
             "schema_version": EXECUTOR_RESULT_SCHEMA_VERSION,
             "evidence_path": str(evidence_path),
@@ -1260,6 +1267,15 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
         commands = command_policy.get(field, [])
         if not _is_string_list(commands):
             return False, f"executor task command_policy.{field} must be a list of strings"
+    if "branch_policy" in packet:
+        try:
+            normalize_branch_policy(
+                packet.get("branch_policy"),
+                label="executor task branch_policy",
+                require_object=True,
+            )
+        except ValueError as exc:
+            return False, str(exc)
     expected_output = packet.get("expected_output")
     if not isinstance(expected_output, dict):
         return False, "executor task expected_output must be a JSON object"

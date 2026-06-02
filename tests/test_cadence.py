@@ -1867,6 +1867,167 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["policy"]["allowed_commands"], ["python -m unittest tests.test_cadence"])
             self.assertEqual(output["policy"]["denied_commands"], ["python -m pip install"])
 
+    def test_loop_tick_policy_file_emits_executor_branch_policy(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+            policy_file = Path(tmp) / "loop-policy.json"
+            branch_policy = {
+                "allowed_base_branches": ["main"],
+                "denied_target_branches": ["main", "release"],
+                "required_branch_prefixes": ["codex/"],
+                "allow_current_branch_main": False,
+            }
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "allowed_paths": ["codex_cadence"],
+                        "branch_policy": branch_policy,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--policy-file",
+                str(policy_file),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "approve_executor_task")
+            self.assertEqual(output["policy"]["branch_policy"], branch_policy)
+            self.assertEqual(output["executor_task"]["branch_policy"], branch_policy)
+
+    def test_loop_tick_policy_file_partial_branch_policy_allows_current_main_by_default(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "allowed_paths": ["codex_cadence"],
+                        "branch_policy": {
+                            "allowed_base_branches": ["main"],
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--policy-file",
+                str(policy_file),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["policy"]["branch_policy"]["allow_current_branch_main"])
+            self.assertTrue(output["executor_task"]["branch_policy"]["allow_current_branch_main"])
+
+    def test_loop_tick_policy_file_rejects_malformed_branch_policy(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "branch_policy": {
+                            "allowed_base_branches": "main",
+                            "allow_current_branch_main": "false",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--policy-file",
+                str(policy_file),
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIsNone(output)
+            self.assertIn("loop policy branch_policy.allowed_base_branches must be a list", result.stderr)
+
+    def test_loop_tick_policy_file_rejects_unknown_branch_policy_keys(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "branch_policy": {
+                            "required_branch_prefix": ["codex/"],
+                            "allow_current_branch_main": False,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--policy-file",
+                str(policy_file),
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIsNone(output)
+            self.assertIn("loop policy branch_policy contains unknown keys: required_branch_prefix", result.stderr)
+
     def test_loop_tick_policy_file_keeps_policy_stop_conditions_with_cli_additions(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -2257,6 +2418,8 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["pr_action_started"])
             self.assertEqual(output["packet"], "controlled_executor_fixture_run")
             self.assertEqual(output["schema_version"], "controlled-executor-fixture-run.v1")
+            self.assertIn("controlled_fixture_only", output["limitations"])
+            self.assertNotIn("branch_policy_not_implemented", output["limitations"])
             self.assertEqual(output["result_status"], "succeeded")
             self.assertEqual(output["recommended_next_action"], "record_executor_result")
             self.assertEqual(output["task_file"], str(task_path))
@@ -4909,6 +5072,73 @@ class CadenceCliTests(unittest.TestCase):
             payload_without_audit = dict(output)
             payload_without_audit.pop("audit_record")
             self.assertEqual(audit_record["payload_checksum"], checksum_json(payload_without_audit))
+
+    def test_closeout_executor_result_policy_file_blocks_embedded_git_pr_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            git(repo, "switch", "-c", "feature/epoch-closeout")
+            (Path(repo) / "README.md").write_text("hello\nbranch policy closeout\n", encoding="utf-8")
+            git(repo, "add", "README.md")
+            git(repo, "commit", "-m", "implement branch policy closeout fixture")
+            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+                tmp,
+                repo,
+            )
+            write_active_epoch(
+                tmp,
+                "epoch-closeout-branch-policy",
+                task_packet["snapshot"],
+                tasks=[task_packet["task"]],
+            )
+            policy_file = Path(tmp) / "loop-policy.json"
+            policy_file.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "cadence-loop-policy.v1",
+                        "branch_policy": {
+                            "allowed_base_branches": ["main"],
+                            "denied_target_branches": [],
+                            "required_branch_prefixes": ["codex/"],
+                            "allow_current_branch_main": True,
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-closeout-branch-policy",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--emit-git-pr-plan",
+                "--cwd",
+                repo,
+                "--policy-file",
+                str(policy_file),
+                "--required-body-section",
+                "Summary",
+                "--required-body-section",
+                "Validation",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["closeout_status"], "completed")
+            self.assertFalse(output["git_pr_plan"]["ready_to_review"])
+            self.assertEqual(output["next_decision"]["decision"], "generate_git_pr_plan")
+            self.assertFalse(output["next_decision"]["git_pr_plan_ready"])
+            self.assertEqual(output["git_pr_plan"]["recommended_next_action"], "address_blockers")
+            self.assertIn(
+                "branch_policy_required_prefix_missing",
+                {blocker["code"] for blocker in output["git_pr_plan"]["blockers"]},
+            )
 
     def test_closeout_executor_result_keeps_epoch_active_when_other_tasks_remain(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

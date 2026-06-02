@@ -33,6 +33,50 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-02 - Add local branch policy to dry-run planning
+
+Summary:
+- Extended local `cadence-loop-policy.v1` handling with a dry-run
+  `branch_policy` object.
+- `loop-tick --emit-executor-task` now carries branch policy into executor task
+  packets, and task-packet validation rejects malformed task-carried branch
+  policy.
+- `git-pr-plan` enforces task-carried and optional local `--policy-file` branch
+  policy as additive dry-run blockers for disallowed base branches, denied
+  target branches, missing required generated-branch prefixes, and current
+  `main` checkouts when policy forbids them.
+
+Completed slices:
+- Task 4 current-tree implementation: local branch policy for executor task
+  packets and dry-run Git/PR planning.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Branch policy is now local and dry-run enforceable, but live GitHub
+  sync, operator-approved Git/PR materialization, merge, release, package
+  publication, real executor invocation, and unattended loop execution remain
+  blocked.
+
+Evidence:
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_loop_tick_policy_file_emits_executor_branch_policy tests.test_cadence.CadenceCliTests.test_loop_tick_policy_file_rejects_malformed_branch_policy tests.test_executor_contract.ExecutorContractTests.test_task_packet_rejects_malformed_branch_policy tests.test_git_pr_plan.GitPrPlanTests.test_blocks_task_carried_branch_policy_violations tests.test_git_pr_plan.GitPrPlanTests.test_blocks_task_carried_branch_policy_current_main tests.test_git_pr_plan.GitPrPlanTests.test_policy_file_branch_policy_blocks_git_pr_plan -v`
+
+New risks or blockers:
+- Branch policy is not a live Git/PR materialization gate yet; Task 6 still
+  needs to re-check branch policy immediately before any approved branch,
+  commit, push, or PR action.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`
+- `docs/cadence/business-memory.md`
+- `docs/session-handoff.md`
+- `docs/progress-log.md`
+
 ## 2026-06-02 - Wire executor results into epoch closeout
 
 Summary:
@@ -56,9 +100,8 @@ Confidence change:
 - Previous: 10%
 - New: 10%
 - Reason: Epoch closeout is now wired locally, but real executor invocation,
-  branch policy, live GitHub sync, operator-approved Git/PR materialization,
-  merge, release, package publication, and unattended loop execution remain
-  blocked.
+  live GitHub sync, operator-approved Git/PR materialization, merge, release,
+  package publication, and unattended loop execution remain blocked.
 
 Evidence:
 - `python -m py_compile codex_cadence/cli.py codex_cadence/epochs.py codex_cadence/policy_audit.py`
@@ -67,8 +110,8 @@ Evidence:
 - `python -m unittest tests.test_cadence.CadenceCliTests.test_closeout_executor_result_completes_epoch_and_embeds_dry_run_git_pr_plan tests.test_cadence.CadenceCliTests.test_closeout_executor_result_fails_epoch_for_blocked_evidence tests.test_cadence.CadenceCliTests.test_closeout_executor_result_blocks_stale_task_snapshot_without_closing_epoch tests.test_cadence.CadenceCliTests.test_closeout_executor_result_blocks_active_epoch_conflict tests.test_cadence.CadenceCliTests.test_closeout_executor_result_rerun_reports_already_closed_without_second_completion -v`
 
 New risks or blockers:
-- Branch policy is still missing, so dry-run plans are not yet governed against
-  protected branch rules.
+- At the time of this entry, branch policy was still missing; the later Task 4
+  entry adds local dry-run branch-policy enforcement.
 - The command closes local epoch state only; it does not invoke real executors or
   perform live Git/PR actions.
 

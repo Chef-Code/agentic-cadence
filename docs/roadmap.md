@@ -1,7 +1,7 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-01
+Last updated: 2026-06-02
 Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, and controlled executor fixture current tree
 Current unattended-operation confidence: 10%
 
@@ -412,8 +412,8 @@ Current evidence: Cadence state, brakes, epochs, and handoff records exist.
 `loop-tick --policy-file` can load local `cadence-loop-policy.v1` JSON to
 bound emitted executor task `allowed_paths`, `denied_paths`,
 `allowed_commands`, `denied_commands`, `required_checks`,
-`max_executor_time_minutes`, and `stop_conditions` while retaining built-in
-safety stops.
+`max_executor_time_minutes`, `stop_conditions`, and a dry-run `branch_policy`
+while retaining built-in safety stops.
 Root-backed `loop-tick` and `validate-executor-result` append compact
 `cadence-audit.v1` records to `<root>/audit/events.jsonl`; result-validation
 audit records include task and result evidence checksums. `audit-replay`
@@ -422,7 +422,8 @@ and has valid checksum syntax while reporting stable blockers for corrupt or
 unsupported records. Executor task packets now carry command allow/deny policy
 into result validation, and `validate-executor-result` prevents non-`stopped`
 completion evidence from being recorded after an active brake stop. There is
-still no branch policy, hash chain, or authenticated approval identity.
+now local branch policy for dry-run Git/PR planning, but still no hash chain or
+authenticated approval identity.
 
 Likely files: `codex_cadence/model.py`, `codex_cadence/store.py`,
 `codex_cadence/cli.py`, tests, docs.
