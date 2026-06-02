@@ -1712,6 +1712,23 @@ class ExecutorContractTests(unittest.TestCase):
 
                     self.assertTrue(valid, reason)
 
+    def test_validate_executor_command_allows_read_only_git_tag_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_packet = valid_task_packet(Path(tmp))
+            cases = [
+                "git tag",
+                "git tag --list",
+                "git tag -l v*",
+                "git tag --points-at HEAD",
+                "git tag --verify v1.0.0",
+            ]
+
+            for command in cases:
+                with self.subTest(command=command):
+                    valid, reason = validate_executor_command(command, task_packet)
+
+                    self.assertTrue(valid, reason)
+
     def test_result_evidence_rejects_merge_release_or_package_publication_commands(self):
         with tempfile.TemporaryDirectory() as tmp:
             task_packet = valid_task_packet(Path(tmp))

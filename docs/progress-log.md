@@ -52,6 +52,11 @@ Summary:
   package-publication command forms, including git shell aliases after command
   separators and versioned Python `twine` launchers, in addition to commit,
   push, PR creation, and forbidden head changes.
+- Bot review follow-up made template placeholder formatting argv-safe for paths
+  with spaces, moved the fixture CLI to the runtime-root-only guard, converted
+  missing repos and malformed fixture evidence into controlled invalid packets,
+  aligned the example fixture process exit with evidence, and allowed read-only
+  `git tag` listing/verification while still blocking tag mutation.
 
 Completed slices:
 - Controlled executor component fixture.

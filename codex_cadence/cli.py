@@ -1385,7 +1385,11 @@ def build_parser() -> argparse.ArgumentParser:
     controlled_fixture_parser.add_argument("--task-file", required=True)
     controlled_fixture_parser.add_argument("--command-template", required=True)
     controlled_fixture_parser.add_argument("--timeout-seconds", type=positive_int, default=60)
-    controlled_fixture_parser.set_defaults(func=run_controlled_executor_fixture_command)
+    controlled_fixture_parser.set_defaults(
+        func=run_controlled_executor_fixture_command,
+        requires_root=True,
+        guards_runtime_root_only=True,
+    )
 
     audit_replay_parser = subparsers.add_parser(
         "audit-replay",

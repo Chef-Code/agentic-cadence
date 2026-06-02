@@ -69,11 +69,16 @@ def _cadence_state(brake: dict[str, Any]) -> str:
 
 def _format_fixture_command(command_template: str, *, task_file: Path, result_file: Path, repo_path: Path) -> str:
     try:
-        return command_template.format(
-            task_file=str(task_file),
-            result_file=str(result_file),
-            repo_path=str(repo_path),
-        )
+        template_tokens = shlex.split(command_template, posix=True)
+        formatted_tokens = [
+            token.format(
+                task_file=str(task_file),
+                result_file=str(result_file),
+                repo_path=str(repo_path),
+            )
+            for token in template_tokens
+        ]
+        return shlex.join(formatted_tokens)
     except (AttributeError, KeyError, IndexError, ValueError) as exc:
         raise CommandTemplateError(f"invalid executor command template: {exc}") from exc
 
@@ -254,11 +259,18 @@ def run_controlled_executor_fixture(
             recommended_next_action="fix_executor_task_packet",
         )
     repo_path = Path(task_packet["repo"]["path"]).expanduser().resolve(strict=False)
+    result_file = Path(task_packet["expected_output"]["evidence_path"]).expanduser().resolve(strict=False)
+    if not repo_path.exists() or not repo_path.is_dir():
+        return _failure_payload(
+            reason="executor task repo.path must exist and be a directory",
+            task_file=task_path,
+            result_file=result_file,
+            recommended_next_action="fix_executor_task_packet",
+        )
     if not allow_repo_local_root:
         issue = runtime_root_safety_issue(root, repo_path)
         if issue:
             raise ValueError(issue)
-    result_file = Path(task_packet["expected_output"]["evidence_path"]).expanduser().resolve(strict=False)
     root_path = Path(root).expanduser().resolve(strict=False)
     if not _path_inside(root_path, result_file):
         return _failure_payload(
@@ -363,15 +375,24 @@ def run_controlled_executor_fixture(
         )
     observed_elapsed_seconds = time.monotonic() - observed_started
 
+    result_read_failed = False
     if result_file.exists():
-        result_evidence = read_json(result_file)
+        try:
+            result_evidence = read_json(result_file)
+        except (json.JSONDecodeError, OSError, ValueError):
+            result_evidence = {}
+            valid = False
+            reason = "executor result evidence file was not written"
+            recommended_next_action = "fix_executor_evidence"
+            active_stop = None
+            result_read_failed = True
     else:
         result_evidence = {}
         valid = False
         reason = "executor result evidence file was not written"
         recommended_next_action = "fix_executor_evidence"
         active_stop = None
-    if result_file.exists():
+    if result_file.exists() and not result_read_failed:
         valid, reason, recommended_next_action, active_stop = _validate_fixture_result(
             root=root,
             task_file=task_path,

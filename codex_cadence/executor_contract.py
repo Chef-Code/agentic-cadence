@@ -991,15 +991,88 @@ def _command_merges(command: str) -> bool:
     )
 
 
+def _single_git_tag_mutates(command: str) -> bool:
+    tokens = _command_tokens(command)
+    index = _first_command_index(tokens)
+    if index is None or _command_name(tokens[index]) not in {"git", "git.exe"}:
+        return False
+
+    current = index + 1
+    while current < len(tokens):
+        token = tokens[current]
+        if token == "--":
+            current += 1
+            break
+        if token in _COMMAND_SEPARATORS:
+            return False
+        if _option_uses_value(token, _GIT_OPTIONS_WITH_VALUE, _GIT_OPTIONS_WITH_EQUALS):
+            current += 2 if token in _GIT_OPTIONS_WITH_VALUE else 1
+            continue
+        if token.startswith("-"):
+            current += 1
+            continue
+        break
+    if current >= len(tokens) or tokens[current] != "tag":
+        return False
+
+    current += 1
+    read_only_mode = False
+    while current < len(tokens):
+        token = tokens[current]
+        if token in _COMMAND_SEPARATORS:
+            return False
+        if token == "--":
+            return current + 1 < len(tokens)
+        if token in {"-a", "--annotate", "-s", "--sign", "-f", "--force", "-d", "--delete"}:
+            return True
+        if token in {"-m", "--message", "-F", "--file", "-u", "--local-user", "--trailer"}:
+            return True
+        if token.startswith(("--message=", "--file=", "--local-user=", "--trailer=")):
+            return True
+        if token in {"-l", "--list", "-v", "--verify"} or token.startswith("-n"):
+            read_only_mode = True
+            current += 1
+            continue
+        if token in {"--contains", "--no-contains", "--points-at", "--merged", "--no-merged", "--sort", "--format"}:
+            read_only_mode = True
+            current += 2
+            continue
+        if token.startswith((
+            "--contains=",
+            "--no-contains=",
+            "--points-at=",
+            "--merged=",
+            "--no-merged=",
+            "--sort=",
+            "--format=",
+            "--column",
+            "--color",
+        )):
+            read_only_mode = True
+            current += 1
+            continue
+        if token.startswith("-"):
+            current += 1
+            continue
+        if read_only_mode:
+            current += 1
+            continue
+        return True
+    return False
+
+
+def _git_tag_mutates(command: str) -> bool:
+    return any(_single_git_tag_mutates(segment) for segment in [command, *_effective_command_segments(command)])
+
+
 def _command_creates_release(command: str) -> bool:
     return any(
         _command_invokes(command, invocation)
         for invocation in (
             "gh release create",
             "gh release upload",
-            "git tag",
         )
-    )
+    ) or _git_tag_mutates(command)
 
 
 def _command_allowed_by_policy(command: str, allowed_commands: list[str]) -> bool:

@@ -172,6 +172,21 @@ def controlled_fixture_command(
     return " ".join(parts)
 
 
+def unquoted_controlled_fixture_command(*, status="succeeded") -> str:
+    return (
+        f'"{sys.executable}" "{controlled_fixture_script()}" '
+        "--task-file {task_file} "
+        "--result-file {result_file} "
+        f"--status {status} "
+        "--summary 'fixture completed' "
+        "--command 'python -m unittest tests.test_cadence' "
+        "--validation-name cadence-tests "
+        "--validation-status passed "
+        "--exit-code 0 "
+        "--changed-file codex_cadence/executor_runner.py"
+    )
+
+
 def write_controlled_fixture_task(root, repo, *, command_policy=None, evidence_name="executor-result.json"):
     evidence_path = Path(root) / evidence_name
     task_packet = build_executor_task_packet(
@@ -2122,6 +2137,154 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["result_status"], "failed")
             self.assertEqual(output["recommended_next_action"], "record_executor_result")
 
+    def test_controlled_executor_fixture_formats_unquoted_paths_with_spaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "runtime root"
+            repo = Path(tmp) / "repo with spaces"
+            root.mkdir()
+            repo.mkdir()
+            init_committed_repo(repo)
+            task_path, evidence_path, _task_packet = write_controlled_fixture_task(root, repo)
+
+            result, output = run_cli(
+                root,
+                "run-controlled-executor-fixture",
+                "--task-file",
+                str(task_path),
+                "--command-template",
+                unquoted_controlled_fixture_command(status="succeeded"),
+                "--timeout-seconds",
+                "10",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"], output["reason"])
+            self.assertTrue(evidence_path.exists())
+
+    def test_controlled_executor_fixture_rejects_repo_local_runtime_root_location(self):
+        with tempfile.TemporaryDirectory() as repo_tmp, tempfile.TemporaryDirectory() as tasks_tmp:
+            repo = Path(repo_tmp)
+            init_committed_repo(repo)
+            runtime_root = repo / ".cadence-runtime"
+            task_path, _evidence_path, _task_packet = write_controlled_fixture_task(tasks_tmp, repo)
+
+            result, output = run_cli_from(
+                repo,
+                runtime_root,
+                "run-controlled-executor-fixture",
+                "--task-file",
+                str(task_path),
+                "--command-template",
+                controlled_fixture_command(status="succeeded"),
+                "--timeout-seconds",
+                "10",
+            )
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIsNone(output)
+            self.assertIn("runtime root is inside target repo but is not ignored", result.stderr)
+            self.assertFalse(runtime_root.exists())
+
+    def test_controlled_executor_fixture_rejects_missing_repo_path_without_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, evidence_path, task_packet = write_controlled_fixture_task(tmp, repo)
+            missing_repo = Path(tmp) / "missing-repo"
+            task_packet["repo"]["path"] = str(missing_repo)
+            task_packet["snapshot"]["cwd"] = str(missing_repo)
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "run-controlled-executor-fixture",
+                "--task-file",
+                str(task_path),
+                "--command-template",
+                controlled_fixture_command(status="succeeded"),
+                "--timeout-seconds",
+                "10",
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["reason"], "executor task repo.path must exist and be a directory")
+            self.assertEqual(output["recommended_next_action"], "fix_executor_task_packet")
+            self.assertFalse(evidence_path.exists())
+
+    def test_controlled_executor_fixture_rejects_malformed_result_evidence_without_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            fixture = Path(tmp) / "malformed-fixture.py"
+            fixture.write_text(
+                "from pathlib import Path\n"
+                "import argparse\n"
+                "parser = argparse.ArgumentParser()\n"
+                "parser.add_argument('--result-file', required=True)\n"
+                "parser.add_argument('--task-file')\n"
+                "parser.add_argument('--status')\n"
+                "parser.add_argument('--summary')\n"
+                "parser.add_argument('--command')\n"
+                "parser.add_argument('--validation-name')\n"
+                "parser.add_argument('--validation-status')\n"
+                "parser.add_argument('--exit-code')\n"
+                "parser.add_argument('--changed-file')\n"
+                "args = parser.parse_args()\n"
+                "Path(args.result_file).write_text('{not-json', encoding='utf-8')\n",
+                encoding="utf-8",
+            )
+            task_path, evidence_path, _task_packet = write_controlled_fixture_task(tmp, repo)
+
+            with mock.patch("codex_cadence.executor_runner._controlled_fixture_script", return_value=fixture):
+                output = run_controlled_executor_fixture(
+                    root=Path(tmp),
+                    task_file=task_path,
+                    command_template=controlled_fixture_command(status="succeeded", executable=sys.executable).replace(
+                        str(controlled_fixture_script()),
+                        str(fixture),
+                    ),
+                    timeout_seconds=10,
+                )
+
+            self.assertFalse(output["valid"])
+            self.assertTrue(output["executor_started"])
+            self.assertEqual(output["reason"], "executor result evidence file was not written")
+            self.assertEqual(output["recommended_next_action"], "fix_executor_evidence")
+            self.assertTrue(evidence_path.exists())
+
+    def test_controlled_executor_fixture_example_exit_code_matches_evidence_exit_code(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, evidence_path, _task_packet = write_controlled_fixture_task(tmp, repo)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(controlled_fixture_script()),
+                    "--task-file",
+                    str(task_path),
+                    "--result-file",
+                    str(evidence_path),
+                    "--status",
+                    "failed",
+                    "--summary",
+                    "Fixture failed validation.",
+                    "--command",
+                    "python -m unittest tests.test_cadence",
+                    "--validation-status",
+                    "failed",
+                    "--exit-code",
+                    "0",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+            self.assertEqual(evidence["commands_run"][0]["exit_code"], 1)
+
     def test_controlled_executor_fixture_timeout_writes_stopped_evidence(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -2361,20 +2524,58 @@ class CadenceCliTests(unittest.TestCase):
     def test_controlled_executor_fixture_rejects_success_evidence_from_nonzero_command(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
+            fixture = Path(tmp) / "nonzero-success-fixture.py"
+            fixture.write_text(
+                "from datetime import datetime, timezone\n"
+                "from pathlib import Path\n"
+                "import argparse, json\n"
+                "parser = argparse.ArgumentParser()\n"
+                "parser.add_argument('--task-file', required=True)\n"
+                "parser.add_argument('--result-file', required=True)\n"
+                "parser.add_argument('--status')\n"
+                "parser.add_argument('--summary')\n"
+                "parser.add_argument('--command', required=True)\n"
+                "parser.add_argument('--validation-name')\n"
+                "parser.add_argument('--validation-status')\n"
+                "parser.add_argument('--exit-code')\n"
+                "parser.add_argument('--changed-file')\n"
+                "args = parser.parse_args()\n"
+                "task = json.loads(Path(args.task_file).read_text(encoding='utf-8'))\n"
+                "now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')\n"
+                "evidence = {\n"
+                "    'schema_version': 'generic-executor-result.v1',\n"
+                "    'packet': 'executor_result',\n"
+                "    'task_id': task['task']['id'],\n"
+                "    'executor_id': 'fake-nonzero-success',\n"
+                "    'started_at': now,\n"
+                "    'ended_at': now,\n"
+                "    'status': 'succeeded',\n"
+                "    'files_changed': ['codex_cadence/executor_runner.py'],\n"
+                "    'commands_run': [{'command': args.command, 'exit_code': 0}],\n"
+                "    'validation_results': [{'name': 'cadence-tests', 'status': 'passed', 'command': args.command}],\n"
+                "    'summary': 'Wrote success evidence but exited nonzero.',\n"
+                "    'confidence': 'high',\n"
+                "    'blockers': [],\n"
+                "    'dirty_worktree': False,\n"
+                "    'resulting_head': task['repo']['head'],\n"
+                "}\n"
+                "Path(args.result_file).write_text(json.dumps(evidence), encoding='utf-8')\n"
+                "raise SystemExit(7)\n",
+                encoding="utf-8",
+            )
             task_path, _evidence_path, _task_packet = write_controlled_fixture_task(tmp, repo)
 
-            result, output = run_cli(
-                tmp,
-                "run-controlled-executor-fixture",
-                "--task-file",
-                str(task_path),
-                "--command-template",
-                controlled_fixture_command(status="succeeded", exit_code=7),
-                "--timeout-seconds",
-                "10",
-            )
+            with mock.patch("codex_cadence.executor_runner._controlled_fixture_script", return_value=fixture):
+                output = run_controlled_executor_fixture(
+                    root=Path(tmp),
+                    task_file=task_path,
+                    command_template=controlled_fixture_command(status="succeeded").replace(
+                        str(controlled_fixture_script()),
+                        str(fixture),
+                    ),
+                    timeout_seconds=10,
+                )
 
-            self.assertEqual(result.returncode, 1)
             self.assertFalse(output["valid"])
             self.assertEqual(output["command_exit_code"], 7)
             self.assertEqual(output["reason"], "executor fixture command exit code must be 0 when result status is succeeded")

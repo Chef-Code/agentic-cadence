@@ -68,7 +68,7 @@ def main(argv: list[str] | None = None) -> int:
     result_file = Path(args.result_file)
     result_file.parent.mkdir(parents=True, exist_ok=True)
     result_file.write_text(json.dumps(evidence, indent=2, sort_keys=True), encoding="utf-8")
-    return args.exit_code
+    return command_exit_code
 
 
 if __name__ == "__main__":
