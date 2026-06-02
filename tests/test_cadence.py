@@ -4888,6 +4888,45 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(active_epoch["completed_tasks"], ["candidate-1"])
             self.assertEqual(active_epoch["tasks"], [task_packet["task"], remaining_task])
 
+    def test_closeout_executor_result_blocks_duplicate_epoch_task_ids(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            (Path(repo) / "README.md").write_text("hello\nduplicate task id\n", encoding="utf-8")
+            git(repo, "add", "README.md")
+            git(repo, "commit", "-m", "complete duplicate task")
+            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+                tmp,
+                repo,
+            )
+            duplicate_task = dict(task_packet["task"])
+            duplicate_task["title"] = "Duplicate task id should block closeout"
+            write_active_epoch(
+                tmp,
+                "epoch-closeout-duplicate-task",
+                task_packet["snapshot"],
+                tasks=[task_packet["task"], duplicate_task],
+            )
+
+            result, output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-closeout-duplicate-task",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["closeout_status"], "blocked")
+            self.assertIn("invalid_active_epoch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertTrue((Path(tmp) / "epochs" / "active" / "epoch-closeout-duplicate-task.json").exists())
+            self.assertFalse((Path(tmp) / "epochs" / "completed" / "epoch-closeout-duplicate-task.json").exists())
+
     def test_closeout_executor_result_does_not_require_pr_template_for_partial_success(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -5021,6 +5060,68 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse((Path(tmp) / "epochs" / "completed" / "epoch-closeout-missing-template.json").exists())
             self.assertFalse((Path(tmp) / "epochs" / "failed" / "epoch-closeout-missing-template.json").exists())
             self.assertFalse((Path(tmp) / "audit" / "events.jsonl").exists())
+
+    def test_closeout_executor_result_does_not_reread_empty_pr_template_after_terminal_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            (Path(repo) / "README.md").write_text("hello\nempty template\n", encoding="utf-8")
+            git(repo, "add", "README.md")
+            git(repo, "commit", "-m", "complete empty template task")
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, snapshot_after = write_closeout_packets(
+                tmp,
+                repo,
+            )
+            write_active_epoch(
+                tmp,
+                "epoch-closeout-empty-template",
+                task_packet["snapshot"],
+                tasks=[task_packet["task"]],
+            )
+            template_path = Path(tmp) / "empty-template.md"
+            template_path.write_text("No markdown headings here.\n", encoding="utf-8")
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "epoch_id": "epoch-closeout-empty-template",
+                    "task_file": str(task_path),
+                    "result_file": str(result_path),
+                    "snapshot_after_file": str(snapshot_after_path),
+                    "allow_repo_local_root": False,
+                    "emit_git_pr_plan": True,
+                    "cwd": repo,
+                    "base_branch": "main",
+                    "branch_prefix": "cadence",
+                    "pr_template_file": str(template_path),
+                    "required_body_section": [],
+                },
+            )()
+            emitted = []
+            calls = 0
+
+            def one_read_only(path):
+                nonlocal calls
+                calls += 1
+                if calls > 1:
+                    raise ValueError("template was read again")
+                return []
+
+            with mock.patch.object(cadence_cli, "load_template_sections", one_read_only):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.closeout_executor_result_command(args)
+
+            self.assertEqual(code, 0)
+            self.assertEqual(calls, 1)
+            self.assertEqual(len(emitted), 1)
+            self.assertEqual(emitted[0]["closeout_status"], "completed")
+            self.assertEqual(emitted[0]["snapshot_after_checksum"], checksum_json(snapshot_after))
+            completed_path = Path(tmp) / "epochs" / "completed" / "epoch-closeout-empty-template.json"
+            self.assertTrue(completed_path.exists())
+            completed_epoch = json.loads(completed_path.read_text(encoding="utf-8"))
+            self.assertEqual(completed_epoch["executor_closeout"]["result_file_checksum"], checksum_json(result_evidence))
 
     def test_closeout_executor_result_fails_epoch_for_blocked_evidence(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

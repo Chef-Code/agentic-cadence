@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-02
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, and controlled executor fixture current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, and local executor epoch closeout current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence

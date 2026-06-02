@@ -1220,7 +1220,9 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
     next_decision = dict(closeout["next_decision"])
     if args.emit_git_pr_plan and closeout["closeout_status"] == "completed":
         if args.pr_template_file:
-            required_body_sections.extend(template_sections or load_template_sections(Path(args.pr_template_file)))
+            required_body_sections.extend(
+                template_sections if template_sections is not None else load_template_sections(Path(args.pr_template_file))
+            )
         git_pr_plan_packet = evaluate_git_pr_plan(
             cwd=Path(args.cwd),
             task_packet=task_packet,

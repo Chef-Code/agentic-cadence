@@ -503,6 +503,36 @@ def _epoch_task_ids(epoch: dict[str, Any]) -> set[str]:
     return task_ids
 
 
+def _validate_epoch_task_ids_for_closeout(epoch: dict[str, Any]) -> list[dict[str, Any]]:
+    tasks = epoch.get("tasks")
+    if not isinstance(tasks, list):
+        return [closeout_blocker("invalid_active_epoch", "active epoch tasks must be a JSON list")]
+    seen: set[str] = set()
+    blockers: list[dict[str, Any]] = []
+    for index, task in enumerate(tasks):
+        task_id_value = task.get("id") if isinstance(task, dict) else None
+        if not isinstance(task_id_value, str) or not task_id_value.strip():
+            blockers.append(
+                closeout_blocker(
+                    "invalid_active_epoch",
+                    "active epoch task ids must be non-empty strings",
+                    task_index=index,
+                )
+            )
+            continue
+        if task_id_value in seen:
+            blockers.append(
+                closeout_blocker(
+                    "invalid_active_epoch",
+                    "active epoch task ids must be unique for executor closeout",
+                    task_index=index,
+                    task_id=task_id_value,
+                )
+            )
+        seen.add(task_id_value)
+    return blockers
+
+
 def _ordered_epoch_task_ids(epoch: dict[str, Any]) -> list[str]:
     tasks = epoch.get("tasks")
     if not isinstance(tasks, list):
@@ -535,6 +565,7 @@ def _validate_executor_epoch_binding(
         return [closeout_blocker("invalid_task_packet", task_reason)]
     if not isinstance(result_evidence, dict):
         return [closeout_blocker("invalid_result_evidence", "executor result must be a JSON object")]
+    blockers.extend(_validate_epoch_task_ids_for_closeout(epoch))
     task_id_value = _task_id_from_packet(task_packet)
     if task_id_value is None:
         blockers.append(closeout_blocker("invalid_task_packet", "executor task id is required"))
