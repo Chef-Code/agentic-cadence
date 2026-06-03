@@ -295,7 +295,7 @@ REQUIRED_TOKENS = {
         "github-evidence-sync",
         "pr_check_failure",
         "git-pr-materialize",
-        "target-bound operator approval",
+        "target-bound HMAC operator approval",
     ),
     "docs/designs/2026-06-01-git-pr-dry-run-plan-design.md": (
         "git-pr-plan",

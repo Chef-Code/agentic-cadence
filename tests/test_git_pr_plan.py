@@ -1,4 +1,6 @@
 import json
+import hashlib
+import hmac
 import os
 import subprocess
 import sys
@@ -12,6 +14,8 @@ from codex_cadence.executor_contract import DEFAULT_EXECUTOR_STOP_CONDITIONS, bu
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "cadence.py"
+APPROVAL_SECRET_ENV = "CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET"
+APPROVAL_SECRET = "unit-test-materialization-approval-secret"
 
 
 def git(cwd, *args, check=True):
@@ -209,16 +213,21 @@ def run_git_pr_plan(root, *args, cwd=None, env=None):
     return result, output
 
 
-def run_git_pr_materialize(root, *args, cwd=None, env=None):
+def run_git_pr_materialize(root, *args, cwd=None, env=None, approval_secret=APPROVAL_SECRET):
     """Run the git-pr-materialize CLI and parse its JSON output."""
     command = [sys.executable, str(SCRIPT), "--root", str(root), "git-pr-materialize", *args]
+    command_env = os.environ.copy() if env is None else env.copy()
+    if approval_secret is None:
+        command_env.pop(APPROVAL_SECRET_ENV, None)
+    else:
+        command_env[APPROVAL_SECRET_ENV] = approval_secret
     result = subprocess.run(
         command,
         cwd=cwd,
         text=True,
         capture_output=True,
         check=False,
-        env=env,
+        env=command_env,
     )
     output = json.loads(result.stdout) if result.stdout.strip() else None
     return result, output
@@ -232,7 +241,7 @@ def run_audit_replay(root, cwd=None):
     return result, output
 
 
-def git_pr_materialization_approval_token(packet, *, remote="origin", remote_url=None, pr_number=None):
+def git_pr_materialization_approval_token(packet, *, remote="origin", remote_url=None, pr_number=None, approval_secret=APPROVAL_SECRET):
     """Return the operator approval token expected for a materialization packet."""
     approval = {
         "schema_version": "git-pr-materialization-approval.v1",
@@ -243,7 +252,9 @@ def git_pr_materialization_approval_token(packet, *, remote="origin", remote_url
         "pr_number": str(pr_number) if pr_number is not None else None,
         "operation": "update_pull_request" if pr_number is not None else "create_pull_request",
     }
-    return "approve-git-pr:" + checksum_json(approval).removeprefix("sha256:")
+    payload = json.dumps(approval, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest = hmac.new(approval_secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    return "approve-git-pr:hmac-sha256:" + digest
 
 
 def remote_push_url(repo, remote="origin"):
@@ -1233,6 +1244,63 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertEqual(packet["side_effects"], [])
             self.assertIn("git_pr_plan_unreadable", {blocker["code"] for blocker in packet["blockers"]})
 
+    def test_git_pr_materialization_approval_token_requires_secret_and_uses_hmac(self):
+        """Approval tokens are HMACs over the target-bound approval payload."""
+        plan = {"packet": "git_pr_plan", "ready_to_review": True}
+
+        with self.assertRaises(ValueError):
+            git_pr_plan_module.git_pr_materialization_approval_token(plan, remote_url="file:///origin.git")
+
+        token = git_pr_plan_module.git_pr_materialization_approval_token(
+            plan,
+            remote_url="file:///origin.git",
+            approval_secret=APPROVAL_SECRET,
+        )
+        deterministic_checksum_token = "approve-git-pr:" + checksum_json(
+            {
+                "schema_version": "git-pr-materialization-approval.v1",
+                "packet": "git_pr_materialization_approval",
+                "plan_checksum": checksum_json(plan),
+                "remote": "origin",
+                "remote_url": "file:///origin.git",
+                "pr_number": None,
+                "operation": "create_pull_request",
+            }
+        ).removeprefix("sha256:")
+
+        self.assertTrue(token.startswith("approve-git-pr:hmac-sha256:"))
+        self.assertNotEqual(token, deterministic_checksum_token)
+
+    def test_git_pr_materialize_requires_secret_and_does_not_emit_expected_token(self):
+        """Blocked materialization does not disclose an expected approval credential."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            add_origin_remote(Path(tmp), repo)
+            plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
+            token = git_pr_materialization_approval_token(plan, remote_url=remote_push_url(repo))
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(plan_path),
+                "--approval-token",
+                token,
+                cwd=repo,
+                approval_secret=None,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["approval_state"], "approval_unresolved")
+            self.assertTrue(packet["operator_confirmation_required"])
+            self.assertNotIn("expected_approval_token", packet)
+            self.assertIn("operator_approval_secret_missing", {blocker["code"] for blocker in packet["blockers"]})
+
     def test_git_pr_materialize_creates_branch_pushes_and_opens_pr_after_approval(self):
         """Approved materialization performs the bounded branch/push/PR sequence and audits it."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
@@ -1273,6 +1341,7 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertEqual(packet["decision"], "materialized")
             self.assertEqual(packet["approval_state"], "approved")
             self.assertEqual(packet["pr_url"], pr_url)
+            self.assertNotIn("expected_approval_token", packet)
             self.assertEqual(current_branch(repo), source_branch)
             self.assertEqual(
                 git(repo, "rev-parse", plan["proposed_branch"]).stdout.strip(),
@@ -1727,11 +1796,13 @@ class GitPrPlanTests(unittest.TestCase):
             plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
             token = git_pr_materialization_approval_token(plan, remote_url=remote_push_url(repo))
             original_named_temporary_file = git_pr_plan_module.tempfile.NamedTemporaryFile
+            original_approval_secret = os.environ.get(APPROVAL_SECRET_ENV)
 
             def fail_named_temporary_file(*_args, **_kwargs):
                 raise OSError("body temp unavailable")
 
             git_pr_plan_module.tempfile.NamedTemporaryFile = fail_named_temporary_file
+            os.environ[APPROVAL_SECRET_ENV] = APPROVAL_SECRET
             try:
                 packet = git_pr_plan_module.materialize_git_pr_plan(
                     cwd=repo,
@@ -1742,6 +1813,10 @@ class GitPrPlanTests(unittest.TestCase):
                 )
             finally:
                 git_pr_plan_module.tempfile.NamedTemporaryFile = original_named_temporary_file
+                if original_approval_secret is None:
+                    os.environ.pop(APPROVAL_SECRET_ENV, None)
+                else:
+                    os.environ[APPROVAL_SECRET_ENV] = original_approval_secret
 
             self.assertFalse(packet["valid"])
             self.assertEqual(packet["decision"], "blocked")

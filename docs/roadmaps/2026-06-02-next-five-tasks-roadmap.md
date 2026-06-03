@@ -284,13 +284,14 @@ git diff --check
 
 **Current-tree implementation:** `git-pr-materialize` consumes a saved
 `git-pr-plan.v1` packet plus the exact target-bound
-`approve-git-pr:<materialization-target-sha256>` operator approval token. Before
+`approve-git-pr:hmac-sha256:<materialization-target-hmac>` operator approval
+token backed by `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`. Before
 side effects it re-reads task/result provenance, verifies checksums, reruns
 `git-pr-plan` with the approved proposed branch, rechecks current
 branch/head/base/worktree freshness, branch policy, complete local-diff coverage
 by materialized-change evidence, and PR body preflight, then blocks stale or
-mismatched evidence before audit, branch, push, or PR actions. The token binds
-the plan checksum, selected remote, resolved push URL, and create-vs-update PR
+mismatched evidence before audit, branch, push, or PR actions. The HMAC token
+binds the plan checksum, selected remote, resolved push URL, and create-vs-update PR
 target. Existing PR updates also run a read-only `gh pr view` preflight to prove
 the PR head and base match the approved packet. Once gates pass, it appends
 `git_pr_materialization_intent`, creates the proposed branch from the

@@ -32,8 +32,8 @@ Open questions:
 
 Decision:
 - Add `git-pr-materialize` as the only Task 6 write-side Git/PR path.
-- Require the operator approval token to match the canonical checksum of the
-  reviewed `git-pr-plan.v1` packet plus selected remote, resolved push URL, and
+- Require the operator approval token to match an HMAC over the reviewed
+  `git-pr-plan.v1` packet checksum plus selected remote, resolved push URL, and
   create-vs-update PR target before any audit, Git, or write-side `gh` side effect.
 - Re-run the dry-run planner and PR body preflight immediately before writes,
   require materialized evidence to cover the complete local diff, then audit

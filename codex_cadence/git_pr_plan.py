@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
+import os
 import re
 import shutil
 import shlex
@@ -26,6 +29,7 @@ from codex_cadence.store import BRAKE_STATUSES, read_json, utc_now
 GIT_PR_PLAN_SCHEMA_VERSION = "git-pr-plan.v1"
 GIT_PR_MATERIALIZATION_SCHEMA_VERSION = "git-pr-materialization.v1"
 GIT_PR_MATERIALIZATION_APPROVAL_PREFIX = "approve-git-pr:"
+GIT_PR_MATERIALIZATION_APPROVAL_SECRET_ENV = "CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET"
 
 
 def _issue(code: str, message: str, **extra: Any) -> dict[str, Any]:
@@ -78,21 +82,36 @@ def git_pr_materialization_approval_payload(
     }
 
 
+def _materialization_approval_secret(approval_secret: str | bytes | None = None) -> bytes | None:
+    secret = approval_secret if approval_secret is not None else os.environ.get(GIT_PR_MATERIALIZATION_APPROVAL_SECRET_ENV)
+    if isinstance(secret, bytes):
+        return secret if secret else None
+    if isinstance(secret, str) and secret:
+        return secret.encode("utf-8")
+    return None
+
+
 def git_pr_materialization_approval_token(
     plan_packet: Any,
     *,
     remote: str = "origin",
     remote_url: str | None = None,
     pr_number: str | None = None,
+    approval_secret: str | bytes | None = None,
 ) -> str:
-    """Return the exact operator approval token for a materialization target."""
+    """Return the operator-held HMAC approval token for a materialization target."""
+    secret = _materialization_approval_secret(approval_secret)
+    if secret is None:
+        raise ValueError(f"{GIT_PR_MATERIALIZATION_APPROVAL_SECRET_ENV} is required for approval tokens")
     approval_payload = git_pr_materialization_approval_payload(
         plan_packet,
         remote=remote,
         remote_url=remote_url,
         pr_number=pr_number,
     )
-    return GIT_PR_MATERIALIZATION_APPROVAL_PREFIX + checksum_json(approval_payload).removeprefix("sha256:")
+    payload = json.dumps(approval_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest = hmac.new(secret, payload, hashlib.sha256).hexdigest()
+    return GIT_PR_MATERIALIZATION_APPROVAL_PREFIX + "hmac-sha256:" + digest
 
 
 def _git_stdout(cwd: Path, args: list[str]) -> tuple[str | None, str | None]:
@@ -883,7 +902,6 @@ def _materialization_packet(
     approval_state: str,
     plan_file: Path,
     plan_checksum: str | None,
-    expected_approval_token: str | None,
     repository: dict[str, Any] | None,
     proposed_branch: str | None,
     proposed_pr_title: str | None,
@@ -915,7 +933,6 @@ def _materialization_packet(
         "merge_readiness": "not_evaluated",
         "plan_file": str(plan_file),
         "plan_checksum": plan_checksum,
-        "expected_approval_token": expected_approval_token,
         "repository": repository or {},
         "proposed_branch": proposed_branch,
         "proposed_pr_title": proposed_pr_title,
@@ -1023,7 +1040,6 @@ def git_pr_materialization_load_error_packet(plan_file: str | Path, error: Excep
         approval_state="not_approved",
         plan_file=plan_path,
         plan_checksum=None,
-        expected_approval_token=None,
         repository={},
         proposed_branch=None,
         proposed_pr_title=None,
@@ -1158,14 +1174,16 @@ def materialize_git_pr_plan(
     runtime_path = Path(runtime_root).expanduser().resolve()
     plan_checksum = checksum_json(plan_packet)
     remote_url, remote_blockers = _remote_push_url(repo_cwd, remote)
+    approval_secret = _materialization_approval_secret()
     expected_token = (
         git_pr_materialization_approval_token(
             plan_packet,
             remote=remote,
             remote_url=remote_url,
             pr_number=pr_number,
+            approval_secret=approval_secret,
         )
-        if remote_url is not None
+        if remote_url is not None and approval_secret is not None
         else None
     )
     repository = plan_packet.get("repository") if isinstance(plan_packet, dict) else {}
@@ -1192,7 +1210,7 @@ def materialize_git_pr_plan(
                 "operator approval token is required before Git/PR materialization",
             )
         )
-    elif expected_token is None:
+    elif remote_url is None:
         approval_state = "approval_unresolved"
         blockers.append(
             _issue(
@@ -1200,7 +1218,15 @@ def materialize_git_pr_plan(
                 "materialization target must resolve before operator approval can be checked",
             )
         )
-    elif approval_token != expected_token:
+    elif approval_secret is None:
+        approval_state = "approval_unresolved"
+        blockers.append(
+            _issue(
+                "operator_approval_secret_missing",
+                f"{GIT_PR_MATERIALIZATION_APPROVAL_SECRET_ENV} is required to verify operator approval",
+            )
+        )
+    elif expected_token is None or not hmac.compare_digest(approval_token, expected_token):
         approval_state = "approval_mismatch"
         blockers.append(
             _issue(
@@ -1218,7 +1244,6 @@ def materialize_git_pr_plan(
             approval_state=approval_state,
             plan_file=plan_path,
             plan_checksum=plan_checksum,
-            expected_approval_token=expected_token,
             repository=repository if isinstance(repository, dict) else {},
             proposed_branch=proposed_branch if isinstance(proposed_branch, str) else None,
             proposed_pr_title=proposed_pr_title if isinstance(proposed_pr_title, str) else None,
@@ -1338,7 +1363,6 @@ def materialize_git_pr_plan(
             approval_state=approval_state,
             plan_file=plan_path,
             plan_checksum=plan_checksum,
-            expected_approval_token=expected_token,
             repository=repository if isinstance(repository, dict) else {},
             proposed_branch=proposed_branch if isinstance(proposed_branch, str) else None,
             proposed_pr_title=proposed_pr_title if isinstance(proposed_pr_title, str) else None,
@@ -1359,7 +1383,6 @@ def materialize_git_pr_plan(
         approval_state=approval_state,
         plan_file=plan_path,
         plan_checksum=plan_checksum,
-        expected_approval_token=expected_token,
         repository=repository if isinstance(repository, dict) else {},
         proposed_branch=proposed_branch,
         proposed_pr_title=proposed_pr_title,
@@ -1384,7 +1407,6 @@ def materialize_git_pr_plan(
             approval_state=approval_state,
             plan_file=plan_path,
             plan_checksum=plan_checksum,
-            expected_approval_token=expected_token,
             repository=repository if isinstance(repository, dict) else {},
             proposed_branch=proposed_branch,
             proposed_pr_title=proposed_pr_title,
@@ -1428,7 +1450,6 @@ def materialize_git_pr_plan(
                 approval_state=approval_state,
                 plan_file=plan_path,
                 plan_checksum=plan_checksum,
-                expected_approval_token=expected_token,
                 repository=repository if isinstance(repository, dict) else {},
                 proposed_branch=proposed_branch,
                 proposed_pr_title=proposed_pr_title,
@@ -1455,7 +1476,6 @@ def materialize_git_pr_plan(
                     approval_state=approval_state,
                     plan_file=plan_path,
                     plan_checksum=plan_checksum,
-                    expected_approval_token=expected_token,
                     repository=repository if isinstance(repository, dict) else {},
                     proposed_branch=proposed_branch,
                     proposed_pr_title=proposed_pr_title,
@@ -1499,7 +1519,6 @@ def materialize_git_pr_plan(
             approval_state=approval_state,
             plan_file=plan_path,
             plan_checksum=plan_checksum,
-            expected_approval_token=expected_token,
             repository=repository if isinstance(repository, dict) else {},
             proposed_branch=proposed_branch,
             proposed_pr_title=proposed_pr_title,
@@ -1525,7 +1544,6 @@ def materialize_git_pr_plan(
             approval_state=approval_state,
             plan_file=plan_path,
             plan_checksum=plan_checksum,
-            expected_approval_token=expected_token,
             repository=repository if isinstance(repository, dict) else {},
             proposed_branch=proposed_branch,
             proposed_pr_title=proposed_pr_title,
@@ -1586,7 +1604,6 @@ def materialize_git_pr_plan(
             approval_state=approval_state,
             plan_file=plan_path,
             plan_checksum=plan_checksum,
-            expected_approval_token=expected_token,
             repository=repository if isinstance(repository, dict) else {},
             proposed_branch=proposed_branch,
             proposed_pr_title=proposed_pr_title,
@@ -1613,7 +1630,6 @@ def materialize_git_pr_plan(
                 approval_state=approval_state,
                 plan_file=plan_path,
                 plan_checksum=plan_checksum,
-                expected_approval_token=expected_token,
                 repository=repository if isinstance(repository, dict) else {},
                 proposed_branch=proposed_branch,
                 proposed_pr_title=proposed_pr_title,
@@ -1638,7 +1654,6 @@ def materialize_git_pr_plan(
         approval_state=approval_state,
         plan_file=plan_path,
         plan_checksum=plan_checksum,
-        expected_approval_token=expected_token,
         repository=repository if isinstance(repository, dict) else {},
         proposed_branch=proposed_branch,
         proposed_pr_title=proposed_pr_title,
@@ -1665,7 +1680,6 @@ def materialize_git_pr_plan(
             approval_state=approval_state,
             plan_file=plan_path,
             plan_checksum=plan_checksum,
-            expected_approval_token=expected_token,
             repository=repository if isinstance(repository, dict) else {},
             proposed_branch=proposed_branch,
             proposed_pr_title=proposed_pr_title,

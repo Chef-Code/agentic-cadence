@@ -459,7 +459,7 @@ increment added a dry-run-only `git-pr-plan` packet that turns validated
 executor result evidence into a reviewable Git/PR transition plan without
 executing suggested commands, calling GitHub, or treating the executor as the
 final authority for Git/PR approval. `git-pr-materialize` can now consume that
-reviewed packet plus exact target-bound operator approval, recheck current
+reviewed packet plus exact target-bound HMAC operator approval, recheck current
 branch/head/base branch, branch policy, complete local-diff materialized
 evidence, PR body preflight, remote push URL, and optional PR update target,
 then create the branch without switching the checkout, push with Git hook
@@ -477,11 +477,11 @@ non-`stopped` evidence, non-success results, no materialized changes, dirty
 worktrees, HEAD mismatches, detached heads, current-branch mismatches, missing
 local base branches, generated branch collisions, missing PR template sections,
 and invalid branch names. Operator-approved materialization tests cover mocked
-branch creation, push, PR creation, approval mismatch, stale state, failed Git
-and `gh` commands, dirty-worktree materialization rechecks, target-bound remote
-approval, PR update preflight mismatch, full local-diff materialized-evidence
-coverage, command-trace allowlists, and replayable materialization audit
-evidence. Later live-action increments can add pending CI, failing CI, passing
+branch creation, push, PR creation, approval mismatch, missing approval secret,
+stale state, failed Git and `gh` commands, dirty-worktree materialization
+rechecks, target-bound remote approval, PR update preflight mismatch, full
+local-diff materialized-evidence coverage, command-trace allowlists, and
+replayable materialization audit evidence. Later live-action increments can add pending CI, failing CI, passing
 CI, and post-PR stale-state handling.
 
 Cadence can materialize a reviewed dry-run packet only through the explicit

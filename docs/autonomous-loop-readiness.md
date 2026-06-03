@@ -213,8 +213,8 @@ It still does not invoke a real executor or apply code changes.
 
 The next likely failures are:
 
-1. operator approval identity is still a local token convention without a hash
-   chain or authenticated approver binding;
+1. operator approval is HMAC-backed by a local secret but still lacks a hash
+   chain or authenticated approver identity binding;
 2. no autonomous branch/commit/push/PR workflow exists; the current Git/PR
    increment requires explicit operator approval and only creates a branch from
    an already-materialized clean commit;

@@ -327,10 +327,13 @@ call GitHub, or treat a dry-run plan as approval.
 
 `git-pr-materialize` is the explicit write-side boundary for a reviewed
 `git-pr-plan.v1` packet. It must consume the saved plan packet, require an exact
-operator approval token derived from that packet checksum plus the selected
-remote name, resolved remote push URL, and create-vs-update PR target, and emit
-a `git-pr-materialization.v1` packet. Missing or mismatched approval must block
-before any audit, Git, or write-side `gh` side effect.
+operator approval token produced as an HMAC over that packet checksum plus the
+selected remote name, resolved remote push URL, and create-vs-update PR target,
+using `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`, and emit a
+`git-pr-materialization.v1` packet. Missing, mismatched, or unverifiable
+approval must block before any audit, Git, or write-side `gh` side effect.
+Materialization packets must not emit the expected approval token or approval
+secret.
 
 Before side effects, the command must re-read the task and result evidence named
 by the plan provenance, verify their checksums still match the plan, rerun

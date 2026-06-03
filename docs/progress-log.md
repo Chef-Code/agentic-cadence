@@ -59,6 +59,10 @@ Summary:
 - Third review follow-up added a read-only remote-branch preflight for PR-create
   materialization so approved plans cannot update an existing remote branch
   when creating a new PR.
+- Fourth review follow-up moved materialization approval from public checksum
+  tokens to HMAC tokens backed by
+  `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET` and removed expected-token
+  disclosure from returned packets.
 
 Completed slices:
 - Task 6 current-tree implementation: operator-approved Git/PR materialization.
@@ -81,8 +85,8 @@ Evidence:
 - `git diff --check`
 
 New risks or blockers:
-- Approval is still a deterministic local token, not an authenticated approver
-  identity or hash-chain-backed authorization.
+- Approval is HMAC-backed by a local operator secret, but still does not bind an
+  authenticated approver identity or hash-chain-backed authorization.
 - The command materializes an already-clean current commit; dirty-worktree
   commit creation remains outside scope.
 

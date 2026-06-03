@@ -406,7 +406,7 @@ Current evidence:
   mismatches, missing local base branches, generated branch collisions, missing
   PR template sections, and invalid branch names;
 - `git-pr-materialize` consumes a reviewed `git-pr-plan.v1` packet plus exact
-  target-bound operator approval, reruns local plan gates, audits
+  target-bound HMAC operator approval, reruns local plan gates, audits
   intended/completed side effects, creates the proposed branch from the clean
   current commit without switching the checkout, pushes with Git hook
   verification disabled for that push, and creates or updates a PR through
