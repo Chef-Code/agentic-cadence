@@ -112,6 +112,16 @@ def current_head(cwd: str | Path) -> str | None:
         return None
 
 
+def current_repo_evidence(cwd: str | Path) -> dict[str, Any]:
+    repo_cwd = Path(cwd).expanduser().resolve()
+    return {
+        "cwd": str(repo_cwd),
+        "branch": current_branch(repo_cwd),
+        "head": current_head(repo_cwd),
+        "dirty_worktree": dirty_worktree(repo_cwd),
+    }
+
+
 def confidence(
     dirty: bool,
     known_failures: list[str],

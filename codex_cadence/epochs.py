@@ -231,6 +231,16 @@ def start_epoch(
     raise FileExistsError(f"could not allocate unique epoch id after {EPOCH_ID_ATTEMPTS} attempts")
 
 
+def read_active_epoch_records(root: Path) -> list[tuple[Path, dict[str, Any]]]:
+    active_dir = epoch_state_dir(root, "active")
+    if not active_dir.exists():
+        return []
+    records: list[tuple[Path, dict[str, Any]]] = []
+    for path in sorted(active_dir.glob("*.json")):
+        records.append((path, read_json(path)))
+    return records
+
+
 def load_active_epoch(root: Path, epoch_id_value: str) -> dict[str, Any]:
     ensure_layout(root)
     active_epochs = list(epoch_state_dir(root, "active").glob("*.json"))

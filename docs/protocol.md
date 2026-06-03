@@ -147,6 +147,45 @@ The command must not claim, complete, or fail the handoff it creates. It must no
 
 V1 requires explicit guardrail input such as `--guardrail context`. Automatic context detection requires a host/session signal; Cadence must not infer token pressure from transcript guesses.
 
+## Resume Verification
+
+`verify-resume` is the read-only gate a fresh session can run before continuing
+a handoff. It emits a `resume-verification.v1` packet and exits nonzero when
+any blocker is present. The packet contains:
+
+- `resumable`: true only when all gates pass;
+- `handoff`: observed handoff state, status, path, claimer, and signature
+  validation errors;
+- `clean_square`: presence and validity of old-session shutdown evidence;
+- `repository`: current branch, `HEAD`, dirty-worktree state, and the handoff's
+  expected branch/head binding;
+- `cadence`: current brake and mapped Cadence state;
+- `active_epoch`: active epoch count and matching evidence;
+- `policy_evidence`: estimate checksum, approval requirement, and approval
+  presence;
+- `blockers` and `recommended_next_action`.
+
+The verifier must check handoff signature and checksum, require the handoff to
+be in `claimed` state before `resume_work`, validate clean-square evidence,
+compare the current repo branch and `HEAD` with the handoff's recorded resume
+snapshot, reject dirty worktrees, reject non-`DRIVE` brakes, reject active epoch
+conflicts or mismatches, and re-check pickup policy evidence. Approval-gated
+handoffs must have a separate approval record bound to the handoff checksum and
+estimate checksum.
+
+Representative blocker codes include `handoff_not_claimed`,
+`handoff_state_conflict`, `handoff_signature_invalid`,
+`handoff_checksum_mismatch`, `clean_square_missing`, `clean_square_invalid`,
+`repo_branch_mismatch`, `repo_head_mismatch`, `dirty_worktree`,
+`active_brake_stop`, `active_epoch_conflict`, `active_epoch_invalid`,
+`policy_evidence_invalid`, and `policy_approval_missing`.
+
+`verify-resume` must not mutate handoff state, create or clear approvals, write
+clean-square records, launch a new session, infer host context pressure, start
+or invoke an executor, create branches, write pull requests, merge, release, or
+publish packages. It is a gate packet only; operators or external orchestration
+must perform any recommended next action separately.
+
 ## Handoff Signature
 
 Draft marker:

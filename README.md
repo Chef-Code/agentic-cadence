@@ -339,6 +339,29 @@ agentic-cadence prepare-handoff --id context-loop --title "Continue bounded work
 
 The command does not claim the handoff, launch a new agent window, commit, push, open a PR, spend review, or merge. V1 requires an explicit guardrail such as `--guardrail context`; automatic context detection requires a host/session signal that Cadence does not infer from transcript guesses.
 
+## Resume Verification
+
+`verify-resume` is the read-only pickup gate for a fresh session. It verifies a
+handoff signature, claimed handoff state, clean-square evidence, current repo
+branch and `HEAD`, dirty-worktree state, active Cadence brake, active epoch
+state, and handoff pickup-policy evidence before reporting whether work can
+resume:
+
+```bash
+agentic-cadence --root <runtime-root> verify-resume context-loop --cwd . --claimer codex
+```
+
+The command returns a `resume-verification.v1` packet with `resumable`,
+`blockers`, and `recommended_next_action`. Clean evidence recommends
+`resume_work`; blockers include stable codes such as `handoff_not_claimed`,
+`clean_square_missing`, `repo_head_mismatch`, `repo_branch_mismatch`,
+`dirty_worktree`, `active_brake_stop`, `active_epoch_conflict`, and
+`policy_approval_missing`.
+
+The command does not claim, complete, fail, or recreate handoffs; it does not
+launch a new session, infer host context pressure, start or invoke an executor,
+create branches, write pull requests, merge, release, or publish packages.
+
 ## GitHub Evidence Sync
 
 `github-evidence-sync` is an explicit read-only live fetch for PR evidence. It
