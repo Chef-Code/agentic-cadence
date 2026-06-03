@@ -1111,6 +1111,37 @@ def _pr_update_preflight(
     return trace, []
 
 
+def _remote_branch_create_preflight(
+    *,
+    cwd: Path,
+    remote: str,
+    proposed_branch: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Ensure PR-create materialization will not reuse an existing remote branch."""
+    argv = ["git", "ls-remote", "--heads", remote, proposed_branch]
+    result = _run_process(cwd, argv)
+    trace = [_materialization_command_trace(label="preflight_remote_branch", argv=argv, result=result)]
+    if result.returncode != 0:
+        return trace, [
+            _issue(
+                "remote_branch_preflight_failed",
+                f"could not inspect remote branch before materialization: {remote}/{proposed_branch}",
+                returncode=result.returncode,
+                stderr=result.stderr.strip(),
+            )
+        ]
+    if result.stdout.strip():
+        return trace, [
+            _issue(
+                "remote_branch_exists",
+                "remote branch already exists; PR-create materialization requires a fresh remote branch",
+                remote=remote,
+                proposed_branch=proposed_branch,
+            )
+        ]
+    return trace, []
+
+
 def materialize_git_pr_plan(
     *,
     cwd: str | Path,
@@ -1272,6 +1303,15 @@ def materialize_git_pr_plan(
                 warnings.append(warning)
     else:
         materialized_body = _materialized_pr_body(plan_packet) if isinstance(plan_packet, dict) else ""
+
+    if not pr_number and not blockers and isinstance(proposed_branch, str):
+        remote_trace, remote_branch_blockers = _remote_branch_create_preflight(
+            cwd=repo_cwd,
+            remote=remote,
+            proposed_branch=proposed_branch,
+        )
+        command_trace.extend(remote_trace)
+        blockers.extend(remote_branch_blockers)
 
     if (
         pr_number

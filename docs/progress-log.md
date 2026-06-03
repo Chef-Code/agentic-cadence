@@ -56,6 +56,9 @@ Summary:
   update coverage, refreshed live repository state before emitting post-side
   effect packets, and converted temporary PR body file creation failures into
   structured blocked materialization packets with replayable result audit.
+- Third review follow-up added a read-only remote-branch preflight for PR-create
+  materialization so approved plans cannot update an existing remote branch
+  when creating a new PR.
 
 Completed slices:
 - Task 6 current-tree implementation: operator-approved Git/PR materialization.

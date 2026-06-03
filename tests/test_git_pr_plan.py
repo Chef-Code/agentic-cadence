@@ -1299,9 +1299,10 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertIn(f"--base {plan['repository']['base_branch']}", gh_lines[0])
             self.assertIn(f"--head {plan['proposed_branch']}", gh_lines[0])
             command_argvs = [trace["argv"] for trace in packet["command_trace"]]
-            self.assertEqual(command_argvs[0], ["git", "branch", plan["proposed_branch"], plan["repository"]["current_head"]])
-            self.assertEqual(command_argvs[1], ["git", "push", "--no-verify", "-u", "origin", plan["proposed_branch"]])
-            self.assertEqual(command_argvs[2][:7], ["gh", "pr", "create", "--base", "main", "--head", plan["proposed_branch"]])
+            self.assertEqual(command_argvs[0], ["git", "ls-remote", "--heads", "origin", plan["proposed_branch"]])
+            self.assertEqual(command_argvs[1], ["git", "branch", plan["proposed_branch"], plan["repository"]["current_head"]])
+            self.assertEqual(command_argvs[2], ["git", "push", "--no-verify", "-u", "origin", plan["proposed_branch"]])
+            self.assertEqual(command_argvs[3][:7], ["gh", "pr", "create", "--base", "main", "--head", plan["proposed_branch"]])
             forbidden_tokens = {
                 "commit",
                 "merge",
@@ -1531,6 +1532,50 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertFalse(gh_log.exists())
             self.assertFalse((runtime_root / "audit" / "events.jsonl").exists())
 
+    def test_git_pr_materialize_blocks_existing_remote_branch_before_side_effects(self):
+        """PR-create materialization requires the proposed remote branch to be fresh."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            add_origin_remote(Path(tmp), repo)
+            plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
+            token = git_pr_materialization_approval_token(plan, remote_url=remote_push_url(repo))
+            git(repo, "branch", plan["proposed_branch"], plan["repository"]["current_head"])
+            git(repo, "push", "origin", plan["proposed_branch"])
+            git(repo, "branch", "-D", plan["proposed_branch"])
+            refs_before = git(repo, "show-ref", "--heads").stdout
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_materializer(fake_bin, gh_log, "https://github.example/pr/7")
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = "https://github.example/pr/7"
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(plan_path),
+                "--approval-token",
+                token,
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["side_effects"], [])
+            self.assertIn("remote_branch_exists", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertEqual(packet["command_trace"][0]["label"], "preflight_remote_branch")
+            self.assertEqual(git(repo, "show-ref", "--heads").stdout, refs_before)
+            self.assertFalse(gh_log.exists())
+            self.assertFalse((runtime_root / "audit" / "events.jsonl").exists())
+
     def test_git_pr_materialize_blocks_pr_update_when_pr_preflight_mismatches_plan(self):
         """PR update mode verifies the existing PR head and base before branch or gh writes."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
@@ -1585,8 +1630,10 @@ class GitPrPlanTests(unittest.TestCase):
             commit_plan_changes(repo)
             runtime_root = Path(tmp) / "runtime"
             write_brake(runtime_root)
-            missing_remote = Path(tmp) / "missing-origin.git"
-            git(repo, "remote", "add", "origin", str(missing_remote))
+            origin = add_origin_remote(Path(tmp), repo)
+            hook = origin / "hooks" / "pre-receive"
+            hook.write_text("#!/bin/sh\necho rejected by test remote >&2\nexit 1\n", encoding="utf-8")
+            hook.chmod(0o755)
             plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
             token = git_pr_materialization_approval_token(plan, remote_url=remote_push_url(repo))
             fake_bin = Path(tmp) / "bin"
