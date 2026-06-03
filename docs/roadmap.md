@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-02
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, and controlled executor fixture current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, and operator-approved Git/PR materialization current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -474,12 +474,15 @@ evidence, brake-gated success without a runtime root, active brake stops for
 non-`stopped` evidence, non-success results, no materialized changes, dirty
 worktrees, HEAD mismatches, detached heads, current-branch mismatches, missing
 local base branches, generated branch collisions, missing PR template sections,
-and invalid branch names. Later live-action increments can add mocked `gh`
-fixtures for PR creation, failed push, pending CI, failing CI, passing CI, and
-stale state.
+and invalid branch names. Operator-approved materialization tests cover mocked
+branch creation, push, PR creation, approval mismatch, stale state, failed Git
+commands, and replayable materialization audit evidence. Later live-action
+increments can add pending CI, failing CI, passing CI, and post-PR stale-state
+handling.
 
-Codex can implement dry-run packets directly. Live PR creation and push
-behavior require a later explicit operator-approved slice.
+Cadence can materialize a reviewed dry-run packet only through the explicit
+operator-approved `git-pr-materialize` command. Auto-merge, release, package
+publication, and real executor invocation remain outside this capability.
 
 ### CI and review feedback as candidate input
 

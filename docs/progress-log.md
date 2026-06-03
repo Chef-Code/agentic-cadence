@@ -33,6 +33,55 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-02 - Add operator-approved Git/PR materialization
+
+Summary:
+- Added `git-pr-materialize`, which consumes a reviewed `git-pr-plan.v1`
+  packet plus exact operator approval, rechecks current Git state, branch
+  policy, materialized-change evidence, PR body preflight, and evidence
+  freshness before any Git or `gh` side effects.
+- Materialization now appends `git_pr_materialization_intent` and
+  `git_pr_materialization_result` audit events, creates the proposed branch
+  from the already-materialized current commit, pushes it, and creates or
+  updates a PR through `gh` only after gates pass. Blocked and completed
+  attempts emit `git-pr-materialization.v1` packets.
+
+Completed slices:
+- Task 6 current-tree implementation: operator-approved Git/PR materialization.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: PR materialization is now locally gated and audited, but real executor
+  invocation, resume verification, autonomous execution, auto-merge, release,
+  and package publication remain blocked.
+
+Evidence:
+- `python -m unittest tests.test_git_pr_plan tests.test_audit_replay`
+- `python -m unittest tests.test_git_pr_plan tests.test_audit_replay tests.test_cadence tests.test_pr_readiness -v`
+- `python -m unittest tests.test_ci_checks -v`
+- `python -m py_compile codex_cadence/git_pr_plan.py codex_cadence/cli.py codex_cadence/policy_audit.py codex_cadence/pr_readiness.py scripts/validate_protocol.py`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- Approval is still a deterministic local token, not an authenticated approver
+  identity or hash-chain-backed authorization.
+- The command materializes an already-clean current commit; dirty-worktree
+  commit creation remains outside scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`
+- `docs/session-handoff.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
 ## 2026-06-02 - Add read-only GitHub evidence sync
 
 Summary:

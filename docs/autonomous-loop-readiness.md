@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-02
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, and controlled executor fixture current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, and operator-approved Git/PR materialization current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -156,8 +156,8 @@ Agentic Cadence cannot currently:
 | Executor adapter contract | Partial generic contract | Task/result packet validation and a fake controlled fixture runner exist, including snapshot trust-anchor checks, but no real executor or named host adapter |
 | Autonomous implementation | Not built | Requires real executor integration |
 | Live GitHub sync | Partial, read-only evidence capture | `github-evidence-sync` fetches PR JSON and review threads into local files without GitHub writes |
-| Git/PR transition planning | Partial, dry-run only | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects |
-| Branch/commit/push/PR creation | Not built | Live creation remains future work |
+| Git/PR transition planning | Partial, dry-run plus approved materialization | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects; `git-pr-materialize` can create branch, push, and create/update PR only after exact operator approval and local rechecks |
+| Branch/commit/push/PR creation | Partial, operator-approved only | No autonomous branch/PR writes, no dirty-worktree commit path, no merge, release, or package publication |
 | Review response loop | Partial saved/live-read-only evidence ingestion | Saved review files and synced review threads can become candidates; no automatic response writes |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
 | New-session launch/resume | Partial handoff packets only | External orchestration required |
@@ -170,8 +170,9 @@ It can inspect and suggest. It can run a read-only loop tick that produces a
 structured next action. It can emit a generic executor task packet for operator
 approval, validate the packet's local snapshot trust anchor, run a controlled
 fake executor fixture from an explicit command template for tests/examples,
-validate local executor result evidence, close out the active epoch, and produce a dry-run Git/PR transition plan for
-separate review. It can govern handoff and continuation decisions. It can
+validate local executor result evidence, close out the active epoch, produce a
+dry-run Git/PR transition plan for separate review, and materialize that plan
+only after exact operator approval and local rechecks. It can govern handoff and continuation decisions. It can
 evaluate saved PR evidence and fetch read-only live PR/check/review-thread
 evidence into saved files. It cannot perform the core build loop by
 itself, and it cannot yet coordinate a team of role-specific agents.
@@ -192,9 +193,10 @@ policy, timeout, audit, and result-evidence behavior with fake local evidence,
 and local closeout can record task completion or terminally complete/fail the
 active epoch from that evidence, but it does not implement product changes. The
 dry-run `git-pr-plan` handoff remains
-review-only. Real code changes, operator-approved Git/PR
-materialization, live commit, push, PR creation or update, review feedback
-response writes, and new-session launch remain external or future-approved slices. At
+review-only until an operator invokes `git-pr-materialize` with a matching plan
+approval token. Real code changes, autonomous Git/PR materialization, dirty
+worktree commits, review feedback response writes, and new-session launch remain
+external or future-approved slices. At
 `policy_denied`, an operator must adjust the task bounds or policy before
 execution can be considered. Audit history is now locally inspectable through
 `audit-replay`, but clean replay evidence is not approval to execute work and
@@ -210,10 +212,11 @@ It still does not invoke a real executor or apply code changes.
 
 The next likely failures are:
 
-1. branch policy is local and dry-run only, so protected base/target branch
-   rules are not yet enforced immediately before live Git/PR materialization;
-2. no live branch/commit/push/PR workflow exists; the current Git/PR increment
-   is only a dry-run planning packet for operator or future role review;
+1. operator approval identity is still a local token convention without a hash
+   chain or authenticated approver binding;
+2. no autonomous branch/commit/push/PR workflow exists; the current Git/PR
+   increment requires explicit operator approval and only creates a branch from
+   an already-materialized clean commit;
 3. live synchronization is read-only and operator-triggered. Repo snapshots are
    local git snapshots, and synced PR/check/review-thread evidence is saved to
    local files before later commands consume it. Cadence labels `local_only`,

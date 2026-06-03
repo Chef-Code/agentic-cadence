@@ -390,6 +390,16 @@ agentic-cadence --root <runtime-root> git-pr-plan --cwd . --task-file executor-t
 
 The packet is dry-run only. Cadence does not create a branch, commit, push, call GitHub, or open a pull request. Result `files_changed` is not enough by itself; the planner requires explicit `materialized_change_evidence` before it reports the plan as ready for review.
 
+## Operator-Approved Git/PR Materialization
+
+`git-pr-materialize` consumes a reviewed `git-pr-plan.v1` packet plus an exact operator approval token for that packet. Immediately before side effects it rechecks the current branch and `HEAD`, branch policy, materialized-change evidence, PR body preflight, task/result checksums, and plan freshness:
+
+```bash
+agentic-cadence --root <runtime-root> git-pr-materialize --cwd . --plan-file git-pr-plan.json --approval-token approve-git-pr:<plan-sha256>
+```
+
+When all gates pass, Cadence appends a `git_pr_materialization_intent` audit record, creates the proposed branch from the current materialized commit, pushes it, and creates or updates a pull request through `gh`. It then appends a `git_pr_materialization_result` audit record. Missing or mismatched approval, stale plans, dirty worktrees, branch-policy failures, materialized-evidence failures, PR body failures, and failed Git/`gh` commands return `git-pr-materialization.v1` blocker packets. The command does not auto-merge, release, publish packages, or invoke an executor.
+
 ## Release Dry Run
 
 `release-dry-run` checks release metadata before an operator creates a tag or GitHub release. After `pyproject.toml` and `CHANGELOG.md` have been updated for the intended release version, it reads local metadata and Git refs, generates release notes from the matching changelog entry, requires the selected target ref to match checked-out `HEAD`, verifies an existing tag points at the selected release commit, and returns a JSON packet with `operator_confirmation_required: true`.

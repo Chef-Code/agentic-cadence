@@ -209,6 +209,102 @@ def run_git_pr_plan(root, *args, cwd=None, env=None):
     return result, output
 
 
+def run_git_pr_materialize(root, *args, cwd=None, env=None):
+    """Run the git-pr-materialize CLI and parse its JSON output."""
+    command = [sys.executable, str(SCRIPT), "--root", str(root), "git-pr-materialize", *args]
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    output = json.loads(result.stdout) if result.stdout.strip() else None
+    return result, output
+
+
+def run_audit_replay(root, cwd=None):
+    """Run audit replay and parse its JSON output."""
+    command = [sys.executable, str(SCRIPT), "--root", str(root), "audit-replay"]
+    result = subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
+    output = json.loads(result.stdout) if result.stdout.strip() else None
+    return result, output
+
+
+def git_pr_materialization_approval_token(packet):
+    """Return the operator approval token expected for a materialization packet."""
+    return "approve-git-pr:" + checksum_json(packet).removeprefix("sha256:")
+
+
+def write_ready_plan(root, repo, tmp):
+    """Write a ready git-pr-plan packet for materialization tests."""
+    task_path, result_path, _task_packet, _result_evidence = write_packets(tmp, repo)
+    result, packet = run_git_pr_plan(
+        root,
+        "--cwd",
+        repo,
+        "--task-file",
+        str(task_path),
+        "--result-file",
+        str(result_path),
+        "--branch-prefix",
+        "cadence/",
+        "--required-body-section",
+        "Summary",
+        "--required-body-section",
+        "Validation",
+        cwd=repo,
+    )
+    if result.returncode != 0:
+        raise AssertionError(result.stderr)
+    plan_path = Path(tmp) / "git-pr-plan.json"
+    plan_path.write_text(json.dumps(packet), encoding="utf-8")
+    return plan_path, packet
+
+
+def add_origin_remote(tmp, repo):
+    """Add a local bare origin remote for materialization push tests."""
+    remote = Path(tmp) / "origin.git"
+    remote.mkdir()
+    git(remote, "init", "--bare")
+    git(repo, "remote", "add", "origin", str(remote))
+    return remote
+
+
+def write_fake_gh_materializer(fake_bin, log_path, pr_url):
+    """Write a fake gh executable that records PR create/edit calls."""
+    script = Path(fake_bin) / "fake_gh.py"
+    script.write_text(
+        """
+import os
+import sys
+
+with open(os.environ["GH_FAKE_LOG"], "a", encoding="utf-8") as handle:
+    handle.write(" ".join(sys.argv[1:]) + "\\n")
+
+args = sys.argv[1:]
+if args[:2] == ["pr", "create"]:
+    print(os.environ["GH_FAKE_PR_URL"])
+    sys.exit(0)
+if args[:2] == ["pr", "edit"]:
+    print(os.environ["GH_FAKE_PR_URL"])
+    sys.exit(0)
+
+print("unexpected gh invocation", file=sys.stderr)
+sys.exit(99)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    fake_gh = Path(fake_bin) / ("gh.cmd" if os.name == "nt" else "gh")
+    if os.name == "nt":
+        fake_gh.write_text(f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
+    else:
+        fake_gh.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
+        fake_gh.chmod(0o755)
+    return fake_gh
+
+
 class GitPrPlanTests(unittest.TestCase):
     def test_ready_dry_run_packet_requires_operator_review_and_preserves_non_authority(self):
         """Ready packets remain dry-run plans with operator-only authority."""
@@ -998,6 +1094,217 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertEqual(result_path.stat().st_mtime_ns, result_mtime_before)
             runtime_entries_after = runtime_file_snapshot(runtime_root)
             self.assertEqual(runtime_entries_after, runtime_entries_before)
+
+    def test_git_pr_materialize_blocks_missing_or_mismatched_approval_without_side_effects(self):
+        """Operator approval must match the exact validated plan before any side effect."""
+        cases = [
+            ([], "operator_approval_missing"),
+            (["--approval-token", "approve-git-pr:not-the-plan"], "operator_approval_mismatch"),
+        ]
+        for approval_args, expected_code in cases:
+            with self.subTest(expected_code=expected_code):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    commit_plan_changes(repo)
+                    runtime_root = Path(tmp) / "runtime"
+                    write_brake(runtime_root)
+                    add_origin_remote(Path(tmp), repo)
+                    plan_path, _plan = write_ready_plan(runtime_root, repo, Path(tmp))
+                    fake_bin = Path(tmp) / "bin"
+                    fake_bin.mkdir()
+                    gh_log = Path(tmp) / "gh.log"
+                    write_fake_gh_materializer(fake_bin, gh_log, "https://github.example/pr/1")
+                    env = os.environ.copy()
+                    env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+                    env["GH_FAKE_LOG"] = str(gh_log)
+                    env["GH_FAKE_PR_URL"] = "https://github.example/pr/1"
+                    refs_before = git(repo, "show-ref", "--heads").stdout
+                    status_before = git(repo, "status", "--porcelain").stdout
+                    audit_path = runtime_root / "audit" / "events.jsonl"
+
+                    result, packet = run_git_pr_materialize(
+                        runtime_root,
+                        "--cwd",
+                        repo,
+                        "--plan-file",
+                        str(plan_path),
+                        *approval_args,
+                        cwd=repo,
+                        env=env,
+                    )
+
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertEqual(packet["schema_version"], "git-pr-materialization.v1")
+                    self.assertFalse(packet["valid"])
+                    self.assertEqual(packet["decision"], "blocked")
+                    self.assertEqual(packet["side_effects"], [])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in packet["blockers"]})
+                    self.assertEqual(git(repo, "show-ref", "--heads").stdout, refs_before)
+                    self.assertEqual(git(repo, "status", "--porcelain").stdout, status_before)
+                    self.assertFalse(gh_log.exists())
+                    self.assertFalse(audit_path.exists())
+
+    def test_git_pr_materialize_creates_branch_pushes_and_opens_pr_after_approval(self):
+        """Approved materialization performs the bounded branch/push/PR sequence and audits it."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            add_origin_remote(Path(tmp), repo)
+            plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
+            token = git_pr_materialization_approval_token(plan)
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            pr_url = "https://github.example/local/test/pull/123"
+            write_fake_gh_materializer(fake_bin, gh_log, pr_url)
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = pr_url
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(plan_path),
+                "--approval-token",
+                token,
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(packet["schema_version"], "git-pr-materialization.v1")
+            self.assertTrue(packet["valid"])
+            self.assertFalse(packet["dry_run"])
+            self.assertEqual(packet["decision"], "materialized")
+            self.assertEqual(packet["approval_state"], "approved")
+            self.assertEqual(packet["pr_url"], pr_url)
+            self.assertEqual(current_branch(repo), plan["proposed_branch"])
+            self.assertEqual(
+                git(repo, "rev-parse", plan["proposed_branch"]).stdout.strip(),
+                plan["repository"]["current_head"],
+            )
+            self.assertEqual(git(repo, "status", "--porcelain").stdout, "")
+            self.assertEqual(
+                git(repo, "ls-remote", "--heads", "origin", plan["proposed_branch"]).stdout.split()[0],
+                plan["repository"]["current_head"],
+            )
+            self.assertEqual(
+                packet["side_effects"],
+                [
+                    "audit_intent_record_appended",
+                    "created_branch",
+                    "pushed_branch",
+                    "created_pull_request",
+                    "audit_result_record_appended",
+                ],
+            )
+            gh_lines = gh_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(gh_lines), 1)
+            self.assertTrue(gh_lines[0].startswith("pr create "))
+            self.assertIn(f"--base {plan['repository']['base_branch']}", gh_lines[0])
+            self.assertIn(f"--head {plan['proposed_branch']}", gh_lines[0])
+            for forbidden in ("merge", "release", "publish"):
+                self.assertNotIn(forbidden, gh_lines[0])
+
+            replay_result, replay = run_audit_replay(runtime_root, cwd=repo)
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["events_by_type"]["git_pr_materialization_intent"], 1)
+            self.assertEqual(replay["events_by_type"]["git_pr_materialization_result"], 1)
+
+    def test_git_pr_materialize_rechecks_stale_head_before_side_effects(self):
+        """A plan for an older HEAD is blocked before Git, gh, or audit writes."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            add_origin_remote(Path(tmp), repo)
+            plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
+            token = git_pr_materialization_approval_token(plan)
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_materializer(fake_bin, gh_log, "https://github.example/pr/2")
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = "https://github.example/pr/2"
+            (Path(repo) / "README.md").write_text("hello\nnew head\n", encoding="utf-8")
+            git(repo, "add", "README.md")
+            git(repo, "commit", "-m", "advance after plan")
+            refs_before = git(repo, "show-ref", "--heads").stdout
+            audit_path = runtime_root / "audit" / "events.jsonl"
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(plan_path),
+                "--approval-token",
+                token,
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["side_effects"], [])
+            self.assertIn("stale_git_pr_plan", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertEqual(git(repo, "show-ref", "--heads").stdout, refs_before)
+            self.assertFalse(gh_log.exists())
+            self.assertFalse(audit_path.exists())
+
+    def test_git_pr_materialize_failed_git_command_returns_blocker_and_audit_evidence(self):
+        """Failed bounded side effects return stable blockers and retain replayable audit evidence."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
+            token = git_pr_materialization_approval_token(plan)
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_materializer(fake_bin, gh_log, "https://github.example/pr/3")
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = "https://github.example/pr/3"
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(plan_path),
+                "--approval-token",
+                token,
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["decision"], "blocked")
+            self.assertEqual(current_branch(repo), plan["proposed_branch"])
+            self.assertIn("git_pr_materialization_command_failed", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertIn("created_branch", packet["side_effects"])
+            self.assertNotIn("created_pull_request", packet["side_effects"])
+            self.assertFalse(gh_log.exists())
+
+            replay_result, replay = run_audit_replay(runtime_root, cwd=repo)
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["events_by_type"]["git_pr_materialization_intent"], 1)
+            self.assertEqual(replay["events_by_type"]["git_pr_materialization_result"], 1)
 
 
 def checksum_json(data):
