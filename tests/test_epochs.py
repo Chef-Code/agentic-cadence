@@ -174,6 +174,17 @@ class EpochLifecycleTests(unittest.TestCase):
             self.assertEqual(records[0][0], epoch_path(root, "active", first["id"]))
             self.assertEqual(records[0][1]["id"], first["id"])
 
+    def test_read_active_epoch_records_rejects_non_object_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            active_dir = root / "epochs" / "active"
+            active_dir.mkdir(parents=True)
+            active_path = active_dir / "epoch-list.json"
+            active_path.write_text(json.dumps([]), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, r"epoch-list\.json.*list"):
+                read_active_epoch_records(root)
+
     def test_complete_epoch_uses_move_semantics(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

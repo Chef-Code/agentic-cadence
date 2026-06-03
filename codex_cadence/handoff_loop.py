@@ -563,9 +563,9 @@ def _active_epoch_evidence(root: Path, expected: dict[str, Any]) -> tuple[dict[s
     blockers: list[dict[str, Any]] = []
     try:
         records = read_active_epoch_records(root)
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
         return {"count": None, "epochs": []}, [
-            _resume_blocker("active_epoch_invalid", f"active epoch records are unreadable: {exc}")
+            _resume_blocker("active_epoch_invalid", f"active epoch records are invalid or unreadable: {exc}")
         ]
     evidence: dict[str, Any] = {"count": len(records), "epochs": []}
     if len(records) > 1:

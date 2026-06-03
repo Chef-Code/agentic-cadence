@@ -237,7 +237,10 @@ def read_active_epoch_records(root: Path) -> list[tuple[Path, dict[str, Any]]]:
         return []
     records: list[tuple[Path, dict[str, Any]]] = []
     for path in sorted(active_dir.glob("*.json")):
-        records.append((path, read_json(path)))
+        data = read_json(path)
+        if not isinstance(data, dict):
+            raise ValueError(f"active epoch record must be a JSON object: {path} (found {type(data).__name__})")
+        records.append((path, data))
     return records
 
 
