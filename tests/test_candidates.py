@@ -857,7 +857,16 @@ class CandidateDiscoveryBudgetTests(unittest.TestCase):
             )
             first_result = discover_candidates(cwd=Path(tmp), intent="merge_readiness", pr_json_file=pr_json)
             pr_json.write_text(
-                json.dumps({"number": 67, "statusCheckRollup": [coderabbit_failure, python_failure, dict(python_failure)]}),
+                json.dumps(
+                    {
+                        "number": 67,
+                        "statusCheckRollup": [
+                            dict(coderabbit_failure, targetUrl="https://example.test/status/coderabbit-rerun"),
+                            dict(python_failure, detailsUrl="https://example.test/checks/python-rerun"),
+                            dict(python_failure, detailsUrl="https://example.test/checks/python-another-rerun"),
+                        ],
+                    }
+                ),
                 encoding="utf-8",
             )
             second_result = discover_candidates(cwd=Path(tmp), intent="merge_readiness", pr_json_file=pr_json)

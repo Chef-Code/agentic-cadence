@@ -328,7 +328,8 @@ shell out to `gh` only when an operator invokes the command with `--repo`,
 `gh pr view` and review-thread state through GitHub GraphQL, then writes saved
 PR JSON, saved `reviewThreads` JSON, and a summary packet to local files. It
 must label the evidence as live read-only input, fail closed for missing `gh`,
-authentication failure, rate limit, network failure, malformed JSON, or
+GitHub CLI spawn failure, authentication failure, rate limit, network failure,
+malformed JSON, or
 malformed repo slugs, and does not write partial evidence when either live fetch
 fails or evidence-file writes cannot complete as a set. Review-thread fetches
 must include `pageInfo.hasNextPage` for review threads and comments and follow

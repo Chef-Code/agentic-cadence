@@ -1979,6 +1979,25 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertEqual({blocker["code"] for blocker in output["blockers"]}, {"gh_command_timeout"})
                     self.assertFalse(out_dir.exists())
 
+    def test_github_evidence_sync_spawn_failure_returns_blocker_without_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out_dir = Path(tmp) / "evidence"
+            with mock.patch(
+                "codex_cadence.github_evidence.subprocess.run",
+                side_effect=OSError("cannot execute gh"),
+            ):
+                output = github_evidence.sync_github_evidence(
+                    repo="Chef-Code/agentic-cadence",
+                    pr_number=68,
+                    out_dir=out_dir,
+                    gh_bin="gh",
+                )
+
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "install_or_authenticate_gh")
+            self.assertEqual({blocker["code"] for blocker in output["blockers"]}, {"gh_spawn_failed"})
+            self.assertFalse(out_dir.exists())
+
     def test_cli_github_evidence_sync_rejects_repo_local_out_dir(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "runtime"

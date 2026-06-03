@@ -152,6 +152,12 @@ def _run_gh_json(
             detail=f"{command_name} timed out after {exc.timeout} seconds",
             timeout_seconds=exc.timeout,
         )
+    except OSError as exc:
+        return None, _issue(
+            "gh_spawn_failed",
+            f"{command_name} could not start GitHub CLI",
+            detail=str(exc),
+        )
     return _read_json_stdout(result, command_name=command_name)
 
 
@@ -427,7 +433,7 @@ def _blocked_packet(
     command_trace: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     code = blocker["code"]
-    if code in {"gh_missing", "gh_auth_failed"}:
+    if code in {"gh_missing", "gh_auth_failed", "gh_spawn_failed"}:
         action = "install_or_authenticate_gh"
     elif code in {"github_rate_limited", "github_network_failed", "gh_command_timeout"}:
         action = "retry_github_evidence_sync"
@@ -628,7 +634,6 @@ def _check_finding_id(pr_number: Any, item: dict[str, Any], name: str, state: st
         "check": name,
         "source_type": item.get("__typename") or "",
         "state": state,
-        "url": _check_url(item),
         "workflow": workflow,
     }
     digest = sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()[:16]
