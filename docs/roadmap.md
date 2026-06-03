@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-02
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, and controlled executor fixture current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, and controlled executor fixture current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -71,7 +71,8 @@ agent-team orchestrator. The released 0.1.3 baseline is a local CLI and
 protocol substrate that can govern and document agentic work. The current
 development tree adds unreleased audit replay evidence, command-policy
 enforcement, active-stop result-validation controls, dry-run Git/PR planning,
-and a controlled executor fixture runner for tests/examples, but it still cannot independently implement code, push branches, open
+local branch policy, read-only GitHub evidence sync, and a controlled executor
+fixture runner for tests/examples, but it still cannot independently implement code, push branches, open
 pull requests, assign agent roles, resolve review feedback, launch fresh
 sessions, coordinate an agent pool, or continue in an unattended loop.
 
@@ -95,8 +96,8 @@ command-policy and active-stop controls. It includes:
 - repo snapshots and clean-square validation for old-session shutdown;
 - task sizing, epoch governance, continuation checks, and pickup gates;
 - read-only candidate discovery from local repo signals, saved review
-  findings, saved GitHub review-thread files, text markers, and business
-  memory;
+  findings, saved PR check evidence, saved GitHub review-thread files, text
+  markers, and business memory;
 - read-only `loop-tick` orchestration that emits a governed next-action packet
   without starting execution, epoch mutation, PR actions, review spend, merge,
   release, or publication;
@@ -118,6 +119,11 @@ command-policy and active-stop controls. It includes:
 - dry-run-only `git-pr-plan` packets that turn validated executor evidence into
   proposed branch, commit, PR title, and PR body text without creating a branch,
   committing, pushing, calling GitHub, or opening a pull request;
+- explicit read-only `github-evidence-sync` packets that fetch PR metadata,
+  status checks, and review threads into saved local JSON evidence files without
+  GitHub writes;
+- PR readiness and candidate discovery ingestion for saved review-thread
+  evidence and saved failing-check evidence;
 - release dry-run checks that require operator confirmation before tag or
   release actions;
 - elected Codex Review GitHub workflow with preflight, dedupe, pinned action,
@@ -215,10 +221,12 @@ These are the important boundaries that are not solved yet:
 - Current flows mostly assume one active implementation agent. Future work must
   avoid baking that assumption into packet schemas, audit records, review
   gates, or GitHub automation.
-- Review integration is deterministic and local. Candidate discovery can
-  ingest saved review findings and saved GitHub review-thread files, while
-  `pr-readiness` reads saved PR data; Cadence does not fetch, synchronize, or
-  resolve live GitHub review threads.
+- Review integration is deterministic after evidence capture. Candidate
+  discovery can ingest saved review findings and saved GitHub review-thread
+  files, `pr-readiness` reads saved PR data, and `github-evidence-sync` can
+  explicitly fetch read-only PR/check/review-thread evidence into local files;
+  Cadence does not write, continuously synchronize, or resolve live GitHub
+  review threads.
 - Release verification is documented and repeatable, and `release-dry-run` can
   inspect local release metadata and Git refs, but release tagging and GitHub
   release creation still require operator execution.
@@ -322,13 +330,15 @@ Status: implemented and merged in PR #47 as an immediate stabilization slice.
 Current evidence: repo snapshots now include `readiness_evidence` with
 `freshness: local_only` and limitations for unfetched PR/review state.
 `pr-readiness` packets now include `readiness_evidence` for `saved_input`,
-`stale`, and caller-asserted `live_like` evidence. Snapshot validation now
+`stale`, and caller-asserted `live_like` evidence, and
+`github-evidence-sync` can refresh PR/check/review-thread evidence into saved
+local files before those deterministic readers run. Snapshot validation now
 requires local snapshot readiness evidence. Saved PR JSON can be age-gated with
 `--max-pr-json-age-minutes`; stale or future-dated saved evidence waits before
 acting on PR blockers and recommends `refresh_pr_evidence`. Negative age limits
 are rejected. Caller-asserted `live_like` evidence is not gated by saved-JSON
-age policy. The CLI still evaluates saved JSON files only and does not call
-GitHub.
+age policy. `pr-readiness` still evaluates saved JSON files only and does not
+call GitHub.
 
 Implementation files: `codex_cadence/repo_state.py`,
 `codex_cadence/pr_readiness.py`, `codex_cadence/cli.py`, tests, docs.
@@ -339,7 +349,8 @@ stale and future-dated saved PR evidence with refresh recommendation before
 stale blockers, non-negative CLI age limits, and live-like evaluator labels
 that remain outside saved-JSON age policy.
 
-Follow-up: live GitHub fetching and reconciliation remain future work.
+Follow-up: continuous GitHub reconciliation and write-side PR/review actions
+remain future work.
 
 ## Short-Term Goals
 
@@ -475,19 +486,24 @@ behavior require a later explicit operator-approved slice.
 Goal: convert failing checks and unresolved actionable review comments into
 bounded candidates for the next loop tick.
 
-Current evidence: candidate discovery can ingest saved review findings and
-saved review-thread files, while PR readiness reports blockers. Live sync and
-resolution tracking are not implemented.
+Current evidence: candidate discovery can ingest saved review findings, saved
+review-thread files, and saved PR JSON check failures. `github-evidence-sync`
+can explicitly fetch read-only live PR metadata, status checks, and review
+threads into local evidence files, while PR readiness reports blockers from
+saved PR JSON and saved review-thread JSON. Write-side sync, automatic response
+actions, and resolution tracking are not implemented.
 
-Likely files: `codex_cadence/candidates.py`,
-`codex_cadence/pr_readiness.py`, `codex_cadence/repo_state.py`, tests.
+Likely files: `codex_cadence/github_evidence.py`,
+`codex_cadence/candidates.py`, `codex_cadence/pr_readiness.py`, tests.
 
-Validation: fixtures where a failing check becomes a fix candidate, unresolved
-review feedback blocks merge readiness, resolved feedback is ignored, and
-outdated feedback is ignored.
+Validation: fixtures where mocked `gh` success writes saved evidence, missing
+or failing `gh` blocks without partial files, a failing check becomes a fix
+candidate, unresolved review feedback blocks merge readiness, resolved feedback
+is ignored, and outdated feedback is ignored.
 
-Codex can implement direct local ingestion. Live GitHub synchronization
-requires operator approval before credentials or workflow permissions change.
+Codex can implement direct local ingestion and explicit read-only GitHub
+evidence capture. GitHub writes require operator approval before credentials or
+workflow permissions change.
 
 ### Resume verifier
 
@@ -514,8 +530,8 @@ branch isolation, PR review, CI, documentation updates, handoff contracts, and
 merge decisions.
 
 Current evidence: Phase 1 governance primitives exist locally, but no agent
-pool, role registry, issue assignment workflow, distributed lock, live GitHub
-sync, or role-aware permission system exists.
+pool, role registry, issue assignment workflow, distributed lock, write-side
+GitHub sync, or role-aware permission system exists.
 
 Risk: high.
 

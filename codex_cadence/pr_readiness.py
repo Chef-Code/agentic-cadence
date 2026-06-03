@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from codex_cadence.github_evidence import review_thread_findings_from_payload
+
 PASSING_STATES = {"SUCCESS", "NEUTRAL"}
 SKIPPED_STATES = {"SKIPPED"}
 FAILED_STATES = {
@@ -483,6 +485,7 @@ def evaluate_pr_readiness(
     *,
     required_checks: list[str] | None = None,
     required_body_sections: list[str] | None = None,
+    review_threads: dict[str, Any] | None = None,
     evidence_source: str = "saved_pr_json",
     evidence_captured_at: datetime | str | None = None,
     max_evidence_age_minutes: int | None = None,
@@ -560,8 +563,40 @@ def evaluate_pr_readiness(
     )
     review, review_blockers = _review_summary(pr.get("reviewDecision"))
     template, template_blockers = _summarize_template(str(pr.get("body") or ""), required_sections)
+    review_feedback_summary = None
+    review_feedback_blockers: list[dict[str, Any]] = []
+    if review_threads is not None:
+        review_findings, review_warnings = review_thread_findings_from_payload(review_threads)
+        for warning in review_warnings:
+            review_feedback_blockers.append(_issue("review_thread_evidence_invalid", warning))
+        review_feedback_summary = {
+            "unresolved_actionable_comments": len(review_findings),
+            "findings": [
+                {
+                    "id": finding.get("id"),
+                    "thread_id": finding.get("thread_id"),
+                    "file": finding.get("file"),
+                    "line": finding.get("line"),
+                    "author": finding.get("author"),
+                    "body": finding.get("body"),
+                }
+                for finding in review_findings
+            ],
+        }
+        for finding in review_findings:
+            review_feedback_blockers.append(
+                _issue(
+                    "unresolved_review_comment",
+                    "unresolved actionable review comment blocks merge readiness",
+                    id=finding.get("id"),
+                    thread_id=finding.get("thread_id"),
+                    file=finding.get("file"),
+                    line=finding.get("line"),
+                )
+            )
     blockers.extend(check_blockers)
     blockers.extend(review_blockers)
+    blockers.extend(review_feedback_blockers)
     blockers.extend(template_blockers)
     waiting.extend(check_waiting)
     warnings.extend(check_warnings)
@@ -583,7 +618,7 @@ def evaluate_pr_readiness(
         decision = "ready"
         action = "merge_after_operator_confirmation"
 
-    return {
+    packet = {
         "ready_to_merge": decision == "ready",
         "decision": decision,
         "recommended_next_action": action,
@@ -607,3 +642,6 @@ def evaluate_pr_readiness(
             "head_sha": pr.get("headRefOid"),
         },
     }
+    if review_feedback_summary is not None:
+        packet["review_feedback_summary"] = review_feedback_summary
+    return packet

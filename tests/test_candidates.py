@@ -784,6 +784,102 @@ class CandidateDiscoveryBudgetTests(unittest.TestCase):
             )
             self.assertEqual(result["sources"]["review_findings"], 1)
 
+    def test_pr_json_failed_checks_create_execution_candidates(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            init_repo(tmp)
+            pr_json = Path(tmp, "pr.json")
+            pr_json.write_text(
+                json.dumps(
+                    {
+                        "number": 67,
+                        "statusCheckRollup": [
+                            {
+                                "__typename": "CheckRun",
+                                "name": "Python and protocol checks",
+                                "status": "COMPLETED",
+                                "conclusion": "FAILURE",
+                                "workflowName": "PR Checks",
+                                "detailsUrl": "https://example.test/checks/python",
+                            },
+                            {
+                                "__typename": "CheckRun",
+                                "name": "Package install",
+                                "status": "COMPLETED",
+                                "conclusion": "SUCCESS",
+                                "workflowName": "PR Checks",
+                            },
+                            {
+                                "__typename": "StatusContext",
+                                "context": "CodeRabbit",
+                                "state": "ERROR",
+                                "targetUrl": "https://example.test/status/coderabbit",
+                            },
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = discover_candidates(cwd=Path(tmp), intent="merge_readiness", pr_json_file=pr_json)
+
+            check_candidates = [item for item in result["candidates"] if item["source"] == "pr_check_failure"]
+            self.assertEqual(len(check_candidates), 2)
+            self.assertEqual(
+                {candidate["evidence"]["check"] for candidate in check_candidates},
+                {"Python and protocol checks", "CodeRabbit"},
+            )
+            self.assertEqual(result["sources"]["pr_check_failures"], 2)
+            self.assertEqual(result["run_signals"]["repo_confidence"], "low")
+            self.assertIn("ci_verification", check_candidates[0]["drivers"])
+
+    def test_pr_json_failed_check_fingerprints_are_stable_and_deduped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            init_repo(tmp)
+            pr_json = Path(tmp, "pr.json")
+            python_failure = {
+                "__typename": "CheckRun",
+                "name": "Python and protocol checks",
+                "status": "COMPLETED",
+                "conclusion": "FAILURE",
+                "workflowName": "PR Checks",
+                "detailsUrl": "https://example.test/checks/python",
+            }
+            coderabbit_failure = {
+                "__typename": "StatusContext",
+                "context": "CodeRabbit",
+                "state": "ERROR",
+                "targetUrl": "https://example.test/status/coderabbit",
+            }
+
+            pr_json.write_text(
+                json.dumps({"number": 67, "statusCheckRollup": [python_failure, coderabbit_failure]}),
+                encoding="utf-8",
+            )
+            first_result = discover_candidates(cwd=Path(tmp), intent="merge_readiness", pr_json_file=pr_json)
+            pr_json.write_text(
+                json.dumps(
+                    {
+                        "number": 67,
+                        "statusCheckRollup": [
+                            dict(coderabbit_failure, targetUrl="https://example.test/status/coderabbit-rerun"),
+                            dict(python_failure, detailsUrl="https://example.test/checks/python-rerun"),
+                            dict(python_failure, detailsUrl="https://example.test/checks/python-another-rerun"),
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            second_result = discover_candidates(cwd=Path(tmp), intent="merge_readiness", pr_json_file=pr_json)
+
+            first_fingerprints = {
+                item["fingerprint"] for item in first_result["candidates"] if item["source"] == "pr_check_failure"
+            }
+            second_fingerprints = {
+                item["fingerprint"] for item in second_result["candidates"] if item["source"] == "pr_check_failure"
+            }
+            self.assertEqual(first_fingerprints, second_fingerprints)
+            self.assertEqual(second_result["sources"]["pr_check_failures"], 2)
+
     def test_review_threads_file_creates_actionable_review_finding_candidates(self):
         with tempfile.TemporaryDirectory() as tmp:
             init_repo(tmp)

@@ -42,8 +42,8 @@ orchestration must preserve these invariants:
 - handoff is explicit when work crosses a session or role boundary;
 - small bounded slices are preferred over large ambiguous work.
 
-Current commands do not implement role assignment, live GitHub synchronization,
-branch creation, PR creation, or merge authority. Protocol language that
+Current commands do not implement role assignment, continuous or write-side
+GitHub synchronization, branch creation, PR creation, or merge authority. Protocol language that
 mentions agent roles or an agent pool is a design target unless a command
 explicitly documents otherwise.
 
@@ -186,7 +186,20 @@ Business-memory candidates are discovery-only. They can inform the election pool
 
 Proposal allowance has three modes: `none`, `surface`, and `elect`. `elect` allows proposals into the election pool, but synthetic proposals remain discovery-first and cannot bypass task sizing, snapshots, Cadence state checks, self-check, or governance policy.
 
-Reviewer feedback may enter candidate discovery through two local files. `--review-findings-file` reads the existing normalized JSON list of findings. `--review-threads-file` reads saved GitHub GraphQL `reviewThreads` JSON with `isResolved`, `isOutdated`, and comment `outdated` status fields, then converts actionable unresolved, current review comments into the same `review_finding` candidate shape. This ingestion must stay deterministic and local: it must not call GitHub, trust PR body text, include resolved or outdated threads, assume missing status fields are current, include non-actionable summaries such as walkthroughs or no-actionable-comments reports, or bypass repo-relative path validation.
+Reviewer and CI feedback may enter candidate discovery through local evidence
+files. `--pr-json-file` reads saved PR JSON with `statusCheckRollup` and
+converts failed check runs or failed status contexts into `pr_check_failure`
+execution candidates. `--review-findings-file` reads the existing normalized
+JSON list of findings. `--review-threads-file` reads saved GitHub GraphQL
+`reviewThreads` JSON with `isResolved`, `isOutdated`, and comment `outdated`
+status fields, then converts actionable unresolved, current review comments
+into the same `review_finding` candidate shape. Candidate ingestion uses saved
+feedback as local work-discovery input; readiness decisions apply stricter
+completeness gates. This ingestion must stay
+deterministic and local: it must not call GitHub, trust PR body text, include
+resolved or outdated threads, assume missing status fields are current, include
+non-actionable summaries such as walkthroughs or no-actionable-comments
+reports, or bypass repo-relative path validation.
 
 ## Loop Tick
 
@@ -309,7 +322,48 @@ current `main` checkout when `allow_current_branch_main` is false must block
 review readiness. Branch-policy blockers must not create branches, change refs,
 call GitHub, or treat a dry-run plan as approval.
 
-PR readiness may check target-repository template compliance from local files. `pr-readiness --pr-template-file <path>` must read a Markdown pull request template, derive required PR body sections from its headings, and report missing template sections through the readiness packet. It must include `readiness_evidence` labels so consumers can distinguish `saved_input`, `stale`, and caller-asserted `live_like` evidence. The CLI reads local saved PR JSON and labels it `saved_input`; when `--max-pr-json-age-minutes` is supplied and the file mtime exceeds that limit, it must label the packet `stale`, add a `pr_evidence_stale` waiting item, and recommend `refresh_pr_evidence` before acting on stale blockers. When a saved PR JSON file has a future mtime, it must label the packet `stale`, add a `pr_evidence_from_future` waiting item, and recommend `refresh_pr_evidence`. Negative `--max-pr-json-age-minutes` values must fail closed. Saved-JSON age policy applies only to saved PR JSON, not to caller-asserted `live_like` evaluator inputs. It must ignore headings inside HTML comments or fenced code blocks, match saved PR body headings by section label rather than by heading level, stay repo-agnostic, and must not hard-code target-specific labels, call GitHub, rewrite the PR body, spend paid review, or merge the PR.
+`github-evidence-sync` is the explicit read-only live evidence boundary. It may
+shell out to `gh` only when an operator invokes the command with `--repo`,
+`--pr-number`, and `--out-dir`. It fetches PR metadata/check state through
+`gh pr view` and review-thread state through GitHub GraphQL, then writes saved
+PR JSON, saved `reviewThreads` JSON, and a summary packet to local files. It
+must label the evidence as live read-only input, fail closed for missing `gh`,
+GitHub CLI spawn failure, authentication failure, rate limit, network failure,
+malformed JSON, or
+malformed repo slugs, and does not write partial evidence when either live fetch
+fails or evidence-file writes cannot complete as a set. Review-thread fetches
+must include `pageInfo.hasNextPage` for review threads and comments and follow
+GitHub cursors until all pages have been captured; if pagination cannot be
+completed or pagination evidence is omitted, the sync must block instead of
+saving incomplete evidence as valid. `--out-dir` must be outside the current
+Git worktree so local evidence capture does not dirty the repository. The
+command must not create branches, commit, push, call GitHub write endpoints,
+create or edit pull requests, spend paid review, merge, release, or publish
+packages.
+
+PR readiness may check target-repository template compliance and review
+feedback from local files. `pr-readiness --pr-template-file <path>` must read a
+Markdown pull request template, derive required PR body sections from its
+headings, and report missing template sections through the readiness packet.
+`pr-readiness --review-threads-file <path>` must read saved GitHub GraphQL
+`reviewThreads` JSON and block unresolved actionable current review comments
+while ignoring resolved, outdated, and non-actionable comments. Malformed,
+missing-status, or incomplete paginated review-thread evidence must block
+readiness instead of being treated as zero feedback. It must include
+`readiness_evidence` labels so consumers can distinguish `saved_input`, `stale`,
+and caller-asserted `live_like` evidence. The CLI reads local saved PR JSON and
+labels it `saved_input`; when `--max-pr-json-age-minutes` is supplied and the
+file mtime exceeds that limit, it must label the packet `stale`, add a
+`pr_evidence_stale` waiting item, and recommend `refresh_pr_evidence` before
+acting on stale blockers. When a saved PR JSON file has a future mtime, it must
+label the packet `stale`, add a `pr_evidence_from_future` waiting item, and
+recommend `refresh_pr_evidence`. Negative `--max-pr-json-age-minutes` values
+must fail closed. Saved-JSON age policy applies only to saved PR JSON, not to
+caller-asserted `live_like` evaluator inputs. It must ignore headings inside
+HTML comments or fenced code blocks, match saved PR body headings by section
+label rather than by heading level, stay repo-agnostic, and must not hard-code
+target-specific labels, call GitHub, rewrite the PR body, spend paid review, or
+merge the PR.
 
 PR body preflight covers the pre-publish side of the same template contract. `pr-body-preflight --body-file <path> --pr-template-file <path>` must read a draft PR body and a local Markdown pull request template, derive required template sections from template headings, and report missing template sections before PR creation or update. It must reuse the same heading parser as PR readiness, match draft body headings by normalized section label, ignore headings inside HTML comments or fenced code blocks without creating false setext headings across skipped blocks, stay repo-agnostic, and must not hard-code target-specific labels, call GitHub, rewrite the body file, create a PR, update a PR, spend paid review, or merge the PR. If no template file or `--required-body-section` is supplied, it must fail closed and recommend `provide_template_or_sections`.
 

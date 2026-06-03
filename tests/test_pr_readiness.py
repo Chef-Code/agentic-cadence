@@ -55,6 +55,21 @@ def base_pr(**overrides):
     return data
 
 
+def review_threads_payload(nodes):
+    return {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": nodes,
+                    }
+                }
+            }
+        }
+    }
+
+
 class PrReadinessTests(unittest.TestCase):
     def test_body_preflight_reports_ready_draft_body(self):
         packet = evaluate_pr_body_preflight(
@@ -325,6 +340,107 @@ class PrReadinessTests(unittest.TestCase):
             {blocker["code"] for blocker in packet["blockers"]},
             {"check_failed", "review_changes_requested", "required_body_section_missing"},
         )
+
+    def test_unresolved_actionable_review_threads_block_readiness(self):
+        packet = evaluate_pr_readiness(
+            base_pr(),
+            required_checks=["Python and protocol checks"],
+            review_threads=review_threads_payload(
+                [
+                    {
+                        "id": "thread-1",
+                        "isResolved": False,
+                        "isOutdated": False,
+                        "path": "codex_cadence/cli.py",
+                        "line": 120,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-1",
+                                    "body": "Address this current review finding before merge.",
+                                    "outdated": False,
+                                    "author": {"login": "coderabbitai"},
+                                }
+                            ]
+                        },
+                    },
+                    {
+                        "id": "thread-2",
+                        "isResolved": True,
+                        "isOutdated": False,
+                        "path": "codex_cadence/cli.py",
+                        "line": 130,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-2",
+                                    "body": "Resolved comments should not block.",
+                                    "outdated": False,
+                                }
+                            ]
+                        },
+                    },
+                    {
+                        "id": "thread-3",
+                        "isResolved": False,
+                        "isOutdated": False,
+                        "path": "docs/protocol.md",
+                        "line": 20,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-3",
+                                    "body": "<!-- walkthrough_start -->\n## Walkthrough\nNo actionable findings.",
+                                    "outdated": False,
+                                }
+                            ]
+                        },
+                    },
+                ]
+            ),
+        )
+
+        self.assertFalse(packet["ready_to_merge"])
+        self.assertEqual(packet["decision"], "blocked")
+        self.assertEqual({blocker["code"] for blocker in packet["blockers"]}, {"unresolved_review_comment"})
+        self.assertEqual(packet["review_feedback_summary"]["unresolved_actionable_comments"], 1)
+        self.assertEqual(packet["review_feedback_summary"]["findings"][0]["id"], "comment-1")
+
+    def test_malformed_review_threads_block_readiness(self):
+        packet = evaluate_pr_readiness(
+            base_pr(),
+            required_checks=["Python and protocol checks"],
+            review_threads={"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": "not-list"}}}}},
+        )
+
+        self.assertFalse(packet["ready_to_merge"])
+        self.assertEqual(packet["decision"], "blocked")
+        self.assertEqual({blocker["code"] for blocker in packet["blockers"]}, {"review_thread_evidence_invalid"})
+
+    def test_incomplete_review_threads_block_readiness(self):
+        packet = evaluate_pr_readiness(
+            base_pr(),
+            required_checks=["Python and protocol checks"],
+            review_threads={
+                "data": {
+                    "repository": {
+                        "pullRequest": {
+                            "reviewThreads": {
+                                "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+                                "nodes": [],
+                            }
+                        }
+                    }
+                }
+            },
+        )
+
+        self.assertFalse(packet["ready_to_merge"])
+        self.assertEqual(packet["decision"], "blocked")
+        self.assertEqual({blocker["code"] for blocker in packet["blockers"]}, {"review_thread_evidence_invalid"})
 
     def test_template_sections_are_extracted_from_markdown_headings(self):
         template = """<!--
@@ -623,6 +739,60 @@ class PrReadinessTests(unittest.TestCase):
             self.assertEqual(packet["decision"], "ready")
             self.assertEqual(packet["readiness_evidence"]["freshness"], "saved_input")
             self.assertEqual(packet["readiness_evidence"]["source"], "saved_pr_json")
+
+    def test_cli_pr_readiness_reads_review_threads_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pr_json = Path(tmp) / "pr.json"
+            threads = Path(tmp) / "threads.json"
+            pr_json.write_text(json.dumps(base_pr()), encoding="utf-8")
+            threads.write_text(
+                json.dumps(
+                    review_threads_payload(
+                        [
+                            {
+                                "id": "thread-1",
+                                "isResolved": False,
+                                "isOutdated": False,
+                                "path": "codex_cadence/cli.py",
+                                "line": 120,
+                                "comments": {
+                                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                    "nodes": [
+                                        {
+                                            "id": "comment-1",
+                                            "body": "Fix this before merge.",
+                                            "outdated": False,
+                                        }
+                                    ]
+                                },
+                            }
+                        ]
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "pr-readiness",
+                    "--pr-json-file",
+                    str(pr_json),
+                    "--review-threads-file",
+                    str(threads),
+                    "--required-check",
+                    "Python and protocol checks",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            packet = json.loads(result.stdout)
+            self.assertFalse(packet["ready_to_merge"])
+            self.assertEqual({blocker["code"] for blocker in packet["blockers"]}, {"unresolved_review_comment"})
 
     def test_cli_marks_stale_saved_pr_json_when_max_age_is_supplied(self):
         with tempfile.TemporaryDirectory() as tmp:

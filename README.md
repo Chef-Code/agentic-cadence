@@ -339,16 +339,36 @@ agentic-cadence prepare-handoff --id context-loop --title "Continue bounded work
 
 The command does not claim the handoff, launch a new agent window, commit, push, open a PR, spend review, or merge. V1 requires an explicit guardrail such as `--guardrail context`; automatic context detection requires a host/session signal that Cadence does not infer from transcript guesses.
 
+## GitHub Evidence Sync
+
+`github-evidence-sync` is an explicit read-only live fetch for PR evidence. It
+uses `gh pr view` and GitHub GraphQL review-thread reads only when the operator
+asks for them, then writes local JSON evidence files for later deterministic
+commands:
+
+```bash
+agentic-cadence github-evidence-sync --repo owner/repo --pr-number 9 --out-dir .cadence/github-evidence/pr-9
+```
+
+Successful sync writes saved PR JSON, saved review-thread JSON, and a summary
+packet. Missing `gh`, authentication failure, rate limit, network failure, or
+malformed JSON returns a blocked packet and does not write partial evidence
+files. Incomplete paginated review-thread evidence also blocks instead of being
+saved as valid. The command does not create branches, commit, push, edit pull
+requests, merge, release, or publish packages.
+
 ## PR Readiness
 
-`pr-readiness` evaluates saved `gh pr view --json ...` output and returns a deterministic merge-readiness packet. It does not call GitHub, spend paid review, or merge the PR.
+`pr-readiness` evaluates saved `gh pr view --json ...` output and optional saved
+review-thread JSON, then returns a deterministic merge-readiness packet. It does
+not call GitHub, spend paid review, or merge the PR.
 
 ```bash
 gh pr view 9 --json number,title,state,isDraft,mergeable,mergeStateStatus,reviewDecision,body,headRefName,baseRefName,headRefOid,statusCheckRollup > pr.json
-agentic-cadence pr-readiness --pr-json-file pr.json --required-check "Python and protocol checks" --pr-template-file .github/pull_request_template.md
+agentic-cadence pr-readiness --pr-json-file pr.json --review-threads-file review-threads.json --required-check "Python and protocol checks" --pr-template-file .github/pull_request_template.md
 ```
 
-The packet reports blockers, waiting checks, duplicate check groups, skipped Codex Review jobs, missing body sections, missing PR-template sections, readiness evidence freshness, and the recommended next action. Saved PR JSON is labeled `saved_input`; when `--max-pr-json-age-minutes` is supplied and the file mtime is older than that limit, or appears to come from the future, the packet is labeled `stale`, waits, and recommends `refresh_pr_evidence`. The age limit must be non-negative and applies to saved PR JSON only; caller-asserted `live_like` evaluator inputs are labeled but not stale-gated by this saved-file policy. `--pr-template-file` reads a local Markdown template and checks that its headings are represented in the saved PR body; it does not rewrite the PR.
+The packet reports blockers, waiting checks, duplicate check groups, skipped Codex Review jobs, unresolved actionable review comments, malformed or incomplete review-thread evidence, missing body sections, missing PR-template sections, readiness evidence freshness, and the recommended next action. Saved PR JSON is labeled `saved_input`; when `--max-pr-json-age-minutes` is supplied and the file mtime is older than that limit, or appears to come from the future, the packet is labeled `stale`, waits, and recommends `refresh_pr_evidence`. The age limit must be non-negative and applies to saved PR JSON only; caller-asserted `live_like` evaluator inputs are labeled but not stale-gated by this saved-file policy. `--pr-template-file` reads a local Markdown template and checks that its headings are represented in the saved PR body; it does not rewrite the PR. `discover-candidates --pr-json-file <path> --review-threads-file <path>` can turn failing checks and unresolved current actionable review comments from saved evidence into bounded candidates.
 
 ## PR Body Preflight
 

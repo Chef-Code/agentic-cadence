@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-02
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, and controlled executor fixture current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, and controlled executor fixture current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -88,14 +88,17 @@ runtime can do these things end-to-end:
   decision;
 - generate a dry-run Git/PR transition plan from validated executor evidence,
   with local branch/head/base checks, explicit materialized-change evidence,
-  PR body preflight, operator-confirmation requirements, and no Git or GitHub
-  side effects;
+  task-carried branch policy, PR body preflight, operator-confirmation
+  requirements, and no Git or GitHub side effects;
+- explicitly fetch read-only live GitHub PR metadata, status checks, and review
+  threads into saved local JSON evidence files through `github-evidence-sync`;
 - size tasks and enforce pickup policy;
 - start, check, complete, or fail bounded epochs;
 - prepare a signed handoff packet and clean-square evidence;
 - approve, claim, complete, or fail handoffs;
-- evaluate saved PR JSON and saved PR body/template files for readiness,
-  including `saved_input`, `stale`, and caller-asserted `live_like` evidence.
+- evaluate saved PR JSON, saved review-thread JSON, and saved PR body/template
+  files for readiness, including `saved_input`, `stale`, and caller-asserted
+  `live_like` evidence.
 
 These capabilities are still single-agent Phase 1 primitives, but they are not
 throwaway work. They are the same primitives a future orchestrator needs for
@@ -126,8 +129,8 @@ Agentic Cadence cannot currently:
 - commit changes;
 - push to a remote;
 - open or update a pull request;
-- fetch live GitHub PR, check, comment, or review-thread state from the CLI;
 - resolve review feedback;
+- create, edit, or resolve GitHub PRs or review comments;
 - trigger follow-up implementation from live CI or review failures;
 - infer context pressure without explicit host input;
 - launch a fresh coding-agent session;
@@ -152,10 +155,10 @@ Agentic Cadence cannot currently:
 | Continuous loop runner | Not built | Planned slice |
 | Executor adapter contract | Partial generic contract | Task/result packet validation and a fake controlled fixture runner exist, including snapshot trust-anchor checks, but no real executor or named host adapter |
 | Autonomous implementation | Not built | Requires real executor integration |
-| Live GitHub sync | Not built | Planned slice |
+| Live GitHub sync | Partial, read-only evidence capture | `github-evidence-sync` fetches PR JSON and review threads into local files without GitHub writes |
 | Git/PR transition planning | Partial, dry-run only | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects |
 | Branch/commit/push/PR creation | Not built | Live creation remains future work |
-| Review response loop | Partial local ingestion only | Saved review files can become candidates |
+| Review response loop | Partial saved/live-read-only evidence ingestion | Saved review files and synced review threads can become candidates; no automatic response writes |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
 | New-session launch/resume | Partial handoff packets only | External orchestration required |
 
@@ -169,7 +172,8 @@ approval, validate the packet's local snapshot trust anchor, run a controlled
 fake executor fixture from an explicit command template for tests/examples,
 validate local executor result evidence, close out the active epoch, and produce a dry-run Git/PR transition plan for
 separate review. It can govern handoff and continuation decisions. It can
-evaluate saved PR evidence. It cannot perform the core build loop by
+evaluate saved PR evidence and fetch read-only live PR/check/review-thread
+evidence into saved files. It cannot perform the core build loop by
 itself, and it cannot yet coordinate a team of role-specific agents.
 
 The current loop stops after:
@@ -190,7 +194,7 @@ active epoch from that evidence, but it does not implement product changes. The
 dry-run `git-pr-plan` handoff remains
 review-only. Real code changes, operator-approved Git/PR
 materialization, live commit, push, PR creation or update, review feedback
-fetching, and new-session launch remain external or future approved slices. At
+response writes, and new-session launch remain external or future-approved slices. At
 `policy_denied`, an operator must adjust the task bounds or policy before
 execution can be considered. Audit history is now locally inspectable through
 `audit-replay`, but clean replay evidence is not approval to execute work and
@@ -210,12 +214,13 @@ The next likely failures are:
    rules are not yet enforced immediately before live Git/PR materialization;
 2. no live branch/commit/push/PR workflow exists; the current Git/PR increment
    is only a dry-run planning packet for operator or future role review;
-3. missing live synchronization. Repo snapshots are local git snapshots, and PR
-   readiness reads saved input files. Cadence labels `local_only`,
+3. live synchronization is read-only and operator-triggered. Repo snapshots are
+   local git snapshots, and synced PR/check/review-thread evidence is saved to
+   local files before later commands consume it. Cadence labels `local_only`,
    `saved_input`, `stale`, and caller-asserted `live_like` evidence, but it
-   still does not fetch or reconcile live PR, review, or CI state;
-4. review comments and failing checks are not automatically synchronized back
-   into the candidate loop;
+   still does not reconcile or mutate live PR state continuously;
+4. review comments and failing checks can become candidates from saved evidence,
+   but no automatic response loop implements fixes or writes PR updates;
 5. context pressure is only known when a host explicitly reports it;
 6. no agent-role identity or review-separation model exists, so Cadence cannot
    prove that a Builder Agent and Reviewer Agent are distinct actors;
@@ -284,7 +289,9 @@ Reasoning:
 - Candidate discovery is deterministic and conservative.
 - Adapter contracts are tested at the public CLI boundary.
 - Readiness packets now distinguish `local_only`, `saved_input`, `stale`, and
-  caller-asserted `live_like` evidence.
+  caller-asserted `live_like` evidence, and read-only live GitHub evidence can
+  be captured into saved PR and review-thread files for later deterministic
+  readiness and candidate-discovery commands.
 - The real implementation executor, epoch execution flow, PR automation, live
   review sync, continuous loop runner, and resume orchestration are not built.
 
