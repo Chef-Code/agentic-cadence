@@ -90,6 +90,10 @@ runtime can do these things end-to-end:
   with local branch/head/base checks, explicit materialized-change evidence,
   task-carried branch policy, PR body preflight, operator-confirmation
   requirements, and no Git or GitHub side effects;
+- materialize a reviewed Git/PR plan only after exact target-bound operator
+  approval and local rechecks, creating a branch from the already-materialized
+  clean commit, pushing it, and creating or updating a pull request with
+  replayable audit records;
 - explicitly fetch read-only live GitHub PR metadata, status checks, and review
   threads into saved local JSON evidence files through `github-evidence-sync`;
 - size tasks and enforce pickup policy;
@@ -133,7 +137,7 @@ Agentic Cadence cannot currently:
 - autonomously push to a remote;
 - autonomously open or update a pull request;
 - resolve review feedback;
-- create, edit, or resolve GitHub PRs or review comments;
+- autonomously create, edit, or resolve GitHub PRs or review comments;
 - trigger follow-up implementation from live CI or review failures;
 - infer context pressure without explicit host input;
 - launch a fresh coding-agent session;
@@ -199,9 +203,9 @@ and local closeout can record task completion or terminally complete/fail the
 active epoch from that evidence, but it does not implement product changes. The
 dry-run `git-pr-plan` handoff remains
 review-only until an operator invokes `git-pr-materialize` with a matching plan
-approval token. Real code changes, autonomous Git/PR materialization, dirty
-worktree commits, review feedback response writes, and new-session launch remain
-external or future-approved slices. Resume verification can block stale or
+approval token. Real code changes, autonomous Git/PR materialization,
+dirty-worktree commits, review feedback response writes, and new-session launch
+remain external or future-approved slices. Resume verification can block stale or
 mismatched pickup state, but it does not claim handoffs or launch sessions. At
 `policy_denied`, an operator must adjust the task bounds or policy before
 execution can be considered. Audit history is now locally inspectable through

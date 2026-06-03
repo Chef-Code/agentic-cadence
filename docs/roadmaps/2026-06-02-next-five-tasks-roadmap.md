@@ -1,6 +1,6 @@
-# Next Seven Tasks Roadmap
+# Next Seven Tasks Roadmap (Tasks 1-7 Complete)
 
-> **For agentic workers:** Use `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` as a public planning artifact. Implement each task on its own branch and update the living docs with evidence before merge.
+> **For agentic workers:** This roadmap is complete. Use `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` for the next public planning artifact.
 
 **Goal:** Move Agentic Cadence from a clean advisory baseline toward the first governed execution loop without adding hidden live side effects.
 
@@ -20,9 +20,9 @@ These tasks preserve the long-term orchestration path:
 4. **Phase 4: Multiple workers** - later, introduce worker ownership and conflict controls after the single-executor path is governed.
 5. **Phase 5: Agent-team orchestration** - later, coordinate role-aware Planning, Builder, Reviewer, QA, Documentation, Release, and Handoff agents through GitHub-native evidence.
 
-Tasks 1-5 intentionally land mostly in Phases 1-3. Tasks 6-7 extend that local governance path without crossing into autonomous merge, release, package publication, or full agent-team orchestration. Phases 4-5 remain explicit future gates, not hidden scope inside the executor fixture.
+Tasks 1-5 intentionally landed mostly in Phases 1-3. Tasks 6-7 extended that local governance path without crossing into autonomous merge, release, package publication, or full agent-team orchestration. Phases 4-5 remain explicit future gates, not hidden scope inside the executor fixture.
 
-## Evidence Captured On 2026-06-02
+## Evidence Updated Through 2026-06-03
 
 - Post-#64 local `main` was clean and synced at merge commit `eb7baa1`.
 - PR #63 completed Task 1 by refreshing the handoff and seeding the active business-memory backlog.
@@ -30,7 +30,10 @@ Tasks 1-5 intentionally land mostly in Phases 1-3. Tasks 6-7 extend that local g
 - `python scripts/validate_protocol.py` passed after PR #64 merged.
 - PR #66 completed Task 3 by wiring executor closeout into epoch state and next-decision logic.
 - PR #67 completed Task 4 by carrying local branch policy into executor task packets and dry-run Git/PR planning.
-- The remaining immediate work starts at Task 5: add read-only GitHub evidence sync and feedback candidates.
+- PR #68 completed Task 5 by adding read-only GitHub evidence sync and feedback candidates.
+- PR #69 completed Task 6 by adding operator-approved Git/PR materialization.
+- PR #70 completed Task 7 by adding read-only resume verification.
+- The next public roadmap is `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
 
 ## Task 1: Refresh Handoff And Seed The Active Backlog
 
@@ -261,7 +264,7 @@ git diff --check
 
 ## Task 6: Add Operator-Approved Git/PR Materialization
 
-**Status:** Implemented in current tree; pending review and merge.
+**Status:** Merged in PR #69.
 
 **Phase:** Phase 3 Git/PR governance, after branch policy and read-only GitHub evidence sync.
 
@@ -322,7 +325,7 @@ git diff --check
 
 ## Task 7: Add Resume Verifier And Handoff Pickup Gate
 
-**Status:** Not started.
+**Status:** Merged in PR #70.
 
 **Phase:** Phase 2 governed execution hardening, preparing future Phase 4 worker coordination.
 
@@ -342,6 +345,17 @@ git diff --check
 - Require stale or mismatched handoffs to be re-created or explicitly failed rather than silently resumed.
 - Keep new-session launch, host context-pressure detection, real executor invocation, branch creation, PR writes, merge, release, and package publication outside this slice.
 
+**Current-tree implementation:** `verify-resume` emits a read-only
+`resume-verification.v1` packet with stable blocker codes and recommended next
+actions for handoff signature/state, claimed-record content, clean-square
+evidence, persisted resume snapshot binding, current repo branch/head,
+dirty-worktree state, active brake, active epoch shape and baseline, and
+pickup-policy approval evidence. Prepared handoffs carry structured resume
+snapshot metadata, and the verifier binds that metadata to the persisted
+snapshot record plus the signed handoff message before trusting repo claims.
+It does not claim handoffs, launch sessions, invoke executors, create branches,
+write pull requests, merge, release, or publish packages.
+
 **Validation:**
 - Valid handoff, clean-square, repo head, policy, and Cadence state produce a resumable packet.
 - Stale SHA, wrong branch, dirty worktree, missing clean-square, missing approval, double claim, active stop, and active epoch conflict block resume with stable reason codes.
@@ -357,12 +371,12 @@ python scripts/ci_smoke.py
 git diff --check
 ```
 
-## Recommended Order
+## Completed Order
 
 1. Task 1, already complete in PR #63, refreshed the stale repo handoff and seeded the backlog.
 2. Task 2, already complete in PR #64, proved the first executor-as-component path with a controlled fixture.
-3. Task 3, because executor evidence must affect epochs and next decisions before the loop is meaningfully governed.
-4. Task 4, because branch policy is the Git/PR governance boundary before executor output becomes branch or PR work.
-5. Task 5, because review and CI feedback only become useful after the loop can consume post-execution state.
-6. Task 6, because live Git/PR materialization should come only after branch policy and read-only GitHub evidence make the approval decision reviewable.
-7. Task 7, because resume verification should harden continuation before the same governed loop spans more sessions, roles, or handoffs.
+3. Task 3, complete in PR #66, made executor evidence affect epochs and next decisions before the loop became meaningfully governed.
+4. Task 4, complete in PR #67, added branch policy as the Git/PR governance boundary before executor output becomes branch or PR work.
+5. Task 5, complete in PR #68, made review and CI feedback useful after the loop can consume post-execution state.
+6. Task 6, complete in PR #69, added live Git/PR materialization only after branch policy and read-only GitHub evidence made the approval decision reviewable.
+7. Task 7, complete in PR #70, hardened continuation before the same governed loop spans more sessions, roles, or handoffs.

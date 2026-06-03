@@ -98,18 +98,35 @@ Do not:
 
 ## Controlled Executor Loop Needs Stable Gates
 
+Status: fulfilled
+Fulfilled By: PR #64 controlled fixture; PR #66 epoch closeout; PR #67 branch policy; PR #68 read-only GitHub evidence sync; PR #69 operator-approved Git/PR materialization; PR #70 resume verifier
+Kind: risk
+Workflow: Controlled executor loop governance
+Time Saved: high
+Risk: high
+Pain: The roadmap's first execution path needed stable gates before real executor invocation could be considered.
+Signals:
+- `loop-tick --emit-executor-task` can produce bounded task packets, and PR #64 added `run-controlled-executor-fixture` to govern a fake external executor component in tests/examples.
+- Task 3 current-tree work added `closeout-executor-result` so validated local executor evidence can mark a task complete while other epoch tasks remain, complete or fail terminal epochs, and emit continue, stop, handoff, validate-more-evidence, or dry-run Git/PR planning decisions.
+- `validate-executor-result`, command policy, branch policy, active stop checks, controlled fixture invocation audit, epoch closeout audit, audit replay, read-only GitHub evidence sync, operator-approved `git-pr-materialize`, and read-only `verify-resume` now exist.
+Do not:
+- Do not invoke a real executor, auto-merge, release, or publish packages from this backlog entry.
+- Do not make Cadence itself the product authority for implementation; it should govern a replaceable executor component.
+- Do not treat fixture success as approval for named-host adapter support or unattended live repository writes.
+
+## Governed Execution Needs A Start Gate
+
 Status: active
 Kind: risk
 Workflow: Controlled executor loop governance
 Time Saved: high
 Risk: high
-Pain: The roadmap's first execution path now has one controlled fixture component, local epoch closeout wiring, branch policy, read-only GitHub evidence sync, and current-tree operator-approved Git/PR materialization, but real executor invocation remains blocked until resume verification and result evidence gates are stable.
+Pain: Cadence can emit bounded executor task packets and validate result evidence, but no command yet consumes an approved task packet, rechecks current repo/policy/brake state, starts one active epoch, and hands off a task packet while still refusing to invoke a real executor.
 Signals:
-- `loop-tick --emit-executor-task` can produce bounded task packets, and PR #64 added `run-controlled-executor-fixture` to govern a fake external executor component in tests/examples.
-- Task 3 current-tree work added `closeout-executor-result` so validated local executor evidence can mark a task complete while other epoch tasks remain, complete or fail terminal epochs, and emit continue, stop, handoff, validate-more-evidence, or dry-run Git/PR planning decisions.
-- `validate-executor-result`, command policy, branch policy, active stop checks, controlled fixture invocation audit, epoch closeout audit, audit replay, read-only GitHub evidence sync, and operator-approved `git-pr-materialize` exist, but resume verification is still missing.
-- The next implementation slice should add resume verification before any named host adapter or live code-modifying executor is allowed.
+- Tasks 1-7 are complete through PR #70, including controlled fixture execution, local epoch closeout, branch policy, read-only GitHub evidence sync, operator-approved Git/PR materialization, and read-only resume verification.
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` names Task 8 as the governed execution start gate.
+- The next implementation slice should bridge `loop-tick --emit-executor-task` and active epoch start without launching a real executor or granting autonomous Git/PR authority.
 Do not:
-- Do not invoke a real executor, auto-merge, release, or publish packages from this backlog entry.
-- Do not make Cadence itself the product authority for implementation; it should govern a replaceable executor component.
-- Do not treat fixture success as approval for named-host adapter support or unattended live repository writes.
+- Do not invoke a real executor, modify product code, create branches, commit, push, open PRs, auto-merge, release, or publish packages from this backlog entry.
+- Do not treat a local ownership or epoch record as a distributed lock.
+- Do not claim named-host adapter support before generic evidence and operator approval exist.
