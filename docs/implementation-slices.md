@@ -14,8 +14,10 @@ Each slice should ship with tests, evidence, and updates to the living docs.
 
 ## Current Working Baseline
 
-The five 50% confidence slices below remain the work needed for a controlled
-loop. Three smaller stabilization slices are now part of this baseline:
+The five 50% confidence slices below remain the framework for a controlled
+loop. Tasks 1-7 completed several local governance increments inside those
+slices, but the controlled loop is still incomplete. Three smaller
+stabilization slices are now part of this baseline:
 
 - Runtime-root safety guard: root-using CLI commands reject unignored
   repo-local runtime roots unless the operator explicitly allows them, while
@@ -58,6 +60,10 @@ evidence before a fresh session continues. Real executor governance,
 autonomous branch/commit/push or PR creation, automatic session launch, and
 continuous loop orchestration remain missing.
 Current unattended-operation confidence remains 10%.
+
+Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
+complete. Tasks 8-12 are tracked in
+`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
 
 ## Vision Framing
 
@@ -460,8 +466,10 @@ Validation needed:
 - remaining: freshness labels preserved when saved PR evidence is reused by
   later PR synchronization paths.
 
-Codex implementation rule: Codex can implement dry-run packets directly. Live
-push or PR creation behavior requires a later explicit operator-approved slice.
+Codex implementation rule: Codex can implement dry-run packets and the existing
+operator-approved materialization path directly. Autonomous branch creation,
+dirty-worktree commits, pull request writes without exact operator approval,
+merge, release, and package publication require later explicit approval.
 
 ## 5. CI/Review Feedback Back Into Candidate Discovery
 

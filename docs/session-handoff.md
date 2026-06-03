@@ -6,10 +6,10 @@ Last updated: 2026-06-03
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `56b154928709885bf0a9ffa314bad37eb755566d` after PR #68 merged.
-- Working branch intent: implement Task 6 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` by adding operator-approved Git/PR materialization for a validated `git-pr-plan.v1` packet.
-- Recent merged PRs: PR #56 implemented the read-only `audit-replay` CLI path; PR #57 updated this handoff after PR #56 merged; PR #58 merged the command-policy and active-stop control slice; PR #59 hardened command-policy review findings; PR #60 added the dry-run Git/PR planning design; PR #61 implemented dry-run-only `git-pr-plan`; PR #62 added the next-five-tasks roadmap; PR #63 refreshed this handoff and seeded the active business-memory backlog; PR #64 added and hardened the controlled executor fixture; PR #66 wired local executor closeout and next-decision logic; PR #67 merged local `branch_policy` for loop policy, task packets, and dry-run Git/PR planning; PR #68 merged read-only GitHub evidence sync and feedback candidates.
-- Current branch scope: `codex/task-6-git-pr-materialization` consumes a reviewed `git-pr-plan.v1` packet plus exact target-bound HMAC operator approval, re-checks local freshness, branch policy, complete materialized evidence, and PR body preflight, then materializes only branch creation, push, and PR create/update with audit records. It must not add auto-merge, release, package publication, or real executor invocation.
+- Current base: `origin/main` at `afe23bf3ba1c1447c31f6f882636aaaa0f0e7176` after PR #70 merged.
+- Working branch intent: update roadmap and handoff documentation after Tasks 1-7 completed, then hand off to Task 8 from `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
+- Recent merged PRs: PR #56 implemented the read-only `audit-replay` CLI path; PR #57 updated this handoff after PR #56 merged; PR #58 merged the command-policy and active-stop control slice; PR #59 hardened command-policy review findings; PR #60 added the dry-run Git/PR planning design; PR #61 implemented dry-run-only `git-pr-plan`; PR #62 added the next-five-tasks roadmap; PR #63 refreshed this handoff and seeded the active business-memory backlog; PR #64 added and hardened the controlled executor fixture; PR #66 wired local executor closeout and next-decision logic; PR #67 merged local `branch_policy` for loop policy, task packets, and dry-run Git/PR planning; PR #68 merged read-only GitHub evidence sync and feedback candidates; PR #69 merged operator-approved Git/PR materialization; PR #70 merged read-only resume verification and follow-up hardening.
+- Current branch scope: `codex/task-8-12-roadmap-handoff` creates the Tasks 8-12 roadmap, marks the Tasks 1-7 roadmap complete, refreshes current-state living docs, and updates this handoff. It must not add runtime behavior, executor invocation, branch/PR automation changes, auto-merge, release, or package publication.
 
 ## Current Capability Baseline
 
@@ -18,6 +18,7 @@ Last updated: 2026-06-03
 - Executor task packets can carry `branch_policy`, and `git-pr-plan` can block dry-run plans that violate allowed base branches, denied target branches, required branch prefixes, or a current `main` checkout when `allow_current_branch_main` is false.
 - `github-evidence-sync` can explicitly fetch read-only PR metadata, status checks, and review threads through `gh`, then save local PR JSON, review-thread JSON, and a summary packet for deterministic follow-on commands.
 - `git-pr-materialize` can consume a reviewed `git-pr-plan.v1` packet and matching target-bound HMAC operator approval token backed by `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`, re-run the local plan gates, create the proposed branch from the already-materialized current commit without switching the checkout, push it with Git hook verification disabled for that push, create or update a PR through `gh`, and append `git_pr_materialization_intent` plus `git_pr_materialization_result` audit records.
+- `verify-resume` can emit a read-only `resume-verification.v1` packet that checks handoff signature and claimed state, clean-square evidence, persisted resume snapshot binding, repo branch/head, dirty-worktree state, active brake, active epoch state, and pickup-policy evidence before a fresh session continues.
 - Candidate discovery can ingest saved PR JSON through `--pr-json-file` and convert failing checks into stable `pr_check_failure` execution candidates.
 - `pr-readiness --review-threads-file` can block unresolved actionable current review comments plus malformed or incomplete saved GraphQL `reviewThreads` JSON while ignoring resolved, outdated, and non-actionable feedback.
 - `validate-executor-result` checks the current brake before recording completion evidence; when `brake_not_drive` is a task stop condition and the brake is not `DRIVE`, non-`stopped` result evidence is invalid and recommends `stop_active_loop`.
@@ -26,7 +27,8 @@ Last updated: 2026-06-03
 - `run-controlled-executor-fixture` can launch the bundled fake external executor fixture from an explicit current-Python, absolute-script command template in tests/examples, validate its task packet and command before start, require expected result evidence under the runtime root, reject stale result files, and append `executor_fixture_invocation` plus `executor_result_validation` audit records.
 - Disabled executor permissions now also reject merge, release, and package-publication command forms, including `gh pr merge`, `gh release create`, `gh release upload`, mutating `git tag` forms while allowing read-only tag listing/verification, `twine upload`, Python launcher `-m twine upload` forms including versioned `python3.x`, `npm publish`, `pnpm publish`, `yarn publish`, `yarn npm publish`, `poetry publish`, `uv publish`, `hatch publish`, and `flit publish`.
 - Dry-run-only `git-pr-plan` is merged. It turns validated executor evidence into proposed branch, commit, PR title, and PR body text without creating a branch, committing, pushing, calling GitHub, opening a pull request, merging, releasing, or publishing packages.
-- `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is the current public planning artifact for the next bounded slices; Tasks 1 through 5 are merged, Task 6 is current-tree work, and Task 7 is the planned follow-on gate.
+- `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is the current public planning artifact for the next bounded slices.
 
 ## Important Boundaries
 
@@ -40,16 +42,15 @@ Last updated: 2026-06-03
 - `github-evidence-sync` is read-only live evidence capture. It may write local evidence files only as a complete set, but it must not start GitHub writes, create or edit pull requests, create branches, commit, push, merge, release, or publish packages.
 - The active business-memory backlog entry is discovery input only. It does not authorize executor invocation, code modification, branch creation, commits, pushes, PR creation, merges, releases, package publication, or paid review spending.
 - The controlled fake executor fixture is merged, but it is still only a tests/examples component. No real executor invocation, branch/PR automation, write-side GitHub sync, merge authority, release behavior, hash chain, authenticated approval identity, or package-publication authority is available from that fixture.
-- Real executor invocation remains blocked until resume verification and result evidence gates are stable and covered by tests. Task 6 materialization does not invoke executors and does not grant merge, release, or package-publication authority.
+- Real executor invocation remains blocked even though resume verification, controlled fixture execution, result validation, local closeout, read-only GitHub evidence sync, and operator-approved PR materialization exist. The next approved work should add a governed execution-start gate before any real executor or named host adapter is allowed.
 - Keep public docs free of private machine paths and private repository assumptions.
 
 ## Validation To Re-run
 
 ```powershell
 git status -sb
-python -m py_compile codex_cadence/git_pr_plan.py codex_cadence/cli.py codex_cadence/policy_audit.py codex_cadence/pr_readiness.py
-python -m unittest tests.test_git_pr_plan tests.test_audit_replay -v
-python -m unittest tests.test_cadence tests.test_pr_readiness -v
+python -m py_compile scripts/validate_protocol.py
+python -m unittest tests.test_ci_checks.CiChecksTests.test_protocol_validator_accepts_current_repo -v
 python scripts/validate_protocol.py
 python scripts/ci_smoke.py
 git diff --check
@@ -57,4 +58,4 @@ git diff --check
 
 ## Next Action
 
-Finish Task 6 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`: review, verify, and merge the operator-approved Git/PR materialization slice. Auto-merge, release, package publication, and real executor invocation remain outside this Task 6 scope.
+Start Task 8 from `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`: add the governed execution start gate that consumes a reviewed executor task packet, rechecks repo/policy/brake/approval state, starts one active epoch, emits stable blocker packets, and still reports `executor_started: false`. Real executor invocation, autonomous code modification, autonomous Git/PR writes, auto-merge, release, and package publication remain outside Task 8.

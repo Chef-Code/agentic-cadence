@@ -332,7 +332,7 @@ REQUIRED_TOKENS = {
         "shell-wrapper payloads",
         "provide_runtime_root",
         "The controlled fake executor fixture is merged",
-        "Finish Task 6 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`",
+        "Start Task 8 from `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`",
         "branch_policy",
         "github-evidence-sync",
         "git-pr-materialize",

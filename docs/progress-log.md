@@ -33,6 +33,47 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-03 - Create Tasks 8-12 roadmap and refresh handoff
+
+Summary:
+- Added `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` for the next five
+  bounded implementation slices after Tasks 1-7 completed.
+- Refreshed the session handoff, roadmap, readiness, implementation-slice, and
+  business-memory docs to reflect PR #69 and PR #70 merged on `main`.
+- Marked the previous Tasks 1-7 roadmap complete and updated the next action to
+  Task 8, the governed execution start gate.
+
+Completed slices:
+- Documentation and planning handoff refresh; no runtime capability change.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: The next plan is clearer, but real executor invocation, autonomous
+  implementation, automatic fresh-session launch, autonomous Git/PR writes,
+  auto-merge, release, and package publication remain blocked.
+
+Evidence:
+- `python -m py_compile scripts/validate_protocol.py`
+- `python -m unittest tests.test_ci_checks.CiChecksTests.test_protocol_validator_accepts_current_repo -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- None beyond the existing missing governed execution-start gate and real
+  executor integration.
+
+Docs updated:
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
+- `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`
+- `docs/session-handoff.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/cadence/business-memory.md`
+
 ## 2026-06-03 - Add read-only resume verifier
 
 Summary:

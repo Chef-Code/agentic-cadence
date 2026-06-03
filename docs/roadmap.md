@@ -1,8 +1,8 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-02
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, and operator-approved Git/PR materialization current tree
+Last updated: 2026-06-03
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, operator-approved Git/PR materialization, and read-only resume verification current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -72,7 +72,10 @@ protocol substrate that can govern and document agentic work. The current
 development tree adds unreleased audit replay evidence, command-policy
 enforcement, active-stop result-validation controls, dry-run Git/PR planning,
 local branch policy, read-only GitHub evidence sync, and a controlled executor
-fixture runner for tests/examples, but it still cannot independently implement code, push branches, open
+fixture runner for tests/examples. It can materialize a reviewed Git/PR plan
+only through exact target-bound operator approval, and it can verify handoff
+pickup state before a fresh session continues, but it still cannot
+independently implement code, autonomously push branches, autonomously open
 pull requests, assign agent roles, resolve review feedback, launch fresh
 sessions, coordinate an agent pool, or continue in an unattended loop.
 
@@ -119,6 +122,16 @@ command-policy and active-stop controls. It includes:
 - dry-run-only `git-pr-plan` packets that turn validated executor evidence into
   proposed branch, commit, PR title, and PR body text without creating a branch,
   committing, pushing, calling GitHub, or opening a pull request;
+- operator-approved `git-pr-materialize` packets that consume reviewed
+  `git-pr-plan.v1` evidence plus target-bound HMAC approval, recheck local
+  branch/head/policy/materialized-evidence/PR-body gates, create the proposed
+  branch from the current clean commit, push, create or update a pull request,
+  and audit intent/result records without merging, releasing, publishing, or
+  invoking an executor;
+- read-only `verify-resume` packets that check handoff signature and claimed
+  state, clean-square evidence, persisted resume snapshot binding, repo
+  branch/head, dirty-worktree state, active brake, active epoch state, and
+  pickup-policy evidence before a fresh session continues;
 - explicit read-only `github-evidence-sync` packets that fetch PR metadata,
   status checks, and review threads into saved local JSON evidence files without
   GitHub writes;
@@ -193,8 +206,8 @@ The following capabilities are not implemented as of this baseline:
   Documentation, Release, and Handoff agents;
 - real executor invocation or named executor adapter integration;
 - autonomous code modification;
-- branch, commit, push, and PR creation workflow;
-- live GitHub PR, check, comment, and review-thread synchronization;
+- autonomous branch, dirty-worktree commit, push, and PR creation workflow;
+- continuous or write-side GitHub PR, check, comment, and review-thread synchronization;
 - review-feedback response loop;
 - real host context-pressure integration;
 - automatic fresh-session launch and resume orchestration;
@@ -293,6 +306,10 @@ The smallest slices expected to move confidence toward 50% are tracked in
 3. Policy, Audit, and Stop Controls
 4. Minimal Git/PR Automation
 5. CI/Review Feedback Back Into Candidate Discovery
+
+Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
+complete. The next bounded public roadmap is
+`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
 
 ## Roadmap
 
@@ -517,16 +534,23 @@ workflow permissions change.
 Goal: validate handoff signature, clean-square, claimed state, repo head,
 branch, policy, and Cadence state before a fresh session resumes work.
 
-Current evidence: handoff preparation, claim, completion, and failure exist,
-but session launch and resume orchestration remain external.
+Current evidence: `verify-resume` emits a read-only
+`resume-verification.v1` packet with stable blocker codes and recommended next
+actions for handoff signature/state, claimed-record content, clean-square
+evidence, persisted resume snapshot binding, current repo branch/head,
+dirty-worktree state, active brake, active epoch state, and pickup-policy
+evidence. Session launch and resume orchestration remain external.
 
 Likely files: `codex_cadence/handoff_loop.py`, `codex_cadence/cli.py`,
 `codex_cadence/store.py`, tests, docs.
 
 Validation: stale SHA, wrong branch, dirty worktree, double claim, missing
-approval, and failed clean-square fixtures.
+approval, failed clean-square, malformed readable evidence, invalid resume
+snapshot, and active epoch mismatch fixtures.
 
-Codex can implement directly.
+Follow-up: Task 11 in `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
+should bind a successful resume verification packet to a subsequent governed
+execution-start decision without launching a session or invoking an executor.
 
 ## Long-Term Goals
 
