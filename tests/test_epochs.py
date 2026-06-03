@@ -6,7 +6,7 @@ from unittest import mock
 
 from codex_cadence.epochs import checksum_json, complete_epoch, completed_continue_count, elect_candidates, fail_epoch
 from codex_cadence.epochs import executor_result_failure_reason
-from codex_cadence.epochs import self_check_decision, start_epoch
+from codex_cadence.epochs import read_active_epoch_records, self_check_decision, start_epoch
 from codex_cadence.store import epoch_path, snapshot_path
 
 
@@ -160,6 +160,30 @@ class EpochLifecycleTests(unittest.TestCase):
 
             with self.assertRaisesRegex(RuntimeError, "active epoch already exists"):
                 start_epoch(root, repo="local/test", branch="main", tasks=[], snapshot_before=valid_snapshot(id="snapshot-2"))
+
+    def test_read_active_epoch_records_returns_sorted_records_without_creating_layout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.assertEqual(read_active_epoch_records(root), [])
+            self.assertFalse((root / "epochs").exists())
+
+            first = start_epoch(root, repo="local/test", branch="main", tasks=[], snapshot_before=valid_snapshot())
+            records = read_active_epoch_records(root)
+
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0][0], epoch_path(root, "active", first["id"]))
+            self.assertEqual(records[0][1]["id"], first["id"])
+
+    def test_read_active_epoch_records_rejects_non_object_records(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            active_dir = root / "epochs" / "active"
+            active_dir.mkdir(parents=True)
+            active_path = active_dir / "epoch-list.json"
+            active_path.write_text(json.dumps([]), encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, r"epoch-list\.json.*list"):
+                read_active_epoch_records(root)
 
     def test_complete_epoch_uses_move_semantics(self):
         with tempfile.TemporaryDirectory() as tmp:

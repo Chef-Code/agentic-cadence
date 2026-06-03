@@ -147,6 +147,97 @@ The command must not claim, complete, or fail the handoff it creates. It must no
 
 V1 requires explicit guardrail input such as `--guardrail context`. Automatic context detection requires a host/session signal; Cadence must not infer token pressure from transcript guesses.
 
+## Resume Verification
+
+`verify-resume` is the read-only gate a fresh session can run before continuing
+a handoff. It emits a `resume-verification.v1` packet. The command exits `0`
+when `resumable` is true and exits `2` when verifier blockers are present;
+normal CLI argument errors remain ordinary CLI errors.
+
+The packet shape is stable:
+
+```json
+{
+  "protocol_version": "v1",
+  "schema_version": "resume-verification.v1",
+  "packet": "resume_verification",
+  "handoff_id": "context-loop",
+  "resumable": false,
+  "read_only": true,
+  "handoff": {},
+  "clean_square": {},
+  "repository": {},
+  "cadence": {},
+  "active_epoch": {},
+  "policy_evidence": {},
+  "blockers": [{"code": "stable_code", "message": "human readable"}],
+  "recommended_next_action": "inspect_resume_blockers"
+}
+```
+
+Evidence sections have these meanings:
+
+- `handoff`: observed handoff state, path, status, claimer, and signature
+  validation errors;
+- `clean_square`: presence and validity of old-session shutdown evidence;
+- `repository`: current branch, `HEAD`, dirty-worktree state, and the expected
+  repo, branch, head, snapshot id, snapshot path, and snapshot checksum;
+- `cadence`: current brake and mapped Cadence state;
+- `active_epoch`: active epoch count and matching evidence;
+- `policy_evidence`: estimate checksum, approval requirement, approval
+  presence, and policy action.
+
+The verifier must check handoff signature and checksum, require the handoff to
+be in `claimed` state with `status: "CLAIMED"` and a non-empty `claimed_by`
+before `resume_work`, validate clean-square evidence, bind the handoff's
+metadata resume snapshot to the persisted snapshot record and signed handoff
+message, compare the current repo branch and `HEAD` with that snapshot, reject
+dirty worktrees, reject missing, invalid, or non-`DRIVE` brakes, reject active
+epoch conflicts or mismatches, and re-check pickup policy evidence.
+Approval-gated handoffs must have a separate approval record bound to the
+handoff checksum and estimate checksum.
+
+Every blocker is an object with `code`, `message`, and optional structured
+fields such as `path`, `expected`, `actual`, `status`, or `states`. Stable
+blocker codes are:
+
+- Handoff state and signature: `handoff_not_found`, `handoff_unreadable`,
+  `handoff_not_claimed`, `handoff_claimed_by_other`,
+  `handoff_state_conflict`, `handoff_signature_invalid`,
+  `handoff_checksum_mismatch`, `handoff_protocol_unsupported`;
+- resume snapshot and repository: `resume_snapshot_invalid`,
+  `handoff_repo_evidence_missing`, `repo_inspection_failed`,
+  `repo_branch_mismatch`, `repo_head_mismatch`, `dirty_worktree`;
+- runtime brake: `runtime_brake_missing`, `runtime_brake_invalid`,
+  `active_brake_stop`;
+- active epoch: `active_epoch_conflict`, `active_epoch_invalid`,
+  `active_epoch_repo_mismatch`, `active_epoch_branch_mismatch`,
+  `active_epoch_head_mismatch`;
+- clean-square and policy: `clean_square_missing`, `clean_square_invalid`,
+  `policy_evidence_missing`, `policy_evidence_invalid`,
+  `policy_approval_missing`, `policy_self_evolution_propose_only`.
+
+Recommended actions are stable and ordered by precedence:
+
+| `recommended_next_action` | Used when |
+| --- | --- |
+| `resume_work` | No blockers are present |
+| `inspect_runtime_state` | Runtime brake evidence is missing or invalid |
+| `clear_brake` | The active brake is not `DRIVE` |
+| `clean_worktree` | The current worktree is dirty |
+| `resolve_claim_conflict` | The handoff is claimed by someone else or exists in multiple states |
+| `approve_handoff` | Pickup policy requires approval that is not present |
+| `claim_handoff` | The only higher-priority issue is that the handoff is not claimed |
+| `close_or_fail_active_epoch` | Active epoch records are present, malformed, duplicated, or mismatched |
+| `recreate_handoff` | Handoff, resume snapshot, clean-square, repo binding, or policy evidence is stale or invalid |
+| `inspect_resume_blockers` | Fallback for blocker combinations without a more specific recovery action |
+
+`verify-resume` must not mutate handoff state, create or clear approvals, write
+clean-square records, launch a new session, infer host context pressure, start
+or invoke an executor, create branches, write pull requests, merge, release, or
+publish packages. It is a gate packet only; operators or external orchestration
+must perform any recommended next action separately.
+
 ## Handoff Signature
 
 Draft marker:

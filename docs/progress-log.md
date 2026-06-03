@@ -33,6 +33,55 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-03 - Add read-only resume verifier
+
+Summary:
+- Added `verify-resume`, a read-only pickup gate that emits a
+  `resume-verification.v1` packet before a fresh session continues a handoff.
+- The packet checks handoff signature and claimed state, clean-square evidence,
+  current repo branch and `HEAD`, dirty-worktree state, active Cadence brake,
+  active epoch state, and pickup-policy evidence with stable blocker codes and
+  a recommended next action.
+- Prepared handoffs now carry a structured resume snapshot binding so stale
+  branch/head state can be rejected without parsing seed-message text.
+- Review follow-up binds resume verification to the persisted snapshot record
+  and signed handoff message, validates claimed-record content, returns stable
+  blocker packets for malformed readable evidence, and recommends approval
+  before claim for approval-gated ready handoffs.
+
+Completed slices:
+- Task 7 current-tree implementation: resume verifier and handoff pickup gate.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Fresh-session pickup is now locally verifiable, but new-session
+  launch, host context-pressure detection, real executor invocation,
+  autonomous execution, auto-merge, release, and package publication remain
+  blocked.
+
+Evidence:
+- `python -m py_compile codex_cadence/handoff_loop.py codex_cadence/cli.py codex_cadence/repo_state.py codex_cadence/epochs.py`
+- `python -m unittest tests.test_handoff_loop -v`
+- `python -m unittest tests.test_epochs -v`
+- `python -m unittest tests.test_cadence tests.test_handoff_loop tests.test_epochs -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- Resume verification is a gate packet only; an external operator or
+  orchestrator still has to claim handoffs, launch sessions, and perform any
+  recommended next action.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
 ## 2026-06-02 - Add operator-approved Git/PR materialization
 
 Summary:

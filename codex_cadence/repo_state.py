@@ -97,7 +97,7 @@ def runtime_root_location_safety_issue(root: str | Path) -> str | None:
 
 
 def dirty_worktree(cwd: str | Path) -> bool:
-    return bool(run_git(cwd, "status", "--porcelain"))
+    return bool(run_git(cwd, "--no-optional-locks", "status", "--porcelain"))
 
 
 def current_branch(cwd: str | Path) -> str | None:
@@ -110,6 +110,16 @@ def current_head(cwd: str | Path) -> str | None:
         return run_git(cwd, "rev-parse", "--verify", "HEAD")
     except RuntimeError:
         return None
+
+
+def current_repo_evidence(cwd: str | Path) -> dict[str, Any]:
+    repo_cwd = Path(cwd).expanduser().resolve()
+    return {
+        "cwd": str(repo_cwd),
+        "branch": current_branch(repo_cwd),
+        "head": current_head(repo_cwd),
+        "dirty_worktree": dirty_worktree(repo_cwd),
+    }
 
 
 def confidence(

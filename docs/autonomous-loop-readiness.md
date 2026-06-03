@@ -1,8 +1,8 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-06-02
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, and operator-approved Git/PR materialization current tree
+Last updated: 2026-06-03
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, operator-approved Git/PR materialization, and read-only resume verification current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -95,6 +95,9 @@ runtime can do these things end-to-end:
 - size tasks and enforce pickup policy;
 - start, check, complete, or fail bounded epochs;
 - prepare a signed handoff packet and clean-square evidence;
+- verify a handoff pickup with a read-only `verify-resume` packet that checks
+  claimed state, clean-square evidence, repo branch/head, dirty worktree state,
+  active brake, active epoch state, and pickup-policy evidence;
 - approve, claim, complete, or fail handoffs;
 - evaluate saved PR JSON, saved review-thread JSON, and saved PR body/template
   files for readiness, including `saved_input`, `stale`, and caller-asserted
@@ -125,16 +128,16 @@ Agentic Cadence cannot currently:
 - assign role-specific agents such as Planning, Architecture, Builder,
   Reviewer, QA, Documentation, Release, or Handoff agents;
 - enforce that the reviewer is separate from the builder;
-- create a branch;
-- commit changes;
-- push to a remote;
-- open or update a pull request;
+- autonomously create a branch;
+- commit dirty-worktree changes;
+- autonomously push to a remote;
+- autonomously open or update a pull request;
 - resolve review feedback;
 - create, edit, or resolve GitHub PRs or review comments;
 - trigger follow-up implementation from live CI or review failures;
 - infer context pressure without explicit host input;
 - launch a fresh coding-agent session;
-- verify and resume a full new-session loop automatically;
+- resume a full new-session loop automatically;
 - run continuously without an external operator or orchestrator;
 - merge, release, or publish packages.
 
@@ -160,7 +163,7 @@ Agentic Cadence cannot currently:
 | Branch/commit/push/PR creation | Partial, operator-approved only | No autonomous branch/PR writes, no dirty-worktree commit path, no merge, release, or package publication |
 | Review response loop | Partial saved/live-read-only evidence ingestion | Saved review files and synced review threads can become candidates; no automatic response writes |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
-| New-session launch/resume | Partial handoff packets only | External orchestration required |
+| New-session launch/resume | Partial read-only gate | `prepare-handoff`, clean-square evidence, and `verify-resume` packets exist; external orchestration still launches sessions and performs recommended actions |
 
 ## Can It Run The Full Loop Today?
 
@@ -173,7 +176,8 @@ fake executor fixture from an explicit command template for tests/examples,
 validate local executor result evidence, close out the active epoch, produce a
 dry-run Git/PR transition plan for separate review, and materialize that plan
 only after exact target-bound operator approval and local rechecks. It can
-govern handoff and continuation decisions. It can
+govern handoff and continuation decisions, including a read-only resume gate
+that returns stable blocker codes before a fresh session continues. It can
 evaluate saved PR evidence and fetch read-only live PR/check/review-thread
 evidence into saved files. It cannot perform the core build loop by
 itself, and it cannot yet coordinate a team of role-specific agents.
@@ -197,7 +201,8 @@ dry-run `git-pr-plan` handoff remains
 review-only until an operator invokes `git-pr-materialize` with a matching plan
 approval token. Real code changes, autonomous Git/PR materialization, dirty
 worktree commits, review feedback response writes, and new-session launch remain
-external or future-approved slices. At
+external or future-approved slices. Resume verification can block stale or
+mismatched pickup state, but it does not claim handoffs or launch sessions. At
 `policy_denied`, an operator must adjust the task bounds or policy before
 execution can be considered. Audit history is now locally inspectable through
 `audit-replay`, but clean replay evidence is not approval to execute work and

@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-06-02
+Last updated: 2026-06-03
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption
@@ -27,6 +27,51 @@ Consequences:
 Open questions:
 - Remaining unknowns.
 ```
+
+## 2026-06-03 - Keep resume pickup verification read-only
+
+Decision:
+- Add `verify-resume` as a read-only `resume-verification.v1` packet before a
+  fresh session continues claimed handoff work.
+- Require the packet to check handoff signature and claimed state,
+  clean-square evidence, current repo branch/head and dirty-worktree state,
+  active brake, active epoch state, and pickup-policy evidence.
+- Keep claiming, new-session launch, host context-pressure detection, executor
+  invocation, branch creation, pull request writes, merge, release, and package
+  publication outside this slice.
+
+Why:
+- Handoffs can become stale after branch movement, new commits, dirty
+  worktree changes, brake changes, policy edits, or active epoch conflicts.
+- A fresh session needs a deterministic packet with stable blocker codes before
+  trusting transcript context or old-session assumptions.
+- Keeping the verifier read-only prevents a pickup check from silently
+  changing ownership or starting work.
+
+Alternatives considered:
+- Let `claim-handoff` imply resume readiness. Rejected because claim mutates
+  state and does not re-check clean-square, repo head, active epoch, or current
+  policy evidence at resume time.
+- Launch a new session or invoke an executor when verification passes.
+  Rejected because launch and execution require separate host integration,
+  approval, and result-evidence gates.
+
+Consequences:
+- Operators and future orchestration can distinguish `resume_work` from
+  recovery actions such as `claim_handoff`, `recreate_handoff`, `clear_brake`,
+  `clean_worktree`, `approve_handoff`, or `close_or_fail_active_epoch`.
+- Prepared handoffs now carry structured resume snapshot bindings for
+  branch/head comparison. Resume verification treats that metadata as a pointer
+  to persisted snapshot evidence and checks it against the signed handoff
+  message before trusting branch/head claims.
+- Resume verification still depends on external orchestration to perform any
+  recommended next action.
+
+Open questions:
+- What signed or hash-chained evidence should bind a future automatic
+  new-session launch to the verified packet?
+- Should future role-aware handoffs require claimer identity beyond the current
+  local `claimed_by` string?
 
 ## 2026-06-02 - Gate Git/PR materialization on exact plan approval
 

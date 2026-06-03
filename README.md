@@ -339,6 +339,51 @@ agentic-cadence prepare-handoff --id context-loop --title "Continue bounded work
 
 The command does not claim the handoff, launch a new agent window, commit, push, open a PR, spend review, or merge. V1 requires an explicit guardrail such as `--guardrail context`; automatic context detection requires a host/session signal that Cadence does not infer from transcript guesses.
 
+## Resume Verification
+
+`verify-resume` is the read-only pickup gate for a fresh session. It verifies a
+handoff signature, claimed handoff state, clean-square evidence, current repo
+branch and `HEAD`, dirty-worktree state, active Cadence brake, active epoch
+state, and handoff pickup-policy evidence before reporting whether work can
+resume:
+
+```bash
+agentic-cadence --root <runtime-root> verify-resume context-loop --cwd . --claimer codex
+```
+
+The command returns a `resume-verification.v1` packet with `resumable`,
+`read_only: true`, evidence sections, `blockers`, and
+`recommended_next_action`. Each blocker is shaped as
+`{"code": "...", "message": "...", ...}`. The command exits `0` when
+`resumable` is true and exits `2` when verifier blockers are present.
+
+Stable blocker codes include `handoff_not_found`, `handoff_unreadable`,
+`handoff_not_claimed`, `handoff_claimed_by_other`,
+`handoff_state_conflict`, `handoff_signature_invalid`,
+`handoff_checksum_mismatch`, `handoff_protocol_unsupported`,
+`resume_snapshot_invalid`, `handoff_repo_evidence_missing`,
+`repo_inspection_failed`, `repo_head_mismatch`, `repo_branch_mismatch`,
+`dirty_worktree`, `runtime_brake_missing`, `runtime_brake_invalid`,
+`active_brake_stop`, `active_epoch_conflict`, `active_epoch_invalid`,
+`active_epoch_repo_mismatch`, `active_epoch_branch_mismatch`,
+`active_epoch_head_mismatch`, `clean_square_missing`,
+`clean_square_invalid`, `policy_evidence_missing`,
+`policy_evidence_invalid`, `policy_approval_missing`, and
+`policy_self_evolution_propose_only`.
+
+Recommendation values are stable: `resume_work`, `inspect_runtime_state`,
+`clear_brake`, `clean_worktree`, `resolve_claim_conflict`,
+`approve_handoff`, `claim_handoff`, `close_or_fail_active_epoch`,
+`recreate_handoff`, and `inspect_resume_blockers`. Approval-gated ready
+handoffs recommend `approve_handoff` before `claim_handoff`; active epoch
+blockers recommend `close_or_fail_active_epoch`; stale repo, invalid handoff,
+invalid resume snapshot, clean-square, or policy evidence recommends
+`recreate_handoff`.
+
+The command does not claim, complete, fail, or recreate handoffs; it does not
+launch a new session, infer host context pressure, start or invoke an executor,
+create branches, write pull requests, merge, release, or publish packages.
+
 ## GitHub Evidence Sync
 
 `github-evidence-sync` is an explicit read-only live fetch for PR evidence. It
