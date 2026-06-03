@@ -168,6 +168,68 @@ def validate_executor_fixture_invocation_audit_record(record: dict[str, Any], li
     return blockers
 
 
+def validate_git_pr_materialization_intent_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate operator-approved Git/PR materialization intent audit fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in ("action", "reason", "plan_file", "repo", "branch", "head", "base_branch", "proposed_branch", "remote", "remote_url"):
+        blockers.extend(required_string(record, field, line))
+    for field in ("payload_checksum", "plan_checksum", "intended_side_effects_checksum"):
+        blockers.extend(required_checksum_present(record, field, line))
+    if record.get("action") not in (None, "materialize_git_pr_plan"):
+        blockers.append(
+            audit_replay_blocker(
+                "audit_materialization_action_invalid",
+                "git_pr_materialization_intent action must be materialize_git_pr_plan",
+                line,
+            )
+        )
+    return blockers
+
+
+def validate_git_pr_materialization_result_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate operator-approved Git/PR materialization result audit fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in (
+        "action",
+        "reason",
+        "materialization_status",
+        "plan_file",
+        "repo",
+        "branch",
+        "head",
+        "base_branch",
+        "proposed_branch",
+        "remote",
+        "remote_url",
+    ):
+        blockers.extend(required_string(record, field, line))
+    blockers.extend(required_bool(record, "valid", line))
+    for field in ("payload_checksum", "plan_checksum", "side_effects_checksum", "command_trace_checksum"):
+        blockers.extend(required_checksum_present(record, field, line))
+    valid = record.get("valid")
+    action = record.get("action")
+    status = record.get("materialization_status")
+    expected_action = "materialized" if valid is True else "blocked" if valid is False else None
+    expected_status = "completed" if valid is True else "blocked" if valid is False else None
+    if expected_action is not None and action != expected_action:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_materialization_action_invalid",
+                f"git_pr_materialization_result action must be {expected_action} when valid is {valid}",
+                line,
+            )
+        )
+    if expected_status is not None and status != expected_status:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_materialization_status_invalid",
+                f"git_pr_materialization_result materialization_status must be {expected_status} when valid is {valid}",
+                line,
+            )
+        )
+    return blockers
+
+
 def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict[str, Any]]]:
     """Validate one decoded audit record and return its countable event."""
     if not isinstance(record, dict):
@@ -207,6 +269,10 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
         blockers.extend(validate_executor_result_audit_record(record, line))
     elif event == "executor_epoch_closeout":
         blockers.extend(validate_executor_epoch_closeout_audit_record(record, line))
+    elif event == "git_pr_materialization_intent":
+        blockers.extend(validate_git_pr_materialization_intent_audit_record(record, line))
+    elif event == "git_pr_materialization_result":
+        blockers.extend(validate_git_pr_materialization_result_audit_record(record, line))
     else:
         blockers.append(audit_replay_blocker("audit_event_unsupported", f"unsupported audit event: {event}", line))
         return None, blockers
@@ -417,6 +483,54 @@ def executor_fixture_invocation_audit_record(payload: dict[str, Any], task_packe
         "command": payload.get("command"),
         "payload_checksum": checksum_json(payload),
         "task_packet_checksum": checksum_json(task_packet),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def git_pr_materialization_intent_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
+    repository = payload.get("repository") if isinstance(payload.get("repository"), dict) else {}
+    record = {
+        "event": "git_pr_materialization_intent",
+        "action": "materialize_git_pr_plan",
+        "reason": "operator_approved_git_pr_materialization_intent",
+        "repo": repository.get("repository_path"),
+        "branch": repository.get("current_branch"),
+        "head": repository.get("current_head"),
+        "base_branch": repository.get("base_branch"),
+        "proposed_branch": payload.get("proposed_branch"),
+        "remote": payload.get("remote"),
+        "remote_url": payload.get("remote_url"),
+        "pr_number": payload.get("pr_number"),
+        "plan_file": payload.get("plan_file"),
+        "payload_checksum": checksum_json(payload),
+        "plan_checksum": payload.get("plan_checksum"),
+        "intended_side_effects_checksum": checksum_json(payload.get("intended_side_effects", [])),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def git_pr_materialization_result_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
+    repository = payload.get("repository") if isinstance(payload.get("repository"), dict) else {}
+    record = {
+        "event": "git_pr_materialization_result",
+        "action": payload.get("decision"),
+        "reason": "operator_approved_git_pr_materialization_result",
+        "valid": payload.get("valid"),
+        "materialization_status": "completed" if payload.get("valid") is True else "blocked",
+        "repo": repository.get("repository_path"),
+        "branch": repository.get("current_branch"),
+        "head": repository.get("current_head"),
+        "base_branch": repository.get("base_branch"),
+        "proposed_branch": payload.get("proposed_branch"),
+        "remote": payload.get("remote"),
+        "remote_url": payload.get("remote_url"),
+        "pr_number": payload.get("pr_number"),
+        "pr_url": payload.get("pr_url"),
+        "plan_file": payload.get("plan_file"),
+        "payload_checksum": checksum_json(payload),
+        "plan_checksum": payload.get("plan_checksum"),
+        "side_effects_checksum": checksum_json(payload.get("side_effects", [])),
+        "command_trace_checksum": checksum_json(payload.get("command_trace", [])),
     }
     return {key: value for key, value in record.items() if value is not None}
 

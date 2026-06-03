@@ -158,6 +158,55 @@ def executor_epoch_closeout_record(valid: bool = True, **overrides):
     return record
 
 
+def git_pr_materialization_intent_record(**overrides):
+    record = {
+        "schema_version": "cadence-audit.v1",
+        "recorded_at": "2999-05-22T00:00:00Z",
+        "event": "git_pr_materialization_intent",
+        "action": "materialize_git_pr_plan",
+        "reason": "operator_approved_git_pr_materialization_intent",
+        "repo": "C:/tmp/repo",
+        "branch": "feature/task",
+        "head": "abc123",
+        "base_branch": "main",
+        "proposed_branch": "cadence/candidate-1",
+        "remote": "origin",
+        "remote_url": "https://github.example/local/test.git",
+        "plan_file": "C:/tmp/git-pr-plan.json",
+        "payload_checksum": GOOD_CHECKSUM,
+        "plan_checksum": GOOD_CHECKSUM,
+        "intended_side_effects_checksum": GOOD_CHECKSUM,
+    }
+    record.update(overrides)
+    return record
+
+
+def git_pr_materialization_result_record(valid: bool = True, **overrides):
+    record = {
+        "schema_version": "cadence-audit.v1",
+        "recorded_at": "2999-05-22T00:00:00Z",
+        "event": "git_pr_materialization_result",
+        "action": "materialized" if valid else "blocked",
+        "reason": "operator_approved_git_pr_materialization_result",
+        "valid": valid,
+        "materialization_status": "completed" if valid else "blocked",
+        "repo": "C:/tmp/repo",
+        "branch": "feature/task",
+        "head": "abc123",
+        "base_branch": "main",
+        "proposed_branch": "cadence/candidate-1",
+        "remote": "origin",
+        "remote_url": "https://github.example/local/test.git",
+        "plan_file": "C:/tmp/git-pr-plan.json",
+        "payload_checksum": GOOD_CHECKSUM,
+        "plan_checksum": GOOD_CHECKSUM,
+        "side_effects_checksum": GOOD_CHECKSUM,
+        "command_trace_checksum": GOOD_CHECKSUM,
+    }
+    record.update(overrides)
+    return record
+
+
 def blocker_codes(output: dict) -> list[str]:
     return [blocker["code"] for blocker in output["blockers"]]
 
@@ -238,25 +287,65 @@ class AuditReplayCliTests(unittest.TestCase):
     def test_valid_records_are_counted_by_event_type(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            write_audit_records(root, loop_tick_record(), executor_result_record(), executor_epoch_closeout_record())
+            write_audit_records(
+                root,
+                loop_tick_record(),
+                executor_result_record(),
+                executor_epoch_closeout_record(),
+                git_pr_materialization_intent_record(),
+                git_pr_materialization_result_record(),
+            )
 
             result, output = run_cli(root, "audit-replay")
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(output["valid"])
-            self.assertEqual(output["lines_seen"], 3)
-            self.assertEqual(output["records_seen"], 3)
-            self.assertEqual(output["records_valid"], 3)
+            self.assertEqual(output["lines_seen"], 5)
+            self.assertEqual(output["records_seen"], 5)
+            self.assertEqual(output["records_valid"], 5)
             self.assertEqual(output["records_invalid"], 0)
             self.assertEqual(
                 output["events_by_type"],
                 {
                     "executor_epoch_closeout": 1,
                     "executor_result_validation": 1,
+                    "git_pr_materialization_intent": 1,
+                    "git_pr_materialization_result": 1,
                     "loop_tick_decision": 1,
                 },
             )
             self.assertEqual(output["recommended_next_action"], "use_audit_replay_evidence")
+
+    def test_materialization_audit_records_require_consistent_action_and_status(self):
+        cases = [
+            (
+                git_pr_materialization_intent_record(action="other"),
+                "audit_materialization_action_invalid",
+            ),
+            (
+                git_pr_materialization_result_record(valid=True, action="blocked"),
+                "audit_materialization_action_invalid",
+            ),
+            (
+                git_pr_materialization_result_record(valid=True, materialization_status="blocked"),
+                "audit_materialization_status_invalid",
+            ),
+            (
+                git_pr_materialization_result_record(valid=False, materialization_status="completed"),
+                "audit_materialization_status_invalid",
+            ),
+        ]
+        for record, expected_code in cases:
+            with self.subTest(expected_code=expected_code):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    write_audit_records(root, record)
+
+                    result, output = run_cli(root, "audit-replay")
+
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertIn(expected_code, blocker_codes(output))
 
     def test_executor_epoch_closeout_audit_requires_snapshot_after_anchor(self):
         with tempfile.TemporaryDirectory() as tmp:

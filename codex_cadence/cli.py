@@ -23,7 +23,11 @@ from codex_cadence.executor_contract import (
     validate_executor_task_packet,
 )
 from codex_cadence.executor_runner import run_controlled_executor_fixture
-from codex_cadence.git_pr_plan import evaluate_git_pr_plan
+from codex_cadence.git_pr_plan import (
+    evaluate_git_pr_plan,
+    git_pr_materialization_load_error_packet,
+    materialize_git_pr_plan,
+)
 from codex_cadence.github_evidence import sync_github_evidence
 from codex_cadence.epochs import complete_epoch as complete_epoch_record
 from codex_cadence.epochs import CONTINUE, ASK_APPROVAL
@@ -1407,6 +1411,27 @@ def git_pr_plan_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def git_pr_materialize_command(args: argparse.Namespace) -> int:
+    plan_file = Path(args.plan_file)
+    try:
+        plan_packet = read_json(plan_file)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        payload = git_pr_materialization_load_error_packet(plan_file, exc)
+        emit(payload)
+        return 1
+    payload = materialize_git_pr_plan(
+        cwd=Path(args.cwd),
+        plan_packet=plan_packet,
+        plan_file=plan_file,
+        approval_token=args.approval_token,
+        runtime_root=args.root,
+        remote=args.remote,
+        pr_number=str(args.pr_number) if args.pr_number is not None else None,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def release_dry_run_command(args: argparse.Namespace) -> int:
     payload = evaluate_release_dry_run(
         cwd=Path(args.cwd),
@@ -1639,6 +1664,17 @@ def build_parser() -> argparse.ArgumentParser:
         requires_root=False,
         guards_optional_root=True,
     )
+
+    git_pr_materialize_parser = subparsers.add_parser(
+        "git-pr-materialize",
+        help="Materialize an operator-approved Git/PR plan after local preflight rechecks",
+    )
+    git_pr_materialize_parser.add_argument("--cwd", default=".")
+    git_pr_materialize_parser.add_argument("--plan-file", required=True)
+    git_pr_materialize_parser.add_argument("--approval-token")
+    git_pr_materialize_parser.add_argument("--remote", default="origin")
+    git_pr_materialize_parser.add_argument("--pr-number", type=positive_int)
+    git_pr_materialize_parser.set_defaults(func=git_pr_materialize_command, requires_root=True)
 
     release_parser = subparsers.add_parser(
         "release-dry-run",

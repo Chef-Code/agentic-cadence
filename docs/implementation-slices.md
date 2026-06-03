@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-02
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, and local executor epoch closeout current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, local executor epoch closeout, read-only GitHub evidence sync, branch policy, and operator-approved Git/PR materialization current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -34,10 +34,11 @@ loop. Three smaller stabilization slices are now part of this baseline:
 
 These changes reduce state-awareness footguns. The current tree also includes
 the Phase 1 read-only `loop-tick` command for the first slice and a generic
-executor task/result contract, but it still does not add live GitHub
-synchronization, branch/commit/push or PR creation, real executor invocation,
-automatic resume orchestration, agent-role assignment, agent-pool coordination,
-or enforced review separation. The first local policy/audit controls can bound
+executor task/result contract, plus read-only GitHub evidence sync and
+operator-approved Git/PR materialization. It still does not add autonomous live
+GitHub synchronization, dirty-worktree commit materialization, real executor
+invocation, automatic resume orchestration, agent-role assignment, agent-pool
+coordination, or enforced review separation. The first local policy/audit controls can bound
 emitted executor task packets, append decision/result-validation audit records,
 and replay local audit history with a read-only `audit-replay.v1` packet.
 Active execution controls are partial: result validation enforces task-carried
@@ -45,10 +46,13 @@ command policy and active brake stop evidence, `run-controlled-executor-fixture`
 can govern a fake external executor component in tests/examples, and
 `closeout-executor-result` can record validated local executor evidence against
 an active epoch, complete or fail terminal epochs, and emit the next dry-run
-decision. `git-pr-plan` can
-produce a dry-run Git/PR transition plan for separate review. Real executor
-governance, branch policy, live branch/commit/push or PR creation, and
-continuous loop orchestration remain missing.
+decision. `git-pr-plan` can produce a dry-run Git/PR transition plan for
+separate review, and `git-pr-materialize` can create a branch from the
+already-materialized current commit without switching the checkout, push it
+with Git hook verification disabled for that push, and create/update a PR only
+after exact target-bound operator approval and local rechecks. Real executor governance,
+autonomous branch/commit/push or PR creation, and continuous loop orchestration
+remain missing.
 Current unattended-operation confidence remains 10%.
 
 ## Vision Framing
@@ -318,8 +322,9 @@ Current evidence:
   during result validation;
 - active brake stops now prevent recording non-`stopped` executor completion
   evidence when `brake_not_drive` is one of the task stop conditions;
-- branch policy is local and dry-run only; no live branch, commit, push, or PR
-  materialization exists yet.
+- branch policy is enforced during dry-run planning and immediately before
+  operator-approved Git/PR materialization; autonomous branch, commit, push, or
+  PR materialization does not exist yet.
 
 Why it matters: unattended confidence comes from bounded blast radius and
 recoverable evidence.
@@ -400,7 +405,14 @@ Current evidence:
   change evidence, dirty worktrees, HEAD mismatches, detached heads, branch
   mismatches, missing local base branches, generated branch collisions, missing
   PR template sections, and invalid branch names;
-- no live branch, commit, push, or PR creation command exists.
+- `git-pr-materialize` consumes a reviewed `git-pr-plan.v1` packet plus exact
+  target-bound HMAC operator approval, reruns local plan gates, audits
+  intended/completed side effects, creates the proposed branch from the clean
+  current commit without switching the checkout, pushes with Git hook
+  verification disabled for that push, and creates or updates a PR through
+  `gh`;
+- no autonomous branch, dirty-worktree commit, push, PR creation, merge,
+  release, package publication, or real executor invocation exists.
 
 Why it matters: the autonomous build loop needs to reach PR state before review
 feedback can become useful loop input.

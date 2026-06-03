@@ -224,8 +224,9 @@ Replay validates only the compact `cadence-audit.v1` record shape, supported
 event names, event-specific required fields, physical JSONL line counts, and
 `sha256:` checksum syntax. Supported events are `loop_tick_decision`,
 `executor_fixture_invocation`, `executor_result_validation`, and
-`executor_epoch_closeout`. It does not recompute `payload_checksum`,
-`task_packet_checksum`, `result_evidence_checksum`, or
+`executor_epoch_closeout`, `git_pr_materialization_intent`, and
+`git_pr_materialization_result`. It does not recompute `payload_checksum`,
+`task_packet_checksum`, `result_evidence_checksum`, `plan_checksum`, or
 `snapshot_after_checksum` from original packet bodies because those bodies are
 not stored in the compact audit log.
 
@@ -321,6 +322,43 @@ generated target branches, missing required generated-branch prefixes, and a
 current `main` checkout when `allow_current_branch_main` is false must block
 review readiness. Branch-policy blockers must not create branches, change refs,
 call GitHub, or treat a dry-run plan as approval.
+
+## Operator-Approved Git/PR Materialization
+
+`git-pr-materialize` is the explicit write-side boundary for a reviewed
+`git-pr-plan.v1` packet. It must consume the saved plan packet, require an exact
+operator approval token produced as an HMAC over that packet checksum plus the
+selected remote name, resolved remote push URL, and create-vs-update PR target,
+using `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`, and emit a
+`git-pr-materialization.v1` packet. Missing, mismatched, or unverifiable
+approval must block before any audit, Git, or write-side `gh` side effect.
+Materialization packets must not emit the expected approval token or approval
+secret.
+
+Before side effects, the command must re-read the task and result evidence named
+by the plan provenance, verify their checksums still match the plan, rerun
+`git-pr-plan` against current local state, and compare the current branch, HEAD,
+base branch, base HEAD, worktree cleanliness, proposed branch/title/body, branch
+policy, materialized-change evidence, and PR body preflight against the approved
+packet. Materialized-change evidence must cover the complete local diff against
+the base branch; extra local diff files must block. Stale heads, dirty
+worktrees, branch-policy blockers, missing materialized evidence, or PR body
+blockers must return stable blocker packets before branch creation, push, or PR
+creation/update. PR update mode must first run a read-only `gh pr view`
+preflight and verify the existing PR head branch, base branch, and head SHA
+match the approved plan before branch creation, push, or PR edit.
+
+When all gates pass, the command may append a
+`git_pr_materialization_intent` audit record, create the proposed branch at the
+already-materialized current commit without switching the checkout, push the
+branch to the selected remote with Git hook verification disabled for that push,
+and create or update a pull request with `gh pr create` or `gh pr edit`. It must
+append a `git_pr_materialization_result` audit record after success or after a
+bounded side-effect failure; successful side effects without a result audit
+record must return an invalid blocker packet. Failed Git or `gh` commands must
+return stable blocker packets with command trace and replayable audit evidence.
+The command must not run `git commit` against a dirty worktree, auto-merge,
+release, publish packages, spend paid review, or invoke a real executor.
 
 `github-evidence-sync` is the explicit read-only live evidence boundary. It may
 shell out to `gh` only when an operator invokes the command with `--repo`,

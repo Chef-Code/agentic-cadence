@@ -3,20 +3,33 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import hmac
+import os
 import re
+import shutil
 import shlex
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from codex_cadence import PROTOCOL_VERSION
 from codex_cadence.branch_policy import normalize_branch_policy
 from codex_cadence.executor_contract import validate_executor_result_evidence, validate_executor_task_packet
-from codex_cadence.policy_audit import checksum_json
+from codex_cadence.policy_audit import (
+    append_audit_record,
+    checksum_json,
+    git_pr_materialization_intent_audit_record,
+    git_pr_materialization_result_audit_record,
+)
 from codex_cadence.pr_readiness import evaluate_pr_body_preflight
-from codex_cadence.store import BRAKE_STATUSES, utc_now
+from codex_cadence.store import BRAKE_STATUSES, read_json, utc_now
 
 GIT_PR_PLAN_SCHEMA_VERSION = "git-pr-plan.v1"
+GIT_PR_MATERIALIZATION_SCHEMA_VERSION = "git-pr-materialization.v1"
+GIT_PR_MATERIALIZATION_APPROVAL_PREFIX = "approve-git-pr:"
+GIT_PR_MATERIALIZATION_APPROVAL_SECRET_ENV = "CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET"
 
 
 def _issue(code: str, message: str, **extra: Any) -> dict[str, Any]:
@@ -38,6 +51,67 @@ def _run_git(cwd: Path, args: list[str], *, optional_locks: bool = True) -> subp
         return subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
     except OSError as exc:
         return subprocess.CompletedProcess(command, 1, "", str(exc))
+
+
+def _run_process(cwd: Path, argv: list[str]) -> subprocess.CompletedProcess[str]:
+    """Run a materialization command and preserve OSError as a failed process."""
+    executable = shutil.which(argv[0])
+    command = [executable or argv[0], *argv[1:]]
+    try:
+        return subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
+    except OSError as exc:
+        return subprocess.CompletedProcess(command, 1, "", str(exc))
+
+
+def git_pr_materialization_approval_payload(
+    plan_packet: Any,
+    *,
+    remote: str,
+    remote_url: str | None,
+    pr_number: str | None,
+) -> dict[str, Any]:
+    """Build the operator-approved target bound to a materialization token."""
+    return {
+        "schema_version": "git-pr-materialization-approval.v1",
+        "packet": "git_pr_materialization_approval",
+        "plan_checksum": checksum_json(plan_packet),
+        "remote": remote,
+        "remote_url": remote_url,
+        "pr_number": str(pr_number) if pr_number is not None else None,
+        "operation": "update_pull_request" if pr_number is not None else "create_pull_request",
+    }
+
+
+def _materialization_approval_secret(approval_secret: str | bytes | None = None) -> bytes | None:
+    secret = approval_secret if approval_secret is not None else os.environ.get(GIT_PR_MATERIALIZATION_APPROVAL_SECRET_ENV)
+    if isinstance(secret, bytes):
+        return secret if secret else None
+    if isinstance(secret, str) and secret:
+        return secret.encode("utf-8")
+    return None
+
+
+def git_pr_materialization_approval_token(
+    plan_packet: Any,
+    *,
+    remote: str = "origin",
+    remote_url: str | None = None,
+    pr_number: str | None = None,
+    approval_secret: str | bytes | None = None,
+) -> str:
+    """Return the operator-held HMAC approval token for a materialization target."""
+    secret = _materialization_approval_secret(approval_secret)
+    if secret is None:
+        raise ValueError(f"{GIT_PR_MATERIALIZATION_APPROVAL_SECRET_ENV} is required for approval tokens")
+    approval_payload = git_pr_materialization_approval_payload(
+        plan_packet,
+        remote=remote,
+        remote_url=remote_url,
+        pr_number=pr_number,
+    )
+    payload = json.dumps(approval_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest = hmac.new(secret, payload, hashlib.sha256).hexdigest()
+    return GIT_PR_MATERIALIZATION_APPROVAL_PREFIX + "hmac-sha256:" + digest
 
 
 def _git_stdout(cwd: Path, args: list[str]) -> tuple[str | None, str | None]:
@@ -299,6 +373,15 @@ def _materialized_change_evidence(
                     files=missing_local_files,
                 )
             )
+        extra_local_files = sorted(path for path in local_changed_files if path not in set(normalized_files))
+        if extra_local_files:
+            blockers.append(
+                _issue(
+                    "materialized_change_evidence_extra_local_changes",
+                    "local diff contains files not declared in materialized_change_evidence.files",
+                    files=extra_local_files,
+                )
+            )
 
     if blockers:
         return absent, blockers
@@ -388,9 +471,9 @@ def _command_display(argv: list[str]) -> str:
 def _command_examples(proposed_branch: str, proposed_commit_message: str, proposed_pr_title: str) -> list[dict[str, Any]]:
     """Return non-executable, operator-confirmed Git and PR command examples."""
     examples = [
-        ("create_branch", ["git", "switch", "-c", proposed_branch], None),
+        ("create_branch", ["git", "branch", proposed_branch, "HEAD"], None),
         ("commit_changes", ["git", "commit", "-m", proposed_commit_message], None),
-        ("push_branch", ["git", "push", "-u", "origin", proposed_branch], None),
+        ("push_branch", ["git", "push", "--no-verify", "-u", "origin", proposed_branch], None),
         (
             "open_pull_request",
             ["gh", "pr", "create", "--title", proposed_pr_title, "--body-file", "proposed-pr-body.md"],
@@ -490,6 +573,7 @@ def evaluate_git_pr_plan(
     result_file: str | Path,
     base_branch: str = "main",
     branch_prefix: str = "cadence",
+    proposed_branch_override: str | None = None,
     branch_policy: Any | None = None,
     required_body_sections: list[str] | None = None,
     runtime_root: str | Path | None = None,
@@ -504,7 +588,8 @@ def evaluate_git_pr_plan(
 
     task = task_packet.get("task") if isinstance(task_packet, dict) and isinstance(task_packet.get("task"), dict) else {}
     repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
-    proposed_branch = _generated_branch_name(branch_prefix, task.get("id"))
+    generated_branch = _generated_branch_name(branch_prefix, task.get("id"))
+    proposed_branch = proposed_branch_override.strip() if _non_empty_string(proposed_branch_override) else generated_branch
     proposed_commit_message = str(task.get("title") or "").strip()
     proposed_pr_title = proposed_commit_message
     branch_policy_sources: list[dict[str, Any]] = []
@@ -708,3 +793,903 @@ def evaluate_git_pr_plan(
             "executor_is_not_git_pr_approval_authority",
         ],
     }
+
+
+def _materialization_required_sections(plan_packet: dict[str, Any]) -> list[str]:
+    preflight = plan_packet.get("pr_body_preflight") if isinstance(plan_packet.get("pr_body_preflight"), dict) else {}
+    template_summary = preflight.get("template_summary") if isinstance(preflight.get("template_summary"), dict) else {}
+    sections = template_summary.get("required_sections") if isinstance(template_summary, dict) else []
+    required_sections: list[str] = []
+    for section in sections:
+        if _non_empty_string(section):
+            required_sections.append(section)
+        elif isinstance(section, dict) and _non_empty_string(section.get("section")):
+            required_sections.append(section["section"])
+    return required_sections
+
+
+def _materialized_pr_body(plan_packet: dict[str, Any]) -> str:
+    """Convert a reviewed dry-run PR body into a body suitable for an approved PR."""
+    body = str(plan_packet.get("proposed_pr_body") or "")
+    replacements = {
+        "- Dry run only.": "- Operator-approved Git/PR materialization completed by Cadence.",
+        "- No branch, commit, push, or pull request was created by Cadence.": (
+            "- No auto-merge, release, package publication, or executor invocation was performed by Cadence."
+        ),
+    }
+    for before, after in replacements.items():
+        body = body.replace(before, after)
+    return body
+
+
+def _load_materialization_json(path: Any, code: str, message: str) -> tuple[Any | None, dict[str, Any] | None]:
+    if not _non_empty_string(path):
+        return None, _issue(code, message)
+    try:
+        return read_json(Path(path)), None
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        return None, _issue(code, f"{message}: {exc}")
+
+
+def _materialization_command_trace(
+    *,
+    label: str,
+    argv: list[str],
+    result: subprocess.CompletedProcess[str],
+) -> dict[str, Any]:
+    resolved_argv = list(result.args) if isinstance(result.args, list) else []
+    return {
+        "label": label,
+        "argv": argv,
+        "resolved_executable": resolved_argv[0] if resolved_argv else None,
+        "command": _command_display(argv),
+        "returncode": result.returncode,
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+    }
+
+
+def _materialization_error_trace(*, label: str, message: str) -> dict[str, Any]:
+    """Record a non-subprocess materialization failure in command-trace shape."""
+    return {
+        "label": label,
+        "argv": [],
+        "resolved_executable": None,
+        "command": label,
+        "returncode": 1,
+        "stdout": "",
+        "stderr": message,
+    }
+
+
+def _refresh_materialization_repository(cwd: Path, repository: Any) -> dict[str, Any]:
+    """Refresh live Git state for packets emitted after materialized side effects."""
+    refreshed = dict(repository) if isinstance(repository, dict) else {}
+    repo_root, _error = _git_stdout(cwd, ["rev-parse", "--show-toplevel"])
+    if repo_root is not None:
+        refreshed["repository_path"] = str(Path(repo_root).resolve())
+    current_head, _error = _git_stdout(cwd, ["rev-parse", "--verify", "HEAD^{commit}"])
+    if current_head is not None:
+        refreshed["current_head"] = current_head
+    current_branch, _error = _git_stdout(cwd, ["branch", "--show-current"])
+    if current_branch:
+        refreshed["current_branch"] = current_branch
+    status = _run_git(cwd, ["status", "--porcelain", "--untracked-files=all"], optional_locks=False)
+    if status.returncode == 0:
+        dirty_paths = [line for line in status.stdout.splitlines() if line.strip()]
+        refreshed["dirty_paths"] = dirty_paths
+        refreshed["worktree_clean"] = not dirty_paths
+    return refreshed
+
+
+def _materialization_recommendation(blockers: list[dict[str, Any]], *, side_effects_started: bool) -> str:
+    codes = {blocker.get("code") for blocker in blockers}
+    if not blockers:
+        return "inspect_pull_request"
+    if "operator_approval_missing" in codes or "operator_approval_mismatch" in codes:
+        return "provide_operator_approval"
+    if "stale_git_pr_plan" in codes or "git_pr_plan_recheck_changed" in codes:
+        return "refresh_git_pr_plan"
+    if side_effects_started:
+        return "inspect_git_pr_materialization"
+    return "address_blockers"
+
+
+def _materialization_packet(
+    *,
+    valid: bool,
+    decision: str,
+    approval_state: str,
+    plan_file: Path,
+    plan_checksum: str | None,
+    repository: dict[str, Any] | None,
+    proposed_branch: str | None,
+    proposed_pr_title: str | None,
+    pr_url: str | None,
+    intended_side_effects: list[str],
+    side_effects: list[str],
+    command_trace: list[dict[str, Any]],
+    blockers: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+    pr_number: str | None,
+    remote: str,
+    remote_url: str | None = None,
+) -> dict[str, Any]:
+    side_effects_started = bool(side_effects)
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": GIT_PR_MATERIALIZATION_SCHEMA_VERSION,
+        "packet": "git_pr_materialization",
+        "generated_at": utc_now(),
+        "valid": valid,
+        "decision": decision,
+        "recommended_next_action": _materialization_recommendation(blockers, side_effects_started=side_effects_started),
+        "dry_run": False,
+        "operator_confirmation_required": True,
+        "approval_state": approval_state,
+        "execution_authority": (
+            "operator_approved_git_pr_materialization" if approval_state == "approved" else "none"
+        ),
+        "merge_readiness": "not_evaluated",
+        "plan_file": str(plan_file),
+        "plan_checksum": plan_checksum,
+        "repository": repository or {},
+        "proposed_branch": proposed_branch,
+        "proposed_pr_title": proposed_pr_title,
+        "pr_number": pr_number,
+        "pr_url": pr_url,
+        "remote": remote,
+        "remote_url": remote_url,
+        "intended_side_effects": intended_side_effects,
+        "side_effects": side_effects,
+        "command_trace": command_trace,
+        "blockers": blockers,
+        "warnings": warnings,
+        "limitations": [
+            "operator_approved_git_pr_materialization_only",
+            "does_not_auto_merge",
+            "does_not_release",
+            "does_not_publish_packages",
+            "does_not_invoke_executor",
+        ],
+    }
+
+
+def _plan_structural_blockers(plan_packet: Any) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if not isinstance(plan_packet, dict):
+        return [_issue("git_pr_plan_invalid", "plan packet must be a JSON object")]
+    if plan_packet.get("schema_version") != GIT_PR_PLAN_SCHEMA_VERSION:
+        blockers.append(_issue("git_pr_plan_schema_invalid", "plan packet schema_version must be git-pr-plan.v1"))
+    if plan_packet.get("packet") != "git_pr_plan":
+        blockers.append(_issue("git_pr_plan_packet_invalid", "plan packet must be git_pr_plan"))
+    if plan_packet.get("ready_to_review") is not True or plan_packet.get("decision") != "ready":
+        blockers.append(_issue("git_pr_plan_not_ready", "plan packet is not ready for materialization"))
+    if plan_packet.get("dry_run") is not True:
+        blockers.append(_issue("git_pr_plan_not_dry_run", "plan packet must be a reviewed dry-run plan"))
+    if plan_packet.get("operator_confirmation_required") is not True:
+        blockers.append(
+            _issue("git_pr_plan_operator_confirmation_missing", "plan packet must require operator confirmation")
+        )
+    if plan_packet.get("side_effects") != []:
+        blockers.append(_issue("git_pr_plan_side_effects_present", "plan packet must not contain side effects"))
+    if plan_packet.get("approval_state") != "not_approved":
+        blockers.append(_issue("git_pr_plan_approval_state_invalid", "plan packet must start as not_approved"))
+    if plan_packet.get("execution_authority") != "none":
+        blockers.append(_issue("git_pr_plan_execution_authority_invalid", "plan packet must not grant authority"))
+    if not _non_empty_string(plan_packet.get("proposed_branch")):
+        blockers.append(_issue("git_pr_plan_proposed_branch_missing", "plan packet must include proposed_branch"))
+    if not _non_empty_string(plan_packet.get("proposed_pr_title")):
+        blockers.append(_issue("git_pr_plan_proposed_pr_title_missing", "plan packet must include proposed_pr_title"))
+    if not _non_empty_string(plan_packet.get("proposed_pr_body")):
+        blockers.append(_issue("git_pr_plan_proposed_pr_body_missing", "plan packet must include proposed_pr_body"))
+    return blockers
+
+
+def _stale_plan_blockers(plan_packet: dict[str, Any], rechecked_plan: dict[str, Any]) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    plan_repo = plan_packet.get("repository") if isinstance(plan_packet.get("repository"), dict) else {}
+    rechecked_repo = rechecked_plan.get("repository") if isinstance(rechecked_plan.get("repository"), dict) else {}
+    compared_fields = ("current_branch", "current_head", "base_branch", "base_head", "worktree_clean")
+    changed = {
+        field: {"planned": plan_repo.get(field), "current": rechecked_repo.get(field)}
+        for field in compared_fields
+        if plan_repo.get(field) != rechecked_repo.get(field)
+    }
+    if changed:
+        blockers.append(
+            _issue(
+                "stale_git_pr_plan",
+                "current Git state no longer matches the approved git-pr-plan packet",
+                changed=changed,
+            )
+        )
+    return blockers
+
+
+def _changed_plan_blockers(plan_packet: dict[str, Any], rechecked_plan: dict[str, Any]) -> list[dict[str, Any]]:
+    changed = {
+        field: {"planned": plan_packet.get(field), "current": rechecked_plan.get(field)}
+        for field in ("proposed_branch", "proposed_commit_message", "proposed_pr_title", "proposed_pr_body")
+        if plan_packet.get(field) != rechecked_plan.get(field)
+    }
+    if not changed:
+        return []
+    return [
+        _issue(
+            "git_pr_plan_recheck_changed",
+            "rechecked Git/PR plan differs from the approved packet",
+            changed=changed,
+        )
+    ]
+
+
+def _append_materialization_audit(root: Path, record: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    try:
+        return append_audit_record(root, record), None
+    except OSError as exc:
+        return None, _issue("audit_write_failed", f"could not write materialization audit record: {exc}")
+
+
+def git_pr_materialization_load_error_packet(plan_file: str | Path, error: Exception) -> dict[str, Any]:
+    """Build a stable blocker packet when the plan file cannot be loaded."""
+    plan_path = Path(plan_file).expanduser().resolve(strict=False)
+    return _materialization_packet(
+        valid=False,
+        decision="blocked",
+        approval_state="not_approved",
+        plan_file=plan_path,
+        plan_checksum=None,
+        repository={},
+        proposed_branch=None,
+        proposed_pr_title=None,
+        pr_url=None,
+        intended_side_effects=[],
+        side_effects=[],
+        command_trace=[],
+        blockers=[
+            _issue(
+                "git_pr_plan_unreadable",
+                f"could not read git-pr-plan packet: {error}",
+            )
+        ],
+        warnings=[],
+        pr_number=None,
+        remote="origin",
+    )
+
+
+def _remote_push_url(cwd: Path, remote: str) -> tuple[str | None, list[dict[str, Any]]]:
+    blockers: list[dict[str, Any]] = []
+    if not _non_empty_string(remote) or remote != remote.strip() or remote.startswith("-") or any(ch.isspace() for ch in remote):
+        return None, [_issue("remote_name_invalid", f"remote is not a safe configured remote name: {remote}")]
+    result = _run_git(cwd, ["remote", "get-url", "--push", remote])
+    if result.returncode != 0:
+        blockers.append(
+            _issue(
+                "remote_lookup_failed",
+                f"could not resolve push URL for remote: {remote}",
+                detail=(result.stderr or result.stdout).strip(),
+            )
+        )
+        return None, blockers
+    url = result.stdout.strip()
+    if not url:
+        blockers.append(_issue("remote_lookup_failed", f"remote has no push URL: {remote}"))
+        return None, blockers
+    return url, blockers
+
+
+def _pr_update_preflight(
+    *,
+    cwd: Path,
+    pr_number: str,
+    proposed_branch: str,
+    base_branch: str,
+    expected_head: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Read existing PR state before approving a PR edit target."""
+    argv = ["gh", "pr", "view", pr_number, "--json", "number,headRefName,baseRefName,headRefOid"]
+    result = _run_process(cwd, argv)
+    trace = [_materialization_command_trace(label="preflight_pull_request", argv=argv, result=result)]
+    if result.returncode != 0:
+        return trace, [
+            _issue(
+                "pr_update_preflight_failed",
+                f"could not inspect PR before update: {pr_number}",
+                returncode=result.returncode,
+                stderr=result.stderr.strip(),
+            )
+        ]
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        return trace, [_issue("pr_update_preflight_invalid_json", f"gh pr view returned invalid JSON: {exc}")]
+    if not isinstance(payload, dict):
+        return trace, [_issue("pr_update_preflight_invalid_json", "gh pr view did not return a JSON object")]
+    mismatches = {
+        field: {"expected": expected, "actual": payload.get(field)}
+        for field, expected in {
+            "headRefName": proposed_branch,
+            "baseRefName": base_branch,
+            "headRefOid": expected_head,
+        }.items()
+        if payload.get(field) != expected
+    }
+    if mismatches:
+        return trace, [
+            _issue(
+                "pr_update_target_mismatch",
+                "existing PR does not match the approved materialization target",
+                mismatches=mismatches,
+            )
+        ]
+    return trace, []
+
+
+def _remote_branch_create_preflight(
+    *,
+    cwd: Path,
+    remote: str,
+    proposed_branch: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Ensure PR-create materialization will not reuse an existing remote branch."""
+    argv = ["git", "ls-remote", "--heads", remote, proposed_branch]
+    result = _run_process(cwd, argv)
+    trace = [_materialization_command_trace(label="preflight_remote_branch", argv=argv, result=result)]
+    if result.returncode != 0:
+        return trace, [
+            _issue(
+                "remote_branch_preflight_failed",
+                f"could not inspect remote branch before materialization: {remote}/{proposed_branch}",
+                returncode=result.returncode,
+                stderr=result.stderr.strip(),
+            )
+        ]
+    if result.stdout.strip():
+        return trace, [
+            _issue(
+                "remote_branch_exists",
+                "remote branch already exists; PR-create materialization requires a fresh remote branch",
+                remote=remote,
+                proposed_branch=proposed_branch,
+            )
+        ]
+    return trace, []
+
+
+def materialize_git_pr_plan(
+    *,
+    cwd: str | Path,
+    plan_packet: Any,
+    plan_file: str | Path,
+    approval_token: str | None,
+    runtime_root: str | Path,
+    remote: str = "origin",
+    pr_number: str | None = None,
+) -> dict[str, Any]:
+    """Materialize an operator-approved git-pr-plan packet into local Git/gh side effects."""
+    repo_cwd = Path(cwd).expanduser().resolve()
+    plan_path = Path(plan_file).expanduser().resolve(strict=False)
+    runtime_path = Path(runtime_root).expanduser().resolve()
+    plan_checksum = checksum_json(plan_packet)
+    remote_url, remote_blockers = _remote_push_url(repo_cwd, remote)
+    approval_secret = _materialization_approval_secret()
+    expected_token = (
+        git_pr_materialization_approval_token(
+            plan_packet,
+            remote=remote,
+            remote_url=remote_url,
+            pr_number=pr_number,
+            approval_secret=approval_secret,
+        )
+        if remote_url is not None and approval_secret is not None
+        else None
+    )
+    repository = plan_packet.get("repository") if isinstance(plan_packet, dict) else {}
+    proposed_branch = plan_packet.get("proposed_branch") if isinstance(plan_packet, dict) else None
+    proposed_pr_title = plan_packet.get("proposed_pr_title") if isinstance(plan_packet, dict) else None
+    blockers: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    command_trace: list[dict[str, Any]] = []
+    side_effects: list[str] = []
+    pr_url = None
+    intended_side_effects = [
+        "create_branch",
+        "push_branch",
+        "update_pull_request" if pr_number else "create_pull_request",
+    ]
+
+    blockers.extend(remote_blockers)
+    blockers.extend(_plan_structural_blockers(plan_packet))
+    if not approval_token:
+        approval_state = "not_approved"
+        blockers.append(
+            _issue(
+                "operator_approval_missing",
+                "operator approval token is required before Git/PR materialization",
+            )
+        )
+    elif remote_url is None:
+        approval_state = "approval_unresolved"
+        blockers.append(
+            _issue(
+                "operator_approval_target_unresolved",
+                "materialization target must resolve before operator approval can be checked",
+            )
+        )
+    elif approval_secret is None:
+        approval_state = "approval_unresolved"
+        blockers.append(
+            _issue(
+                "operator_approval_secret_missing",
+                f"{GIT_PR_MATERIALIZATION_APPROVAL_SECRET_ENV} is required to verify operator approval",
+            )
+        )
+    elif expected_token is None or not hmac.compare_digest(approval_token, expected_token):
+        approval_state = "approval_mismatch"
+        blockers.append(
+            _issue(
+                "operator_approval_mismatch",
+                "operator approval token does not match the approved git-pr-plan packet",
+            )
+        )
+    else:
+        approval_state = "approved"
+
+    if blockers:
+        return _materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            repository=repository if isinstance(repository, dict) else {},
+            proposed_branch=proposed_branch if isinstance(proposed_branch, str) else None,
+            proposed_pr_title=proposed_pr_title if isinstance(proposed_pr_title, str) else None,
+            pr_url=None,
+            intended_side_effects=intended_side_effects,
+            side_effects=side_effects,
+            command_trace=command_trace,
+            blockers=blockers,
+            warnings=warnings,
+            pr_number=pr_number,
+            remote=remote,
+            remote_url=remote_url,
+        )
+
+    provenance = plan_packet.get("evidence_provenance") if isinstance(plan_packet.get("evidence_provenance"), dict) else {}
+    task_packet, task_blocker = _load_materialization_json(
+        provenance.get("task_file"),
+        "task_packet_unreadable",
+        "could not read task packet from git-pr-plan evidence provenance",
+    )
+    if task_blocker is not None:
+        blockers.append(task_blocker)
+    result_evidence, result_blocker = _load_materialization_json(
+        provenance.get("result_file"),
+        "result_evidence_unreadable",
+        "could not read executor result evidence from git-pr-plan evidence provenance",
+    )
+    if result_blocker is not None:
+        blockers.append(result_blocker)
+    if task_packet is not None and provenance.get("task_file_checksum") != checksum_json(task_packet):
+        blockers.append(
+            _issue(
+                "task_packet_changed",
+                "task packet checksum no longer matches the approved git-pr-plan packet",
+            )
+        )
+    if result_evidence is not None and provenance.get("result_file_checksum") != checksum_json(result_evidence):
+        blockers.append(
+            _issue(
+                "result_evidence_changed",
+                "executor result checksum no longer matches the approved git-pr-plan packet",
+            )
+        )
+
+    if task_packet is not None and result_evidence is not None:
+        branch_policy = plan_packet.get("branch_policy") if isinstance(plan_packet.get("branch_policy"), dict) else {}
+        rechecked_plan = evaluate_git_pr_plan(
+            cwd=repo_cwd,
+            task_packet=task_packet,
+            result_evidence=result_evidence,
+            task_file=provenance.get("task_file"),
+            result_file=provenance.get("result_file"),
+            base_branch=(
+                repository.get("base_branch")
+                if isinstance(repository, dict) and _non_empty_string(repository.get("base_branch"))
+                else "main"
+            ),
+            branch_prefix="",
+            proposed_branch_override=proposed_branch if isinstance(proposed_branch, str) else None,
+            branch_policy=branch_policy.get("policy_file") if isinstance(branch_policy, dict) else None,
+            required_body_sections=_materialization_required_sections(plan_packet),
+            runtime_root=runtime_path,
+        )
+        blockers.extend(_stale_plan_blockers(plan_packet, rechecked_plan))
+        blockers.extend(_changed_plan_blockers(plan_packet, rechecked_plan))
+        if not rechecked_plan.get("ready_to_review"):
+            blockers.append(
+                _issue(
+                    "git_pr_plan_recheck_blocked",
+                    "rechecked Git/PR plan is blocked immediately before materialization",
+                    recheck_blockers=rechecked_plan.get("blockers", []),
+                )
+            )
+        repository = rechecked_plan.get("repository") if isinstance(rechecked_plan.get("repository"), dict) else repository
+        materialized_body = _materialized_pr_body(plan_packet)
+        body_preflight = _preflight_pr_body(materialized_body, _materialization_required_sections(plan_packet))
+        for blocker in body_preflight.get("blockers", []):
+            if isinstance(blocker, dict):
+                blockers.append(blocker)
+        for warning in body_preflight.get("warnings", []):
+            if isinstance(warning, dict):
+                warnings.append(warning)
+    else:
+        materialized_body = _materialized_pr_body(plan_packet) if isinstance(plan_packet, dict) else ""
+
+    if not pr_number and not blockers and isinstance(proposed_branch, str):
+        remote_trace, remote_branch_blockers = _remote_branch_create_preflight(
+            cwd=repo_cwd,
+            remote=remote,
+            proposed_branch=proposed_branch,
+        )
+        command_trace.extend(remote_trace)
+        blockers.extend(remote_branch_blockers)
+
+    if (
+        pr_number
+        and not blockers
+        and isinstance(proposed_branch, str)
+        and isinstance(repository, dict)
+        and _non_empty_string(repository.get("base_branch"))
+        and _non_empty_string(repository.get("current_head"))
+    ):
+        pr_trace, pr_blockers = _pr_update_preflight(
+            cwd=repo_cwd,
+            pr_number=pr_number,
+            proposed_branch=proposed_branch,
+            base_branch=repository["base_branch"],
+            expected_head=repository["current_head"],
+        )
+        command_trace.extend(pr_trace)
+        blockers.extend(pr_blockers)
+
+    if blockers:
+        return _materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            repository=repository if isinstance(repository, dict) else {},
+            proposed_branch=proposed_branch if isinstance(proposed_branch, str) else None,
+            proposed_pr_title=proposed_pr_title if isinstance(proposed_pr_title, str) else None,
+            pr_url=None,
+            intended_side_effects=intended_side_effects,
+            side_effects=side_effects,
+            command_trace=command_trace,
+            blockers=blockers,
+            warnings=warnings,
+            pr_number=pr_number,
+            remote=remote,
+            remote_url=remote_url,
+        )
+
+    intent_payload = _materialization_packet(
+        valid=True,
+        decision="approved",
+        approval_state=approval_state,
+        plan_file=plan_path,
+        plan_checksum=plan_checksum,
+        repository=repository if isinstance(repository, dict) else {},
+        proposed_branch=proposed_branch,
+        proposed_pr_title=proposed_pr_title,
+        pr_url=None,
+        intended_side_effects=intended_side_effects,
+        side_effects=[],
+        command_trace=[],
+        blockers=[],
+        warnings=warnings,
+        pr_number=pr_number,
+        remote=remote,
+        remote_url=remote_url,
+    )
+    audit_record, audit_blocker = _append_materialization_audit(
+        runtime_path,
+        git_pr_materialization_intent_audit_record(intent_payload),
+    )
+    if audit_blocker is not None:
+        return _materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            repository=repository if isinstance(repository, dict) else {},
+            proposed_branch=proposed_branch,
+            proposed_pr_title=proposed_pr_title,
+            pr_url=None,
+            intended_side_effects=intended_side_effects,
+            side_effects=[],
+            command_trace=[],
+            blockers=[audit_blocker],
+            warnings=warnings,
+            pr_number=pr_number,
+            remote=remote,
+            remote_url=remote_url,
+        )
+    side_effects.append("audit_intent_record_appended")
+
+    commands = [
+        (
+            "create_branch",
+            ["git", "branch", str(proposed_branch), str(repository.get("current_head"))],
+            "created_branch",
+        ),
+        ("push_branch", ["git", "push", "--no-verify", "-u", remote, str(proposed_branch)], "pushed_branch"),
+    ]
+    for label, argv, side_effect in commands:
+        result = _run_process(repo_cwd, argv)
+        command_trace.append(_materialization_command_trace(label=label, argv=argv, result=result))
+        if result.returncode != 0:
+            blockers.append(
+                _issue(
+                    "git_pr_materialization_command_failed",
+                    f"{label} failed during approved Git/PR materialization",
+                    command_label=label,
+                    returncode=result.returncode,
+                    stderr=result.stderr.strip(),
+                )
+            )
+            failed_side_effects = [*side_effects, "audit_result_record_appended"]
+            failed_packet = _materialization_packet(
+                valid=False,
+                decision="blocked",
+                approval_state=approval_state,
+                plan_file=plan_path,
+                plan_checksum=plan_checksum,
+                repository=repository if isinstance(repository, dict) else {},
+                proposed_branch=proposed_branch,
+                proposed_pr_title=proposed_pr_title,
+                pr_url=pr_url,
+                intended_side_effects=intended_side_effects,
+                side_effects=failed_side_effects,
+                command_trace=command_trace,
+                blockers=blockers,
+                warnings=warnings,
+                pr_number=pr_number,
+                remote=remote,
+                remote_url=remote_url,
+            )
+            result_audit, result_audit_blocker = _append_materialization_audit(
+                runtime_path,
+                git_pr_materialization_result_audit_record(failed_packet),
+            )
+            if result_audit_blocker is None:
+                return failed_packet
+            else:
+                failed_packet_without_audit = _materialization_packet(
+                    valid=False,
+                    decision="blocked",
+                    approval_state=approval_state,
+                    plan_file=plan_path,
+                    plan_checksum=plan_checksum,
+                    repository=repository if isinstance(repository, dict) else {},
+                    proposed_branch=proposed_branch,
+                    proposed_pr_title=proposed_pr_title,
+                    pr_url=pr_url,
+                    intended_side_effects=intended_side_effects,
+                    side_effects=side_effects,
+                    command_trace=command_trace,
+                    blockers=blockers,
+                    warnings=[*warnings, result_audit_blocker],
+                    pr_number=pr_number,
+                    remote=remote,
+                    remote_url=remote_url,
+                )
+                return failed_packet_without_audit
+        side_effects.append(side_effect)
+        repository = _refresh_materialization_repository(repo_cwd, repository)
+
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md", delete=False) as handle:
+            handle.write(materialized_body)
+            body_file = Path(handle.name)
+    except OSError as exc:
+        failure_message = str(exc)
+        blockers.append(
+            _issue(
+                "temporary_pr_body_creation_failed",
+                "could not create temporary PR body file during approved Git/PR materialization",
+                detail=failure_message,
+            )
+        )
+        command_trace.append(
+            _materialization_error_trace(
+                label="temporary_pr_body_creation_failed",
+                message=failure_message,
+            )
+        )
+        failed_side_effects = [*side_effects, "audit_result_record_appended"]
+        failed_packet = _materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            repository=repository if isinstance(repository, dict) else {},
+            proposed_branch=proposed_branch,
+            proposed_pr_title=proposed_pr_title,
+            pr_url=pr_url,
+            intended_side_effects=intended_side_effects,
+            side_effects=failed_side_effects,
+            command_trace=command_trace,
+            blockers=blockers,
+            warnings=warnings,
+            pr_number=pr_number,
+            remote=remote,
+            remote_url=remote_url,
+        )
+        result_audit, result_audit_blocker = _append_materialization_audit(
+            runtime_path,
+            git_pr_materialization_result_audit_record(failed_packet),
+        )
+        if result_audit_blocker is None:
+            return failed_packet
+        return _materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            repository=repository if isinstance(repository, dict) else {},
+            proposed_branch=proposed_branch,
+            proposed_pr_title=proposed_pr_title,
+            pr_url=pr_url,
+            intended_side_effects=intended_side_effects,
+            side_effects=side_effects,
+            command_trace=command_trace,
+            blockers=blockers,
+            warnings=[*warnings, result_audit_blocker],
+            pr_number=pr_number,
+            remote=remote,
+            remote_url=remote_url,
+        )
+    try:
+        if pr_number:
+            gh_argv = ["gh", "pr", "edit", pr_number, "--title", str(proposed_pr_title), "--body-file", str(body_file)]
+            gh_label = "update_pull_request"
+            gh_side_effect = "updated_pull_request"
+        else:
+            base_branch = repository.get("base_branch") if isinstance(repository, dict) else "main"
+            gh_argv = [
+                "gh",
+                "pr",
+                "create",
+                "--base",
+                str(base_branch),
+                "--head",
+                str(proposed_branch),
+                "--title",
+                str(proposed_pr_title),
+                "--body-file",
+                str(body_file),
+            ]
+            gh_label = "create_pull_request"
+            gh_side_effect = "created_pull_request"
+        gh_result = _run_process(repo_cwd, gh_argv)
+        command_trace.append(_materialization_command_trace(label=gh_label, argv=gh_argv, result=gh_result))
+    finally:
+        try:
+            body_file.unlink()
+        except OSError:
+            warnings.append(_issue("temporary_pr_body_cleanup_failed", "could not remove temporary PR body file"))
+
+    if gh_result.returncode != 0:
+        blockers.append(
+            _issue(
+                "git_pr_materialization_command_failed",
+                f"{gh_label} failed during approved Git/PR materialization",
+                command_label=gh_label,
+                returncode=gh_result.returncode,
+                stderr=gh_result.stderr.strip(),
+            )
+        )
+        failed_side_effects = [*side_effects, "audit_result_record_appended"]
+        failed_packet = _materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            repository=repository if isinstance(repository, dict) else {},
+            proposed_branch=proposed_branch,
+            proposed_pr_title=proposed_pr_title,
+            pr_url=None,
+            intended_side_effects=intended_side_effects,
+            side_effects=failed_side_effects,
+            command_trace=command_trace,
+            blockers=blockers,
+            warnings=warnings,
+            pr_number=pr_number,
+            remote=remote,
+            remote_url=remote_url,
+        )
+        result_audit, result_audit_blocker = _append_materialization_audit(
+            runtime_path,
+            git_pr_materialization_result_audit_record(failed_packet),
+        )
+        if result_audit_blocker is None:
+            return failed_packet
+        else:
+            return _materialization_packet(
+                valid=False,
+                decision="blocked",
+                approval_state=approval_state,
+                plan_file=plan_path,
+                plan_checksum=plan_checksum,
+                repository=repository if isinstance(repository, dict) else {},
+                proposed_branch=proposed_branch,
+                proposed_pr_title=proposed_pr_title,
+                pr_url=None,
+                intended_side_effects=intended_side_effects,
+                side_effects=side_effects,
+                command_trace=command_trace,
+                blockers=blockers,
+                warnings=[*warnings, result_audit_blocker],
+                pr_number=pr_number,
+                remote=remote,
+                remote_url=remote_url,
+            )
+
+    side_effects.append(gh_side_effect)
+    repository = _refresh_materialization_repository(repo_cwd, repository)
+    pr_url = gh_result.stdout.strip().splitlines()[0] if gh_result.stdout.strip() else None
+    success_side_effects = [*side_effects, "audit_result_record_appended"]
+    success_packet = _materialization_packet(
+        valid=True,
+        decision="materialized",
+        approval_state=approval_state,
+        plan_file=plan_path,
+        plan_checksum=plan_checksum,
+        repository=repository if isinstance(repository, dict) else {},
+        proposed_branch=proposed_branch,
+        proposed_pr_title=proposed_pr_title,
+        pr_url=pr_url,
+        intended_side_effects=intended_side_effects,
+        side_effects=success_side_effects,
+        command_trace=command_trace,
+        blockers=[],
+        warnings=warnings,
+        pr_number=pr_number,
+        remote=remote,
+        remote_url=remote_url,
+    )
+    result_audit, result_audit_blocker = _append_materialization_audit(
+        runtime_path,
+        git_pr_materialization_result_audit_record(success_packet),
+    )
+    if result_audit_blocker is None:
+        return success_packet
+    else:
+        return _materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            repository=repository if isinstance(repository, dict) else {},
+            proposed_branch=proposed_branch,
+            proposed_pr_title=proposed_pr_title,
+            pr_url=pr_url,
+            intended_side_effects=intended_side_effects,
+            side_effects=side_effects,
+            command_trace=command_trace,
+            blockers=[result_audit_blocker],
+            warnings=warnings,
+            pr_number=pr_number,
+            remote=remote,
+            remote_url=remote_url,
+        )

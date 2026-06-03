@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-02
+Last updated: 2026-06-03
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,74 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-02 - Add operator-approved Git/PR materialization
+
+Summary:
+- Added `git-pr-materialize`, which consumes a reviewed `git-pr-plan.v1`
+  packet plus exact target-bound operator approval, rechecks current Git state,
+  branch policy, complete local-diff coverage by materialized-change evidence,
+  PR body preflight, and evidence freshness before any write-side Git or `gh`
+  side effects.
+- Materialization now appends `git_pr_materialization_intent` and
+  `git_pr_materialization_result` audit events, creates the proposed branch
+  from the already-materialized current commit without switching the checkout,
+  pushes it with Git hook verification disabled for that push, and creates or
+  updates a PR through `gh` only after gates pass. Existing PR updates first
+  verify the PR head/base through a read-only `gh pr view` preflight. Blocked
+  and completed attempts emit `git-pr-materialization.v1` packets.
+- Review follow-up tightened materialized-evidence coverage, bound approval to
+  the selected remote and PR target, avoided checkout hooks by creating the
+  branch without switching, pushed with Git hook verification disabled for that
+  push, and made result-audit checksums match returned packets.
+- Second review follow-up refreshed stale docs, added successful existing-PR
+  update coverage, refreshed live repository state before emitting post-side
+  effect packets, and converted temporary PR body file creation failures into
+  structured blocked materialization packets with replayable result audit.
+- Third review follow-up added a read-only remote-branch preflight for PR-create
+  materialization so approved plans cannot update an existing remote branch
+  when creating a new PR.
+- Fourth review follow-up moved materialization approval from public checksum
+  tokens to HMAC tokens backed by
+  `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET` and removed expected-token
+  disclosure from returned packets.
+
+Completed slices:
+- Task 6 current-tree implementation: operator-approved Git/PR materialization.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: PR materialization is now locally gated and audited, but real executor
+  invocation, resume verification, autonomous execution, auto-merge, release,
+  and package publication remain blocked.
+
+Evidence:
+- `python -m unittest tests.test_git_pr_plan tests.test_audit_replay`
+- `python -m unittest tests.test_git_pr_plan tests.test_audit_replay -v`
+- `python -m unittest tests.test_git_pr_plan tests.test_audit_replay tests.test_cadence tests.test_pr_readiness -v`
+- `python -m unittest tests.test_ci_checks -v`
+- `python -m py_compile codex_cadence/git_pr_plan.py codex_cadence/cli.py codex_cadence/policy_audit.py codex_cadence/pr_readiness.py scripts/validate_protocol.py`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- Approval is HMAC-backed by a local operator secret, but still does not bind an
+  authenticated approver identity or hash-chain-backed authorization.
+- The command materializes an already-clean current commit; dirty-worktree
+  commit creation remains outside scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`
+- `docs/session-handoff.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
 
 ## 2026-06-02 - Add read-only GitHub evidence sync
 

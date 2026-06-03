@@ -28,6 +28,51 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-02 - Gate Git/PR materialization on exact plan approval
+
+Decision:
+- Add `git-pr-materialize` as the only Task 6 write-side Git/PR path.
+- Require the operator approval token to match an HMAC over the reviewed
+  `git-pr-plan.v1` packet checksum plus selected remote, resolved push URL, and
+  create-vs-update PR target before any audit, Git, or write-side `gh` side effect.
+- Re-run the dry-run planner and PR body preflight immediately before writes,
+  require materialized evidence to cover the complete local diff, then audit
+  intended and completed side effects.
+- Materialize only branch creation from the already-clean current commit without
+  switching the checkout, push with Git hook verification disabled for that
+  push, and PR create/update. Existing PR updates first verify the PR head and
+  base through `gh pr view`. Keep dirty-worktree commits, auto-merge, release,
+  package publication, paid review, and real executor invocation outside scope.
+
+Why:
+- A dry-run plan can become stale as soon as branch, HEAD, evidence files,
+  branch policy, or PR-body requirements change.
+- Binding approval to the exact plan packet keeps the operator-approved action
+  reviewable and avoids treating executor output as Git/PR authority.
+- Intent/result audit records make partial failures replayable.
+
+Alternatives considered:
+- Let `git-pr-plan` execute its command examples directly. Rejected because the
+  dry-run packet is deliberately non-authoritative and must remain side-effect
+  free.
+- Commit dirty worktree contents during materialization. Deferred because the
+  current executor-result contract already requires materialized change
+  evidence at current `HEAD`; dirty-worktree commit creation needs a separate
+  policy and evidence model.
+
+Consequences:
+- Operators can approve a specific plan and target for local branch/push/PR
+  materialization without granting autonomous merge or release authority.
+- Missing/mismatched approval, stale plans, policy failures, PR body failures,
+  and failed Git/`gh` commands produce stable blocker packets.
+- Approval identity and tamper evidence remain future work.
+
+Open questions:
+- How should a future hash chain or signed approval identity bind the operator,
+  plan packet, and resulting PR?
+- Should PR update materialization support existing local branch refreshes
+  beyond the current clean-commit path?
+
 ## 2026-06-02 - Keep GitHub evidence sync read-only and local-file based
 
 Decision:

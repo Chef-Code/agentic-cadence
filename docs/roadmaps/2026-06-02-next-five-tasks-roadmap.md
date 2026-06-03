@@ -6,7 +6,7 @@
 
 **Architecture:** Keep Cadence as the governor: it owns policy, evidence, audit, branch governance, handoff, and next-decision logic. Executors remain replaceable components that receive bounded task packets and return evidence; they do not become the product authority.
 
-**Tech Stack:** Python 3.11+, stdlib CLI, local JSON packets, Git, optional `gh` only for explicitly requested read-only sync work, `unittest`, GitHub Actions.
+**Tech Stack:** Python 3.11+, stdlib CLI, local JSON packets, Git, optional `gh` for read-only sync and Task 6 operator-approved PR create/edit actions, `unittest`, GitHub Actions.
 
 ---
 
@@ -203,7 +203,7 @@ git diff --check
 
 ## Task 5: Add Read-Only GitHub Evidence Sync And Feedback Candidates
 
-**Status:** Implemented in current tree; pending review and merge.
+**Status:** Merged in PR #68.
 
 **Phase:** Phase 3 Git/PR governance, preparing later Phase 4 worker coordination.
 
@@ -261,11 +261,11 @@ git diff --check
 
 ## Task 6: Add Operator-Approved Git/PR Materialization
 
-**Status:** Not started.
+**Status:** Implemented in current tree; pending review and merge.
 
 **Phase:** Phase 3 Git/PR governance, after branch policy and read-only GitHub evidence sync.
 
-**Why now:** `git-pr-plan` is intentionally dry-run. Once branch policy and live read-only evidence are stable, Cadence needs an explicit operator-approved path that can materialize a reviewed plan into local branch, commit, push, and PR creation actions without giving executors autonomous Git authority.
+**Why now:** `git-pr-plan` is intentionally dry-run. Once branch policy and live read-only evidence are stable, Cadence needs an explicit operator-approved path that can materialize a reviewed plan into local branch, push, and PR creation/update actions without giving executors autonomous Git authority.
 
 **Files:**
 - Modify: `codex_cadence/git_pr_plan.py`
@@ -278,9 +278,30 @@ git diff --check
 **Implementation outline:**
 - Add an explicit command that consumes a validated `git-pr-plan.v1` packet, policy evidence, and operator confirmation.
 - Enforce current branch/head, branch policy, materialized-change evidence, PR body preflight, and freshness gates immediately before any Git or `gh` action.
-- Create the branch, commit, push, and open or update a PR only when the operator approval token and policy gates match the packet under review.
-- Append audit records for each intended and completed side effect.
+- Create the branch at the already-materialized current commit without switching the checkout, push it, and open or update a PR only when the operator approval token and policy gates match the packet and target under review.
+- Append audit records for intended and completed side effects.
 - Keep auto-merge, release, package publication, and real executor invocation outside this slice.
+
+**Current-tree implementation:** `git-pr-materialize` consumes a saved
+`git-pr-plan.v1` packet plus the exact target-bound
+`approve-git-pr:hmac-sha256:<materialization-target-hmac>` operator approval
+token backed by `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`. Before
+side effects it re-reads task/result provenance, verifies checksums, reruns
+`git-pr-plan` with the approved proposed branch, rechecks current
+branch/head/base/worktree freshness, branch policy, complete local-diff coverage
+by materialized-change evidence, and PR body preflight, then blocks stale or
+mismatched evidence before audit, branch, push, or PR actions. The HMAC token
+binds the plan checksum, selected remote, resolved push URL, and create-vs-update PR
+target. Existing PR updates also run a read-only `gh pr view` preflight to prove
+the PR head and base match the approved packet. Once gates pass, it appends
+`git_pr_materialization_intent`, creates the proposed branch from the
+already-materialized current commit without switching the checkout, pushes to
+the selected remote with Git hook verification disabled for that push, creates
+or updates a PR through `gh`, and appends `git_pr_materialization_result`.
+Failed Git or `gh` commands return `git-pr-materialization.v1` blocker packets
+with command trace and replayable audit evidence. The command does not run
+`git commit` against a dirty worktree, auto-merge, release, publish packages,
+or invoke an executor.
 
 **Validation:**
 - Approved dry-run plan materializes into the expected mocked Git/PR command sequence.
