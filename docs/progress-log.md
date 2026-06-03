@@ -55,7 +55,9 @@ Confidence change:
 
 Evidence:
 - `python -m py_compile scripts/validate_protocol.py`
+- `python -m unittest tests.test_candidates.CandidateDiscoveryGovernanceTests.test_repo_business_memory_current_entries_are_closed_and_parse_without_warnings tests.test_candidates.CandidateDiscoveryGovernanceTests.test_repo_business_memory_current_entries_seed_governed_execution_backlog_and_parse_without_warnings -v`
 - `python -m unittest tests.test_ci_checks.CiChecksTests.test_protocol_validator_accepts_current_repo -v`
+- `python -m unittest discover -s tests -v`
 - `python scripts/validate_protocol.py`
 - `python scripts/ci_smoke.py`
 - `git diff --check`
@@ -65,6 +67,7 @@ New risks or blockers:
   executor integration.
 
 Docs updated:
+- `README.md`
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`
 - `docs/session-handoff.md`

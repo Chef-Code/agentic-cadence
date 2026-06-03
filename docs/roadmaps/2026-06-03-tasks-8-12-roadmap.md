@@ -198,12 +198,12 @@ git diff --check
 **Implementation outline:**
 - Add local `work-ownership.v1` records under the runtime root with task id, candidate id, role label, claimer, repo, branch, optional PR number, optional epoch id, optional handoff id, status, and timestamps.
 - Add read-only status and validation commands for ownership records.
-- Let future execution-start and resume-continuation gates consult ownership evidence, but do not enforce distributed locks.
+- Emit duplicate-ownership blockers from the ownership status and validation commands. Leave execution-start and resume-continuation enforcement as a later explicit integration point, and do not enforce distributed locks.
 - Keep role assignment, agent pool scheduling, GitHub issue assignment, shared runtime, merge authority, release authority, and package publication outside this slice.
 
 **Validation:**
 - Valid local ownership records validate and surface in status packets.
-- Duplicate active ownership for the same task/branch blocks local start recommendations.
+- Duplicate active ownership for the same task/branch blocks ownership status recommendations without mutating execution-start or resume-continuation gates in this slice.
 - Malformed, stale, closed, or repo-mismatched ownership evidence returns stable blockers.
 - Records remain local filesystem evidence and do not call GitHub.
 
