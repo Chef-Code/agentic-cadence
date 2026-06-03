@@ -6,7 +6,7 @@
 
 **Architecture:** Keep Cadence as the governor: it owns policy, evidence, audit, branch governance, handoff, and next-decision logic. Executors remain replaceable components that receive bounded task packets and return evidence; they do not become the product authority.
 
-**Tech Stack:** Python 3.11+, stdlib CLI, local JSON packets, Git, optional `gh` only for explicitly requested read-only sync work, `unittest`, GitHub Actions.
+**Tech Stack:** Python 3.11+, stdlib CLI, local JSON packets, Git, optional `gh` for read-only sync and Task 6 operator-approved PR create/edit actions, `unittest`, GitHub Actions.
 
 ---
 

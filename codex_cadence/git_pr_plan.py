@@ -830,6 +830,39 @@ def _materialization_command_trace(
     }
 
 
+def _materialization_error_trace(*, label: str, message: str) -> dict[str, Any]:
+    """Record a non-subprocess materialization failure in command-trace shape."""
+    return {
+        "label": label,
+        "argv": [],
+        "resolved_executable": None,
+        "command": label,
+        "returncode": 1,
+        "stdout": "",
+        "stderr": message,
+    }
+
+
+def _refresh_materialization_repository(cwd: Path, repository: Any) -> dict[str, Any]:
+    """Refresh live Git state for packets emitted after materialized side effects."""
+    refreshed = dict(repository) if isinstance(repository, dict) else {}
+    repo_root, _error = _git_stdout(cwd, ["rev-parse", "--show-toplevel"])
+    if repo_root is not None:
+        refreshed["repository_path"] = str(Path(repo_root).resolve())
+    current_head, _error = _git_stdout(cwd, ["rev-parse", "--verify", "HEAD^{commit}"])
+    if current_head is not None:
+        refreshed["current_head"] = current_head
+    current_branch, _error = _git_stdout(cwd, ["branch", "--show-current"])
+    if current_branch:
+        refreshed["current_branch"] = current_branch
+    status = _run_git(cwd, ["status", "--porcelain", "--untracked-files=all"], optional_locks=False)
+    if status.returncode == 0:
+        dirty_paths = [line for line in status.stdout.splitlines() if line.strip()]
+        refreshed["dirty_paths"] = dirty_paths
+        refreshed["worktree_clean"] = not dirty_paths
+    return refreshed
+
+
 def _materialization_recommendation(blockers: list[dict[str, Any]], *, side_effects_started: bool) -> str:
     codes = {blocker.get("code") for blocker in blockers}
     if not blockers:
@@ -1398,10 +1431,74 @@ def materialize_git_pr_plan(
                 )
                 return failed_packet_without_audit
         side_effects.append(side_effect)
+        repository = _refresh_materialization_repository(repo_cwd, repository)
 
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md", delete=False) as handle:
-        handle.write(materialized_body)
-        body_file = Path(handle.name)
+    try:
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md", delete=False) as handle:
+            handle.write(materialized_body)
+            body_file = Path(handle.name)
+    except OSError as exc:
+        failure_message = str(exc)
+        blockers.append(
+            _issue(
+                "temporary_pr_body_creation_failed",
+                "could not create temporary PR body file during approved Git/PR materialization",
+                detail=failure_message,
+            )
+        )
+        command_trace.append(
+            _materialization_error_trace(
+                label="temporary_pr_body_creation_failed",
+                message=failure_message,
+            )
+        )
+        failed_side_effects = [*side_effects, "audit_result_record_appended"]
+        failed_packet = _materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            expected_approval_token=expected_token,
+            repository=repository if isinstance(repository, dict) else {},
+            proposed_branch=proposed_branch,
+            proposed_pr_title=proposed_pr_title,
+            pr_url=pr_url,
+            intended_side_effects=intended_side_effects,
+            side_effects=failed_side_effects,
+            command_trace=command_trace,
+            blockers=blockers,
+            warnings=warnings,
+            pr_number=pr_number,
+            remote=remote,
+            remote_url=remote_url,
+        )
+        result_audit, result_audit_blocker = _append_materialization_audit(
+            runtime_path,
+            git_pr_materialization_result_audit_record(failed_packet),
+        )
+        if result_audit_blocker is None:
+            return failed_packet
+        return _materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            expected_approval_token=expected_token,
+            repository=repository if isinstance(repository, dict) else {},
+            proposed_branch=proposed_branch,
+            proposed_pr_title=proposed_pr_title,
+            pr_url=pr_url,
+            intended_side_effects=intended_side_effects,
+            side_effects=side_effects,
+            command_trace=command_trace,
+            blockers=blockers,
+            warnings=[*warnings, result_audit_blocker],
+            pr_number=pr_number,
+            remote=remote,
+            remote_url=remote_url,
+        )
     try:
         if pr_number:
             gh_argv = ["gh", "pr", "edit", pr_number, "--title", str(proposed_pr_title), "--body-file", str(body_file)]
@@ -1492,6 +1589,7 @@ def materialize_git_pr_plan(
             )
 
     side_effects.append(gh_side_effect)
+    repository = _refresh_materialization_repository(repo_cwd, repository)
     pr_url = gh_result.stdout.strip().splitlines()[0] if gh_result.stdout.strip() else None
     success_side_effects = [*side_effects, "audit_result_record_appended"]
     success_packet = _materialization_packet(

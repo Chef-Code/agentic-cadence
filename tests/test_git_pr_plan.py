@@ -1327,6 +1327,83 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertEqual(result_record["payload_checksum"], checksum_json(packet))
             self.assertEqual(result_record["side_effects_checksum"], checksum_json(packet["side_effects"]))
 
+    def test_git_pr_materialize_updates_existing_pr_after_approval(self):
+        """Approved PR update mode preflights the target and uses gh pr edit."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            add_origin_remote(Path(tmp), repo)
+            plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
+            token = git_pr_materialization_approval_token(
+                plan,
+                remote_url=remote_push_url(repo),
+                pr_number=42,
+            )
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            pr_url = "https://github.example/local/test/pull/42"
+            write_fake_gh_materializer(fake_bin, gh_log, pr_url)
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = pr_url
+            env["GH_FAKE_HEAD_REF"] = plan["proposed_branch"]
+            env["GH_FAKE_BASE_REF"] = plan["repository"]["base_branch"]
+            env["GH_FAKE_HEAD_OID"] = plan["repository"]["current_head"]
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(plan_path),
+                "--approval-token",
+                token,
+                "--pr-number",
+                "42",
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(packet["valid"])
+            self.assertEqual(packet["decision"], "materialized")
+            self.assertEqual(packet["pr_number"], "42")
+            self.assertEqual(packet["pr_url"], pr_url)
+            self.assertEqual(
+                packet["side_effects"],
+                [
+                    "audit_intent_record_appended",
+                    "created_branch",
+                    "pushed_branch",
+                    "updated_pull_request",
+                    "audit_result_record_appended",
+                ],
+            )
+            gh_lines = gh_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(
+                gh_lines[0],
+                "pr view 42 --json number,headRefName,baseRefName,headRefOid",
+            )
+            self.assertTrue(gh_lines[1].startswith("pr edit 42 "))
+            self.assertNotIn("pr create", "\n".join(gh_lines))
+            command_argvs = [trace["argv"] for trace in packet["command_trace"]]
+            self.assertEqual(
+                command_argvs[0],
+                ["gh", "pr", "view", "42", "--json", "number,headRefName,baseRefName,headRefOid"],
+            )
+            self.assertEqual(command_argvs[1], ["git", "branch", plan["proposed_branch"], plan["repository"]["current_head"]])
+            self.assertEqual(command_argvs[2], ["git", "push", "--no-verify", "-u", "origin", plan["proposed_branch"]])
+            self.assertEqual(command_argvs[3][:4], ["gh", "pr", "edit", "42"])
+
+            replay_result, replay = run_audit_replay(runtime_root, cwd=repo)
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["events_by_type"]["git_pr_materialization_result"], 1)
+
     def test_git_pr_materialize_rechecks_stale_head_before_side_effects(self):
         """A plan for an older HEAD is blocked before Git, gh, or audit writes."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
@@ -1587,6 +1664,47 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertNotIn("created_pull_request", packet["side_effects"])
             self.assertIn("git_pr_materialization_command_failed", {blocker["code"] for blocker in packet["blockers"]})
             self.assertTrue(gh_log.read_text(encoding="utf-8").startswith("pr create "))
+            replay_result, replay = run_audit_replay(runtime_root, cwd=repo)
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["events_by_type"]["git_pr_materialization_result"], 1)
+
+    def test_git_pr_materialize_temp_body_failure_returns_blocker_and_audit_evidence(self):
+        """Temporary PR body creation failures are structured after branch/push side effects."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            add_origin_remote(Path(tmp), repo)
+            plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
+            token = git_pr_materialization_approval_token(plan, remote_url=remote_push_url(repo))
+            original_named_temporary_file = git_pr_plan_module.tempfile.NamedTemporaryFile
+
+            def fail_named_temporary_file(*_args, **_kwargs):
+                raise OSError("body temp unavailable")
+
+            git_pr_plan_module.tempfile.NamedTemporaryFile = fail_named_temporary_file
+            try:
+                packet = git_pr_plan_module.materialize_git_pr_plan(
+                    cwd=repo,
+                    plan_packet=plan,
+                    plan_file=plan_path,
+                    approval_token=token,
+                    runtime_root=runtime_root,
+                )
+            finally:
+                git_pr_plan_module.tempfile.NamedTemporaryFile = original_named_temporary_file
+
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["decision"], "blocked")
+            self.assertIn("created_branch", packet["side_effects"])
+            self.assertIn("pushed_branch", packet["side_effects"])
+            self.assertNotIn("created_pull_request", packet["side_effects"])
+            self.assertIn("temporary_pr_body_creation_failed", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertEqual(packet["command_trace"][-1]["label"], "temporary_pr_body_creation_failed")
+            self.assertEqual(packet["command_trace"][-1]["returncode"], 1)
+
             replay_result, replay = run_audit_replay(runtime_root, cwd=repo)
             self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
             self.assertTrue(replay["valid"])

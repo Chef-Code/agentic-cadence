@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-02
+Last updated: 2026-06-03
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -52,6 +52,10 @@ Summary:
   the selected remote and PR target, avoided checkout hooks by creating the
   branch without switching, pushed with Git hook verification disabled for that
   push, and made result-audit checksums match returned packets.
+- Second review follow-up refreshed stale docs, added successful existing-PR
+  update coverage, refreshed live repository state before emitting post-side
+  effect packets, and converted temporary PR body file creation failures into
+  structured blocked materialization packets with replayable result audit.
 
 Completed slices:
 - Task 6 current-tree implementation: operator-approved Git/PR materialization.
