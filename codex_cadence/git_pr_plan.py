@@ -59,9 +59,40 @@ def _run_process(cwd: Path, argv: list[str]) -> subprocess.CompletedProcess[str]
         return subprocess.CompletedProcess(command, 1, "", str(exc))
 
 
-def git_pr_materialization_approval_token(plan_packet: Any) -> str:
-    """Return the exact operator approval token for a git-pr-plan packet."""
-    return GIT_PR_MATERIALIZATION_APPROVAL_PREFIX + checksum_json(plan_packet).removeprefix("sha256:")
+def git_pr_materialization_approval_payload(
+    plan_packet: Any,
+    *,
+    remote: str,
+    remote_url: str | None,
+    pr_number: str | None,
+) -> dict[str, Any]:
+    """Build the operator-approved target bound to a materialization token."""
+    return {
+        "schema_version": "git-pr-materialization-approval.v1",
+        "packet": "git_pr_materialization_approval",
+        "plan_checksum": checksum_json(plan_packet),
+        "remote": remote,
+        "remote_url": remote_url,
+        "pr_number": str(pr_number) if pr_number is not None else None,
+        "operation": "update_pull_request" if pr_number is not None else "create_pull_request",
+    }
+
+
+def git_pr_materialization_approval_token(
+    plan_packet: Any,
+    *,
+    remote: str = "origin",
+    remote_url: str | None = None,
+    pr_number: str | None = None,
+) -> str:
+    """Return the exact operator approval token for a materialization target."""
+    approval_payload = git_pr_materialization_approval_payload(
+        plan_packet,
+        remote=remote,
+        remote_url=remote_url,
+        pr_number=pr_number,
+    )
+    return GIT_PR_MATERIALIZATION_APPROVAL_PREFIX + checksum_json(approval_payload).removeprefix("sha256:")
 
 
 def _git_stdout(cwd: Path, args: list[str]) -> tuple[str | None, str | None]:
@@ -323,6 +354,15 @@ def _materialized_change_evidence(
                     files=missing_local_files,
                 )
             )
+        extra_local_files = sorted(path for path in local_changed_files if path not in set(normalized_files))
+        if extra_local_files:
+            blockers.append(
+                _issue(
+                    "materialized_change_evidence_extra_local_changes",
+                    "local diff contains files not declared in materialized_change_evidence.files",
+                    files=extra_local_files,
+                )
+            )
 
     if blockers:
         return absent, blockers
@@ -412,9 +452,9 @@ def _command_display(argv: list[str]) -> str:
 def _command_examples(proposed_branch: str, proposed_commit_message: str, proposed_pr_title: str) -> list[dict[str, Any]]:
     """Return non-executable, operator-confirmed Git and PR command examples."""
     examples = [
-        ("create_branch", ["git", "switch", "-c", proposed_branch], None),
+        ("create_branch", ["git", "branch", proposed_branch, "HEAD"], None),
         ("commit_changes", ["git", "commit", "-m", proposed_commit_message], None),
-        ("push_branch", ["git", "push", "-u", "origin", proposed_branch], None),
+        ("push_branch", ["git", "push", "--no-verify", "-u", "origin", proposed_branch], None),
         (
             "open_pull_request",
             ["gh", "pr", "create", "--title", proposed_pr_title, "--body-file", "proposed-pr-body.md"],
@@ -778,9 +818,11 @@ def _materialization_command_trace(
     argv: list[str],
     result: subprocess.CompletedProcess[str],
 ) -> dict[str, Any]:
+    resolved_argv = list(result.args) if isinstance(result.args, list) else []
     return {
         "label": label,
         "argv": argv,
+        "resolved_executable": resolved_argv[0] if resolved_argv else None,
         "command": _command_display(argv),
         "returncode": result.returncode,
         "stdout": result.stdout.strip(),
@@ -820,6 +862,7 @@ def _materialization_packet(
     warnings: list[dict[str, Any]],
     pr_number: str | None,
     remote: str,
+    remote_url: str | None = None,
 ) -> dict[str, Any]:
     side_effects_started = bool(side_effects)
     return {
@@ -846,6 +889,7 @@ def _materialization_packet(
         "pr_number": pr_number,
         "pr_url": pr_url,
         "remote": remote,
+        "remote_url": remote_url,
         "intended_side_effects": intended_side_effects,
         "side_effects": side_effects,
         "command_trace": command_trace,
@@ -937,6 +981,103 @@ def _append_materialization_audit(root: Path, record: dict[str, Any]) -> tuple[d
         return None, _issue("audit_write_failed", f"could not write materialization audit record: {exc}")
 
 
+def git_pr_materialization_load_error_packet(plan_file: str | Path, error: Exception) -> dict[str, Any]:
+    """Build a stable blocker packet when the plan file cannot be loaded."""
+    plan_path = Path(plan_file).expanduser().resolve(strict=False)
+    return _materialization_packet(
+        valid=False,
+        decision="blocked",
+        approval_state="not_approved",
+        plan_file=plan_path,
+        plan_checksum=None,
+        expected_approval_token=None,
+        repository={},
+        proposed_branch=None,
+        proposed_pr_title=None,
+        pr_url=None,
+        intended_side_effects=[],
+        side_effects=[],
+        command_trace=[],
+        blockers=[
+            _issue(
+                "git_pr_plan_unreadable",
+                f"could not read git-pr-plan packet: {error}",
+            )
+        ],
+        warnings=[],
+        pr_number=None,
+        remote="origin",
+    )
+
+
+def _remote_push_url(cwd: Path, remote: str) -> tuple[str | None, list[dict[str, Any]]]:
+    blockers: list[dict[str, Any]] = []
+    if not _non_empty_string(remote) or remote != remote.strip() or remote.startswith("-") or any(ch.isspace() for ch in remote):
+        return None, [_issue("remote_name_invalid", f"remote is not a safe configured remote name: {remote}")]
+    result = _run_git(cwd, ["remote", "get-url", "--push", remote])
+    if result.returncode != 0:
+        blockers.append(
+            _issue(
+                "remote_lookup_failed",
+                f"could not resolve push URL for remote: {remote}",
+                detail=(result.stderr or result.stdout).strip(),
+            )
+        )
+        return None, blockers
+    url = result.stdout.strip()
+    if not url:
+        blockers.append(_issue("remote_lookup_failed", f"remote has no push URL: {remote}"))
+        return None, blockers
+    return url, blockers
+
+
+def _pr_update_preflight(
+    *,
+    cwd: Path,
+    pr_number: str,
+    proposed_branch: str,
+    base_branch: str,
+    expected_head: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Read existing PR state before approving a PR edit target."""
+    argv = ["gh", "pr", "view", pr_number, "--json", "number,headRefName,baseRefName,headRefOid"]
+    result = _run_process(cwd, argv)
+    trace = [_materialization_command_trace(label="preflight_pull_request", argv=argv, result=result)]
+    if result.returncode != 0:
+        return trace, [
+            _issue(
+                "pr_update_preflight_failed",
+                f"could not inspect PR before update: {pr_number}",
+                returncode=result.returncode,
+                stderr=result.stderr.strip(),
+            )
+        ]
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        return trace, [_issue("pr_update_preflight_invalid_json", f"gh pr view returned invalid JSON: {exc}")]
+    if not isinstance(payload, dict):
+        return trace, [_issue("pr_update_preflight_invalid_json", "gh pr view did not return a JSON object")]
+    mismatches = {
+        field: {"expected": expected, "actual": payload.get(field)}
+        for field, expected in {
+            "headRefName": proposed_branch,
+            "baseRefName": base_branch,
+            "headRefOid": expected_head,
+        }.items()
+        if payload.get(field) != expected
+    }
+    if mismatches:
+        return trace, [
+            _issue(
+                "pr_update_target_mismatch",
+                "existing PR does not match the approved materialization target",
+                mismatches=mismatches,
+            )
+        ]
+    return trace, []
+
+
 def materialize_git_pr_plan(
     *,
     cwd: str | Path,
@@ -952,7 +1093,17 @@ def materialize_git_pr_plan(
     plan_path = Path(plan_file).expanduser().resolve(strict=False)
     runtime_path = Path(runtime_root).expanduser().resolve()
     plan_checksum = checksum_json(plan_packet)
-    expected_token = git_pr_materialization_approval_token(plan_packet)
+    remote_url, remote_blockers = _remote_push_url(repo_cwd, remote)
+    expected_token = (
+        git_pr_materialization_approval_token(
+            plan_packet,
+            remote=remote,
+            remote_url=remote_url,
+            pr_number=pr_number,
+        )
+        if remote_url is not None
+        else None
+    )
     repository = plan_packet.get("repository") if isinstance(plan_packet, dict) else {}
     proposed_branch = plan_packet.get("proposed_branch") if isinstance(plan_packet, dict) else None
     proposed_pr_title = plan_packet.get("proposed_pr_title") if isinstance(plan_packet, dict) else None
@@ -967,6 +1118,7 @@ def materialize_git_pr_plan(
         "update_pull_request" if pr_number else "create_pull_request",
     ]
 
+    blockers.extend(remote_blockers)
     blockers.extend(_plan_structural_blockers(plan_packet))
     if not approval_token:
         approval_state = "not_approved"
@@ -974,6 +1126,14 @@ def materialize_git_pr_plan(
             _issue(
                 "operator_approval_missing",
                 "operator approval token is required before Git/PR materialization",
+            )
+        )
+    elif expected_token is None:
+        approval_state = "approval_unresolved"
+        blockers.append(
+            _issue(
+                "operator_approval_target_unresolved",
+                "materialization target must resolve before operator approval can be checked",
             )
         )
     elif approval_token != expected_token:
@@ -1006,6 +1166,7 @@ def materialize_git_pr_plan(
             warnings=warnings,
             pr_number=pr_number,
             remote=remote,
+            remote_url=remote_url,
         )
 
     provenance = plan_packet.get("evidence_provenance") if isinstance(plan_packet.get("evidence_provenance"), dict) else {}
@@ -1079,6 +1240,24 @@ def materialize_git_pr_plan(
     else:
         materialized_body = _materialized_pr_body(plan_packet) if isinstance(plan_packet, dict) else ""
 
+    if (
+        pr_number
+        and not blockers
+        and isinstance(proposed_branch, str)
+        and isinstance(repository, dict)
+        and _non_empty_string(repository.get("base_branch"))
+        and _non_empty_string(repository.get("current_head"))
+    ):
+        pr_trace, pr_blockers = _pr_update_preflight(
+            cwd=repo_cwd,
+            pr_number=pr_number,
+            proposed_branch=proposed_branch,
+            base_branch=repository["base_branch"],
+            expected_head=repository["current_head"],
+        )
+        command_trace.extend(pr_trace)
+        blockers.extend(pr_blockers)
+
     if blockers:
         return _materialization_packet(
             valid=False,
@@ -1098,6 +1277,7 @@ def materialize_git_pr_plan(
             warnings=warnings,
             pr_number=pr_number,
             remote=remote,
+            remote_url=remote_url,
         )
 
     intent_payload = _materialization_packet(
@@ -1118,6 +1298,7 @@ def materialize_git_pr_plan(
         warnings=warnings,
         pr_number=pr_number,
         remote=remote,
+        remote_url=remote_url,
     )
     audit_record, audit_blocker = _append_materialization_audit(
         runtime_path,
@@ -1142,12 +1323,17 @@ def materialize_git_pr_plan(
             warnings=warnings,
             pr_number=pr_number,
             remote=remote,
+            remote_url=remote_url,
         )
     side_effects.append("audit_intent_record_appended")
 
     commands = [
-        ("create_branch", ["git", "switch", "-c", str(proposed_branch)], "created_branch"),
-        ("push_branch", ["git", "push", "-u", remote, str(proposed_branch)], "pushed_branch"),
+        (
+            "create_branch",
+            ["git", "branch", str(proposed_branch), str(repository.get("current_head"))],
+            "created_branch",
+        ),
+        ("push_branch", ["git", "push", "--no-verify", "-u", remote, str(proposed_branch)], "pushed_branch"),
     ]
     for label, argv, side_effect in commands:
         result = _run_process(repo_cwd, argv)
@@ -1162,6 +1348,7 @@ def materialize_git_pr_plan(
                     stderr=result.stderr.strip(),
                 )
             )
+            failed_side_effects = [*side_effects, "audit_result_record_appended"]
             failed_packet = _materialization_packet(
                 valid=False,
                 decision="blocked",
@@ -1174,23 +1361,42 @@ def materialize_git_pr_plan(
                 proposed_pr_title=proposed_pr_title,
                 pr_url=pr_url,
                 intended_side_effects=intended_side_effects,
-                side_effects=side_effects,
+                side_effects=failed_side_effects,
                 command_trace=command_trace,
                 blockers=blockers,
                 warnings=warnings,
                 pr_number=pr_number,
                 remote=remote,
+                remote_url=remote_url,
             )
             result_audit, result_audit_blocker = _append_materialization_audit(
                 runtime_path,
                 git_pr_materialization_result_audit_record(failed_packet),
             )
             if result_audit_blocker is None:
-                side_effects.append("audit_result_record_appended")
-                failed_packet["side_effects"] = side_effects
+                return failed_packet
             else:
-                failed_packet["warnings"].append(result_audit_blocker)
-            return failed_packet
+                failed_packet_without_audit = _materialization_packet(
+                    valid=False,
+                    decision="blocked",
+                    approval_state=approval_state,
+                    plan_file=plan_path,
+                    plan_checksum=plan_checksum,
+                    expected_approval_token=expected_token,
+                    repository=repository if isinstance(repository, dict) else {},
+                    proposed_branch=proposed_branch,
+                    proposed_pr_title=proposed_pr_title,
+                    pr_url=pr_url,
+                    intended_side_effects=intended_side_effects,
+                    side_effects=side_effects,
+                    command_trace=command_trace,
+                    blockers=blockers,
+                    warnings=[*warnings, result_audit_blocker],
+                    pr_number=pr_number,
+                    remote=remote,
+                    remote_url=remote_url,
+                )
+                return failed_packet_without_audit
         side_effects.append(side_effect)
 
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".md", delete=False) as handle:
@@ -1236,6 +1442,7 @@ def materialize_git_pr_plan(
                 stderr=gh_result.stderr.strip(),
             )
         )
+        failed_side_effects = [*side_effects, "audit_result_record_appended"]
         failed_packet = _materialization_packet(
             valid=False,
             decision="blocked",
@@ -1248,26 +1455,45 @@ def materialize_git_pr_plan(
             proposed_pr_title=proposed_pr_title,
             pr_url=None,
             intended_side_effects=intended_side_effects,
-            side_effects=side_effects,
+            side_effects=failed_side_effects,
             command_trace=command_trace,
             blockers=blockers,
             warnings=warnings,
             pr_number=pr_number,
             remote=remote,
+            remote_url=remote_url,
         )
         result_audit, result_audit_blocker = _append_materialization_audit(
             runtime_path,
             git_pr_materialization_result_audit_record(failed_packet),
         )
         if result_audit_blocker is None:
-            side_effects.append("audit_result_record_appended")
-            failed_packet["side_effects"] = side_effects
+            return failed_packet
         else:
-            failed_packet["warnings"].append(result_audit_blocker)
-        return failed_packet
+            return _materialization_packet(
+                valid=False,
+                decision="blocked",
+                approval_state=approval_state,
+                plan_file=plan_path,
+                plan_checksum=plan_checksum,
+                expected_approval_token=expected_token,
+                repository=repository if isinstance(repository, dict) else {},
+                proposed_branch=proposed_branch,
+                proposed_pr_title=proposed_pr_title,
+                pr_url=None,
+                intended_side_effects=intended_side_effects,
+                side_effects=side_effects,
+                command_trace=command_trace,
+                blockers=blockers,
+                warnings=[*warnings, result_audit_blocker],
+                pr_number=pr_number,
+                remote=remote,
+                remote_url=remote_url,
+            )
 
     side_effects.append(gh_side_effect)
     pr_url = gh_result.stdout.strip().splitlines()[0] if gh_result.stdout.strip() else None
+    success_side_effects = [*side_effects, "audit_result_record_appended"]
     success_packet = _materialization_packet(
         valid=True,
         decision="materialized",
@@ -1280,20 +1506,38 @@ def materialize_git_pr_plan(
         proposed_pr_title=proposed_pr_title,
         pr_url=pr_url,
         intended_side_effects=intended_side_effects,
-        side_effects=side_effects,
+        side_effects=success_side_effects,
         command_trace=command_trace,
         blockers=[],
         warnings=warnings,
         pr_number=pr_number,
         remote=remote,
+        remote_url=remote_url,
     )
     result_audit, result_audit_blocker = _append_materialization_audit(
         runtime_path,
         git_pr_materialization_result_audit_record(success_packet),
     )
     if result_audit_blocker is None:
-        side_effects.append("audit_result_record_appended")
-        success_packet["side_effects"] = side_effects
+        return success_packet
     else:
-        success_packet["warnings"].append(result_audit_blocker)
-    return success_packet
+        return _materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            expected_approval_token=expected_token,
+            repository=repository if isinstance(repository, dict) else {},
+            proposed_branch=proposed_branch,
+            proposed_pr_title=proposed_pr_title,
+            pr_url=pr_url,
+            intended_side_effects=intended_side_effects,
+            side_effects=side_effects,
+            command_trace=command_trace,
+            blockers=[result_audit_blocker],
+            warnings=warnings,
+            pr_number=pr_number,
+            remote=remote,
+            remote_url=remote_url,
+        )

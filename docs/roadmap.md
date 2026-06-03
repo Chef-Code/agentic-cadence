@@ -451,19 +451,21 @@ or default-autonomous permissions require operator approval.
 ### Minimal Git/PR automation
 
 Goal: after an approved successful task, produce a dry-run Git/PR transition
-plan from validated result evidence. Live branch, commit, push, and pull
-request materialization belongs in later explicitly approved slices.
+plan from validated result evidence, then materialize that reviewed plan only
+through an explicit operator-approved command.
 
 Current evidence: PR body preflight and readiness checks exist. The first
-increment now adds a dry-run-only `git-pr-plan` packet that turns validated
+increment added a dry-run-only `git-pr-plan` packet that turns validated
 executor result evidence into a reviewable Git/PR transition plan without
 executing suggested commands, calling GitHub, or treating the executor as the
-final authority for Git/PR approval. The packet requires explicit
-`materialized_change_evidence`, validates current branch/head/base branch and
-generated branch safety, preserves brake/runtime-root stop checks, and blocks
-dirty worktrees, detached heads, branch collisions, invalid packets,
-non-success evidence, missing template sections, and invalid branch names.
-Cadence still does not create branches, commits, pushes, or pull requests.
+final authority for Git/PR approval. `git-pr-materialize` can now consume that
+reviewed packet plus exact target-bound operator approval, recheck current
+branch/head/base branch, branch policy, complete local-diff materialized
+evidence, PR body preflight, remote push URL, and optional PR update target,
+then create the branch without switching the checkout, push with Git hook
+verification disabled for that push, and create/update a PR. Cadence still does
+not create dirty-worktree commits, auto-merge, release, publish packages, or
+invoke a real executor.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/pr_readiness.py`,
 scripts, tests, docs.
@@ -476,9 +478,11 @@ worktrees, HEAD mismatches, detached heads, current-branch mismatches, missing
 local base branches, generated branch collisions, missing PR template sections,
 and invalid branch names. Operator-approved materialization tests cover mocked
 branch creation, push, PR creation, approval mismatch, stale state, failed Git
-commands, and replayable materialization audit evidence. Later live-action
-increments can add pending CI, failing CI, passing CI, and post-PR stale-state
-handling.
+and `gh` commands, dirty-worktree materialization rechecks, target-bound remote
+approval, PR update preflight mismatch, full local-diff materialized-evidence
+coverage, command-trace allowlists, and replayable materialization audit
+evidence. Later live-action increments can add pending CI, failing CI, passing
+CI, and post-PR stale-state handling.
 
 Cadence can materialize a reviewed dry-run packet only through the explicit
 operator-approved `git-pr-materialize` command. Auto-merge, release, package

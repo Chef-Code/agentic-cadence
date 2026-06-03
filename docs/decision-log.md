@@ -33,11 +33,15 @@ Open questions:
 Decision:
 - Add `git-pr-materialize` as the only Task 6 write-side Git/PR path.
 - Require the operator approval token to match the canonical checksum of the
-  reviewed `git-pr-plan.v1` packet before any audit, Git, or `gh` side effect.
+  reviewed `git-pr-plan.v1` packet plus selected remote, resolved push URL, and
+  create-vs-update PR target before any audit, Git, or write-side `gh` side effect.
 - Re-run the dry-run planner and PR body preflight immediately before writes,
-  then audit intended and completed side effects.
-- Materialize only branch creation from the already-clean current commit, push,
-  and PR create/update. Keep dirty-worktree commits, auto-merge, release,
+  require materialized evidence to cover the complete local diff, then audit
+  intended and completed side effects.
+- Materialize only branch creation from the already-clean current commit without
+  switching the checkout, push with Git hook verification disabled for that
+  push, and PR create/update. Existing PR updates first verify the PR head and
+  base through `gh pr view`. Keep dirty-worktree commits, auto-merge, release,
   package publication, paid review, and real executor invocation outside scope.
 
 Why:
@@ -57,7 +61,7 @@ Alternatives considered:
   policy and evidence model.
 
 Consequences:
-- Operators can approve a specific plan for local branch/push/PR
+- Operators can approve a specific plan and target for local branch/push/PR
   materialization without granting autonomous merge or release authority.
 - Missing/mismatched approval, stale plans, policy failures, PR body failures,
   and failed Git/`gh` commands produce stable blocker packets.

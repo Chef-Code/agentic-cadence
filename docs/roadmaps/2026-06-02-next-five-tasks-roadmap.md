@@ -278,22 +278,27 @@ git diff --check
 **Implementation outline:**
 - Add an explicit command that consumes a validated `git-pr-plan.v1` packet, policy evidence, and operator confirmation.
 - Enforce current branch/head, branch policy, materialized-change evidence, PR body preflight, and freshness gates immediately before any Git or `gh` action.
-- Create the branch at the already-materialized current commit, push it, and open or update a PR only when the operator approval token and policy gates match the packet under review.
+- Create the branch at the already-materialized current commit without switching the checkout, push it, and open or update a PR only when the operator approval token and policy gates match the packet and target under review.
 - Append audit records for intended and completed side effects.
 - Keep auto-merge, release, package publication, and real executor invocation outside this slice.
 
 **Current-tree implementation:** `git-pr-materialize` consumes a saved
-`git-pr-plan.v1` packet plus the exact `approve-git-pr:<plan-sha256>` operator
-approval token. Before side effects it re-reads task/result provenance, verifies
-checksums, reruns `git-pr-plan` with the approved proposed branch, rechecks
-current branch/head/base/worktree freshness, branch policy, materialized-change
-evidence, and PR body preflight, then blocks stale or mismatched evidence before
-audit, branch, push, or PR actions. Once gates pass, it appends
+`git-pr-plan.v1` packet plus the exact target-bound
+`approve-git-pr:<materialization-target-sha256>` operator approval token. Before
+side effects it re-reads task/result provenance, verifies checksums, reruns
+`git-pr-plan` with the approved proposed branch, rechecks current
+branch/head/base/worktree freshness, branch policy, complete local-diff coverage
+by materialized-change evidence, and PR body preflight, then blocks stale or
+mismatched evidence before audit, branch, push, or PR actions. The token binds
+the plan checksum, selected remote, resolved push URL, and create-vs-update PR
+target. Existing PR updates also run a read-only `gh pr view` preflight to prove
+the PR head and base match the approved packet. Once gates pass, it appends
 `git_pr_materialization_intent`, creates the proposed branch from the
-already-materialized current commit, pushes to the selected remote, creates or
-updates a PR through `gh`, and appends `git_pr_materialization_result`. Failed
-Git or `gh` commands return `git-pr-materialization.v1` blocker packets with
-command trace and replayable audit evidence. The command does not run
+already-materialized current commit without switching the checkout, pushes to
+the selected remote with Git hook verification disabled for that push, creates
+or updates a PR through `gh`, and appends `git_pr_materialization_result`.
+Failed Git or `gh` commands return `git-pr-materialization.v1` blocker packets
+with command trace and replayable audit evidence. The command does not run
 `git commit` against a dirty worktree, auto-merge, release, publish packages,
 or invoke an executor.
 

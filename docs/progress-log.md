@@ -37,14 +37,21 @@ Docs updated:
 
 Summary:
 - Added `git-pr-materialize`, which consumes a reviewed `git-pr-plan.v1`
-  packet plus exact operator approval, rechecks current Git state, branch
-  policy, materialized-change evidence, PR body preflight, and evidence
-  freshness before any Git or `gh` side effects.
+  packet plus exact target-bound operator approval, rechecks current Git state,
+  branch policy, complete local-diff coverage by materialized-change evidence,
+  PR body preflight, and evidence freshness before any write-side Git or `gh`
+  side effects.
 - Materialization now appends `git_pr_materialization_intent` and
   `git_pr_materialization_result` audit events, creates the proposed branch
-  from the already-materialized current commit, pushes it, and creates or
-  updates a PR through `gh` only after gates pass. Blocked and completed
-  attempts emit `git-pr-materialization.v1` packets.
+  from the already-materialized current commit without switching the checkout,
+  pushes it with Git hook verification disabled for that push, and creates or
+  updates a PR through `gh` only after gates pass. Existing PR updates first
+  verify the PR head/base through a read-only `gh pr view` preflight. Blocked
+  and completed attempts emit `git-pr-materialization.v1` packets.
+- Review follow-up tightened materialized-evidence coverage, bound approval to
+  the selected remote and PR target, avoided checkout hooks by creating the
+  branch without switching, pushed with Git hook verification disabled for that
+  push, and made result-audit checksums match returned packets.
 
 Completed slices:
 - Task 6 current-tree implementation: operator-approved Git/PR materialization.
@@ -58,6 +65,7 @@ Confidence change:
 
 Evidence:
 - `python -m unittest tests.test_git_pr_plan tests.test_audit_replay`
+- `python -m unittest tests.test_git_pr_plan tests.test_audit_replay -v`
 - `python -m unittest tests.test_git_pr_plan tests.test_audit_replay tests.test_cadence tests.test_pr_readiness -v`
 - `python -m unittest tests.test_ci_checks -v`
 - `python -m py_compile codex_cadence/git_pr_plan.py codex_cadence/cli.py codex_cadence/policy_audit.py codex_cadence/pr_readiness.py scripts/validate_protocol.py`

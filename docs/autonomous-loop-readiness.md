@@ -156,7 +156,7 @@ Agentic Cadence cannot currently:
 | Executor adapter contract | Partial generic contract | Task/result packet validation and a fake controlled fixture runner exist, including snapshot trust-anchor checks, but no real executor or named host adapter |
 | Autonomous implementation | Not built | Requires real executor integration |
 | Live GitHub sync | Partial, read-only evidence capture | `github-evidence-sync` fetches PR JSON and review threads into local files without GitHub writes |
-| Git/PR transition planning | Partial, dry-run plus approved materialization | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects; `git-pr-materialize` can create branch, push, and create/update PR only after exact operator approval and local rechecks |
+| Git/PR transition planning | Partial, dry-run plus approved materialization | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects; `git-pr-materialize` can create branch, push, and create/update PR only after exact target-bound operator approval and local rechecks |
 | Branch/commit/push/PR creation | Partial, operator-approved only | No autonomous branch/PR writes, no dirty-worktree commit path, no merge, release, or package publication |
 | Review response loop | Partial saved/live-read-only evidence ingestion | Saved review files and synced review threads can become candidates; no automatic response writes |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
@@ -172,7 +172,8 @@ approval, validate the packet's local snapshot trust anchor, run a controlled
 fake executor fixture from an explicit command template for tests/examples,
 validate local executor result evidence, close out the active epoch, produce a
 dry-run Git/PR transition plan for separate review, and materialize that plan
-only after exact operator approval and local rechecks. It can govern handoff and continuation decisions. It can
+only after exact target-bound operator approval and local rechecks. It can
+govern handoff and continuation decisions. It can
 evaluate saved PR evidence and fetch read-only live PR/check/review-thread
 evidence into saved files. It cannot perform the core build loop by
 itself, and it cannot yet coordinate a team of role-specific agents.

@@ -171,10 +171,18 @@ def validate_executor_fixture_invocation_audit_record(record: dict[str, Any], li
 def validate_git_pr_materialization_intent_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
     """Validate operator-approved Git/PR materialization intent audit fields."""
     blockers: list[dict[str, Any]] = []
-    for field in ("action", "reason", "plan_file", "repo", "branch", "head", "base_branch", "proposed_branch"):
+    for field in ("action", "reason", "plan_file", "repo", "branch", "head", "base_branch", "proposed_branch", "remote", "remote_url"):
         blockers.extend(required_string(record, field, line))
     for field in ("payload_checksum", "plan_checksum", "intended_side_effects_checksum"):
         blockers.extend(required_checksum_present(record, field, line))
+    if record.get("action") not in (None, "materialize_git_pr_plan"):
+        blockers.append(
+            audit_replay_blocker(
+                "audit_materialization_action_invalid",
+                "git_pr_materialization_intent action must be materialize_git_pr_plan",
+                line,
+            )
+        )
     return blockers
 
 
@@ -191,11 +199,34 @@ def validate_git_pr_materialization_result_audit_record(record: dict[str, Any], 
         "head",
         "base_branch",
         "proposed_branch",
+        "remote",
+        "remote_url",
     ):
         blockers.extend(required_string(record, field, line))
     blockers.extend(required_bool(record, "valid", line))
     for field in ("payload_checksum", "plan_checksum", "side_effects_checksum", "command_trace_checksum"):
         blockers.extend(required_checksum_present(record, field, line))
+    valid = record.get("valid")
+    action = record.get("action")
+    status = record.get("materialization_status")
+    expected_action = "materialized" if valid is True else "blocked" if valid is False else None
+    expected_status = "completed" if valid is True else "blocked" if valid is False else None
+    if expected_action is not None and action != expected_action:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_materialization_action_invalid",
+                f"git_pr_materialization_result action must be {expected_action} when valid is {valid}",
+                line,
+            )
+        )
+    if expected_status is not None and status != expected_status:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_materialization_status_invalid",
+                f"git_pr_materialization_result materialization_status must be {expected_status} when valid is {valid}",
+                line,
+            )
+        )
     return blockers
 
 
@@ -467,6 +498,8 @@ def git_pr_materialization_intent_audit_record(payload: dict[str, Any]) -> dict[
         "head": repository.get("current_head"),
         "base_branch": repository.get("base_branch"),
         "proposed_branch": payload.get("proposed_branch"),
+        "remote": payload.get("remote"),
+        "remote_url": payload.get("remote_url"),
         "pr_number": payload.get("pr_number"),
         "plan_file": payload.get("plan_file"),
         "payload_checksum": checksum_json(payload),
@@ -489,6 +522,8 @@ def git_pr_materialization_result_audit_record(payload: dict[str, Any]) -> dict[
         "head": repository.get("current_head"),
         "base_branch": repository.get("base_branch"),
         "proposed_branch": payload.get("proposed_branch"),
+        "remote": payload.get("remote"),
+        "remote_url": payload.get("remote_url"),
         "pr_number": payload.get("pr_number"),
         "pr_url": payload.get("pr_url"),
         "plan_file": payload.get("plan_file"),

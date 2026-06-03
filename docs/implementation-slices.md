@@ -48,8 +48,9 @@ can govern a fake external executor component in tests/examples, and
 an active epoch, complete or fail terminal epochs, and emit the next dry-run
 decision. `git-pr-plan` can produce a dry-run Git/PR transition plan for
 separate review, and `git-pr-materialize` can create a branch from the
-already-materialized current commit, push it, and create/update a PR only after
-exact operator approval and local rechecks. Real executor governance,
+already-materialized current commit without switching the checkout, push it
+with Git hook verification disabled for that push, and create/update a PR only
+after exact target-bound operator approval and local rechecks. Real executor governance,
 autonomous branch/commit/push or PR creation, and continuous loop orchestration
 remain missing.
 Current unattended-operation confidence remains 10%.
@@ -321,8 +322,9 @@ Current evidence:
   during result validation;
 - active brake stops now prevent recording non-`stopped` executor completion
   evidence when `brake_not_drive` is one of the task stop conditions;
-- branch policy is local and dry-run only; no live branch, commit, push, or PR
-  materialization exists yet.
+- branch policy is enforced during dry-run planning and immediately before
+  operator-approved Git/PR materialization; autonomous branch, commit, push, or
+  PR materialization does not exist yet.
 
 Why it matters: unattended confidence comes from bounded blast radius and
 recoverable evidence.
@@ -404,9 +406,11 @@ Current evidence:
   mismatches, missing local base branches, generated branch collisions, missing
   PR template sections, and invalid branch names;
 - `git-pr-materialize` consumes a reviewed `git-pr-plan.v1` packet plus exact
-  operator approval, reruns local plan gates, audits intended/completed side
-  effects, creates the proposed branch from the clean current commit, pushes,
-  and creates or updates a PR through `gh`;
+  target-bound operator approval, reruns local plan gates, audits
+  intended/completed side effects, creates the proposed branch from the clean
+  current commit without switching the checkout, pushes with Git hook
+  verification disabled for that push, and creates or updates a PR through
+  `gh`;
 - no autonomous branch, dirty-worktree commit, push, PR creation, merge,
   release, package publication, or real executor invocation exists.
 

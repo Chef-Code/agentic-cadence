@@ -23,7 +23,11 @@ from codex_cadence.executor_contract import (
     validate_executor_task_packet,
 )
 from codex_cadence.executor_runner import run_controlled_executor_fixture
-from codex_cadence.git_pr_plan import evaluate_git_pr_plan, materialize_git_pr_plan
+from codex_cadence.git_pr_plan import (
+    evaluate_git_pr_plan,
+    git_pr_materialization_load_error_packet,
+    materialize_git_pr_plan,
+)
 from codex_cadence.github_evidence import sync_github_evidence
 from codex_cadence.epochs import complete_epoch as complete_epoch_record
 from codex_cadence.epochs import CONTINUE, ASK_APPROVAL
@@ -1409,7 +1413,12 @@ def git_pr_plan_command(args: argparse.Namespace) -> int:
 
 def git_pr_materialize_command(args: argparse.Namespace) -> int:
     plan_file = Path(args.plan_file)
-    plan_packet = read_json(plan_file)
+    try:
+        plan_packet = read_json(plan_file)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        payload = git_pr_materialization_load_error_packet(plan_file, exc)
+        emit(payload)
+        return 1
     payload = materialize_git_pr_plan(
         cwd=Path(args.cwd),
         plan_packet=plan_packet,

@@ -392,13 +392,13 @@ The packet is dry-run only. Cadence does not create a branch, commit, push, call
 
 ## Operator-Approved Git/PR Materialization
 
-`git-pr-materialize` consumes a reviewed `git-pr-plan.v1` packet plus an exact operator approval token for that packet. Immediately before side effects it rechecks the current branch and `HEAD`, branch policy, materialized-change evidence, PR body preflight, task/result checksums, and plan freshness:
+`git-pr-materialize` consumes a reviewed `git-pr-plan.v1` packet plus an exact operator approval token for that packet and materialization target. The token binds the plan checksum, selected remote name, resolved push URL, and create-vs-update PR target. Immediately before side effects it rechecks the current branch and `HEAD`, branch policy, full local-diff coverage by materialized-change evidence, PR body preflight, task/result checksums, and plan freshness:
 
 ```bash
-agentic-cadence --root <runtime-root> git-pr-materialize --cwd . --plan-file git-pr-plan.json --approval-token approve-git-pr:<plan-sha256>
+agentic-cadence --root <runtime-root> git-pr-materialize --cwd . --plan-file git-pr-plan.json --approval-token approve-git-pr:<materialization-target-sha256>
 ```
 
-When all gates pass, Cadence appends a `git_pr_materialization_intent` audit record, creates the proposed branch from the current materialized commit, pushes it, and creates or updates a pull request through `gh`. It then appends a `git_pr_materialization_result` audit record. Missing or mismatched approval, stale plans, dirty worktrees, branch-policy failures, materialized-evidence failures, PR body failures, and failed Git/`gh` commands return `git-pr-materialization.v1` blocker packets. The command does not auto-merge, release, publish packages, or invoke an executor.
+When all gates pass, Cadence appends a `git_pr_materialization_intent` audit record, creates the proposed branch from the current materialized commit without switching the checkout, pushes it with Git hook verification disabled for that push, and creates or updates a pull request through `gh`. Existing PR updates first run a read-only `gh pr view` preflight to verify the PR head and base match the approved plan. Cadence then appends a `git_pr_materialization_result` audit record. Missing or mismatched approval, stale plans, dirty worktrees, branch-policy failures, materialized-evidence failures, PR body failures, and failed Git/`gh` commands return `git-pr-materialization.v1` blocker packets. The command does not auto-merge, release, publish packages, or invoke an executor.
 
 ## Release Dry Run
 
