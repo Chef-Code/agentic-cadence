@@ -132,7 +132,7 @@ REQUIRED_TOKENS = {
         "github-evidence-sync",
         "--review-threads-file",
         "--pr-json-file",
-        "branch_policy-gated dry-run Git/PR planning",
+        "branch-policy-gated dry-run Git/PR planning",
         "git-pr-materialize",
         "git-pr-materialization.v1",
         "git_pr_materialization_intent",
