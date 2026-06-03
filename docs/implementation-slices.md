@@ -329,7 +329,7 @@ Current evidence:
 - `verify-resume` emits a read-only `resume-verification.v1` packet with
   stable blocker codes for handoff signature/state, clean-square, repo
   branch/head, dirty-worktree, active brake, active epoch, and pickup-policy
-  evidence;
+  evidence, including persisted resume snapshot binding checks;
 - branch policy is enforced during dry-run planning and immediately before
   operator-approved Git/PR materialization; autonomous branch, commit, push, or
   PR materialization does not exist yet.

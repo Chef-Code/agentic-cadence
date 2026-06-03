@@ -55,7 +55,7 @@ def _checksum_message(message: str) -> str:
     return "sha256:" + hashlib.sha256(message.encode("utf-8")).hexdigest()
 
 
-def _checksum_json(data: dict[str, Any]) -> str:
+def _checksum_json(data: Any) -> str:
     payload = json.dumps(data, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -143,19 +143,35 @@ def _snapshot_id(snapshot: dict[str, Any], repo: str | None) -> str:
     return f"{stamp}-{_slugify(str(basis))}-{secrets.token_hex(4)}"
 
 
-def _validate_handoff_record(data: dict[str, Any]) -> dict[str, Any]:
+def _validate_handoff_record(data: Any) -> dict[str, Any]:
     errors: list[str] = []
+    if not isinstance(data, dict):
+        return {
+            "valid": False,
+            "errors": ["handoff record must be a JSON object"],
+            "id": None,
+        }
     required = ("protocol_version", "id", "status", "checksum", "signature", "message")
     for key in required:
         if key not in data:
             errors.append(f"missing {key}")
     if data.get("protocol_version") != PROTOCOL_VERSION:
         errors.append(f"unsupported protocol_version: {data.get('protocol_version')}")
-    if "message" in data and "checksum" in data:
+    if "message" in data and not isinstance(data.get("message"), str):
+        errors.append("message must be a string")
+    if "checksum" in data and not isinstance(data.get("checksum"), str):
+        errors.append("checksum must be a string")
+    if "signature" in data and not isinstance(data.get("signature"), str):
+        errors.append("signature must be a string")
+    if "id" in data and not isinstance(data.get("id"), str):
+        errors.append("id must be a string")
+    if "status" in data and not isinstance(data.get("status"), str):
+        errors.append("status must be a string")
+    if isinstance(data.get("message"), str) and isinstance(data.get("checksum"), str):
         actual = _checksum_message(data["message"])
         if actual != data["checksum"]:
             errors.append("checksum mismatch")
-    if "id" in data and "checksum" in data and "signature" in data:
+    if isinstance(data.get("id"), str) and isinstance(data.get("checksum"), str) and isinstance(data.get("signature"), str):
         expected = _create_signature(data["id"], data["checksum"], data.get("status", "READY"))
         ready_expected = _create_signature(data["id"], data["checksum"], "READY")
         if data["signature"] not in {expected, ready_expected}:
@@ -259,17 +275,19 @@ def _clean_square_evidence(root: Path, handoff_id: str) -> tuple[dict[str, Any],
     return evidence, blockers
 
 
-def _approval_is_valid(root: Path, handoff: dict[str, Any]) -> bool:
+def _approval_validity(root: Path, handoff: dict[str, Any]) -> tuple[bool, dict[str, Any] | None]:
     handoff_id = handoff.get("id")
     if not isinstance(handoff_id, str):
-        return False
+        return False, None
     path = approval_path(root, handoff_id)
     if not path.exists():
-        return False
+        return False, None
     try:
         approval = read_json(path)
-    except (OSError, json.JSONDecodeError):
-        return False
+    except (OSError, json.JSONDecodeError) as exc:
+        return False, _resume_blocker("policy_evidence_invalid", f"approval record is unreadable: {exc}", path=str(path))
+    if not isinstance(approval, dict):
+        return False, _resume_blocker("policy_evidence_invalid", "approval record must be a JSON object", path=str(path))
     return (
         approval.get("status") == "APPROVED"
         and approval.get("handoff_id") == handoff_id
@@ -277,7 +295,7 @@ def _approval_is_valid(root: Path, handoff: dict[str, Any]) -> bool:
         and approval.get("estimate_checksum") == handoff.get("estimate_checksum")
         and isinstance(approval.get("approved_by"), str)
         and bool(approval.get("approved_by"))
-    )
+    ), None
 
 
 def _malformed_policy_block(reason: str) -> dict[str, Any]:
@@ -352,7 +370,7 @@ def _policy_evidence(root: Path, handoff: dict[str, Any] | None) -> tuple[dict[s
                     "bucket": estimate.get("bucket"),
                     "action": "self_evolution_propose_only",
                     "approval_required": True,
-                    "approval_present": _approval_is_valid(root, handoff),
+                    "approval_present": _approval_validity(root, handoff)[0],
                     "estimate_checksum": handoff.get("estimate_checksum"),
                 }
             )
@@ -367,7 +385,7 @@ def _policy_evidence(root: Path, handoff: dict[str, Any] | None) -> tuple[dict[s
         and estimate.get("uncertainty", {}).get("level") == "high"
     ):
         approval_required = True
-    approval_present = _approval_is_valid(root, handoff)
+    approval_present, approval_blocker = _approval_validity(root, handoff)
     evidence.update(
         {
             "status": "verified",
@@ -378,6 +396,8 @@ def _policy_evidence(root: Path, handoff: dict[str, Any] | None) -> tuple[dict[s
             "estimate_checksum": handoff.get("estimate_checksum"),
         }
     )
+    if approval_blocker:
+        return evidence | {"status": "blocked"}, [approval_blocker]
     if approval_required and not approval_present:
         return evidence | {"status": "blocked"}, [
             _resume_blocker("policy_approval_missing", "handoff pickup policy requires operator approval")
@@ -385,12 +405,28 @@ def _policy_evidence(root: Path, handoff: dict[str, Any] | None) -> tuple[dict[s
     return evidence, []
 
 
-def _expected_repo_binding(handoff: dict[str, Any] | None) -> dict[str, Any]:
+def _message_repo_field(handoff: dict[str, Any], label: str) -> str | None:
+    message = handoff.get("message")
+    if not isinstance(message, str):
+        return None
+    prefix = f"- {label}: "
+    for line in message.splitlines():
+        if line.startswith(prefix):
+            value = line[len(prefix):].strip()
+            if value and value.lower() not in {"none", "unknown"}:
+                return value
+    return None
+
+
+def _expected_repo_binding(root: Path, handoff: dict[str, Any] | None) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     if not isinstance(handoff, dict):
-        return {}
+        return {}, []
     metadata = handoff.get("metadata") if isinstance(handoff.get("metadata"), dict) else {}
     binding = metadata.get("resume_snapshot") if isinstance(metadata.get("resume_snapshot"), dict) else {}
-    return {
+    signed_branch = _message_repo_field(handoff, "Branch")
+    signed_head = _message_repo_field(handoff, "Head")
+    blockers: list[dict[str, Any]] = []
+    expected = {
         "repo": binding.get("repo", handoff.get("repo")),
         "branch": binding.get("branch", handoff.get("branch")),
         "head": binding.get("head"),
@@ -398,6 +434,81 @@ def _expected_repo_binding(handoff: dict[str, Any] | None) -> dict[str, Any]:
         "snapshot_path": binding.get("path"),
         "snapshot_checksum": binding.get("checksum"),
     }
+    snapshot_id = expected.get("snapshot_id")
+    if not isinstance(snapshot_id, str) or not snapshot_id.strip():
+        blockers.append(_resume_blocker("resume_snapshot_invalid", "resume snapshot id is missing"))
+        return expected, blockers
+    try:
+        target = snapshot_path(root, snapshot_id)
+    except ValueError as exc:
+        blockers.append(_resume_blocker("resume_snapshot_invalid", f"resume snapshot id is invalid: {exc}"))
+        return expected, blockers
+    if expected.get("snapshot_path") != str(target):
+        blockers.append(
+            _resume_blocker(
+                "resume_snapshot_invalid",
+                "resume snapshot path does not match runtime snapshot path",
+                expected=str(target),
+                actual=expected.get("snapshot_path"),
+            )
+        )
+    if not target.exists():
+        blockers.append(_resume_blocker("resume_snapshot_invalid", "resume snapshot record is missing", path=str(target)))
+        return expected, blockers
+    try:
+        snapshot = read_json(target)
+    except (OSError, json.JSONDecodeError) as exc:
+        blockers.append(_resume_blocker("resume_snapshot_invalid", f"resume snapshot record is unreadable: {exc}", path=str(target)))
+        return expected, blockers
+    if not isinstance(snapshot, dict):
+        blockers.append(_resume_blocker("resume_snapshot_invalid", "resume snapshot record must be a JSON object", path=str(target)))
+        return expected, blockers
+    actual_checksum = _checksum_json(snapshot)
+    if expected.get("snapshot_checksum") != actual_checksum:
+        blockers.append(
+            _resume_blocker(
+                "resume_snapshot_invalid",
+                "resume snapshot checksum does not match persisted snapshot",
+                expected=expected.get("snapshot_checksum"),
+                actual=actual_checksum,
+            )
+        )
+    for field in ("repo", "branch", "head"):
+        if expected.get(field) != snapshot.get(field):
+            blockers.append(
+                _resume_blocker(
+                    "resume_snapshot_invalid",
+                    f"resume snapshot {field} does not match persisted snapshot",
+                    expected=snapshot.get(field),
+                    actual=expected.get(field),
+                )
+            )
+    if signed_branch is not None and snapshot.get("branch") != signed_branch:
+        blockers.append(
+            _resume_blocker(
+                "resume_snapshot_invalid",
+                "resume snapshot branch does not match signed handoff message",
+                expected=signed_branch,
+                actual=snapshot.get("branch"),
+            )
+        )
+    if signed_head is not None and snapshot.get("head") != signed_head:
+        blockers.append(
+            _resume_blocker(
+                "resume_snapshot_invalid",
+                "resume snapshot head does not match signed handoff message",
+                expected=signed_head,
+                actual=snapshot.get("head"),
+            )
+        )
+    return {
+        "repo": snapshot.get("repo"),
+        "branch": snapshot.get("branch"),
+        "head": snapshot.get("head"),
+        "snapshot_id": snapshot.get("id"),
+        "snapshot_path": str(target),
+        "snapshot_checksum": actual_checksum,
+    }, blockers
 
 
 def _repo_resume_evidence(cwd: Path, expected: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -469,6 +580,10 @@ def _active_epoch_evidence(root: Path, expected: dict[str, Any]) -> tuple[dict[s
     if not records:
         return evidence, blockers
     path, epoch = records[0]
+    if not isinstance(epoch, dict):
+        evidence["epochs"].append({"path": str(path), "status": None})
+        blockers.append(_resume_blocker("active_epoch_invalid", "active epoch record must be a JSON object", path=str(path)))
+        return evidence, blockers
     snapshot_before_value = epoch.get("snapshot_before")
     snapshot_before = snapshot_before_value if isinstance(snapshot_before_value, dict) else {}
     item = {
@@ -486,6 +601,7 @@ def _active_epoch_evidence(root: Path, expected: dict[str, Any]) -> tuple[dict[s
         or not isinstance(epoch.get("id"), str)
         or epoch.get("id") != path.stem
         or not isinstance(snapshot_before_value, dict)
+        or (expected.get("head") and not isinstance(snapshot_before.get("head"), str))
     ):
         blockers.append(_resume_blocker("active_epoch_invalid", "active epoch record is malformed", path=str(path)))
     if expected.get("repo") and epoch.get("repo") != expected.get("repo"):
@@ -506,7 +622,7 @@ def _active_epoch_evidence(root: Path, expected: dict[str, Any]) -> tuple[dict[s
                 actual=epoch.get("branch"),
             )
         )
-    if expected.get("head") and snapshot_before.get("head") and snapshot_before.get("head") != expected.get("head"):
+    if expected.get("head") and isinstance(snapshot_before.get("head"), str) and snapshot_before.get("head") != expected.get("head"):
         blockers.append(
             _resume_blocker(
                 "active_epoch_head_mismatch",
@@ -528,15 +644,15 @@ def _resume_recommendation(blockers: list[dict[str, Any]]) -> str:
         return "clear_brake"
     if "dirty_worktree" in codes:
         return "clean_worktree"
-    if "handoff_not_claimed" in codes:
-        return "claim_handoff"
-    if "policy_approval_missing" in codes:
-        return "approve_handoff"
     if "handoff_claimed_by_other" in codes or "handoff_state_conflict" in codes:
         return "resolve_claim_conflict"
+    if "policy_approval_missing" in codes:
+        return "approve_handoff"
+    if "handoff_not_claimed" in codes:
+        return "claim_handoff"
     if any(code in codes for code in ("active_epoch_conflict", "active_epoch_invalid", "active_epoch_repo_mismatch", "active_epoch_branch_mismatch", "active_epoch_head_mismatch")):
         return "close_or_fail_active_epoch"
-    if any(code in codes for code in ("repo_branch_mismatch", "repo_head_mismatch", "handoff_unreadable", "handoff_signature_invalid", "handoff_checksum_mismatch", "handoff_protocol_unsupported", "handoff_repo_evidence_missing", "clean_square_missing", "clean_square_invalid", "policy_evidence_invalid", "policy_self_evolution_propose_only")):
+    if any(code in codes for code in ("repo_branch_mismatch", "repo_head_mismatch", "resume_snapshot_invalid", "handoff_unreadable", "handoff_signature_invalid", "handoff_checksum_mismatch", "handoff_protocol_unsupported", "handoff_repo_evidence_missing", "clean_square_missing", "clean_square_invalid", "policy_evidence_invalid", "policy_evidence_missing", "policy_self_evolution_propose_only")):
         return "recreate_handoff"
     return "inspect_resume_blockers"
 
@@ -582,6 +698,22 @@ def verify_resume(
                     state=found.get("state"),
                 )
             )
+        if found.get("state") == "claimed" and handoff.get("status") != "CLAIMED":
+            blockers.append(
+                _resume_blocker(
+                    "handoff_not_claimed",
+                    "claimed handoff record status must be CLAIMED",
+                    status=handoff.get("status"),
+                )
+            )
+        claimed_by = handoff.get("claimed_by")
+        if found.get("state") == "claimed" and (not isinstance(claimed_by, str) or not claimed_by.strip()):
+            blockers.append(
+                _resume_blocker(
+                    "handoff_not_claimed",
+                    "claimed handoff record must include claimed_by",
+                )
+            )
         if claimer is not None and handoff.get("claimed_by") != claimer:
             blockers.append(
                 _resume_blocker(
@@ -617,7 +749,8 @@ def verify_resume(
             )
         )
 
-    expected_repo = _expected_repo_binding(handoff)
+    expected_repo, resume_snapshot_blockers = _expected_repo_binding(root, handoff)
+    blockers.extend(resume_snapshot_blockers)
     repository, repo_blockers = _repo_resume_evidence(cwd, expected_repo)
     blockers.extend(repo_blockers)
 

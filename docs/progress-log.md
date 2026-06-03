@@ -44,6 +44,10 @@ Summary:
   a recommended next action.
 - Prepared handoffs now carry a structured resume snapshot binding so stale
   branch/head state can be rejected without parsing seed-message text.
+- Review follow-up binds resume verification to the persisted snapshot record
+  and signed handoff message, validates claimed-record content, returns stable
+  blocker packets for malformed readable evidence, and recommends approval
+  before claim for approval-gated ready handoffs.
 
 Completed slices:
 - Task 7 current-tree implementation: resume verifier and handoff pickup gate.

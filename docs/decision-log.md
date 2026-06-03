@@ -61,7 +61,9 @@ Consequences:
   recovery actions such as `claim_handoff`, `recreate_handoff`, `clear_brake`,
   `clean_worktree`, `approve_handoff`, or `close_or_fail_active_epoch`.
 - Prepared handoffs now carry structured resume snapshot bindings for
-  branch/head comparison.
+  branch/head comparison. Resume verification treats that metadata as a pointer
+  to persisted snapshot evidence and checks it against the signed handoff
+  message before trusting branch/head claims.
 - Resume verification still depends on external orchestration to perform any
   recommended next action.
 

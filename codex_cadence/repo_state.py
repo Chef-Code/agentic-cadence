@@ -97,7 +97,7 @@ def runtime_root_location_safety_issue(root: str | Path) -> str | None:
 
 
 def dirty_worktree(cwd: str | Path) -> bool:
-    return bool(run_git(cwd, "status", "--porcelain"))
+    return bool(run_git(cwd, "--no-optional-locks", "status", "--porcelain"))
 
 
 def current_branch(cwd: str | Path) -> str | None:
