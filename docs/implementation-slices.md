@@ -1,8 +1,8 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-06-03
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, and read-only resume verification current tree
+Last updated: 2026-06-04
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, and read-only review-response planning current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -15,7 +15,7 @@ Each slice should ship with tests, evidence, and updates to the living docs.
 ## Current Working Baseline
 
 The five 50% confidence slices below remain the framework for a controlled
-loop. Tasks 1-8 completed several local governance increments inside those
+loop. Tasks 1-10 completed several local governance increments inside those
 slices, but the controlled loop is still incomplete. Three smaller
 stabilization slices are now part of this baseline:
 
@@ -37,11 +37,12 @@ stabilization slices are now part of this baseline:
 These changes reduce state-awareness footguns. The current tree also includes
 the Phase 1 read-only `loop-tick` command for the first slice and a generic
 executor task/result contract, plus read-only GitHub evidence sync,
-operator-approved Git/PR materialization, read-only resume verification, and a
-governed execution-start gate. It still does not add autonomous live GitHub
-synchronization, dirty-worktree commit materialization, real executor
-invocation, automatic resume orchestration, agent-role assignment, agent-pool
-coordination, or enforced review separation.
+operator-approved Git/PR materialization, read-only resume verification,
+read-only review-response planning, and a governed execution-start gate. It
+still does not add autonomous live GitHub synchronization, dirty-worktree
+commit materialization, real executor invocation, automatic resume
+orchestration, agent-role assignment, agent-pool coordination, or enforced
+review separation.
 The first local policy/audit controls can bound
 emitted executor task packets, append decision/result-validation audit records,
 and replay local audit history with a read-only `audit-replay.v1` packet.
@@ -63,13 +64,16 @@ with Git hook verification disabled for that push, and create/update a PR only
 after exact target-bound operator approval and local rechecks. `verify-resume`
 can check claimed handoff state, clean-square evidence, repo branch/head,
 dirty-worktree state, active brake, active epoch state, and pickup-policy
-evidence before a fresh session continues. Real executor invocation,
-autonomous branch/commit/push or PR creation, automatic session launch, and
-continuous loop orchestration remain missing.
+evidence before a fresh session continues. `review-response-plan` can turn
+saved PR JSON, saved review-thread JSON, optional candidate discovery output,
+and PR-body evidence into bounded read-only follow-up recommendations without
+writing to GitHub. Real executor invocation, autonomous branch/commit/push or
+PR creation, automatic session launch, and continuous loop orchestration remain
+missing.
 Current unattended-operation confidence remains 10%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete, and Tasks 8-9 are complete in the current tree. Tasks 10-12 are tracked in
+complete, and Tasks 8-10 are complete in the current tree. Tasks 11-12 are tracked in
 `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
 
 ## Vision Framing
@@ -423,6 +427,9 @@ Current evidence:
 - saved PR-readiness evidence is labeled as `saved_input`, `stale`, or
   caller-asserted `live_like`, with stale saved evidence waiting before
   blockers when an age policy is supplied;
+- `review-response-plan` consumes saved PR JSON, saved review-thread JSON,
+  optional candidate discovery output, and PR-body evidence to recommend
+  bounded next actions without GitHub writes;
 - release dry-run follows operator-confirmation pattern;
 - a design spec for the first dry-run-only `git-pr-plan` packet exists at
   `docs/designs/2026-06-01-git-pr-dry-run-plan-design.md`;
@@ -478,8 +485,10 @@ Validation needed:
 - done: blocked generated branch already exists;
 - done: blocked missing PR template section;
 - done: blocked invalid branch names;
+- done: stale saved PR evidence in review-response planning recommends
+  refresh before acting on failed checks, review threads, or PR body issues;
 - remaining: freshness labels preserved when saved PR evidence is reused by
-  later PR synchronization paths.
+  later write-side synchronization paths.
 
 Codex implementation rule: Codex can implement dry-run packets and the existing
 operator-approved materialization path directly. Autonomous branch creation,
@@ -516,9 +525,13 @@ Current evidence:
   comments;
 - PR readiness labels stale saved PR state so it is not treated as merge-ready
   when an explicit age policy says it must be refreshed;
+- `review-response-plan` can group failed checks, unresolved actionable current
+  review-thread comments, missing PR body sections, and optional candidate
+  matches into a read-only `review-response-plan.v1` packet with bounded next
+  actions;
 - no GitHub write sync, branch creation, commit, push, PR edit, merge, release,
-  package publication, continuous reconciliation, or automatic response loop
-  exists.
+  package publication, continuous reconciliation, or automatic response
+  execution exists.
 
 Why it matters: unattended operation fails quickly if Cadence cannot react to
 CI failures or review comments.
@@ -527,6 +540,7 @@ Likely files:
 
 - `codex_cadence/candidates.py`
 - `codex_cadence/pr_readiness.py`
+- `codex_cadence/review_response.py`
 - `codex_cadence/repo_state.py`
 - tests
 - docs
@@ -544,11 +558,17 @@ Validation needed:
 - non-actionable review summary is ignored;
 - merge readiness remains blocked while actionable feedback exists;
 - malformed or incomplete review-thread evidence blocks readiness;
+- review-response planning groups failed checks and review threads by stable
+  follow-up target;
+- stale saved PR evidence recommends `refresh_pr_evidence` before response
+  items are emitted;
+- missing PR body sections recommend `update_pr_body` without editing the PR;
 - read-only live fetch failures block without partial local evidence files.
 
 Codex implementation rule: Codex can implement local ingestion and explicit
-read-only GitHub evidence capture directly. GitHub writes or permission changes
-require operator approval.
+read-only GitHub evidence capture directly. GitHub writes, review-comment
+updates, branch creation, commits, pushes, merge, release, package publication,
+paid review, and permission changes require operator approval.
 
 ## Expected Confidence Impact
 

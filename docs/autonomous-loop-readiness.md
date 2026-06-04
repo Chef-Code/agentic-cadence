@@ -1,8 +1,8 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-06-03
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, operator-approved Git/PR materialization, and read-only resume verification current tree
+Last updated: 2026-06-04
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, and read-only review-response planning current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -111,6 +111,10 @@ runtime can do these things end-to-end:
 - evaluate saved PR JSON, saved review-thread JSON, and saved PR body/template
   files for readiness, including `saved_input`, `stale`, and caller-asserted
   `live_like` evidence.
+- produce a read-only `review-response-plan.v1` packet from saved PR JSON,
+  saved review-thread JSON, optional candidate discovery output, and PR-body
+  evidence, grouping actionable feedback into bounded next-action
+  recommendations without calling GitHub or invoking review agents.
 
 These capabilities are still single-agent Phase 1 primitives, but they are not
 throwaway work. They are the same primitives a future orchestrator needs for
@@ -170,7 +174,7 @@ Agentic Cadence cannot currently:
 | Live GitHub sync | Partial, read-only evidence capture | `github-evidence-sync` fetches PR JSON and review threads into local files without GitHub writes |
 | Git/PR transition planning | Partial, dry-run plus approved materialization | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects; `git-pr-materialize` can create branch, push, and create/update PR only after exact target-bound operator approval and local rechecks |
 | Branch/commit/push/PR creation | Partial, operator-approved only | No autonomous branch/PR writes, no dirty-worktree commit path, no merge, release, or package publication |
-| Review response loop | Partial saved/live-read-only evidence ingestion | Saved review files and synced review threads can become candidates; no automatic response writes |
+| Review response loop | Partial read-only planning | Saved review files, synced review threads, failed checks, and PR-body evidence can become response-plan items; no automatic response writes |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
 | New-session launch/resume | Partial read-only gate | `prepare-handoff`, clean-square evidence, and `verify-resume` packets exist; external orchestration still launches sessions and performs recommended actions |
 
@@ -191,8 +195,10 @@ rechecks. It can
 govern handoff and continuation decisions, including a read-only resume gate
 that returns stable blocker codes before a fresh session continues. It can
 evaluate saved PR evidence and fetch read-only live PR/check/review-thread
-evidence into saved files. It cannot perform the core build loop by
-itself, and it cannot yet coordinate a team of role-specific agents.
+evidence into saved files, then turn saved failed-check, review-thread, and
+PR-body evidence into read-only response-plan items. It cannot perform the core
+build loop by itself, and it cannot yet coordinate a team of role-specific
+agents.
 
 The current loop stops after:
 
@@ -244,8 +250,10 @@ The next likely failures are:
    local files before later commands consume it. Cadence labels `local_only`,
    `saved_input`, `stale`, and caller-asserted `live_like` evidence, but it
    still does not reconcile or mutate live PR state continuously;
-4. review comments and failing checks can become candidates from saved evidence,
-   but no automatic response loop implements fixes or writes PR updates;
+4. review comments, failing checks, and PR body gaps can become candidates or
+   response-plan items from saved evidence, but no automatic response loop
+   implements fixes, posts comments, resolves review threads, or writes PR
+   updates;
 5. context pressure is only known when a host explicitly reports it;
 6. no agent-role identity or review-separation model exists, so Cadence cannot
    prove that a Builder Agent and Reviewer Agent are distinct actors;
@@ -317,7 +325,7 @@ Reasoning:
 - Readiness packets now distinguish `local_only`, `saved_input`, `stale`, and
   caller-asserted `live_like` evidence, and read-only live GitHub evidence can
   be captured into saved PR and review-thread files for later deterministic
-  readiness and candidate-discovery commands.
+  readiness, candidate-discovery, and review-response planning commands.
 - The real implementation executor, autonomous PR automation, live review
   response writes, continuous loop runner, and resume orchestration are not
   built.

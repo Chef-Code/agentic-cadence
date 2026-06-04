@@ -1,8 +1,8 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-03
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, operator-approved Git/PR materialization, and read-only resume verification current tree
+Last updated: 2026-06-04
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, and read-only review-response planning current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -143,6 +143,10 @@ command-policy and active-stop controls. It includes:
   GitHub writes;
 - PR readiness and candidate discovery ingestion for saved review-thread
   evidence and saved failing-check evidence;
+- read-only `review-response-plan` packets that group failed checks,
+  unresolved actionable review-thread comments, PR-body gaps, and optional
+  candidate matches into bounded next-action recommendations without GitHub
+  writes;
 - release dry-run checks that require operator confirmation before tag or
   release actions;
 - elected Codex Review GitHub workflow with preflight, dedupe, pinned action,
@@ -214,7 +218,7 @@ The following capabilities are not implemented as of this baseline:
 - autonomous code modification;
 - autonomous branch, dirty-worktree commit, push, and PR creation workflow;
 - continuous or write-side GitHub PR, check, comment, and review-thread synchronization;
-- review-feedback response loop;
+- write-side review-feedback response loop;
 - real host context-pressure integration;
 - automatic fresh-session launch and resume orchestration;
 - distributed locking, shared runtime, authenticated approval identity, or
@@ -242,10 +246,11 @@ These are the important boundaries that are not solved yet:
   gates, or GitHub automation.
 - Review integration is deterministic after evidence capture. Candidate
   discovery can ingest saved review findings and saved GitHub review-thread
-  files, `pr-readiness` reads saved PR data, and `github-evidence-sync` can
-  explicitly fetch read-only PR/check/review-thread evidence into local files;
-  Cadence does not write, continuously synchronize, or resolve live GitHub
-  review threads.
+  files, `pr-readiness` reads saved PR data, `github-evidence-sync` can
+  explicitly fetch read-only PR/check/review-thread evidence into local files,
+  and `review-response-plan` can group saved feedback into bounded read-only
+  next actions; Cadence does not write, continuously synchronize, or resolve
+  live GitHub review threads.
 - Release verification is documented and repeatable, and `release-dry-run` can
   inspect local release metadata and Git refs, but release tagging and GitHub
   release creation still require operator execution.
@@ -314,8 +319,8 @@ The smallest slices expected to move confidence toward 50% are tracked in
 5. CI/Review Feedback Back Into Candidate Discovery
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete, and Tasks 8-9 are complete in the current tree. The bounded public
-roadmap for Tasks 10-12 is `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
+complete, and Tasks 8-10 are complete in the current tree. The bounded public
+roadmap for Tasks 11-12 is `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
 
 ## Roadmap
 
@@ -538,16 +543,22 @@ Current evidence: candidate discovery can ingest saved review findings, saved
 review-thread files, and saved PR JSON check failures. `github-evidence-sync`
 can explicitly fetch read-only live PR metadata, status checks, and review
 threads into local evidence files, while PR readiness reports blockers from
-saved PR JSON and saved review-thread JSON. Write-side sync, automatic response
-actions, and resolution tracking are not implemented.
+saved PR JSON and saved review-thread JSON. `review-response-plan` can group
+failed checks, unresolved actionable current review comments, missing PR body
+sections, and optional candidate matches into a read-only response plan with
+bounded next-action recommendations. Write-side sync, automatic response
+execution, and resolution tracking are not implemented.
 
 Likely files: `codex_cadence/github_evidence.py`,
-`codex_cadence/candidates.py`, `codex_cadence/pr_readiness.py`, tests.
+`codex_cadence/candidates.py`, `codex_cadence/pr_readiness.py`,
+`codex_cadence/review_response.py`, tests.
 
 Validation: fixtures where mocked `gh` success writes saved evidence, missing
 or failing `gh` blocks without partial files, a failing check becomes a fix
 candidate, unresolved review feedback blocks merge readiness, resolved feedback
-is ignored, and outdated feedback is ignored.
+is ignored, outdated feedback is ignored, stale saved PR evidence recommends
+refresh before response planning, malformed review-thread evidence blocks with
+stable codes, and PR-body gaps recommend PR-body update without editing it.
 
 Codex can implement direct local ingestion and explicit read-only GitHub
 evidence capture. GitHub writes require operator approval before credentials or

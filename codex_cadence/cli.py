@@ -65,6 +65,7 @@ from codex_cadence.pr_readiness import (
     load_pr_json,
     load_template_sections,
 )
+from codex_cadence.review_response import evaluate_review_response_plan
 from codex_cadence.release import evaluate_release_dry_run
 from codex_cadence.repo_state import (
     git_repo_root,
@@ -1799,6 +1800,27 @@ def pr_readiness_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def review_response_plan_command(args: argparse.Namespace) -> int:
+    pr_json_file = Path(args.pr_json_file)
+    pr = load_pr_json(pr_json_file)
+    review_threads = read_json(Path(args.review_threads_file)) if args.review_threads_file else None
+    candidate_discovery = read_json(Path(args.candidate_discovery_file)) if args.candidate_discovery_file else None
+    required_body_sections = list(args.required_body_section or [])
+    if args.pr_template_file:
+        required_body_sections.extend(load_template_sections(Path(args.pr_template_file)))
+    evidence_captured_at = datetime.fromtimestamp(pr_json_file.stat().st_mtime, timezone.utc)
+    payload = evaluate_review_response_plan(
+        pr,
+        review_threads=review_threads,
+        candidate_discovery=candidate_discovery,
+        required_body_sections=required_body_sections,
+        evidence_captured_at=evidence_captured_at,
+        max_evidence_age_minutes=args.max_pr_json_age_minutes,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def github_evidence_out_dir_safety_issue(out_dir: Path) -> str | None:
     target = out_dir.expanduser().resolve(strict=False)
     cwd_repo_root = git_repo_root(Path.cwd())
@@ -2107,6 +2129,18 @@ def build_parser() -> argparse.ArgumentParser:
     readiness_parser.add_argument("--pr-template-file")
     readiness_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
     readiness_parser.set_defaults(func=pr_readiness_command, requires_root=False)
+
+    review_response_parser = subparsers.add_parser(
+        "review-response-plan",
+        help="Plan a bounded response from saved PR checks and review feedback",
+    )
+    review_response_parser.add_argument("--pr-json-file", required=True)
+    review_response_parser.add_argument("--review-threads-file")
+    review_response_parser.add_argument("--candidate-discovery-file")
+    review_response_parser.add_argument("--required-body-section", action="append", default=[])
+    review_response_parser.add_argument("--pr-template-file")
+    review_response_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
+    review_response_parser.set_defaults(func=review_response_plan_command, requires_root=False)
 
     github_evidence_parser = subparsers.add_parser(
         "github-evidence-sync",
