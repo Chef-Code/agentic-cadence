@@ -169,7 +169,7 @@ def governed_execution_task_packet(root, repo, **snapshot_overrides):
 
 
 def write_governed_execution_task(root, repo, task_packet=None):
-    packet = task_packet or governed_execution_task_packet(root, repo)
+    packet = governed_execution_task_packet(root, repo) if task_packet is None else task_packet
     task_path = Path(root) / "executor-task.json"
     task_path.write_text(json.dumps(packet), encoding="utf-8")
     approval_token = f"approve-executor-task:{checksum_json(packet)}"
@@ -2706,25 +2706,35 @@ class CadenceCliTests(unittest.TestCase):
     def test_start_governed_execution_blocks_approval_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
-            task_path, _task_packet, _approval_token = write_governed_execution_task(tmp, repo)
+            task_path, task_packet, approval_token = write_governed_execution_task(tmp, repo)
 
-            result, output = run_cli(
-                tmp,
-                "start-governed-execution",
-                "--task-file",
-                str(task_path),
-                "--approval-token",
-                "approve-executor-task:sha256:" + "0" * 64,
-            )
+            def assert_approval_mismatch(token):
+                result, output = run_cli(
+                    tmp,
+                    "start-governed-execution",
+                    "--task-file",
+                    str(task_path),
+                    "--approval-token",
+                    token,
+                )
 
-            self.assertEqual(result.returncode, 2, result.stderr)
-            self.assertFalse(output["valid"])
-            self.assertFalse(output["epoch_started"])
-            self.assertFalse(output["executor_started"])
-            self.assertEqual(output["approval_state"], "mismatch")
-            self.assertEqual(output["recommended_next_action"], "approve_executor_task")
-            self.assertIn("operator_approval_mismatch", {blocker["code"] for blocker in output["blockers"]})
-            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(output["valid"])
+                self.assertFalse(output["epoch_started"])
+                self.assertFalse(output["executor_started"])
+                self.assertEqual(output["approval_state"], "mismatch")
+                self.assertEqual(output["recommended_next_action"], "approve_executor_task")
+                self.assertIn("operator_approval_mismatch", {blocker["code"] for blocker in output["blockers"]})
+                self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+            assert_approval_mismatch("approve-executor-task:sha256:" + "0" * 64)
+
+            tampered_packet = dict(task_packet)
+            tampered_packet["task"] = dict(task_packet["task"])
+            tampered_packet["task"]["title"] = "Tampered approved task title"
+            task_path.write_text(json.dumps(tampered_packet), encoding="utf-8")
+
+            assert_approval_mismatch(approval_token)
 
     def test_start_governed_execution_blocks_stale_head(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
@@ -3081,6 +3091,31 @@ class CadenceCliTests(unittest.TestCase):
             self.assertTrue(replay["valid"])
             self.assertEqual(replay["records_valid"], 1)
             self.assertEqual(replay["events_by_type"]["execution_start_decision"], 1)
+
+    def test_start_governed_execution_blocked_decision_does_not_append_success_audit(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _task_packet, _approval_token = write_governed_execution_task(tmp, repo)
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                "approve-executor-task:sha256:" + "0" * 64,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertNotIn("audit_record", output)
+            self.assertFalse((Path(tmp) / "audit" / "events.jsonl").exists())
+            replay_result, replay = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["records_valid"], 0)
+            self.assertEqual(replay["events_by_type"], {})
 
     def test_loop_tick_policy_file_bounds_executor_task_packet(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

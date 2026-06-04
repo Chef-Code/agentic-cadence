@@ -12,7 +12,7 @@
 
 ## Baseline Captured On 2026-06-03
 
-- Local `main` is merged through PR #70 at `afe23bf`.
+- Local `main` is merged through PR #71 at `cbeca53`.
 - Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are complete.
 - PR #69 completed Task 6 by adding operator-approved `git-pr-materialize`.
 - PR #70 completed Task 7 by adding read-only `verify-resume` and hardening review findings.
