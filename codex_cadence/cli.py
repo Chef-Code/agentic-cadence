@@ -391,7 +391,7 @@ def execution_start_reason(valid: bool, blockers: list[dict[str, Any]]) -> str:
 
 def task_packet_to_epoch_task(task_packet: dict[str, Any]) -> dict[str, Any]:
     task = task_packet["task"]
-    return {
+    epoch_task = {
         "id": task["id"],
         "title": task.get("title"),
         "summary": task.get("summary"),
@@ -411,6 +411,10 @@ def task_packet_to_epoch_task(task_packet: dict[str, Any]) -> dict[str, Any]:
         "expected_output": dict(task_packet.get("expected_output", {})),
         "permissions": dict(task_packet.get("permissions", {})),
     }
+    for field in ("requires_user_allowance", "allowance", "allowance_reason"):
+        if field in task:
+            epoch_task[field] = task[field]
+    return epoch_task
 
 
 def build_execution_start_packet(

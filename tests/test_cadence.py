@@ -2681,6 +2681,59 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(epoch["snapshot_before"]["head"], current_head(repo))
             self.assertIn("executor_not_started", output["limitations"])
 
+    def test_start_governed_execution_preserves_agent_proposal_allowance_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_packet = build_executor_task_packet(
+                task={
+                    "id": "agent-proposal-001",
+                    "title": "Explore the next repo capability from local signals",
+                    "summary": "Run a bounded proposal discovery task.",
+                    "task_type": "discovery",
+                    "bucket": "S",
+                    "source": "agent_proposal",
+                    "drivers": ["unknown_repo_area"],
+                    "evidence": {"intent": "product_evolution"},
+                    "requires_user_allowance": True,
+                    "allowance": "elect",
+                    "allowance_reason": "operator allowed proposal election",
+                },
+                snapshot=valid_snapshot(
+                    repo="local/test",
+                    cwd=str(Path(repo).resolve()),
+                    branch=current_branch(repo),
+                    head=current_head(repo),
+                ),
+                repo_path=repo,
+                allowed_paths=["README.md"],
+                required_checks=[],
+                max_minutes=30,
+                max_tasks=1,
+                stop_conditions=DEFAULT_EXECUTOR_STOP_CONDITIONS,
+                evidence_path=Path(tmp) / "executor-result.json",
+            )
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo, task_packet)
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            active_epochs = list((Path(tmp) / "epochs" / "active").glob("*.json"))
+            self.assertEqual(len(active_epochs), 1)
+            epoch = json.loads(active_epochs[0].read_text(encoding="utf-8"))
+            epoch_task = epoch["tasks"][0]
+            self.assertEqual(epoch_task["source"], "agent_proposal")
+            self.assertTrue(epoch_task["requires_user_allowance"])
+            self.assertEqual(epoch_task["allowance"], "elect")
+            self.assertEqual(epoch_task["allowance_reason"], "operator allowed proposal election")
+
     def test_start_governed_execution_blocks_missing_approval(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
