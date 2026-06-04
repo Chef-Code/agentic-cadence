@@ -361,6 +361,51 @@ class AuditReplayCliTests(unittest.TestCase):
             self.assertEqual(output["records_invalid"], 1)
             self.assertEqual(blocker_codes(output), ["audit_required_field_missing", "audit_required_field_missing"])
 
+    def test_execution_run_audit_record_rejects_invalid_action_and_closeout_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_audit_records(
+                root,
+                execution_run_record(
+                    action="not_a_real_action",
+                    closeout_status="bogus",
+                    epoch_id="epoch-1",
+                    epoch_closeout_checksum=GOOD_CHECKSUM,
+                ),
+            )
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["records_valid"], 0)
+            self.assertEqual(output["records_invalid"], 1)
+            self.assertEqual(
+                blocker_codes(output),
+                ["audit_execution_run_action_invalid", "audit_execution_run_closeout_status_invalid"],
+            )
+
+    def test_execution_run_audit_record_accepts_closeout_update_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_audit_records(
+                root,
+                execution_run_record(
+                    action="update_execution_run_closeout",
+                    reason="execution run closeout status updated",
+                    closeout_status="completed",
+                    epoch_id="epoch-1",
+                    epoch_closeout_checksum=GOOD_CHECKSUM,
+                ),
+            )
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 0, output)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["records_valid"], 1)
+            self.assertEqual(output["events_by_type"]["execution_run_record"], 1)
+
     def test_materialization_audit_records_require_consistent_action_and_status(self):
         cases = [
             (

@@ -137,6 +137,7 @@ class ExecutorContractTests(unittest.TestCase):
                 "valid": True,
                 "reason": "ok",
                 "executor_started": True,
+                "invocation_id": "executor-fixture-invocation-1",
             }
             record = build_execution_run_record(
                 run_id="execution-run-1",
@@ -163,6 +164,42 @@ class ExecutorContractTests(unittest.TestCase):
             self.assertEqual(record["result_evidence_checksum"], checksum_json(result))
             self.assertEqual(record["validation_packet_checksum"], checksum_json(validation))
             self.assertEqual(record["repo"]["branch"], task_packet["repo"]["branch"])
+
+    def test_execution_run_record_reports_invocation_id_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            task_packet = valid_task_packet(root)
+            result = valid_result()
+            validation = {
+                "packet": "executor_result_validation",
+                "valid": True,
+                "reason": "ok",
+                "invocation_id": "executor-fixture-invocation-1",
+            }
+            record = build_execution_run_record(
+                run_id="execution-run-1",
+                invocation_id="executor-fixture-invocation-1",
+                task_file=root / "executor-task.json",
+                result_file=root / "executor-result.json",
+                task_packet=task_packet,
+                result_evidence=result,
+                validation_packet=validation,
+            )
+            validation["invocation_id"] = "executor-fixture-invocation-2"
+
+            blockers = validate_execution_run_record(
+                record,
+                task_packet=task_packet,
+                result_evidence=result,
+                validation_packet=validation,
+                task_file=root / "executor-task.json",
+                result_file=root / "executor-result.json",
+            )
+
+            self.assertEqual(
+                [blocker["code"] for blocker in blockers],
+                ["run_invocation_id_mismatch", "run_validation_checksum_mismatch"],
+            )
 
     def test_execution_run_record_reports_stable_mismatch_code(self):
         with tempfile.TemporaryDirectory() as tmp:

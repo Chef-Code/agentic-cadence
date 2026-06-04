@@ -1475,6 +1475,16 @@ def validate_execution_run_record(
 
     task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
     task_id = task.get("id")
+    validation_invocation_id = validation_packet.get("invocation_id")
+    if _non_empty_string(validation_invocation_id) and record.get("invocation_id") != validation_invocation_id:
+        blockers.append(
+            execution_run_blocker(
+                "run_invocation_id_mismatch",
+                "execution run invocation_id does not match validation packet",
+                run_invocation_id=record.get("invocation_id"),
+                validation_invocation_id=validation_invocation_id,
+            )
+        )
     if record.get("task_id") != task_id:
         blockers.append(
             execution_run_blocker(

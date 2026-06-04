@@ -316,8 +316,9 @@ event names, event-specific required fields, physical JSONL line counts, and
 `sha256:` checksum syntax. Supported events are `loop_tick_decision`,
 `executor_fixture_invocation`, `execution_run_record`,
 `executor_result_validation`, `executor_epoch_closeout`,
-`git_pr_materialization_intent`, and `git_pr_materialization_result`. It does
-not recompute `payload_checksum`, `run_record_checksum`,
+`execution_start_decision`, `git_pr_materialization_intent`, and
+`git_pr_materialization_result`. It does not recompute `payload_checksum`,
+`run_record_checksum`,
 `task_packet_checksum`, `result_evidence_checksum`,
 `validation_packet_checksum`, `plan_checksum`, or `snapshot_after_checksum`
 from original packet bodies because those bodies are not stored in the compact
@@ -396,9 +397,14 @@ matching repo/branch/head anchors, and a valid snapshot-after packet captured
 after epoch start with a head matching the executor result and a `captured_at`
 timestamp at or after the executor result `ended_at`. When a run record is
 supplied, it must use `schema_version: execution-run.v1`,
-`packet: execution_run`, `closeout_status: pending`, a non-empty invocation id, matching
+`protocol_version: v1`, `packet: execution_run`, a non-empty run id, a
+non-empty invocation id, `closeout_status: pending`, matching
 task/result/validation checksums, matching task and result file paths, matching
-task id, and matching repo path/branch/head anchors. Stale task snapshots,
+task id, and matching repo name/path/branch/head anchors. The supplied
+`--run-record-file` must also be the canonical local runtime path
+`<root>/execution-runs/<run_id>.json`; malformed, unreadable, non-canonical, or
+out-of-ledger run-record files block with stable run-record blockers instead of
+falling through to top-level CLI errors. Stale task snapshots,
 stale snapshot-after packets, head mismatches, active epoch conflicts,
 already-terminal epochs, malformed packets, partial run records, run-record
 checksum mismatches, run-record repo anchor mismatches, closeout replay, and

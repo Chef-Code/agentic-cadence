@@ -90,7 +90,7 @@ git diff --check
 
 **Phase:** Phase 2 governed execution hardening.
 
-**Why now:** Controlled fixture invocation and result validation audit records exist, but closeout still relies on local task/result/snapshot files supplied by the caller. A stable run ledger should bind execution-start, invocation, result validation, and epoch closeout evidence before live executors are considered.
+**Why now:** Controlled fixture invocation and result validation audit records exist, but closeout still relies on local task/result/snapshot files supplied by the caller. A stable run ledger should bind fixture invocation, result validation, repo anchors, and epoch closeout evidence before live executors are considered.
 
 **Files:**
 - Modify: `codex_cadence/executor_runner.py`
@@ -109,8 +109,9 @@ git diff --check
 - `run-controlled-executor-fixture` now writes a local run record under
   `<root>/execution-runs/`, returns its path/checksum, and appends an
   `execution_run_record` audit event.
-- `closeout-executor-result --run-record-file` validates supplied run records
-  before epoch mutation and rejects task checksum, result checksum, validation
+- `closeout-executor-result --run-record-file` validates supplied canonical
+  runtime-local run records before epoch mutation and rejects malformed files,
+  non-canonical paths, task checksum, result checksum, invocation/validation
   checksum, repo anchor, partial-record, and closeout-replay mismatches with
   stable blocker codes.
 - Successful closeout updates the local run record with closeout status,
@@ -121,14 +122,14 @@ git diff --check
 
 **Validation:**
 - Fixture success produces a run record that closeout accepts.
-- Mismatched task checksum, result checksum, branch/head, validation packet, or closeout replay blocks with stable codes.
+- Mismatched task checksum, result checksum, repo anchors, validation packet, invocation id, run-record path, or closeout replay blocks with stable codes.
 - Partial run records fail closed.
 - Audit replay recognizes the new compact record type.
 
 Run:
 
 ```powershell
-python -m py_compile codex_cadence/executor_runner.py codex_cadence/executor_contract.py codex_cadence/epochs.py codex_cadence/policy_audit.py
+python -m py_compile codex_cadence/executor_runner.py codex_cadence/executor_contract.py codex_cadence/epochs.py codex_cadence/policy_audit.py codex_cadence/cli.py codex_cadence/store.py
 python -m unittest tests.test_cadence tests.test_epochs tests.test_executor_contract tests.test_audit_replay -v
 python scripts/validate_protocol.py
 python scripts/ci_smoke.py

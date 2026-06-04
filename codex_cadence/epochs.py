@@ -697,6 +697,7 @@ def closeout_executor_result_epoch(
     result_file: str,
     snapshot_after: dict[str, Any],
     run_record: Any | None = None,
+    run_record_blockers: list[dict[str, Any]] | None = None,
     before_terminal_complete: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     ensure_layout(root)
@@ -767,6 +768,8 @@ def closeout_executor_result_epoch(
             blockers = [closeout_blocker("active_epoch_conflict", "active epoch status must be ACTIVE")]
         else:
             blockers = _validate_executor_epoch_binding(epoch, task_packet, result_evidence, snapshot_after)
+            if run_record_blockers:
+                blockers.extend(run_record_blockers)
             if run_record is not None:
                 blockers.extend(
                     validate_execution_run_record(

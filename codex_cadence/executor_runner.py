@@ -233,6 +233,7 @@ def _validation_payload(
     result_file: Path,
     recommended_next_action: str,
     active_stop: dict[str, Any] | None,
+    invocation_id: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "protocol_version": PROTOCOL_VERSION,
@@ -244,6 +245,8 @@ def _validation_payload(
         "executor_started": True,
         "recommended_next_action": recommended_next_action,
     }
+    if invocation_id:
+        payload["invocation_id"] = invocation_id
     if active_stop is not None:
         payload["active_stop"] = active_stop
     return payload
@@ -429,6 +432,7 @@ def run_controlled_executor_fixture(
         result_file=result_file,
         recommended_next_action=recommended_next_action,
         active_stop=active_stop,
+        invocation_id=invocation_id,
     )
     validation_audit = append_audit_record(
         root,
