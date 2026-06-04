@@ -112,6 +112,14 @@ def epoch_path(root: Path, state: str, epoch_id: str) -> Path:
     return epoch_state_dir(root, state) / f"{validate_record_id(epoch_id, 'epoch')}.json"
 
 
+def execution_run_dir(root: Path) -> Path:
+    return root / "execution-runs"
+
+
+def execution_run_path(root: Path, run_id: str) -> Path:
+    return execution_run_dir(root) / f"{validate_record_id(run_id, 'execution run')}.json"
+
+
 def lock_path(root: Path, name: str) -> Path:
     return root / "locks" / f"{validate_record_id(name, 'lock')}.lock"
 
@@ -151,6 +159,7 @@ def ensure_layout(root: Path) -> None:
     (root / "logs" / "clean-square").mkdir(parents=True, exist_ok=True)
     (root / "snapshots").mkdir(parents=True, exist_ok=True)
     (root / "plans").mkdir(parents=True, exist_ok=True)
+    execution_run_dir(root).mkdir(parents=True, exist_ok=True)
     if not brake_path(root).exists():
         atomic_write_json(
             brake_path(root),

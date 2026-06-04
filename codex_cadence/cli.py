@@ -19,6 +19,7 @@ from codex_cadence.candidates import discover_candidates
 from codex_cadence.executor_contract import (
     DEFAULT_EXECUTOR_STOP_CONDITIONS,
     EXECUTION_START_SCHEMA_VERSION,
+    execution_run_blocker,
     build_executor_task_packet,
     validate_executor_result_evidence,
     validate_executor_task_packet,
@@ -49,6 +50,7 @@ from codex_cadence.model import BUCKETS, TASK_TYPES, estimate_task, governance_p
 from codex_cadence.policy_audit import (
     append_audit_record,
     execution_start_audit_record,
+    execution_run_record_audit_record,
     executor_epoch_closeout_audit_record,
     executor_result_validation_audit_record,
     load_loop_policy,
@@ -82,6 +84,8 @@ from codex_cadence.store import (
     ensure_layout,
     epoch_path,
     exclusive_lock,
+    execution_run_dir,
+    execution_run_path,
     handoff_path,
     handoff_state_dir,
     lock_path,
@@ -1439,6 +1443,7 @@ def build_executor_result_validation_payload(
     task_packet: Any,
     result_evidence: Any,
     executor_started: bool,
+    invocation_id: str | None = None,
 ) -> dict[str, Any]:
     valid, reason = validate_executor_result_evidence(result_evidence, task_packet)
     if valid:
@@ -1494,9 +1499,62 @@ def build_executor_result_validation_payload(
         "executor_started": executor_started,
         "recommended_next_action": recommended_next_action,
     }
+    if invocation_id:
+        payload["invocation_id"] = invocation_id
     if active_stop is not None:
         payload["active_stop"] = active_stop
     return payload
+
+
+def load_closeout_run_record(root: Path, run_record_file: Path) -> tuple[Any | None, list[dict[str, Any]]]:
+    blockers: list[dict[str, Any]] = []
+    supplied_path = run_record_file.resolve(strict=False)
+    run_dir = execution_run_dir(root).resolve(strict=False)
+    supplied_inside_run_dir = path_is_relative_to(supplied_path, run_dir)
+    if not supplied_inside_run_dir:
+        blockers.append(
+            execution_run_blocker(
+                "run_record_path_mismatch",
+                "execution run record file must be under the runtime execution-runs directory",
+                run_record_file=str(run_record_file),
+                expected_directory=str(execution_run_dir(root)),
+            )
+        )
+    try:
+        run_record = read_json(run_record_file)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        blockers.append(
+            execution_run_blocker(
+                "run_record_invalid",
+                "execution run record file could not be read as JSON",
+                run_record_file=str(run_record_file),
+                error=str(exc),
+            )
+        )
+        return None, blockers
+    if supplied_inside_run_dir and isinstance(run_record, dict) and isinstance(run_record.get("run_id"), str):
+        try:
+            canonical_path = execution_run_path(root, run_record["run_id"]).resolve(strict=False)
+        except ValueError as exc:
+            blockers.append(
+                execution_run_blocker(
+                    "run_record_invalid",
+                    "execution run record run_id is invalid",
+                    field="run_id",
+                    error=str(exc),
+                )
+            )
+        else:
+            if supplied_path != canonical_path:
+                blockers.append(
+                    execution_run_blocker(
+                        "run_record_path_mismatch",
+                        "execution run record file does not match the canonical run_id path",
+                        run_record_file=str(run_record_file),
+                        expected_run_record_file=str(execution_run_path(root, run_record["run_id"])),
+                    )
+                )
+    return run_record, blockers
 
 
 def validate_executor_result_command(args: argparse.Namespace) -> int:
@@ -1532,9 +1590,15 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
     task_file = Path(args.task_file)
     result_file = Path(args.result_file)
     snapshot_after_file = Path(args.snapshot_after_file)
+    run_record_arg = getattr(args, "run_record_file", None)
+    run_record_file = Path(run_record_arg) if run_record_arg else None
     task_packet = read_json(task_file)
     result_evidence = read_json(result_file)
     snapshot_after = read_json(snapshot_after_file)
+    run_record = None
+    run_record_blockers: list[dict[str, Any]] = []
+    if run_record_file is not None:
+        run_record, run_record_blockers = load_closeout_run_record(args.root, run_record_file)
     repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
     repo_path = repo.get("path")
     if isinstance(repo_path, str) and repo_path and not args.allow_repo_local_root:
@@ -1542,13 +1606,16 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
         if issue:
             raise ValueError(issue)
 
+    validation_executor_started = isinstance(run_record, dict) and run_record.get("executor_started") is True
+    validation_invocation_id = run_record.get("invocation_id") if isinstance(run_record, dict) else None
     validation = build_executor_result_validation_payload(
         root=args.root,
         task_file=task_file,
         result_file=result_file,
         task_packet=task_packet,
         result_evidence=result_evidence,
-        executor_started=False,
+        executor_started=validation_executor_started,
+        invocation_id=validation_invocation_id if isinstance(validation_invocation_id, str) else None,
     )
     result_status = result_evidence.get("status") if isinstance(result_evidence, dict) else None
     required_body_sections = list(args.required_body_section or [])
@@ -1572,6 +1639,8 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
         task_file=str(task_file),
         result_file=str(result_file),
         snapshot_after=snapshot_after,
+        run_record=run_record,
+        run_record_blockers=run_record_blockers,
         before_terminal_complete=validate_terminal_git_pr_plan_inputs if args.emit_git_pr_plan else None,
     )
     git_pr_plan_packet = None
@@ -1597,6 +1666,17 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
         next_decision["git_pr_plan_ready"] = git_pr_plan_packet["ready_to_review"]
     side_effects = list(closeout["side_effects"])
     append_closeout_audit = closeout["closeout_status"] != "already_closed"
+    run_record_ref = None
+    if run_record_file is not None and isinstance(run_record, dict):
+        run_record_ref = {
+            "path": str(run_record_file),
+            "run_id": run_record.get("run_id"),
+            "invocation_id": run_record.get("invocation_id"),
+            "before_checksum": checksum_json(run_record),
+            "closeout_status": run_record.get("closeout_status"),
+        }
+        if closeout["valid"]:
+            side_effects.extend(["execution_run_record_updated", "execution_run_audit_appended"])
     if append_closeout_audit:
         side_effects.append("audit_record_appended")
     payload = {
@@ -1631,8 +1711,46 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
             "does_not_merge_release_or_publish_packages",
         ],
     }
+    if run_record_ref is not None:
+        payload["run_record"] = run_record_ref
     if payload["failure_reason"] is None:
         payload.pop("failure_reason")
+    run_record_audit = None
+    if run_record_file is not None and isinstance(run_record, dict) and closeout["valid"]:
+        closeout_core_packet = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"audit_record", "run_record"}
+        }
+        epoch_closeout_checksum = checksum_json(closeout_core_packet)
+        updated_run_record = dict(run_record)
+        updated_run_record.update(
+            {
+                "closeout_status": closeout["closeout_status"],
+                "epoch_id": args.epoch_id,
+                "epoch_status": closeout["epoch_status"],
+                "epoch_closeout_checksum": epoch_closeout_checksum,
+                "updated_at": utc_now(),
+            }
+        )
+        atomic_write_json(run_record_file, updated_run_record)
+        run_record_audit = append_audit_record(
+            args.root,
+            execution_run_record_audit_record(
+                updated_run_record,
+                run_record_file=str(run_record_file),
+                action="update_execution_run_closeout",
+                reason="execution run closeout status updated",
+            ),
+        )
+        payload["run_record"].update(
+            {
+                "after_checksum": checksum_json(updated_run_record),
+                "closeout_status": updated_run_record.get("closeout_status"),
+                "epoch_closeout_checksum": epoch_closeout_checksum,
+                "audit_record": run_record_audit,
+            }
+        )
     if append_closeout_audit:
         payload["audit_record"] = append_audit_record(
             args.root,
@@ -1932,6 +2050,7 @@ def build_parser() -> argparse.ArgumentParser:
     closeout_parser.add_argument("--task-file", required=True)
     closeout_parser.add_argument("--result-file", required=True)
     closeout_parser.add_argument("--snapshot-after-file", required=True)
+    closeout_parser.add_argument("--run-record-file")
     closeout_parser.add_argument("--cwd", default=".")
     closeout_parser.add_argument("--emit-git-pr-plan", action="store_true")
     closeout_parser.add_argument("--base-branch", default="main")

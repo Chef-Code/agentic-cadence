@@ -33,6 +33,59 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-03 - Bind execution run evidence to closeout
+
+Summary:
+- Added local `execution-run.v1` records that bind task checksum, invocation id,
+  result evidence checksum, validation packet checksum, repo path/branch/head
+  anchors, and closeout status.
+- Updated `run-controlled-executor-fixture` to write a local execution-run
+  record under `<root>/execution-runs/`, return the record path/checksum, and
+  append an `execution_run_record` audit event.
+- Added `closeout-executor-result --run-record-file` so closeout rejects
+  mismatched or partial run records before epoch mutation and updates accepted
+  records with closeout status, epoch id/status, and closeout checksum.
+- Extended `audit-replay` to validate compact `execution_run_record` audit
+  events.
+
+Completed slices:
+- Task 9 current-tree implementation: execution run evidence binding to
+  closeout.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Cadence now has local run-ledger evidence for the controlled fixture
+  path and closeout gate, but real executor invocation, autonomous
+  implementation, automatic fresh-session launch, autonomous Git/PR writes,
+  auto-merge, release, and package publication remain blocked.
+
+Evidence:
+- `python -m unittest tests.test_executor_contract.ExecutorContractTests.test_builds_valid_executor_task_packet tests.test_executor_contract.ExecutorContractTests.test_execution_run_record_binds_task_result_validation_and_repo tests.test_executor_contract.ExecutorContractTests.test_execution_run_record_reports_stable_mismatch_code tests.test_cadence.CadenceCliTests.test_controlled_executor_fixture_run_record_is_accepted_by_closeout tests.test_cadence.CadenceCliTests.test_closeout_executor_result_blocks_run_record_task_checksum_mismatch tests.test_cadence.CadenceCliTests.test_closeout_executor_result_blocks_run_record_result_checksum_mismatch tests.test_cadence.CadenceCliTests.test_closeout_executor_result_blocks_run_record_validation_checksum_mismatch tests.test_cadence.CadenceCliTests.test_closeout_executor_result_blocks_run_record_repo_anchor_mismatch tests.test_cadence.CadenceCliTests.test_closeout_executor_result_blocks_partial_run_record tests.test_cadence.CadenceCliTests.test_closeout_executor_result_blocks_run_record_closeout_replay tests.test_audit_replay.AuditReplayCliTests.test_valid_records_are_counted_by_event_type tests.test_audit_replay.AuditReplayCliTests.test_execution_run_audit_record_requires_run_anchors -v`
+- `python -m py_compile codex_cadence/executor_runner.py codex_cadence/executor_contract.py codex_cadence/epochs.py codex_cadence/policy_audit.py codex_cadence/cli.py codex_cadence/store.py`
+- `python -m unittest tests.test_cadence tests.test_epochs tests.test_executor_contract tests.test_audit_replay -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- The run ledger is local filesystem evidence, not a remote backend,
+  distributed lock, hash chain, or authenticated approval identity.
+- A valid controlled fixture run record is not approval for real executor
+  invocation or named-host adapter support.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
+- `docs/session-handoff.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+- `docs/cadence/business-memory.md`
+
 ## 2026-06-03 - Add governed execution start gate
 
 Summary:

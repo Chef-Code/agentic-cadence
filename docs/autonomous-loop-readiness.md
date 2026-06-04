@@ -162,10 +162,10 @@ Agentic Cadence cannot currently:
 | PR body/readiness checks | Implemented from saved inputs | `codex_cadence/pr_readiness.py` |
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
 | Single loop tick | Partial, read-only | `loop-tick` emits next action and stops before execution |
-| Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, task-carried branch policy, active brake stop handling, governed execution-start audit, `<root>/audit/events.jsonl`, and read-only `audit-replay`; no hash chain or authenticated approval identity |
+| Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, task-carried branch policy, active brake stop handling, governed execution-start audit, local `execution-run.v1` records, `<root>/audit/events.jsonl`, and read-only `audit-replay`; no hash chain or authenticated approval identity |
 | Agent-team orchestration | Not built | No agent pool, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
-| Executor adapter contract | Partial generic contract | Task/result packet validation and a fake controlled fixture runner exist, including snapshot trust-anchor checks, but no real executor or named host adapter |
+| Executor adapter contract | Partial generic contract | Task/result packet validation, a fake controlled fixture runner, and supplied-run-record closeout binding exist, including snapshot trust-anchor checks, but no real executor or named host adapter |
 | Autonomous implementation | Not built | Requires real executor integration |
 | Live GitHub sync | Partial, read-only evidence capture | `github-evidence-sync` fetches PR JSON and review threads into local files without GitHub writes |
 | Git/PR transition planning | Partial, dry-run plus approved materialization | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects; `git-pr-materialize` can create branch, push, and create/update PR only after exact target-bound operator approval and local rechecks |
@@ -183,8 +183,9 @@ structured next action. It can emit a generic executor task packet for operator
 approval, validate the packet's local snapshot trust anchor, start one active
 epoch from an exactly approved task packet through `start-governed-execution`,
 run a controlled fake executor fixture from an explicit command template for
-tests/examples, validate local executor result evidence, close out the active
-epoch, produce a dry-run Git/PR transition plan for separate review, and
+tests/examples, write a local execution-run record, validate local executor
+result evidence, close out the active epoch with supplied run-record binding,
+produce a dry-run Git/PR transition plan for separate review, and
 materialize that plan only after exact target-bound operator approval and local
 rechecks. It can
 govern handoff and continuation decisions, including a read-only resume gate
@@ -207,10 +208,10 @@ an executor task packet. At `approve_executor_task`, a human or external agent
 still has to approve the exact task packet before Cadence starts one governed
 epoch. A successful `execution-start.v1` packet does not start a real executor;
 it only creates local epoch state and recommends external executor handoff. The
-controlled fixture path can prove policy, timeout, audit, and result-evidence
-behavior with fake local evidence, and local closeout can record task
-completion or terminally complete/fail the active epoch from that evidence, but
-it does not implement product changes. The
+controlled fixture path can prove policy, timeout, audit, run-record, and
+result-evidence behavior with fake local evidence, and local closeout can record
+task completion or terminally complete/fail the active epoch from that evidence,
+but it does not implement product changes. The
 dry-run `git-pr-plan` handoff remains
 review-only until an operator invokes `git-pr-materialize` with a matching plan
 approval token. Real code changes, autonomous Git/PR materialization,
@@ -305,10 +306,11 @@ Reasoning:
   repo identity, relative or unnormalizable cwd/path anchors, repo/cwd/branch/head
   mismatches, dirty worktrees, and low-confidence repo state.
 - Initial local policy/audit controls can bound emitted executor task packets,
-  record loop/execution-start/result-validation decisions, reject commands
-  outside task command policy, stop non-`stopped` result completion after the
-  brake changes, run a controlled fixture, and replay local audit history, but
-  they do not govern a real executor or provide tamper evidence.
+  record loop/execution-start/execution-run/result-validation decisions, reject
+  commands outside task command policy, stop non-`stopped` result completion
+  after the brake changes, run a controlled fixture, bind supplied run evidence
+  to closeout, and replay local audit history, but they do not govern a real
+  executor or provide tamper evidence.
 - The handoff and task/epoch model is useful.
 - Candidate discovery is deterministic and conservative.
 - Adapter contracts are tested at the public CLI boundary.
@@ -316,9 +318,9 @@ Reasoning:
   caller-asserted `live_like` evidence, and read-only live GitHub evidence can
   be captured into saved PR and review-thread files for later deterministic
   readiness and candidate-discovery commands.
-- The real implementation executor, run-evidence ledger, autonomous PR
-  automation, live review response writes, continuous loop runner, and resume
-  orchestration are not built.
+- The real implementation executor, autonomous PR automation, live review
+  response writes, continuous loop runner, and resume orchestration are not
+  built.
 
 The rating should stay low until a controlled loop can make a real change in a
 fixture repo, validate it, record evidence, and stop cleanly.

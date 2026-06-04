@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-03
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, and read-only resume verification current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, and read-only resume verification current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -50,9 +50,12 @@ an exactly approved generic executor task packet, recheck repo/policy/brake
 state, and start one active epoch while reporting `executor_started: false`;
 result validation enforces task-carried command policy and active brake stop
 evidence; `run-controlled-executor-fixture` can govern a fake external executor
-component in tests/examples; and `closeout-executor-result` can record
-validated local executor evidence against an active epoch, complete or fail
-terminal epochs, and emit the next dry-run decision. `git-pr-plan` can produce
+component in tests/examples and now writes local `execution-run.v1` records that
+bind task, invocation, result, validation, and repo anchors; and
+`closeout-executor-result --run-record-file` can reject mismatched or partial
+run records before epoch mutation, update accepted records with closeout
+status, complete or fail terminal epochs, and emit the next dry-run decision.
+`git-pr-plan` can produce
 a dry-run Git/PR transition plan for separate review, and `git-pr-materialize`
 can create a branch from the
 already-materialized current commit without switching the checkout, push it
@@ -60,14 +63,13 @@ with Git hook verification disabled for that push, and create/update a PR only
 after exact target-bound operator approval and local rechecks. `verify-resume`
 can check claimed handoff state, clean-square evidence, repo branch/head,
 dirty-worktree state, active brake, active epoch state, and pickup-policy
-evidence before a fresh session continues. Real executor invocation, a run
-evidence ledger binding start/invocation/result/closeout packets, autonomous
-branch/commit/push or PR creation, automatic session launch, and continuous
-loop orchestration remain missing.
+evidence before a fresh session continues. Real executor invocation,
+autonomous branch/commit/push or PR creation, automatic session launch, and
+continuous loop orchestration remain missing.
 Current unattended-operation confidence remains 10%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete, and Task 8 is complete in the current tree. Tasks 9-12 are tracked in
+complete, and Tasks 8-9 are complete in the current tree. Tasks 10-12 are tracked in
 `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
 
 ## Vision Framing
