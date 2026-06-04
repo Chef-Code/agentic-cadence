@@ -33,6 +33,57 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-03 - Add governed execution start gate
+
+Summary:
+- Added `start-governed-execution`, a local write-side gate that consumes a
+  reviewed `generic-executor-task.v1` packet, requires an exact checksum-bound
+  approval token, rechecks repo path, branch, `HEAD`, dirty-worktree state,
+  task-carried command and branch policy shape, active brake, and active epoch
+  state, then starts one active epoch.
+- Added the `execution-start.v1` packet with stable blocker codes,
+  `epoch_started`, `executor_started: false`, `pr_action_started: false`, and
+  a recommended next action.
+- Added compact `execution_start_decision` audit records and audit replay
+  support for successful execution-start decisions.
+
+Completed slices:
+- Task 8 current-tree implementation: governed execution start gate.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Cadence can now bridge an approved task packet to one active epoch,
+  but real executor invocation, run-evidence ledger binding, autonomous
+  implementation, automatic fresh-session launch, autonomous Git/PR writes,
+  auto-merge, release, and package publication remain blocked.
+
+Evidence:
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_start_governed_execution_starts_epoch_after_approval tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_missing_approval tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_approval_mismatch tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_stale_head tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_branch_mismatch tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_dirty_worktree tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_missing_repo_path tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_non_drive_brake tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_active_epoch tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_malformed_active_epoch_state tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_malformed_task_packet tests.test_cadence.CadenceCliTests.test_start_governed_execution_records_replayable_audit -v`
+- `python -m py_compile codex_cadence/cli.py codex_cadence/epochs.py codex_cadence/executor_contract.py codex_cadence/policy_audit.py`
+- `python -m unittest tests.test_cadence tests.test_epochs tests.test_executor_contract tests.test_audit_replay -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- The execution-start approval token is checksum-bound review evidence only; it
+  is not authenticated approver identity or tamper evidence.
+- Task 9 should bind execution-start, invocation, result validation, and
+  closeout evidence before any real executor invocation is considered.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
+- `docs/session-handoff.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+- `docs/cadence/business-memory.md`
+
 ## 2026-06-03 - Create Tasks 8-12 roadmap and refresh handoff
 
 Summary:

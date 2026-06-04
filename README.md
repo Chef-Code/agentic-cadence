@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, operator-approved `git-pr-materialize`, read-only `verify-resume`, and a fixture-only controlled executor runner for tests and examples.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, operator-approved `git-pr-materialize`, read-only `verify-resume`, and a fixture-only controlled executor runner for tests and examples.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -259,6 +259,31 @@ python -c "import json; print(json.dumps(json.load(open('loop-tick.json'))['exec
 
 The task packet is nested under `executor_task` in the `loop-tick` packet. It must be saved before validating returned executor evidence.
 
+`start-governed-execution` is the local write-side gate that consumes a reviewed
+`generic-executor-task.v1` packet and starts exactly one active epoch when the
+task packet shape, task-carried command and branch policy fields, current repo
+path, branch, `HEAD`, clean worktree, operator approval, brake, and
+active-epoch state still match. The approval token is the exact checksum token
+for the reviewed task packet:
+`approve-executor-task:<task-packet-checksum>`.
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime start-governed-execution --task-file executor-task.json --approval-token approve-executor-task:<task-packet-checksum>
+```
+
+The command emits an `execution-start.v1` packet with `read_only: false`,
+`epoch_started`, `executor_started: false`, `blockers`, and
+`recommended_next_action`. Stable blocker codes include
+`task_file_unreadable`, `executor_task_invalid`, `operator_approval_missing`,
+`operator_approval_mismatch`, `repo_path_mismatch`,
+`repo_inspection_failed`, `repo_branch_mismatch`, `repo_head_mismatch`,
+`dirty_worktree`, `repo_confidence_low`, `brake_state_invalid`,
+`brake_not_drive`, `active_epoch_exists`, `active_epoch_invalid`,
+`epoch_start_failed`, `audit_append_failed`, and `epoch_rollback_failed`.
+Successful starts append an `execution_start_decision` audit record, but the
+command does not invoke an executor, edit code, create branches, write pull
+requests, merge, release, or publish packages.
+
 Executor result evidence can be checked without running an executor:
 
 ```bash
@@ -302,9 +327,10 @@ fixture-only. It is not a real executor integration or named host adapter, and
 malformed templates fail closed before launch. It must not create branches,
 commit, push, open or merge PRs, create releases, or publish packages.
 
-Root-backed loop ticks, executor-result validation, and executor closeout append compact
-`cadence-audit.v1` records under `<root>/audit/events.jsonl`; closeout audit
-anchors include the task packet, result evidence, and snapshot-after packet. A local
+Root-backed loop ticks, governed execution-start decisions, executor-result
+validation, and executor closeout append compact `cadence-audit.v1` records
+under `<root>/audit/events.jsonl`; closeout audit anchors include the task
+packet, result evidence, and snapshot-after packet. A local
 `cadence-loop-policy.v1` file can bound emitted executor task paths, required
 checks, command allow/deny lists, runtime, stop conditions, and a dry-run
 `branch_policy`. The branch policy supports `allowed_base_branches`,

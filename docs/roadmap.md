@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-03
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, operator-approved Git/PR materialization, and read-only resume verification current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, operator-approved Git/PR materialization, and read-only resume verification current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -71,13 +71,14 @@ agent-team orchestrator. The released 0.1.3 baseline is a local CLI and
 protocol substrate that can govern and document agentic work. The current
 development tree adds unreleased audit replay evidence, command-policy
 enforcement, active-stop result-validation controls, dry-run Git/PR planning,
-local branch policy, read-only GitHub evidence sync, and a controlled executor
-fixture runner for tests/examples. It can materialize a reviewed Git/PR plan
-only through exact target-bound operator approval, and it can verify handoff
-pickup state before a fresh session continues, but it still cannot
-independently implement code, autonomously push branches, autonomously open
-pull requests, assign agent roles, resolve review feedback, launch fresh
-sessions, coordinate an agent pool, or continue in an unattended loop.
+local branch policy, read-only GitHub evidence sync, governed execution-start
+epoch gating, and a controlled executor fixture runner for tests/examples. It
+can materialize a reviewed Git/PR plan only through exact target-bound operator
+approval, and it can verify handoff pickup state before a fresh session
+continues, but it still cannot independently implement code, invoke a real
+executor, autonomously push branches, autonomously open pull requests, assign
+agent roles, resolve review feedback, launch fresh sessions, coordinate an
+agent pool, or continue in an unattended loop.
 
 Current confidence for unattended continuous operation is 10%.
 
@@ -104,6 +105,11 @@ command-policy and active-stop controls. It includes:
 - read-only `loop-tick` orchestration that emits a governed next-action packet
   without starting execution, epoch mutation, PR actions, review spend, merge,
   release, or publication;
+- governed `start-governed-execution` epoch starts that consume an exactly
+  approved `generic-executor-task.v1` packet, recheck repo path/branch/head,
+  clean worktree, task-carried command and branch policy shape, active brake,
+  and active epoch state, append `execution_start_decision` audit evidence, and still report
+  `executor_started: false`;
 - initial local loop policy and audit controls for `loop-tick
   --emit-executor-task` and `validate-executor-result`, including
   path/command/check/runtime/stop-condition bounds, active brake stop handling,
@@ -308,8 +314,8 @@ The smallest slices expected to move confidence toward 50% are tracked in
 5. CI/Review Feedback Back Into Candidate Discovery
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete. The next bounded public roadmap is
-`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
+complete, and Task 8 is complete in the current tree. The bounded public
+roadmap for Tasks 9-12 is `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
 
 ## Roadmap
 
@@ -377,7 +383,8 @@ Goal: add one bounded command that performs snapshot, candidate discovery,
 policy check, epoch start, executor handoff, validation collection,
 epoch completion/failure, and next decision.
 
-Status: partial. Phase 1 implements a read-only `loop-tick` command.
+Status: partial. Phase 1 implements a read-only `loop-tick` command and a
+separate governed execution-start command.
 
 Current evidence: `loop-tick` captures and persists a local repo snapshot,
 runs deterministic candidate discovery with election enabled, checks Cadence
@@ -386,9 +393,13 @@ state, and emits `blocked`, `no_candidates`, `approval_required`, or
 `approve_executor_task` or `policy_denied` when a supplied local loop policy
 rejects the requested executor-task bounds. It appends a compact audit record
 for root-backed loop decisions. It sets `executor_started`, `epoch_started`,
-and `pr_action_started` to false. It does not yet start an epoch, hand work to
-a real executor, run execution, complete or fail epochs, or drive PR/handoff
-decisions after execution.
+and `pr_action_started` to false. `start-governed-execution` can then consume
+an exactly approved `generic-executor-task.v1` packet, recheck current repo
+path, branch, `HEAD`, clean worktree, task-carried command and branch policy
+shape, brake state, and active epoch state, start one active epoch, emit
+`execution-start.v1`, and still report `executor_started: false`. Cadence does
+not yet hand work to a real executor, run execution, or drive the full loop from
+election through execution closeout in one command.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/candidates.py`,
 `codex_cadence/epochs.py`, `codex_cadence/model.py`,
@@ -396,10 +407,14 @@ Likely files: `codex_cadence/cli.py`, `codex_cadence/candidates.py`,
 
 Validation: fixture repo tests cover no-candidate, executor-contract-required,
 dirty-worktree approval-required with and without elected candidates, red-CI
-approval-required, stop-brake blocked paths, policy-denied task emission, and
-loop-decision audit records. Full slice completion still needs executor
-success/failure, active epoch conflict, stale snapshot rejection, validation
-collection, and completion/failure paths.
+approval-required, stop-brake blocked paths, policy-denied task emission,
+loop-decision audit records, approved execution-start success, stale branch or
+HEAD blockers, dirty worktree blockers, non-`DRIVE` brake blockers, active
+epoch blockers, malformed active-epoch state blockers, malformed task packets,
+missing or mismatched approval, missing repo paths, and replayable
+`execution_start_decision` audit evidence. Full slice completion still needs
+real executor success/failure, validation collection, and one-command
+completion/failure paths.
 
 Codex can implement directly if the command remains generic and does not push
 or merge.
@@ -442,9 +457,11 @@ bound emitted executor task `allowed_paths`, `denied_paths`,
 `allowed_commands`, `denied_commands`, `required_checks`,
 `max_executor_time_minutes`, `stop_conditions`, and a dry-run `branch_policy`
 while retaining built-in safety stops.
-Root-backed `loop-tick` and `validate-executor-result` append compact
-`cadence-audit.v1` records to `<root>/audit/events.jsonl`; result-validation
-audit records include task and result evidence checksums. `audit-replay`
+Root-backed `loop-tick`, `start-governed-execution`, and
+`validate-executor-result` append compact `cadence-audit.v1` records to
+`<root>/audit/events.jsonl`; execution-start records include task packet
+checksum and repo branch/head anchors, while result-validation audit records
+include task and result evidence checksums. `audit-replay`
 validates that local JSONL history is readable, uses supported record shapes,
 and has valid checksum syntax while reporting stable blockers for corrupt or
 unsupported records. Executor task packets now carry command allow/deny policy

@@ -230,6 +230,19 @@ def validate_git_pr_materialization_result_audit_record(record: dict[str, Any], 
     return blockers
 
 
+def validate_execution_start_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate governed execution-start audit fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in ("action", "reason", "task_file", "task_checksum", "repo", "branch", "head"):
+        blockers.extend(required_string(record, field, line))
+    for field in ("valid", "epoch_started", "executor_started"):
+        blockers.extend(required_bool(record, field, line))
+    blockers.extend(required_checksum_present(record, "payload_checksum", line))
+    if record.get("valid") is True:
+        blockers.extend(required_string(record, "epoch_id", line))
+    return blockers
+
+
 def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict[str, Any]]]:
     """Validate one decoded audit record and return its countable event."""
     if not isinstance(record, dict):
@@ -273,6 +286,8 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
         blockers.extend(validate_git_pr_materialization_intent_audit_record(record, line))
     elif event == "git_pr_materialization_result":
         blockers.extend(validate_git_pr_materialization_result_audit_record(record, line))
+    elif event == "execution_start_decision":
+        blockers.extend(validate_execution_start_audit_record(record, line))
     else:
         blockers.append(audit_replay_blocker("audit_event_unsupported", f"unsupported audit event: {event}", line))
         return None, blockers
@@ -483,6 +498,27 @@ def executor_fixture_invocation_audit_record(payload: dict[str, Any], task_packe
         "command": payload.get("command"),
         "payload_checksum": checksum_json(payload),
         "task_packet_checksum": checksum_json(task_packet),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def execution_start_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
+    repo = payload.get("repo") if isinstance(payload.get("repo"), dict) else {}
+    record = {
+        "event": "execution_start_decision",
+        "action": payload.get("recommended_next_action"),
+        "reason": payload.get("reason"),
+        "valid": payload.get("valid"),
+        "epoch_started": payload.get("epoch_started"),
+        "executor_started": payload.get("executor_started"),
+        "epoch_id": payload.get("epoch_id"),
+        "task_id": payload.get("task_id"),
+        "task_file": payload.get("task_file"),
+        "task_checksum": payload.get("task_checksum"),
+        "repo": repo.get("name"),
+        "branch": repo.get("branch"),
+        "head": repo.get("head"),
+        "payload_checksum": checksum_json(payload),
     }
     return {key: value for key, value in record.items() if value is not None}
 

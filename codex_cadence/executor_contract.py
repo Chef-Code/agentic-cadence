@@ -16,6 +16,7 @@ from codex_cadence.store import utc_now
 
 EXECUTOR_TASK_SCHEMA_VERSION = "generic-executor-task.v1"
 EXECUTOR_RESULT_SCHEMA_VERSION = "generic-executor-result.v1"
+EXECUTION_START_SCHEMA_VERSION = "execution-start.v1"
 EXECUTOR_STATUSES = ("succeeded", "failed", "blocked", "stopped")
 EXECUTOR_CONFIDENCE_VALUES = ("high", "medium", "low")
 DEFAULT_EXECUTOR_STOP_CONDITIONS = ["brake_not_drive", "operator_stop", "context_pressure", "timeout"]
@@ -1113,6 +1114,23 @@ def _task_summary(task: dict[str, Any]) -> str:
     return task.get("title", "")
 
 
+def _executor_task_identity(task: dict[str, Any]) -> dict[str, Any]:
+    identity = {
+        "id": task.get("id"),
+        "title": task.get("title"),
+        "summary": _task_summary(task),
+        "task_type": task.get("task_type"),
+        "bucket": task.get("bucket"),
+        "source": task.get("source"),
+        "drivers": list(task.get("drivers", [])),
+        "evidence": deepcopy(task.get("evidence", {})),
+    }
+    for field in ("requires_user_allowance", "allowance", "allowance_reason"):
+        if field in task:
+            identity[field] = deepcopy(task[field])
+    return identity
+
+
 def build_executor_task_packet(
     *,
     task: dict[str, Any],
@@ -1135,16 +1153,7 @@ def build_executor_task_packet(
         "created_at": utc_now(),
         "operator_confirmation_required": True,
         "executor_started": False,
-        "task": {
-            "id": task.get("id"),
-            "title": task.get("title"),
-            "summary": _task_summary(task),
-            "task_type": task.get("task_type"),
-            "bucket": task.get("bucket"),
-            "source": task.get("source"),
-            "drivers": list(task.get("drivers", [])),
-            "evidence": deepcopy(task.get("evidence", {})),
-        },
+        "task": _executor_task_identity(task),
         "repo": {
             "name": snapshot.get("repo"),
             "path": str(Path(repo_path).expanduser().resolve()),
@@ -1212,6 +1221,22 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
         return False, "executor task task.task_type must be execution or discovery"
     if task.get("bucket") not in BUCKETS:
         return False, "executor task task.bucket must be one of XS, S, M, L, XL"
+    if "source" in task and task.get("source") is not None and not _non_empty_string(task.get("source")):
+        return False, "executor task task.source must be a string"
+    if not _is_string_list(task.get("drivers")):
+        return False, "executor task task.drivers must be a list of strings"
+    if not isinstance(task.get("evidence"), dict):
+        return False, "executor task task.evidence must be a JSON object"
+    if "requires_user_allowance" in task and not isinstance(task.get("requires_user_allowance"), bool):
+        return False, "executor task task.requires_user_allowance must be a boolean"
+    if "allowance" in task and task.get("allowance") is not None and not _non_empty_string(task.get("allowance")):
+        return False, "executor task task.allowance must be a string"
+    if "allowance_reason" in task and task.get("allowance_reason") is not None and not _non_empty_string(task.get("allowance_reason")):
+        return False, "executor task task.allowance_reason must be a string"
+    if task.get("source") == "agent_proposal" and (
+        task.get("requires_user_allowance") is not True or task.get("allowance") != "elect"
+    ):
+        return False, "executor task task agent proposal requires elect allowance"
     repo = packet.get("repo")
     if not isinstance(repo, dict):
         return False, "executor task repo must be a JSON object"

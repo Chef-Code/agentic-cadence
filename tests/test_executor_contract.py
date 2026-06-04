@@ -124,6 +124,45 @@ class ExecutorContractTests(unittest.TestCase):
             self.assertEqual(packet["limits"]["max_tasks"], 1)
             self.assertTrue(str(packet["expected_output"]["evidence_path"]).endswith("executor-result.json"))
 
+    def test_task_packet_preserves_agent_proposal_allowance_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = build_executor_task_packet(
+                task=valid_candidate(
+                    task_type="discovery",
+                    source="agent_proposal",
+                    requires_user_allowance=True,
+                    allowance="elect",
+                    allowance_reason="operator allowed proposal election",
+                ),
+                snapshot=valid_snapshot(cwd=str(tmp)),
+                repo_path=tmp,
+                allowed_paths=["codex_cadence"],
+                required_checks=[],
+                max_minutes=30,
+                max_tasks=1,
+                stop_conditions=DEFAULT_EXECUTOR_STOP_CONDITIONS,
+                evidence_path=Path(tmp) / "executor-result.json",
+            )
+
+            valid, reason = validate_executor_task_packet(packet)
+
+            self.assertTrue(valid, reason)
+            self.assertTrue(packet["task"]["requires_user_allowance"])
+            self.assertEqual(packet["task"]["allowance"], "elect")
+            self.assertEqual(packet["task"]["allowance_reason"], "operator allowed proposal election")
+
+    def test_task_packet_rejects_agent_proposal_without_elect_allowance(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            packet = valid_task_packet(Path(tmp))
+            packet["task"]["source"] = "agent_proposal"
+            packet["task"]["requires_user_allowance"] = True
+            packet["task"]["allowance"] = "surface"
+
+            valid, reason = validate_executor_task_packet(packet)
+
+            self.assertFalse(valid)
+            self.assertEqual(reason, "executor task task agent proposal requires elect allowance")
+
     def test_accepts_clean_medium_confidence_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:
             packet = valid_task_packet(Path(tmp))
@@ -136,6 +175,24 @@ class ExecutorContractTests(unittest.TestCase):
             result_valid, result_reason = validate_executor_result_evidence(valid_result(), packet)
 
             self.assertTrue(result_valid, result_reason)
+
+    def test_task_packet_rejects_malformed_task_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = [
+                ("drivers", "governance", "executor task task.drivers must be a list of strings"),
+                ("drivers", [""], "executor task task.drivers must be a list of strings"),
+                ("evidence", "docs/roadmap.md", "executor task task.evidence must be a JSON object"),
+            ]
+
+            for field, value, expected_reason in cases:
+                with self.subTest(field=field, value=value):
+                    packet = valid_task_packet(Path(tmp))
+                    packet["task"][field] = value
+
+                    valid, reason = validate_executor_task_packet(packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
 
     def test_task_packet_rejects_absolute_or_parent_allowed_paths(self):
         with tempfile.TemporaryDirectory() as tmp:

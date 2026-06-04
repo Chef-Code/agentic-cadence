@@ -139,6 +139,43 @@ def write_active_epoch_raw(root, epoch_id):
     return path
 
 
+def governed_execution_task_packet(root, repo, **snapshot_overrides):
+    return build_executor_task_packet(
+        task={
+            "id": "candidate-1",
+            "title": "Implement governed execution start",
+            "summary": "Start one governed epoch from an approved task packet.",
+            "task_type": "execution",
+            "bucket": "S",
+            "source": "text_marker",
+            "drivers": ["governance"],
+            "evidence": {"path": "docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md"},
+        },
+        snapshot=valid_snapshot(
+            repo="local/test",
+            cwd=str(Path(repo).resolve()),
+            branch=current_branch(repo),
+            head=current_head(repo),
+            **snapshot_overrides,
+        ),
+        repo_path=repo,
+        allowed_paths=["README.md"],
+        required_checks=["python -m unittest tests.test_cadence"],
+        max_minutes=30,
+        max_tasks=1,
+        stop_conditions=DEFAULT_EXECUTOR_STOP_CONDITIONS,
+        evidence_path=Path(root) / "executor-result.json",
+    )
+
+
+def write_governed_execution_task(root, repo, task_packet=None):
+    packet = governed_execution_task_packet(root, repo) if task_packet is None else task_packet
+    task_path = Path(root) / "executor-task.json"
+    task_path.write_text(json.dumps(packet), encoding="utf-8")
+    approval_token = f"approve-executor-task:{checksum_json(packet)}"
+    return task_path, packet, approval_token
+
+
 def controlled_fixture_script() -> Path:
     return ROOT / "examples" / "controlled-executor-fixture" / "run.py"
 
@@ -2581,6 +2618,557 @@ class CadenceCliTests(unittest.TestCase):
             payload_without_audit = dict(output)
             payload_without_audit.pop("audit_record")
             self.assertEqual(record["payload_checksum"], checksum_json(payload_without_audit))
+
+    def test_start_governed_execution_starts_epoch_after_approval(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect governed execution start\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add governed execution marker")
+            loop_result, loop_output = run_cli(
+                tmp,
+                "loop-tick",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--allowed-path",
+                "notes.py",
+                "--required-check",
+                "python -m unittest tests.test_cadence",
+            )
+            self.assertEqual(loop_result.returncode, 0, loop_result.stderr)
+            task_packet = loop_output["executor_task"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+            approval_token = f"approve-executor-task:{checksum_json(task_packet)}"
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "execution-start.v1")
+            self.assertEqual(output["packet"], "execution_start")
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["blockers"], [])
+            self.assertTrue(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["pr_action_started"])
+            self.assertEqual(output["recommended_next_action"], "handoff_to_executor")
+            self.assertEqual(output["approval_state"], "approved")
+            self.assertEqual(output["task_checksum"], checksum_json(task_packet))
+            self.assertEqual(output["task_id"], task_packet["task"]["id"])
+            self.assertEqual(output["repo"]["branch"], current_branch(repo))
+            self.assertEqual(output["repo"]["head"], current_head(repo))
+            active_epochs = list((Path(tmp) / "epochs" / "active").glob("*.json"))
+            self.assertEqual(len(active_epochs), 1)
+            epoch = json.loads(active_epochs[0].read_text(encoding="utf-8"))
+            self.assertEqual(output["epoch_id"], epoch["id"])
+            self.assertEqual(epoch["repo"], "local/test")
+            self.assertEqual(epoch["branch"], current_branch(repo))
+            self.assertEqual(epoch["tasks"][0]["id"], task_packet["task"]["id"])
+            self.assertEqual(epoch["tasks"][0]["task_type"], task_packet["task"]["task_type"])
+            self.assertEqual(epoch["snapshot_before"]["head"], current_head(repo))
+            self.assertIn("executor_not_started", output["limitations"])
+
+    def test_start_governed_execution_preserves_agent_proposal_allowance_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_packet = build_executor_task_packet(
+                task={
+                    "id": "agent-proposal-001",
+                    "title": "Explore the next repo capability from local signals",
+                    "summary": "Run a bounded proposal discovery task.",
+                    "task_type": "discovery",
+                    "bucket": "S",
+                    "source": "agent_proposal",
+                    "drivers": ["unknown_repo_area"],
+                    "evidence": {"intent": "product_evolution"},
+                    "requires_user_allowance": True,
+                    "allowance": "elect",
+                    "allowance_reason": "operator allowed proposal election",
+                },
+                snapshot=valid_snapshot(
+                    repo="local/test",
+                    cwd=str(Path(repo).resolve()),
+                    branch=current_branch(repo),
+                    head=current_head(repo),
+                ),
+                repo_path=repo,
+                allowed_paths=["README.md"],
+                required_checks=[],
+                max_minutes=30,
+                max_tasks=1,
+                stop_conditions=DEFAULT_EXECUTOR_STOP_CONDITIONS,
+                evidence_path=Path(tmp) / "executor-result.json",
+            )
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo, task_packet)
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            active_epochs = list((Path(tmp) / "epochs" / "active").glob("*.json"))
+            self.assertEqual(len(active_epochs), 1)
+            epoch = json.loads(active_epochs[0].read_text(encoding="utf-8"))
+            epoch_task = epoch["tasks"][0]
+            self.assertEqual(epoch_task["source"], "agent_proposal")
+            self.assertTrue(epoch_task["requires_user_allowance"])
+            self.assertEqual(epoch_task["allowance"], "elect")
+            self.assertEqual(epoch_task["allowance_reason"], "operator allowed proposal election")
+
+    def test_start_governed_execution_blocks_missing_approval(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _task_packet, _approval_token = write_governed_execution_task(tmp, repo)
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(output["schema_version"], "execution-start.v1")
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["approval_state"], "missing")
+            self.assertEqual(output["recommended_next_action"], "approve_executor_task")
+            self.assertIn("operator_approval_missing", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_blocks_approval_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, task_packet, approval_token = write_governed_execution_task(tmp, repo)
+
+            def assert_approval_mismatch(token):
+                result, output = run_cli(
+                    tmp,
+                    "start-governed-execution",
+                    "--task-file",
+                    str(task_path),
+                    "--approval-token",
+                    token,
+                )
+
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(output["valid"])
+                self.assertFalse(output["epoch_started"])
+                self.assertFalse(output["executor_started"])
+                self.assertEqual(output["approval_state"], "mismatch")
+                self.assertEqual(output["recommended_next_action"], "approve_executor_task")
+                self.assertIn("operator_approval_mismatch", {blocker["code"] for blocker in output["blockers"]})
+                self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+            assert_approval_mismatch("approve-executor-task:sha256:" + "0" * 64)
+
+            tampered_packet = dict(task_packet)
+            tampered_packet["task"] = dict(task_packet["task"])
+            tampered_packet["task"]["title"] = "Tampered approved task title"
+            task_path.write_text(json.dumps(tampered_packet), encoding="utf-8")
+
+            assert_approval_mismatch(approval_token)
+
+    def test_start_governed_execution_blocks_stale_head(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            (Path(repo) / "README.md").write_text("changed after task approval\n", encoding="utf-8")
+            git(repo, "add", "README.md")
+            git(repo, "commit", "-m", "advance head")
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["recommended_next_action"], "recreate_executor_task")
+            self.assertIn("repo_head_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_blocks_branch_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            git(repo, "switch", "-c", "feature/task-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["recommended_next_action"], "recreate_executor_task")
+            self.assertIn("repo_branch_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_blocks_dirty_worktree(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            (Path(repo) / "README.md").write_text("dirty after task approval\n", encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["recommended_next_action"], "recreate_executor_task")
+            self.assertIn("dirty_worktree", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_blocks_missing_repo_path(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_packet = governed_execution_task_packet(tmp, repo)
+            missing_repo = Path(tmp) / "missing-repo"
+            task_packet["repo"]["path"] = str(missing_repo)
+            task_packet["snapshot"]["cwd"] = str(missing_repo)
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo, task_packet)
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["recommended_next_action"], "recreate_executor_task")
+            self.assertIn("repo_inspection_failed", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_blocks_non_drive_brake(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            brake_result, _ = run_cli(tmp, "set-brake", "PARK", "--reason", "operator stop")
+            self.assertEqual(brake_result.returncode, 0, brake_result.stderr)
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["recommended_next_action"], "clear_brake")
+            self.assertIn("brake_not_drive", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_blocks_active_epoch(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            write_active_epoch(
+                tmp,
+                "existing-epoch",
+                valid_snapshot(
+                    repo="local/test",
+                    cwd=str(Path(repo).resolve()),
+                    branch=current_branch(repo),
+                    head=current_head(repo),
+                ),
+                tasks=[{"id": "existing-task", "task_type": "execution"}],
+            )
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["task_checksum"], checksum_json(task_packet))
+            self.assertEqual(output["recommended_next_action"], "close_or_fail_active_epoch")
+            self.assertIn("active_epoch_exists", {blocker["code"] for blocker in output["blockers"]})
+            active_epochs = list((Path(tmp) / "epochs" / "active").glob("*.json"))
+            self.assertEqual(len(active_epochs), 1)
+
+    def test_start_governed_execution_blocks_malformed_active_epoch_state(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            active_path = Path(tmp) / "epochs" / "active" / "bad-epoch.json"
+            active_path.parent.mkdir(parents=True, exist_ok=True)
+            active_path.write_text(json.dumps(["not", "an", "epoch"]), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["recommended_next_action"], "close_or_fail_active_epoch")
+            self.assertIn("active_epoch_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertTrue(active_path.exists())
+
+    def test_start_governed_execution_blocks_malformed_task_packet(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps({"schema_version": "generic-executor-task.v1"}), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                "approve-executor-task:sha256:" + "0" * 64,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["recommended_next_action"], "fix_executor_task_packet")
+            self.assertIn("executor_task_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_blocks_malformed_task_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_packet = governed_execution_task_packet(tmp, repo)
+            task_packet["task"]["evidence"] = "docs/roadmap.md"
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo, task_packet)
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["recommended_next_action"], "fix_executor_task_packet")
+            self.assertIn("executor_task_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertIn("task.evidence", output["reason"])
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_blocks_malformed_brake_state(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            (Path(tmp) / "brake.json").write_text(json.dumps({"status": "WARP"}), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["recommended_next_action"], "inspect_runtime_state")
+            self.assertIn("brake_state_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_rechecks_repo_inside_runtime_lock(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            emitted = []
+            lock_seen = False
+            original_snapshot_repo = cadence_cli.snapshot_repo
+
+            def dirty_repo_after_lock(repo_path, **kwargs):
+                nonlocal lock_seen
+                lock_seen = (Path(tmp) / "locks" / "runtime.lock").exists()
+                (Path(repo) / "README.md").write_text("dirty during locked recheck\n", encoding="utf-8")
+                return original_snapshot_repo(repo_path, **kwargs)
+
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "task_file": str(task_path),
+                    "approval_token": approval_token,
+                    "cwd": None,
+                },
+            )()
+
+            with mock.patch.object(cadence_cli, "snapshot_repo", dirty_repo_after_lock):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.start_governed_execution_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertTrue(lock_seen)
+            self.assertEqual(len(emitted), 1)
+            self.assertFalse(emitted[0]["valid"])
+            self.assertFalse(emitted[0]["epoch_started"])
+            self.assertIn("dirty_worktree", {blocker["code"] for blocker in emitted[0]["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_rolls_back_epoch_when_audit_append_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            emitted = []
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "task_file": str(task_path),
+                    "approval_token": approval_token,
+                    "cwd": None,
+                },
+            )()
+
+            with mock.patch.object(cadence_cli, "append_audit_record", side_effect=OSError("disk full")):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.start_governed_execution_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertEqual(len(emitted), 1)
+            self.assertFalse(emitted[0]["valid"])
+            self.assertFalse(emitted[0]["epoch_started"])
+            self.assertFalse(emitted[0]["executor_started"])
+            self.assertEqual(emitted[0]["recommended_next_action"], "inspect_runtime_state")
+            self.assertNotIn("audit_record", emitted[0])
+            self.assertIn("audit_append_failed", {blocker["code"] for blocker in emitted[0]["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_records_replayable_audit(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, task_packet, approval_token = write_governed_execution_task(tmp, repo)
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            audit_ref = output["audit_record"]
+            self.assertEqual(audit_ref["event"], "execution_start_decision")
+            audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(audit_lines), 1)
+            record = json.loads(audit_lines[0])
+            self.assertEqual(record["schema_version"], "cadence-audit.v1")
+            self.assertEqual(record["event"], "execution_start_decision")
+            self.assertEqual(record["action"], "handoff_to_executor")
+            self.assertTrue(record["valid"])
+            self.assertTrue(record["epoch_started"])
+            self.assertFalse(record["executor_started"])
+            self.assertEqual(record["task_file"], str(task_path))
+            self.assertEqual(record["task_checksum"], checksum_json(task_packet))
+            replay_result, replay = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["records_valid"], 1)
+            self.assertEqual(replay["events_by_type"]["execution_start_decision"], 1)
+
+    def test_start_governed_execution_blocked_decision_does_not_append_success_audit(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _task_packet, _approval_token = write_governed_execution_task(tmp, repo)
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                "approve-executor-task:sha256:" + "0" * 64,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertNotIn("audit_record", output)
+            self.assertFalse((Path(tmp) / "audit" / "events.jsonl").exists())
+            replay_result, replay = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["records_valid"], 0)
+            self.assertEqual(replay["events_by_type"], {})
 
     def test_loop_tick_policy_file_bounds_executor_task_packet(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
