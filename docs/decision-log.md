@@ -50,8 +50,8 @@ Why:
 - Starting local epoch state is a distinct governance decision from launching a
   real executor. Splitting the boundary gives reviewers a stable packet and
   blocker taxonomy without granting hidden implementation authority.
-- Reusing task-carried policy keeps execution-start checks tied to the reviewed
-  packet rather than a mutable policy file.
+- Carrying task packet policy fields into the epoch keeps later checks tied to
+  the reviewed packet rather than a mutable policy file.
 
 Alternatives considered:
 - Let `loop-tick --emit-executor-task` start the epoch directly. Rejected

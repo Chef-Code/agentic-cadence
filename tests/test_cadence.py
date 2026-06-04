@@ -2929,6 +2929,125 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIn("executor_task_invalid", {blocker["code"] for blocker in output["blockers"]})
             self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
 
+    def test_start_governed_execution_blocks_malformed_task_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_packet = governed_execution_task_packet(tmp, repo)
+            task_packet["task"]["evidence"] = "docs/roadmap.md"
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo, task_packet)
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["recommended_next_action"], "fix_executor_task_packet")
+            self.assertIn("executor_task_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertIn("task.evidence", output["reason"])
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_blocks_malformed_brake_state(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            (Path(tmp) / "brake.json").write_text(json.dumps({"status": "WARP"}), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["recommended_next_action"], "inspect_runtime_state")
+            self.assertIn("brake_state_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_rechecks_repo_inside_runtime_lock(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            emitted = []
+            lock_seen = False
+            original_snapshot_repo = cadence_cli.snapshot_repo
+
+            def dirty_repo_after_lock(repo_path, **kwargs):
+                nonlocal lock_seen
+                lock_seen = (Path(tmp) / "locks" / "runtime.lock").exists()
+                (Path(repo) / "README.md").write_text("dirty during locked recheck\n", encoding="utf-8")
+                return original_snapshot_repo(repo_path, **kwargs)
+
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "task_file": str(task_path),
+                    "approval_token": approval_token,
+                    "cwd": None,
+                },
+            )()
+
+            with mock.patch.object(cadence_cli, "snapshot_repo", dirty_repo_after_lock):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.start_governed_execution_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertTrue(lock_seen)
+            self.assertEqual(len(emitted), 1)
+            self.assertFalse(emitted[0]["valid"])
+            self.assertFalse(emitted[0]["epoch_started"])
+            self.assertIn("dirty_worktree", {blocker["code"] for blocker in emitted[0]["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_start_governed_execution_rolls_back_epoch_when_audit_append_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            task_path, _task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            emitted = []
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "task_file": str(task_path),
+                    "approval_token": approval_token,
+                    "cwd": None,
+                },
+            )()
+
+            with mock.patch.object(cadence_cli, "append_audit_record", side_effect=OSError("disk full")):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.start_governed_execution_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertEqual(len(emitted), 1)
+            self.assertFalse(emitted[0]["valid"])
+            self.assertFalse(emitted[0]["epoch_started"])
+            self.assertFalse(emitted[0]["executor_started"])
+            self.assertEqual(emitted[0]["recommended_next_action"], "inspect_runtime_state")
+            self.assertNotIn("audit_record", emitted[0])
+            self.assertIn("audit_append_failed", {blocker["code"] for blocker in emitted[0]["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
     def test_start_governed_execution_records_replayable_audit(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)

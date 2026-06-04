@@ -261,9 +261,10 @@ The task packet is nested under `executor_task` in the `loop-tick` packet. It mu
 
 `start-governed-execution` is the local write-side gate that consumes a reviewed
 `generic-executor-task.v1` packet and starts exactly one active epoch when the
-current repo path, branch, `HEAD`, clean worktree, task-carried policy,
-operator approval, brake, and active-epoch state still match. The approval
-token is the exact checksum token for the reviewed task packet:
+task packet shape, task-carried command and branch policy fields, current repo
+path, branch, `HEAD`, clean worktree, operator approval, brake, and
+active-epoch state still match. The approval token is the exact checksum token
+for the reviewed task packet:
 `approve-executor-task:<task-packet-checksum>`.
 
 ```bash
@@ -276,8 +277,9 @@ The command emits an `execution-start.v1` packet with `read_only: false`,
 `task_file_unreadable`, `executor_task_invalid`, `operator_approval_missing`,
 `operator_approval_mismatch`, `repo_path_mismatch`,
 `repo_inspection_failed`, `repo_branch_mismatch`, `repo_head_mismatch`,
-`dirty_worktree`, `repo_confidence_low`, `brake_not_drive`,
-`active_epoch_exists`, `active_epoch_invalid`, and `epoch_start_failed`.
+`dirty_worktree`, `repo_confidence_low`, `brake_state_invalid`,
+`brake_not_drive`, `active_epoch_exists`, `active_epoch_invalid`,
+`epoch_start_failed`, `audit_append_failed`, and `epoch_rollback_failed`.
 Successful starts append an `execution_start_decision` audit record, but the
 command does not invoke an executor, edit code, create branches, write pull
 requests, merge, release, or publish packages.

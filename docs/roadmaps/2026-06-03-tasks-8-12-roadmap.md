@@ -50,8 +50,8 @@ Tasks 8-12 continue the same staged path:
 **Implementation outline:**
 - Added `start-governed-execution`, an explicit command that consumes a reviewed
   `generic-executor-task.v1` packet and starts an active epoch only when
-  current repo path, branch, head, dirty-worktree state, task-carried policy,
-  brake state, and approval gates still match.
+  current repo path, branch, head, dirty-worktree state, task-carried command
+  and branch policy shape, brake state, and approval gates still match.
 - Emits a stable `execution-start.v1` packet with `epoch_started`,
   `executor_started: false`, `read_only: false`, stable blocker codes, and a
   recommended next action.
@@ -64,7 +64,9 @@ Tasks 8-12 continue the same staged path:
 **Validation:**
 - Valid approved task packet starts one active epoch and records audit evidence.
 - Existing active epoch blocks before writing.
-- Stale branch/head, dirty worktree, non-`DRIVE` brake, missing approval, malformed task packet, low-confidence snapshot, and policy mismatch block before writing.
+- Stale branch/head, dirty worktree, invalid or non-`DRIVE` brake, missing
+  approval, malformed task packet, low-confidence snapshot, and audit-append
+  failure block with stable packet codes.
 - Missing repo paths and malformed active-epoch state block with stable packet
   codes.
 - The command does not invoke an executor and reports `executor_started: false`.

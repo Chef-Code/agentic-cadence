@@ -107,8 +107,8 @@ command-policy and active-stop controls. It includes:
   release, or publication;
 - governed `start-governed-execution` epoch starts that consume an exactly
   approved `generic-executor-task.v1` packet, recheck repo path/branch/head,
-  clean worktree, task-carried policy, active brake, and active epoch state,
-  append `execution_start_decision` audit evidence, and still report
+  clean worktree, task-carried command and branch policy shape, active brake,
+  and active epoch state, append `execution_start_decision` audit evidence, and still report
   `executor_started: false`;
 - initial local loop policy and audit controls for `loop-tick
   --emit-executor-task` and `validate-executor-result`, including
@@ -395,11 +395,11 @@ rejects the requested executor-task bounds. It appends a compact audit record
 for root-backed loop decisions. It sets `executor_started`, `epoch_started`,
 and `pr_action_started` to false. `start-governed-execution` can then consume
 an exactly approved `generic-executor-task.v1` packet, recheck current repo
-path, branch, `HEAD`, clean worktree, task-carried policy, brake state, and
-active epoch state, start one active epoch, emit `execution-start.v1`, and
-still report `executor_started: false`. Cadence does not yet hand work to a
-real executor, run execution, or drive the full loop from election through
-execution closeout in one command.
+path, branch, `HEAD`, clean worktree, task-carried command and branch policy
+shape, brake state, and active epoch state, start one active epoch, emit
+`execution-start.v1`, and still report `executor_started: false`. Cadence does
+not yet hand work to a real executor, run execution, or drive the full loop from
+election through execution closeout in one command.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/candidates.py`,
 `codex_cadence/epochs.py`, `codex_cadence/model.py`,

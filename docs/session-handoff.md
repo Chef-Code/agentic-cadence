@@ -18,9 +18,9 @@ Last updated: 2026-06-03
 - Executor task packets can carry `branch_policy`, and `git-pr-plan` can block dry-run plans that violate allowed base branches, denied target branches, required branch prefixes, or a current `main` checkout when `allow_current_branch_main` is false.
 - `start-governed-execution` can consume a reviewed `generic-executor-task.v1`
   packet with exact checksum approval, recheck repo path, branch, `HEAD`,
-  clean worktree, task-carried policy, active brake, and active epoch state,
-  start one active epoch, emit `execution-start.v1`, and append
-  `execution_start_decision` audit evidence while reporting
+  clean worktree, task-carried command and branch policy shape, active brake,
+  and active epoch state, start one active epoch, emit `execution-start.v1`,
+  and append `execution_start_decision` audit evidence while reporting
   `executor_started: false`.
 - `github-evidence-sync` can explicitly fetch read-only PR metadata, status checks, and review threads through `gh`, then save local PR JSON, review-thread JSON, and a summary packet for deterministic follow-on commands.
 - `git-pr-materialize` can consume a reviewed `git-pr-plan.v1` packet and matching target-bound HMAC operator approval token backed by `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`, re-run the local plan gates, create the proposed branch from the already-materialized current commit without switching the checkout, push it with Git hook verification disabled for that push, create or update a PR through `gh`, and append `git_pr_materialization_intent` plus `git_pr_materialization_result` audit records.
@@ -40,10 +40,11 @@ Last updated: 2026-06-03
 
 - Command policy is carried in task packets so result validation checks the approved bounds, not a later mutable policy file.
 - Branch policy is carried in task packets so dry-run Git/PR planning checks the approved branch bounds; an extra local `git-pr-plan --policy-file` may add restrictions but does not perform live Git/PR actions.
-- The governed execution-start gate checks task-carried policy from the
-  reviewed packet, not a mutable policy file. Its approval token is checksum
-  review evidence only; it is not authenticated approver identity, hash-chain
-  evidence, executor authority, or Git/PR authority.
+- The governed execution-start gate validates task-carried command and branch
+  policy fields from the reviewed packet and carries them into the epoch; it
+  does not reread a mutable policy file. Its approval token is checksum review
+  evidence only; it is not authenticated approver identity, hash-chain evidence,
+  executor authority, or Git/PR authority.
 - Active stop handling rejects completion evidence after the brake changes, but it still allows `status: stopped` evidence to report that the executor honored the stop.
 - Non-`stopped` evidence for tasks with `brake_not_drive` needs a runtime root to check the current brake; without one, validation recommends `provide_runtime_root`.
 - `git-pr-plan` remains dry-run only: suggested commands are never executed by Cadence, and the executor that produced result evidence is not the final authority for Git/PR approval.

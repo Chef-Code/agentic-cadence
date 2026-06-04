@@ -343,16 +343,17 @@ The generic executor contract is an agent-neutral boundary, not a named host ada
 
 `start-governed-execution` is the explicit execution-start gate for a reviewed
 `generic-executor-task.v1` packet. It reads `--task-file`, validates the task
-packet and task-carried policy evidence, requires an exact approval token shaped
-as `approve-executor-task:<task-packet-checksum>`, then rechecks the current
-repo path, branch, `HEAD`, dirty-worktree state, repo confidence, active brake,
-and active epoch state before mutating runtime state. A valid decision starts
-one active epoch with one task derived from the approved task packet and
-`max_tasks_per_epoch: 1`, emits `schema_version: execution-start.v1`, appends
-an `execution_start_decision` audit record, and reports `executor_started:
-false` plus `pr_action_started: false`. The approval token is checksum-bound
-review evidence only; it is not an authenticated approver identity or
-permission to invoke a real executor.
+packet shape, including task-carried command and branch policy fields, requires
+an exact approval token shaped as
+`approve-executor-task:<task-packet-checksum>`, then rechecks the current repo
+path, branch, `HEAD`, dirty-worktree state, repo confidence, active brake, and
+active epoch state before mutating runtime state. A valid decision starts one
+active epoch with one task derived from the approved task packet and
+`max_tasks_per_epoch: 1`, emits `schema_version: execution-start.v1`, appends an
+`execution_start_decision` audit record, and reports `executor_started: false`
+plus `pr_action_started: false`. The approval token is checksum-bound review
+evidence only; it is not an authenticated approver identity or permission to
+invoke a real executor.
 
 `execution-start.v1` packets include `read_only: false`, `valid`,
 `epoch_started`, `executor_started: false`, `approval_state`, `task_file`,
@@ -361,16 +362,21 @@ permission to invoke a real executor.
 `task_file_unreadable`, `executor_task_invalid`, `operator_approval_missing`,
 `operator_approval_mismatch`, `repo_path_mismatch`,
 `repo_inspection_failed`, `repo_branch_mismatch`, `repo_head_mismatch`,
-`dirty_worktree`, `repo_confidence_low`, `brake_not_drive`,
-`active_epoch_exists`, `active_epoch_invalid`, and `epoch_start_failed`.
+`dirty_worktree`, `repo_confidence_low`, `brake_state_invalid`,
+`brake_not_drive`, `active_epoch_exists`, `active_epoch_invalid`,
+`epoch_start_failed`, `audit_append_failed`, and `epoch_rollback_failed`.
 Recommendation values include `handoff_to_executor`,
 `fix_executor_task_packet`, `approve_executor_task`, `clear_brake`,
-`close_or_fail_active_epoch`, and `recreate_executor_task`.
+`close_or_fail_active_epoch`, `inspect_runtime_state`, and
+`recreate_executor_task`.
 
 The command must not launch a new session, invoke a real executor, modify code,
 create branches, commit, push, call GitHub, create or update pull requests,
-merge, release, or publish packages. Blocked packets must not create an active
-epoch or append the success-only execution-start audit record.
+merge, release, or publish packages. Blocked packets must not intentionally
+leave an active epoch or append the success-only execution-start audit record.
+If audit append fails after epoch creation, the command must emit
+`audit_append_failed`; successful rollback reports `epoch_started: false`, and a
+failed rollback adds `epoch_rollback_failed` with active epoch evidence.
 
 Executor result evidence uses `schema_version: generic-executor-result.v1` and `packet: executor_result`. It must include executor id, start/end timestamps, status `succeeded`, `failed`, `blocked`, or `stopped`, files changed, commands run, validation results, summary, confidence, blockers, dirty-worktree status, and resulting head SHA for successful results. `validate-executor-result` reads a task packet and result evidence from local JSON files and emits an `executor_result_validation` packet. Successful evidence must include command and validation evidence, must show every task-packet `required_checks` entry in both `commands_run` with exit code `0` and `validation_results` with matching `command` and `status: passed`, and all validation results in successful evidence must pass. Result evidence must stay within the task packet's max runtime based on `started_at` and `ended_at`, and the supplied result file must match the task packet's absolute `expected_output.evidence_path`. Result evidence must respect disabled permissions: it rejects reported `git commit`, `git push`, `gh pr create`, `git merge`, `gh pr merge`, release, or package-publication invocations while those permissions are false, including absolute-path, common git/gh global-option, git shell-alias, compound-command, shell-grouping, command-substitution, and shell-wrapper forms, and it rejects head changes when commits are forbidden. Release and package-publication guards cover `gh release create`, `gh release upload`, mutating `git tag` forms such as tag creation or deletion while allowing read-only listing/verification, `twine upload`, Python launcher `-m twine upload` forms including `python`, `python3`, versioned `python3.x`, and `py`, plus `npm publish`, `pnpm publish`, `yarn publish`, `yarn npm publish`, option-bearing `poetry publish` and `uv publish`, `hatch publish`, and `flit publish`. Result evidence must also respect task `command_policy`: any effective command segment matching `denied_commands` is invalid, and when `allowed_commands` is non-empty every effective command segment from direct compound commands, shell grouping, command substitutions, and shell-wrapper payloads must match that allowlist. If otherwise-valid non-`stopped` evidence includes `brake_not_drive` in the task stop conditions, rootless validation is invalid with `recommended_next_action: provide_runtime_root` because the current brake cannot be checked. When a runtime root is supplied, `validate-executor-result` must apply the runtime-root safety guard for the command working directory, the runtime-root location itself, and the task repo when the task repo path is valid, then check the current brake before recording completion. If `brake_not_drive` is in the task stop conditions and the current brake is not `DRIVE`, non-`stopped` result evidence must be invalid with `recommended_next_action: stop_active_loop`; stopped result evidence remains the valid way to report that the executor honored the active stop. The command then appends a compact `executor_result_validation` audit record with the task id, repo, branch, head, validity, recommendation, reason, local evidence paths, payload checksum, task-packet checksum, and result-evidence checksum. Invalid evidence exits nonzero. It must not run an executor, modify files, commit, push, open PRs, spend review, merge, release, publish packages, or infer named-host support.
 

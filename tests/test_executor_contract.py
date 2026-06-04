@@ -137,6 +137,24 @@ class ExecutorContractTests(unittest.TestCase):
 
             self.assertTrue(result_valid, result_reason)
 
+    def test_task_packet_rejects_malformed_task_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            cases = [
+                ("drivers", "governance", "executor task task.drivers must be a list of strings"),
+                ("drivers", [""], "executor task task.drivers must be a list of strings"),
+                ("evidence", "docs/roadmap.md", "executor task task.evidence must be a JSON object"),
+            ]
+
+            for field, value, expected_reason in cases:
+                with self.subTest(field=field, value=value):
+                    packet = valid_task_packet(Path(tmp))
+                    packet["task"][field] = value
+
+                    valid, reason = validate_executor_task_packet(packet)
+
+                    self.assertFalse(valid)
+                    self.assertEqual(reason, expected_reason)
+
     def test_task_packet_rejects_absolute_or_parent_allowed_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             packet = valid_task_packet(Path(tmp))

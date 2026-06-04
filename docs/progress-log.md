@@ -39,8 +39,8 @@ Summary:
 - Added `start-governed-execution`, a local write-side gate that consumes a
   reviewed `generic-executor-task.v1` packet, requires an exact checksum-bound
   approval token, rechecks repo path, branch, `HEAD`, dirty-worktree state,
-  task-carried policy, active brake, and active epoch state, then starts one
-  active epoch.
+  task-carried command and branch policy shape, active brake, and active epoch
+  state, then starts one active epoch.
 - Added the `execution-start.v1` packet with stable blocker codes,
   `epoch_started`, `executor_started: false`, `pr_action_started: false`, and
   a recommended next action.

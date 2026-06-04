@@ -63,8 +63,8 @@ runtime can do these things end-to-end:
   executor;
 - consume a reviewed generic executor task packet with
   `start-governed-execution`, recheck repo path, branch, `HEAD`, dirty
-  worktree, task-carried policy, approval token, active brake, and active epoch
-  state, then start exactly one active epoch while still reporting
+  worktree, task-carried command and branch policy shape, approval token, active
+  brake, and active epoch state, then start exactly one active epoch while still reporting
   `executor_started: false`;
 - run an explicit test/example-only controlled executor fixture command that
   validates the task packet and command policy before launching a fake external

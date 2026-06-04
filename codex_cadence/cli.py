@@ -80,6 +80,7 @@ from codex_cadence.store import (
     brake_path,
     default_root,
     ensure_layout,
+    epoch_path,
     exclusive_lock,
     handoff_path,
     handoff_state_dir,
@@ -369,10 +370,14 @@ def execution_start_recommendation(blockers: list[dict[str, Any]]) -> str:
         return "fix_executor_task_packet"
     if "operator_approval_missing" in codes or "operator_approval_mismatch" in codes:
         return "approve_executor_task"
+    if "brake_state_invalid" in codes:
+        return "inspect_runtime_state"
     if "brake_not_drive" in codes:
         return "clear_brake"
     if "active_epoch_exists" in codes or "active_epoch_invalid" in codes:
         return "close_or_fail_active_epoch"
+    if "audit_append_failed" in codes or "epoch_rollback_failed" in codes or "epoch_start_failed" in codes:
+        return "inspect_runtime_state"
     return "recreate_executor_task"
 
 
@@ -458,8 +463,10 @@ def start_governed_execution_command(args: argparse.Namespace) -> int:
     task_checksum: str | None = None
     approval_state = "missing"
     repo_packet: dict[str, Any] | None = None
+    repo_path: Path | None = None
     current_snapshot: dict[str, Any] | None = None
     epoch: dict[str, Any] | None = None
+    audit_record: dict[str, Any] | None = None
 
     try:
         task_packet = read_json(task_file)
@@ -504,7 +511,45 @@ def start_governed_execution_command(args: argparse.Namespace) -> int:
                     actual=str(repo_path),
                 )
             )
-        else:
+
+    if not blockers and isinstance(task_packet, dict) and isinstance(repo_packet, dict) and repo_path is not None:
+        with exclusive_lock(lock_path(root, "runtime")):
+            try:
+                brake = read_brake(root)
+            except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                blockers.append(
+                    execution_start_blocker(
+                        "brake_state_invalid",
+                        f"cadence brake state could not be read: {exc}",
+                    )
+                )
+            else:
+                if brake["status"] != "DRIVE":
+                    blockers.append(
+                        execution_start_blocker(
+                            "brake_not_drive",
+                            f"cadence brake is {brake['status']}; governed execution requires DRIVE",
+                            brake_status=brake["status"],
+                        )
+                    )
+            try:
+                active_epochs = read_active_epoch_records(root)
+            except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                active_epochs = []
+                blockers.append(
+                    execution_start_blocker(
+                        "active_epoch_invalid",
+                        str(exc),
+                    )
+                )
+            if active_epochs:
+                blockers.append(
+                    execution_start_blocker(
+                        "active_epoch_exists",
+                        "an active epoch already exists",
+                        active_epoch_id=active_epochs[0][1].get("id"),
+                    )
+                )
             try:
                 current_snapshot = snapshot_repo(
                     repo_path,
@@ -556,36 +601,6 @@ def start_governed_execution_command(args: argparse.Namespace) -> int:
                             "current repo confidence is low",
                         )
                     )
-
-    if not blockers and isinstance(task_packet, dict) and isinstance(repo_packet, dict) and isinstance(current_snapshot, dict):
-        with exclusive_lock(lock_path(root, "runtime")):
-            brake = read_brake(root)
-            if brake["status"] != "DRIVE":
-                blockers.append(
-                    execution_start_blocker(
-                        "brake_not_drive",
-                        f"cadence brake is {brake['status']}; governed execution requires DRIVE",
-                        brake_status=brake["status"],
-                    )
-                )
-            try:
-                active_epochs = read_active_epoch_records(root)
-            except ValueError as exc:
-                active_epochs = []
-                blockers.append(
-                    execution_start_blocker(
-                        "active_epoch_invalid",
-                        str(exc),
-                    )
-                )
-            if active_epochs:
-                blockers.append(
-                    execution_start_blocker(
-                        "active_epoch_exists",
-                        "an active epoch already exists",
-                        active_epoch_id=active_epochs[0][1].get("id"),
-                    )
-                )
             if not blockers:
                 try:
                     epoch = start_epoch_record(
@@ -598,6 +613,46 @@ def start_governed_execution_command(args: argparse.Namespace) -> int:
                     )
                 except (RuntimeError, ValueError, FileExistsError) as exc:
                     blockers.append(execution_start_blocker("epoch_start_failed", str(exc)))
+            if epoch is not None and not blockers:
+                provisional_packet = build_execution_start_packet(
+                    task_file=task_file,
+                    task_packet=task_packet,
+                    task_checksum=task_checksum,
+                    approval_state=approval_state,
+                    blockers=blockers,
+                    repo={
+                        "name": repo_packet.get("name"),
+                        "path": repo_packet.get("path"),
+                        "branch": current_snapshot.get("branch"),
+                        "head": current_snapshot.get("head"),
+                        "expected_branch": repo_packet.get("branch"),
+                        "expected_head": repo_packet.get("head"),
+                    },
+                    snapshot=current_snapshot,
+                    epoch=epoch,
+                )
+                try:
+                    audit_record = append_audit_record(root, execution_start_audit_record(provisional_packet))
+                except (OSError, RuntimeError, ValueError) as exc:
+                    blockers.append(
+                        execution_start_blocker(
+                            "audit_append_failed",
+                            f"execution-start audit record could not be written: {exc}",
+                        )
+                    )
+                    try:
+                        epoch_path(root, "active", epoch["id"]).unlink()
+                        epoch = None
+                    except FileNotFoundError:
+                        epoch = None
+                    except OSError as rollback_exc:
+                        blockers.append(
+                            execution_start_blocker(
+                                "epoch_rollback_failed",
+                                f"active epoch could not be rolled back after audit failure: {rollback_exc}",
+                                epoch_id=epoch.get("id"),
+                            )
+                        )
 
     repo = {
         "name": repo_packet.get("name"),
@@ -617,8 +672,8 @@ def start_governed_execution_command(args: argparse.Namespace) -> int:
         snapshot=current_snapshot,
         epoch=epoch,
     )
-    if epoch is not None:
-        packet["audit_record"] = append_audit_record(root, execution_start_audit_record(packet))
+    if audit_record is not None and packet["valid"]:
+        packet["audit_record"] = audit_record
     emit(packet)
     return 0 if packet["valid"] else 2
 

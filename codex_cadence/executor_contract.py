@@ -1213,6 +1213,12 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
         return False, "executor task task.task_type must be execution or discovery"
     if task.get("bucket") not in BUCKETS:
         return False, "executor task task.bucket must be one of XS, S, M, L, XL"
+    if "source" in task and task.get("source") is not None and not _non_empty_string(task.get("source")):
+        return False, "executor task task.source must be a string"
+    if not _is_string_list(task.get("drivers")):
+        return False, "executor task task.drivers must be a list of strings"
+    if not isinstance(task.get("evidence"), dict):
+        return False, "executor task task.evidence must be a JSON object"
     repo = packet.get("repo")
     if not isinstance(repo, dict):
         return False, "executor task repo must be a JSON object"
