@@ -16,6 +16,10 @@
 - Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are complete.
 - PR #69 completed Task 6 by adding operator-approved `git-pr-materialize`.
 - PR #70 completed Task 7 by adding read-only `verify-resume` and hardening review findings.
+- PR #71 completed the Tasks 8-12 planning handoff from the previous roadmap.
+- Task 8 current-tree work adds `start-governed-execution` and
+  `execution-start.v1` epoch-start gating while keeping real executor
+  invocation out of scope.
 - Current unattended-operation confidence remains 10%.
 
 ## Phase Ladder
@@ -29,11 +33,11 @@ Tasks 8-12 continue the same staged path:
 
 ## Task 8: Add Governed Execution Start Gate
 
-**Status:** Planned.
+**Status:** Complete in current tree.
 
 **Phase:** Phase 2 governed execution.
 
-**Why now:** `loop-tick --emit-executor-task` can produce a bounded executor task packet, but no command yet moves from an approved task packet into an active epoch start while preserving policy, brake, repo, and audit gates.
+**Why now:** `loop-tick --emit-executor-task` can produce a bounded executor task packet, and Task 8 adds the missing local bridge from an approved task packet into one active epoch start while preserving policy, brake, repo, and audit gates.
 
 **Files:**
 - Modify: `codex_cadence/cli.py`
@@ -44,15 +48,25 @@ Tasks 8-12 continue the same staged path:
 - Docs: `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`, `docs/implementation-slices.md`, `docs/progress-log.md`, `docs/decision-log.md`
 
 **Implementation outline:**
-- Add an explicit command that consumes a reviewed `generic-executor-task.v1` packet and starts an active epoch only when current repo, branch, head, dirty-worktree state, task policy, brake state, and approval gates still match.
-- Emit a stable `execution-start.v1` packet with `epoch_started`, `executor_started: false`, `read_only: false`, blocker codes, and a recommended next action.
-- Append a compact audit record for the approved execution-start decision.
-- Keep real executor invocation, code modification, branch creation, commits, pushes, PR writes, merge, release, and package publication outside this slice.
+- Added `start-governed-execution`, an explicit command that consumes a reviewed
+  `generic-executor-task.v1` packet and starts an active epoch only when
+  current repo path, branch, head, dirty-worktree state, task-carried policy,
+  brake state, and approval gates still match.
+- Emits a stable `execution-start.v1` packet with `epoch_started`,
+  `executor_started: false`, `read_only: false`, stable blocker codes, and a
+  recommended next action.
+- Appends a compact `execution_start_decision` audit record for the approved
+  execution-start decision.
+- Keeps real executor invocation, code modification, branch creation, commits,
+  pushes, PR writes, merge, release, and package publication outside this
+  slice.
 
 **Validation:**
 - Valid approved task packet starts one active epoch and records audit evidence.
 - Existing active epoch blocks before writing.
 - Stale branch/head, dirty worktree, non-`DRIVE` brake, missing approval, malformed task packet, low-confidence snapshot, and policy mismatch block before writing.
+- Missing repo paths and malformed active-epoch state block with stable packet
+  codes.
 - The command does not invoke an executor and reports `executor_started: false`.
 
 Run:
@@ -219,11 +233,10 @@ git diff --check
 
 ## Recommended Order
 
-1. Task 8, because an explicit execution-start gate is the next missing bridge between approved task packets and active epochs.
-2. Task 9, because run evidence should be bound before real executor invocation is considered.
-3. Task 10, because review and CI feedback should become a deterministic plan before response writes exist.
-4. Task 11, because resume verification should bind to the next execution-start decision before cross-session execution is automated.
-5. Task 12, because local ownership records are the lowest-risk first step toward multi-worker coordination.
+1. Task 9, because run evidence should be bound before real executor invocation is considered.
+2. Task 10, because review and CI feedback should become a deterministic plan before response writes exist.
+3. Task 11, because resume verification should bind to the next execution-start decision before cross-session execution is automated.
+4. Task 12, because local ownership records are the lowest-risk first step toward multi-worker coordination.
 
 ## Boundaries For All Five Tasks
 

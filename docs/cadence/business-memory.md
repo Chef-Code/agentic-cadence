@@ -116,17 +116,35 @@ Do not:
 
 ## Governed Execution Needs A Start Gate
 
+Status: fulfilled
+Fulfilled By: Task 8 current-tree `start-governed-execution` implementation
+Kind: risk
+Workflow: Controlled executor loop governance
+Time Saved: high
+Risk: high
+Pain: Cadence can emit bounded executor task packets and validate result evidence, but no command yet consumed an approved task packet, rechecked current repo/policy/brake state, started one active epoch, and handed off a task packet while still refusing to invoke a real executor.
+Signals:
+- Tasks 1-7 are complete through PR #70, including controlled fixture execution, local epoch closeout, branch policy, read-only GitHub evidence sync, operator-approved Git/PR materialization, and read-only resume verification.
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` names Task 8 as the governed execution start gate.
+- Task 8 current-tree work bridges `loop-tick --emit-executor-task` and active epoch start without launching a real executor or granting autonomous Git/PR authority.
+Do not:
+- Do not invoke a real executor, modify product code, create branches, commit, push, open PRs, auto-merge, release, or publish packages from this backlog entry.
+- Do not treat a local ownership or epoch record as a distributed lock.
+- Do not claim named-host adapter support before generic evidence and operator approval exist.
+
+## Execution Run Evidence Needs Binding
+
 Status: active
 Kind: risk
 Workflow: Controlled executor loop governance
 Time Saved: high
 Risk: high
-Pain: Cadence can emit bounded executor task packets and validate result evidence, but no command yet consumes an approved task packet, rechecks current repo/policy/brake state, starts one active epoch, and hands off a task packet while still refusing to invoke a real executor.
+Pain: Cadence can start one approved active epoch and can validate or close out local executor evidence, but no run ledger yet binds execution-start, fixture invocation, result validation, and epoch closeout into one replayable chain.
 Signals:
-- Tasks 1-7 are complete through PR #70, including controlled fixture execution, local epoch closeout, branch policy, read-only GitHub evidence sync, operator-approved Git/PR materialization, and read-only resume verification.
-- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` names Task 8 as the governed execution start gate.
-- The next implementation slice should bridge `loop-tick --emit-executor-task` and active epoch start without launching a real executor or granting autonomous Git/PR authority.
+- `start-governed-execution` emits `execution-start.v1` and appends `execution_start_decision` after an approved active epoch start.
+- `run-controlled-executor-fixture`, `validate-executor-result`, and `closeout-executor-result` already write separate local evidence and audit records.
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` names Task 9 as the run-evidence binding slice before real executor invocation is considered.
 Do not:
-- Do not invoke a real executor, modify product code, create branches, commit, push, open PRs, auto-merge, release, or publish packages from this backlog entry.
-- Do not treat a local ownership or epoch record as a distributed lock.
-- Do not claim named-host adapter support before generic evidence and operator approval exist.
+- Do not invoke a real executor, create branches, commit, push, open PRs, auto-merge, release, or publish packages from this backlog entry.
+- Do not treat fixture success or a valid run ledger as approval for named-host adapter support.
+- Do not add distributed locking or remote audit storage before explicit approval.

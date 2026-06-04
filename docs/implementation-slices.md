@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-03
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, and read-only resume verification current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, and read-only resume verification current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -15,7 +15,7 @@ Each slice should ship with tests, evidence, and updates to the living docs.
 ## Current Working Baseline
 
 The five 50% confidence slices below remain the framework for a controlled
-loop. Tasks 1-7 completed several local governance increments inside those
+loop. Tasks 1-8 completed several local governance increments inside those
 slices, but the controlled loop is still incomplete. Three smaller
 stabilization slices are now part of this baseline:
 
@@ -37,32 +37,37 @@ stabilization slices are now part of this baseline:
 These changes reduce state-awareness footguns. The current tree also includes
 the Phase 1 read-only `loop-tick` command for the first slice and a generic
 executor task/result contract, plus read-only GitHub evidence sync,
-operator-approved Git/PR materialization, and read-only resume verification. It
-still does not add autonomous live GitHub synchronization, dirty-worktree commit
-materialization, real executor invocation, automatic resume orchestration,
-agent-role assignment, agent-pool coordination, or enforced review separation.
+operator-approved Git/PR materialization, read-only resume verification, and a
+governed execution-start gate. It still does not add autonomous live GitHub
+synchronization, dirty-worktree commit materialization, real executor
+invocation, automatic resume orchestration, agent-role assignment, agent-pool
+coordination, or enforced review separation.
 The first local policy/audit controls can bound
 emitted executor task packets, append decision/result-validation audit records,
 and replay local audit history with a read-only `audit-replay.v1` packet.
-Active execution controls are partial: result validation enforces task-carried
-command policy and active brake stop evidence, `run-controlled-executor-fixture`
-can govern a fake external executor component in tests/examples, and
-`closeout-executor-result` can record validated local executor evidence against
-an active epoch, complete or fail terminal epochs, and emit the next dry-run
-decision. `git-pr-plan` can produce a dry-run Git/PR transition plan for
-separate review, and `git-pr-materialize` can create a branch from the
+Active execution controls are partial: `start-governed-execution` can consume
+an exactly approved generic executor task packet, recheck repo/policy/brake
+state, and start one active epoch while reporting `executor_started: false`;
+result validation enforces task-carried command policy and active brake stop
+evidence; `run-controlled-executor-fixture` can govern a fake external executor
+component in tests/examples; and `closeout-executor-result` can record
+validated local executor evidence against an active epoch, complete or fail
+terminal epochs, and emit the next dry-run decision. `git-pr-plan` can produce
+a dry-run Git/PR transition plan for separate review, and `git-pr-materialize`
+can create a branch from the
 already-materialized current commit without switching the checkout, push it
 with Git hook verification disabled for that push, and create/update a PR only
 after exact target-bound operator approval and local rechecks. `verify-resume`
 can check claimed handoff state, clean-square evidence, repo branch/head,
 dirty-worktree state, active brake, active epoch state, and pickup-policy
-evidence before a fresh session continues. Real executor governance,
-autonomous branch/commit/push or PR creation, automatic session launch, and
-continuous loop orchestration remain missing.
+evidence before a fresh session continues. Real executor invocation, a run
+evidence ledger binding start/invocation/result/closeout packets, autonomous
+branch/commit/push or PR creation, automatic session launch, and continuous
+loop orchestration remain missing.
 Current unattended-operation confidence remains 10%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete. Tasks 8-12 are tracked in
+complete, and Task 8 is complete in the current tree. Tasks 9-12 are tracked in
 `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
 
 ## Vision Framing
@@ -121,13 +126,18 @@ Current evidence:
   `policy_denied`;
 - root-backed `loop-tick` packets append compact `cadence-audit.v1` decision
   records;
+- `start-governed-execution` can consume a reviewed `generic-executor-task.v1`
+  packet with an exact checksum approval token, recheck current repo path,
+  branch, `HEAD`, dirty-worktree state, task-carried command and branch policy,
+  active brake, and active epoch state, then start one active epoch and emit
+  `execution-start.v1` with `executor_started: false`;
 - `closeout-executor-result` can consume local task/result/snapshot-after
   packets, mark a successful task complete while the epoch remains active when
   other tasks remain, complete or fail terminal epochs, append closeout audit,
   and choose continue, stop, handoff, validate-more-evidence, or dry-run Git/PR
   planning as the next decision;
-- no command yet starts an epoch and hands work to a real executor in one
-  governed loop tick.
+- no command yet invokes a real executor or runs the full governed loop tick
+  end to end.
 
 Why it matters: this moves Cadence from advisor to controller without requiring
 full autonomy.
@@ -156,8 +166,8 @@ Validation needed:
 - initial policy-denied path before executor task emission: complete for
   Phase 1;
 - loop-tick decision audit record: complete for Phase 1;
-- active epoch conflict;
-- stale snapshot rejection.
+- active epoch conflict: complete for governed execution start;
+- stale snapshot rejection: complete for governed execution start.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.
@@ -325,6 +335,8 @@ Current evidence:
 - root-backed `closeout-executor-result` appends a compact
   `executor_epoch_closeout` audit record with task/result and snapshot-after
   anchors after a local epoch closeout decision;
+- root-backed `start-governed-execution` appends a compact
+  `execution_start_decision` audit record after an approved active epoch start;
 - `audit-replay` implements the read-only `audit-replay.v1` packet shape,
   blocker codes, counting rules, supported event validation, and corrupted-log
   failure behavior from the merged design;
@@ -363,6 +375,7 @@ Validation needed:
 - loop decision audit record: complete for Phase 1;
 - executor result validation audit record: complete for Phase 1;
 - controlled executor fixture invocation audit record: complete for Phase 1;
+- governed execution-start decision audit record: complete for Phase 1;
 - denied command test: complete for Phase 1;
 - stop brake during active loop: complete for Phase 1;
 - resume verifier gate and blocker taxonomy: complete for Phase 1;

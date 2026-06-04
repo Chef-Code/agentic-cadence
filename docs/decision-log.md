@@ -28,6 +28,55 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-03 - Start execution by epoch gate, not executor launch
+
+Decision:
+- Add `start-governed-execution` as the Task 8 boundary between a reviewed
+  `generic-executor-task.v1` packet and local active epoch state.
+- Require an exact checksum-bound approval token
+  `approve-executor-task:<task-packet-checksum>`, then recheck the current repo
+  path, branch, `HEAD`, clean worktree, task-carried command and branch policy,
+  active brake, and active epoch state before creating one active epoch.
+- Emit `execution-start.v1` with stable blockers, `epoch_started`, and
+  `executor_started: false`; append `execution_start_decision` audit evidence
+  only after an approved epoch start.
+- Keep real executor invocation, autonomous code edits, branch creation,
+  commits, pushes, PR writes, merge, release, and package publication outside
+  this slice.
+
+Why:
+- A task packet can become stale after branch movement, new commits, dirty
+  worktree changes, policy edits, brake changes, or active epoch conflicts.
+- Starting local epoch state is a distinct governance decision from launching a
+  real executor. Splitting the boundary gives reviewers a stable packet and
+  blocker taxonomy without granting hidden implementation authority.
+- Reusing task-carried policy keeps execution-start checks tied to the reviewed
+  packet rather than a mutable policy file.
+
+Alternatives considered:
+- Let `loop-tick --emit-executor-task` start the epoch directly. Rejected
+  because the emitted task packet needs separate review and approval before any
+  runtime mutation.
+- Invoke the controlled fixture or a real executor after approval. Deferred
+  because Task 8 is the start gate only; Task 9 should bind run evidence before
+  any real executor work is considered.
+- Use the HMAC materialization approval secret for this gate. Deferred because
+  this token is local checksum review evidence, not remote Git/PR authority or
+  authenticated approver identity.
+
+Consequences:
+- Operators and future orchestration now have a deterministic bridge from
+  `approve_executor_task` to a single active epoch.
+- Blocked starts leave no active epoch and no success audit record.
+- Successful starts still require an external executor handoff; Cadence does
+  not implement code from this command.
+
+Open questions:
+- What identity and hash-chain evidence should later authenticate task-packet
+  approval before real executor invocation?
+- Should Task 9 require a clean audit replay immediately before closeout binds
+  execution-start, invocation, validation, and epoch-closeout records?
+
 ## 2026-06-03 - Keep resume pickup verification read-only
 
 Decision:

@@ -2042,7 +2042,7 @@ Risk: medium
                 result["warnings"],
             )
 
-    def assert_repo_business_memory_seeds_governed_execution_backlog_without_warnings(self):
+    def assert_repo_business_memory_seeds_run_evidence_backlog_without_warnings(self):
         source_text = (ROOT / "docs" / "cadence" / "business-memory.md").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as tmp:
             init_repo(tmp)
@@ -2057,16 +2057,16 @@ Risk: medium
             ]
             self.assertEqual(len(business_memory_candidates), 1)
             candidate = business_memory_candidates[0]
-            self.assertEqual(candidate["evidence"]["heading"], "Governed Execution Needs A Start Gate")
+            self.assertEqual(candidate["evidence"]["heading"], "Execution Run Evidence Needs Binding")
             self.assertEqual(candidate["classification"], "risk")
             self.assertEqual(candidate["classification_confidence"], "high")
             self.assertEqual(candidate["workflow"], "Controlled executor loop governance")
 
     def test_repo_business_memory_current_entries_are_closed_and_parse_without_warnings(self):
-        self.assert_repo_business_memory_seeds_governed_execution_backlog_without_warnings()
+        self.assert_repo_business_memory_seeds_run_evidence_backlog_without_warnings()
 
-    def test_repo_business_memory_current_entries_seed_governed_execution_backlog_and_parse_without_warnings(self):
-        self.assert_repo_business_memory_seeds_governed_execution_backlog_without_warnings()
+    def test_repo_business_memory_current_entries_seed_run_evidence_backlog_and_parse_without_warnings(self):
+        self.assert_repo_business_memory_seeds_run_evidence_backlog_without_warnings()
 
     def test_business_memory_classification_terms_do_not_match_inside_words(self):
         with tempfile.TemporaryDirectory() as tmp:

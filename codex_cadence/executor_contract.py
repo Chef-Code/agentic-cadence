@@ -16,6 +16,7 @@ from codex_cadence.store import utc_now
 
 EXECUTOR_TASK_SCHEMA_VERSION = "generic-executor-task.v1"
 EXECUTOR_RESULT_SCHEMA_VERSION = "generic-executor-result.v1"
+EXECUTION_START_SCHEMA_VERSION = "execution-start.v1"
 EXECUTOR_STATUSES = ("succeeded", "failed", "blocked", "stopped")
 EXECUTOR_CONFIDENCE_VALUES = ("high", "medium", "low")
 DEFAULT_EXECUTOR_STOP_CONDITIONS = ["brake_not_drive", "operator_stop", "context_pressure", "timeout"]

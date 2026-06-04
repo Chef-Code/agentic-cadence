@@ -18,6 +18,7 @@ from codex_cadence.candidates import DISCOVERY_INTENTS, DISCOVERY_MODES, PROPOSA
 from codex_cadence.candidates import discover_candidates
 from codex_cadence.executor_contract import (
     DEFAULT_EXECUTOR_STOP_CONDITIONS,
+    EXECUTION_START_SCHEMA_VERSION,
     build_executor_task_packet,
     validate_executor_result_evidence,
     validate_executor_task_packet,
@@ -38,7 +39,7 @@ from codex_cadence.epochs import continuation_task_limit
 from codex_cadence.epochs import epoch_elapsed_minutes
 from codex_cadence.epochs import fail_epoch as fail_epoch_record
 from codex_cadence.epochs import checksum_json as checksum_epoch_json
-from codex_cadence.epochs import elect_candidates, load_active_epoch, record_self_check, self_check_decision
+from codex_cadence.epochs import elect_candidates, load_active_epoch, read_active_epoch_records, record_self_check, self_check_decision
 from codex_cadence.epochs import policy_limit
 from codex_cadence.epochs import REPO_CONFIDENCE_VALUES, UNCERTAINTY_VALUES
 from codex_cadence.epochs import start_epoch as start_epoch_record
@@ -47,6 +48,7 @@ from codex_cadence.handoff_loop import prepare_handoff, verify_resume
 from codex_cadence.model import BUCKETS, TASK_TYPES, estimate_task, governance_permissions, policy_for_bucket
 from codex_cadence.policy_audit import (
     append_audit_record,
+    execution_start_audit_record,
     executor_epoch_closeout_audit_record,
     executor_result_validation_audit_record,
     load_loop_policy,
@@ -347,6 +349,278 @@ def start_epoch_command(args: argparse.Namespace) -> int:
         epoch = start_epoch_record(args.root, args.repo, args.branch, tasks, snapshot_before)
     emit(epoch)
     return 0
+
+
+def execution_start_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def executor_task_approval_token(task_packet: dict[str, Any]) -> str:
+    return f"approve-executor-task:{checksum_json(task_packet)}"
+
+
+def execution_start_recommendation(blockers: list[dict[str, Any]]) -> str:
+    if not blockers:
+        return "handoff_to_executor"
+    codes = {blocker.get("code") for blocker in blockers}
+    if "executor_task_invalid" in codes or "task_file_unreadable" in codes:
+        return "fix_executor_task_packet"
+    if "operator_approval_missing" in codes or "operator_approval_mismatch" in codes:
+        return "approve_executor_task"
+    if "brake_not_drive" in codes:
+        return "clear_brake"
+    if "active_epoch_exists" in codes or "active_epoch_invalid" in codes:
+        return "close_or_fail_active_epoch"
+    return "recreate_executor_task"
+
+
+def execution_start_reason(valid: bool, blockers: list[dict[str, Any]]) -> str:
+    if valid:
+        return "approved executor task started a governed epoch"
+    if blockers:
+        return blockers[0]["message"]
+    return "execution start blocked"
+
+
+def task_packet_to_epoch_task(task_packet: dict[str, Any]) -> dict[str, Any]:
+    task = task_packet["task"]
+    return {
+        "id": task["id"],
+        "title": task.get("title"),
+        "summary": task.get("summary"),
+        "task_type": task["task_type"],
+        "bucket": task.get("bucket"),
+        "source": task.get("source"),
+        "drivers": list(task.get("drivers", [])),
+        "evidence": dict(task.get("evidence", {})),
+        "executable": True,
+        "executor_task_checksum": checksum_json(task_packet),
+        "allowed_paths": list(task_packet.get("allowed_paths", [])),
+        "required_checks": list(task_packet.get("required_checks", [])),
+        "limits": dict(task_packet.get("limits", {})),
+        "stop_conditions": list(task_packet.get("stop_conditions", [])),
+        "command_policy": dict(task_packet.get("command_policy", {})),
+        "branch_policy": dict(task_packet.get("branch_policy", {})),
+        "expected_output": dict(task_packet.get("expected_output", {})),
+        "permissions": dict(task_packet.get("permissions", {})),
+    }
+
+
+def build_execution_start_packet(
+    *,
+    task_file: Path,
+    task_packet: Any,
+    task_checksum: str | None,
+    approval_state: str,
+    blockers: list[dict[str, Any]],
+    repo: dict[str, Any] | None = None,
+    snapshot: dict[str, Any] | None = None,
+    epoch: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    valid = not blockers
+    task = task_packet.get("task") if isinstance(task_packet, dict) and isinstance(task_packet.get("task"), dict) else {}
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": EXECUTION_START_SCHEMA_VERSION,
+        "packet": "execution_start",
+        "read_only": False,
+        "valid": valid,
+        "epoch_started": epoch is not None,
+        "executor_started": False,
+        "pr_action_started": False,
+        "approval_state": approval_state,
+        "task_file": str(task_file),
+        "task_checksum": task_checksum,
+        "task_id": task.get("id"),
+        "repo": repo or {},
+        "snapshot": snapshot,
+        "epoch_id": epoch.get("id") if isinstance(epoch, dict) else None,
+        "blockers": blockers,
+        "recommended_next_action": execution_start_recommendation(blockers),
+        "reason": execution_start_reason(valid, blockers),
+        "limitations": [
+            "executor_not_started",
+            "executor_invocation_out_of_scope",
+            "git_pr_writes_out_of_scope",
+            "merge_release_publish_out_of_scope",
+        ],
+    }
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def start_governed_execution_command(args: argparse.Namespace) -> int:
+    root = args.root
+    task_file = Path(args.task_file)
+    blockers: list[dict[str, Any]] = []
+    task_packet: Any = None
+    task_checksum: str | None = None
+    approval_state = "missing"
+    repo_packet: dict[str, Any] | None = None
+    current_snapshot: dict[str, Any] | None = None
+    epoch: dict[str, Any] | None = None
+
+    try:
+        task_packet = read_json(task_file)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        blockers.append(execution_start_blocker("task_file_unreadable", f"task file could not be read: {exc}"))
+
+    if task_packet is not None:
+        task_checksum = checksum_json(task_packet)
+        valid_task, task_reason = validate_executor_task_packet(task_packet)
+        if not valid_task:
+            blockers.append(execution_start_blocker("executor_task_invalid", task_reason))
+        else:
+            expected_approval = executor_task_approval_token(task_packet)
+            if not args.approval_token:
+                blockers.append(
+                    execution_start_blocker(
+                        "operator_approval_missing",
+                        "approval token is required for governed execution start",
+                    )
+                )
+            elif args.approval_token != expected_approval:
+                approval_state = "mismatch"
+                blockers.append(
+                    execution_start_blocker(
+                        "operator_approval_mismatch",
+                        "approval token does not match executor task checksum",
+                    )
+                )
+            else:
+                approval_state = "approved"
+
+    if not blockers and isinstance(task_packet, dict):
+        repo_packet = task_packet["repo"]
+        repo_path = Path(args.cwd or repo_packet["path"]).expanduser().resolve()
+        expected_repo_path = Path(repo_packet["path"]).expanduser().resolve()
+        if repo_path != expected_repo_path:
+            blockers.append(
+                execution_start_blocker(
+                    "repo_path_mismatch",
+                    "current repo path does not match executor task repo.path",
+                    expected=str(expected_repo_path),
+                    actual=str(repo_path),
+                )
+            )
+        else:
+            try:
+                current_snapshot = snapshot_repo(
+                    repo_path,
+                    repo=repo_packet["name"],
+                    active_pr=None,
+                    known_failures=[],
+                    ci_status=task_packet.get("snapshot", {}).get("ci", "unknown"),
+                )
+            except (OSError, RuntimeError, ValueError) as exc:
+                blockers.append(
+                    execution_start_blocker(
+                        "repo_inspection_failed",
+                        f"current repo could not be inspected: {exc}",
+                        path=str(repo_path),
+                    )
+                )
+            if current_snapshot is not None:
+                stamp = current_snapshot["captured_at"].replace(":", "").replace("-", "")
+                current_snapshot["id"] = f"{stamp}-{slugify(repo_packet['name'])}-{secrets.token_hex(4)}"
+                if current_snapshot.get("branch") != repo_packet["branch"]:
+                    blockers.append(
+                        execution_start_blocker(
+                            "repo_branch_mismatch",
+                            "current branch does not match executor task repo.branch",
+                            expected=repo_packet["branch"],
+                            actual=current_snapshot.get("branch"),
+                        )
+                    )
+                if current_snapshot.get("head") != repo_packet["head"]:
+                    blockers.append(
+                        execution_start_blocker(
+                            "repo_head_mismatch",
+                            "current HEAD does not match executor task repo.head",
+                            expected=repo_packet["head"],
+                            actual=current_snapshot.get("head"),
+                        )
+                    )
+                if current_snapshot.get("dirty_worktree") is not False:
+                    blockers.append(
+                        execution_start_blocker(
+                            "dirty_worktree",
+                            "current worktree must be clean before governed execution start",
+                        )
+                    )
+                if current_snapshot.get("repo_confidence") == "low":
+                    blockers.append(
+                        execution_start_blocker(
+                            "repo_confidence_low",
+                            "current repo confidence is low",
+                        )
+                    )
+
+    if not blockers and isinstance(task_packet, dict) and isinstance(repo_packet, dict) and isinstance(current_snapshot, dict):
+        with exclusive_lock(lock_path(root, "runtime")):
+            brake = read_brake(root)
+            if brake["status"] != "DRIVE":
+                blockers.append(
+                    execution_start_blocker(
+                        "brake_not_drive",
+                        f"cadence brake is {brake['status']}; governed execution requires DRIVE",
+                        brake_status=brake["status"],
+                    )
+                )
+            try:
+                active_epochs = read_active_epoch_records(root)
+            except ValueError as exc:
+                active_epochs = []
+                blockers.append(
+                    execution_start_blocker(
+                        "active_epoch_invalid",
+                        str(exc),
+                    )
+                )
+            if active_epochs:
+                blockers.append(
+                    execution_start_blocker(
+                        "active_epoch_exists",
+                        "an active epoch already exists",
+                        active_epoch_id=active_epochs[0][1].get("id"),
+                    )
+                )
+            if not blockers:
+                try:
+                    epoch = start_epoch_record(
+                        root,
+                        repo_packet["name"],
+                        repo_packet["branch"],
+                        [task_packet_to_epoch_task(task_packet)],
+                        current_snapshot,
+                        policy={"max_tasks_per_epoch": 1},
+                    )
+                except (RuntimeError, ValueError, FileExistsError) as exc:
+                    blockers.append(execution_start_blocker("epoch_start_failed", str(exc)))
+
+    repo = {
+        "name": repo_packet.get("name"),
+        "path": repo_packet.get("path"),
+        "branch": current_snapshot.get("branch") if isinstance(current_snapshot, dict) else repo_packet.get("branch"),
+        "head": current_snapshot.get("head") if isinstance(current_snapshot, dict) else repo_packet.get("head"),
+        "expected_branch": repo_packet.get("branch"),
+        "expected_head": repo_packet.get("head"),
+    } if isinstance(repo_packet, dict) else None
+    packet = build_execution_start_packet(
+        task_file=task_file,
+        task_packet=task_packet,
+        task_checksum=task_checksum,
+        approval_state=approval_state,
+        blockers=blockers,
+        repo=repo,
+        snapshot=current_snapshot,
+        epoch=epoch,
+    )
+    if epoch is not None:
+        packet["audit_record"] = append_audit_record(root, execution_start_audit_record(packet))
+    emit(packet)
+    return 0 if packet["valid"] else 2
 
 
 def complete_epoch_command(args: argparse.Namespace) -> int:
@@ -1609,6 +1883,19 @@ def build_parser() -> argparse.ArgumentParser:
     closeout_parser.set_defaults(
         func=closeout_executor_result_command,
         requires_root=True,
+    )
+
+    execution_start_parser = subparsers.add_parser(
+        "start-governed-execution",
+        help="Start one governed epoch from an approved generic executor task packet",
+    )
+    execution_start_parser.add_argument("--task-file", required=True)
+    execution_start_parser.add_argument("--approval-token")
+    execution_start_parser.add_argument("--cwd")
+    execution_start_parser.set_defaults(
+        func=start_governed_execution_command,
+        requires_root=True,
+        guards_runtime_root_only=True,
     )
 
     controlled_fixture_parser = subparsers.add_parser(
