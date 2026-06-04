@@ -168,6 +168,38 @@ def validate_executor_fixture_invocation_audit_record(record: dict[str, Any], li
     return blockers
 
 
+def validate_execution_run_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate local execution-run audit-record fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in (
+        "action",
+        "reason",
+        "run_id",
+        "invocation_id",
+        "task_id",
+        "repo",
+        "branch",
+        "head",
+        "task_file",
+        "result_file",
+        "run_record_file",
+        "closeout_status",
+    ):
+        blockers.extend(required_string(record, field, line))
+    for field in (
+        "payload_checksum",
+        "run_record_checksum",
+        "task_packet_checksum",
+        "result_evidence_checksum",
+        "validation_packet_checksum",
+    ):
+        blockers.extend(required_checksum_present(record, field, line))
+    if record.get("closeout_status") not in (None, "pending"):
+        blockers.extend(required_string(record, "epoch_id", line))
+        blockers.extend(required_checksum_present(record, "epoch_closeout_checksum", line))
+    return blockers
+
+
 def validate_git_pr_materialization_intent_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
     """Validate operator-approved Git/PR materialization intent audit fields."""
     blockers: list[dict[str, Any]] = []
@@ -278,6 +310,8 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
         blockers.extend(validate_loop_tick_audit_record(record, line))
     elif event == "executor_fixture_invocation":
         blockers.extend(validate_executor_fixture_invocation_audit_record(record, line))
+    elif event == "execution_run_record":
+        blockers.extend(validate_execution_run_audit_record(record, line))
     elif event == "executor_result_validation":
         blockers.extend(validate_executor_result_audit_record(record, line))
     elif event == "executor_epoch_closeout":
@@ -498,6 +532,46 @@ def executor_fixture_invocation_audit_record(payload: dict[str, Any], task_packe
         "command": payload.get("command"),
         "payload_checksum": checksum_json(payload),
         "task_packet_checksum": checksum_json(task_packet),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def execution_run_record_audit_record(
+    run_record: dict[str, Any],
+    *,
+    run_record_file: str,
+    action: str,
+    reason: str,
+) -> dict[str, Any]:
+    repo = run_record.get("repo") if isinstance(run_record.get("repo"), dict) else {}
+    record = {
+        "event": "execution_run_record",
+        "action": action,
+        "reason": reason,
+        "run_id": run_record.get("run_id"),
+        "invocation_id": run_record.get("invocation_id"),
+        "task_id": run_record.get("task_id"),
+        "repo": repo.get("name"),
+        "branch": repo.get("branch"),
+        "head": repo.get("head"),
+        "task_file": run_record.get("task_file"),
+        "result_file": run_record.get("result_file"),
+        "run_record_file": run_record_file,
+        "closeout_status": run_record.get("closeout_status"),
+        "epoch_id": run_record.get("epoch_id"),
+        "payload_checksum": checksum_json(
+            {
+                "action": action,
+                "reason": reason,
+                "run_record_file": run_record_file,
+                "run_record_checksum": checksum_json(run_record),
+            }
+        ),
+        "run_record_checksum": checksum_json(run_record),
+        "task_packet_checksum": run_record.get("task_packet_checksum"),
+        "result_evidence_checksum": run_record.get("result_evidence_checksum"),
+        "validation_packet_checksum": run_record.get("validation_packet_checksum"),
+        "epoch_closeout_checksum": run_record.get("epoch_closeout_checksum"),
     }
     return {key: value for key, value in record.items() if value is not None}
 

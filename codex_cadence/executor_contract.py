@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import re
 import shlex
@@ -17,8 +19,17 @@ from codex_cadence.store import utc_now
 EXECUTOR_TASK_SCHEMA_VERSION = "generic-executor-task.v1"
 EXECUTOR_RESULT_SCHEMA_VERSION = "generic-executor-result.v1"
 EXECUTION_START_SCHEMA_VERSION = "execution-start.v1"
+EXECUTION_RUN_SCHEMA_VERSION = "execution-run.v1"
 EXECUTOR_STATUSES = ("succeeded", "failed", "blocked", "stopped")
 EXECUTOR_CONFIDENCE_VALUES = ("high", "medium", "low")
+EXECUTION_RUN_CLOSEOUT_STATUSES = (
+    "pending",
+    "task_completed",
+    "completed",
+    "failed",
+    "blocked",
+    "already_closed",
+)
 DEFAULT_EXECUTOR_STOP_CONDITIONS = ["brake_not_drive", "operator_stop", "context_pressure", "timeout"]
 _SHELL_COMMANDS = {
     "bash",
@@ -107,6 +118,17 @@ _TIMEOUT_OPTIONS_WITHOUT_VALUE = {"--preserve-status", "--foreground", "-v", "--
 
 def _non_empty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
+
+
+def checksum_json(data: Any) -> str:
+    payload = json.dumps(data, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def execution_run_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
 
 
 def _is_string_list(value: Any) -> bool:
@@ -1320,6 +1342,240 @@ def validate_executor_task_packet(packet: Any) -> tuple[bool, str]:
     if permissions.get("named_host_adapter") is not None:
         return False, "executor task permissions.named_host_adapter must be null"
     return True, "ok"
+
+
+def build_execution_run_record(
+    *,
+    run_id: str,
+    invocation_id: str,
+    task_file: str | Path,
+    result_file: str | Path,
+    task_packet: dict[str, Any],
+    result_evidence: Any,
+    validation_packet: dict[str, Any],
+    closeout_status: str = "pending",
+    epoch_id: str | None = None,
+) -> dict[str, Any]:
+    task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
+    repo = task_packet.get("repo") if isinstance(task_packet.get("repo"), dict) else {}
+    record = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": EXECUTION_RUN_SCHEMA_VERSION,
+        "packet": "execution_run",
+        "run_id": run_id,
+        "invocation_id": invocation_id,
+        "task_id": task.get("id"),
+        "task_file": str(task_file),
+        "result_file": str(result_file),
+        "task_packet_checksum": checksum_json(task_packet),
+        "result_evidence_checksum": checksum_json(result_evidence),
+        "validation_packet_checksum": checksum_json(validation_packet),
+        "executor_started": (
+            validation_packet.get("executor_started")
+            if isinstance(validation_packet.get("executor_started"), bool)
+            else None
+        ),
+        "repo": {
+            "name": repo.get("name"),
+            "path": repo.get("path"),
+            "branch": repo.get("branch"),
+            "head": repo.get("head"),
+        },
+        "closeout_status": closeout_status,
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+    }
+    if epoch_id is not None:
+        record["epoch_id"] = epoch_id
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def _run_required_string(record: dict[str, Any], field: str) -> list[dict[str, Any]]:
+    if not _non_empty_string(record.get(field)):
+        return [
+            execution_run_blocker(
+                "run_record_incomplete",
+                f"execution run {field} is required",
+                field=field,
+            )
+        ]
+    return []
+
+
+def _run_required_repo_string(repo: Any, field: str) -> list[dict[str, Any]]:
+    if not isinstance(repo, dict) or not _non_empty_string(repo.get(field)):
+        return [
+            execution_run_blocker(
+                "run_record_incomplete",
+                f"execution run repo.{field} is required",
+                field=f"repo.{field}",
+            )
+        ]
+    return []
+
+
+def validate_execution_run_record(
+    record: Any,
+    *,
+    task_packet: Any,
+    result_evidence: Any,
+    validation_packet: Any,
+    task_file: str | Path,
+    result_file: str | Path,
+    expected_closeout_status: str = "pending",
+    epoch_id: str | None = None,
+) -> list[dict[str, Any]]:
+    if not isinstance(record, dict):
+        return [execution_run_blocker("run_record_invalid", "execution run record must be a JSON object")]
+    blockers: list[dict[str, Any]] = []
+    if record.get("protocol_version") != PROTOCOL_VERSION:
+        blockers.append(execution_run_blocker("run_record_invalid", "execution run protocol_version is invalid"))
+    if record.get("schema_version") != EXECUTION_RUN_SCHEMA_VERSION:
+        blockers.append(execution_run_blocker("run_record_invalid", "execution run schema_version is invalid"))
+    if record.get("packet") != "execution_run":
+        blockers.append(execution_run_blocker("run_record_invalid", "execution run packet must be execution_run"))
+    for field in (
+        "run_id",
+        "invocation_id",
+        "task_id",
+        "task_file",
+        "result_file",
+        "task_packet_checksum",
+        "result_evidence_checksum",
+        "validation_packet_checksum",
+        "closeout_status",
+    ):
+        blockers.extend(_run_required_string(record, field))
+    repo = record.get("repo")
+    for field in ("name", "path", "branch", "head"):
+        blockers.extend(_run_required_repo_string(repo, field))
+    if "executor_started" in record and not isinstance(record.get("executor_started"), bool):
+        blockers.append(
+            execution_run_blocker(
+                "run_record_invalid",
+                "execution run executor_started must be a boolean",
+                field="executor_started",
+            )
+        )
+    if blockers:
+        return blockers
+
+    valid_task, task_reason = validate_executor_task_packet(task_packet)
+    if not valid_task:
+        return [execution_run_blocker("invalid_task_packet", task_reason)]
+    if not isinstance(result_evidence, dict):
+        return [execution_run_blocker("invalid_result_evidence", "executor result must be a JSON object")]
+    if not isinstance(validation_packet, dict):
+        return [
+            execution_run_blocker(
+                "run_validation_packet_invalid",
+                "executor validation packet must be a JSON object",
+            )
+        ]
+
+    task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
+    task_id = task.get("id")
+    if record.get("task_id") != task_id:
+        blockers.append(
+            execution_run_blocker(
+                "run_task_id_mismatch",
+                "execution run task_id does not match executor task",
+                run_task_id=record.get("task_id"),
+                task_id=task_id,
+            )
+        )
+    if record.get("task_file") != str(task_file):
+        blockers.append(
+            execution_run_blocker(
+                "run_task_file_mismatch",
+                "execution run task_file does not match supplied task file",
+                run_task_file=record.get("task_file"),
+                task_file=str(task_file),
+            )
+        )
+    if record.get("result_file") != str(result_file):
+        blockers.append(
+            execution_run_blocker(
+                "run_result_file_mismatch",
+                "execution run result_file does not match supplied result file",
+                run_result_file=record.get("result_file"),
+                result_file=str(result_file),
+            )
+        )
+    if record.get("task_packet_checksum") != checksum_json(task_packet):
+        blockers.append(
+            execution_run_blocker(
+                "run_task_checksum_mismatch",
+                "execution run task checksum does not match task packet",
+            )
+        )
+    if record.get("result_evidence_checksum") != checksum_json(result_evidence):
+        blockers.append(
+            execution_run_blocker(
+                "run_result_checksum_mismatch",
+                "execution run result checksum does not match result evidence",
+            )
+        )
+    if record.get("validation_packet_checksum") != checksum_json(validation_packet):
+        blockers.append(
+            execution_run_blocker(
+                "run_validation_checksum_mismatch",
+                "execution run validation checksum does not match validation packet",
+            )
+        )
+
+    task_repo = task_packet.get("repo") if isinstance(task_packet.get("repo"), dict) else {}
+    run_repo = record.get("repo") if isinstance(record.get("repo"), dict) else {}
+    for field in ("name", "path", "branch", "head"):
+        if run_repo.get(field) != task_repo.get(field):
+            blockers.append(
+                execution_run_blocker(
+                    "run_repo_anchor_mismatch",
+                    f"execution run repo.{field} does not match task repo.{field}",
+                    field=field,
+                    run_value=run_repo.get(field),
+                    task_value=task_repo.get(field),
+                )
+            )
+            break
+
+    closeout_status = record.get("closeout_status")
+    if closeout_status not in EXECUTION_RUN_CLOSEOUT_STATUSES:
+        blockers.append(
+            execution_run_blocker(
+                "run_closeout_status_mismatch",
+                "execution run closeout_status is invalid",
+                closeout_status=closeout_status,
+            )
+        )
+    elif expected_closeout_status == "pending" and closeout_status != "pending":
+        blockers.append(
+            execution_run_blocker(
+                "run_record_closeout_replay",
+                "execution run record has already been bound to closeout",
+                closeout_status=closeout_status,
+            )
+        )
+    elif closeout_status != expected_closeout_status:
+        blockers.append(
+            execution_run_blocker(
+                "run_closeout_status_mismatch",
+                "execution run closeout_status does not match expected status",
+                expected=expected_closeout_status,
+                actual=closeout_status,
+            )
+        )
+
+    if epoch_id is not None and "epoch_id" in record and record.get("epoch_id") != epoch_id:
+        blockers.append(
+            execution_run_blocker(
+                "run_epoch_mismatch",
+                "execution run epoch_id does not match closeout epoch",
+                run_epoch_id=record.get("epoch_id"),
+                epoch_id=epoch_id,
+            )
+        )
+    return blockers
 
 
 def validate_executor_command(command: Any, task_packet: dict[str, Any]) -> tuple[bool, str]:

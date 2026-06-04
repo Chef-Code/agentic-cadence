@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import shutil
 import shlex
 import subprocess
@@ -13,17 +14,20 @@ from typing import Any
 from codex_cadence import PROTOCOL_VERSION
 from codex_cadence.executor_contract import (
     EXECUTOR_RESULT_SCHEMA_VERSION,
+    build_execution_run_record,
+    checksum_json,
     validate_executor_command,
     validate_executor_result_evidence,
     validate_executor_task_packet,
 )
 from codex_cadence.policy_audit import (
     append_audit_record,
+    execution_run_record_audit_record,
     executor_fixture_invocation_audit_record,
     executor_result_validation_audit_record,
 )
 from codex_cadence.repo_state import runtime_root_safety_issue
-from codex_cadence.store import read_brake, read_json, utc_now
+from codex_cadence.store import atomic_write_json, execution_run_path, read_brake, read_json, utc_now
 
 CONTROLLED_EXECUTOR_FIXTURE_SCHEMA_VERSION = "controlled-executor-fixture-run.v1"
 
@@ -65,6 +69,11 @@ def _cadence_state(brake: dict[str, Any]) -> str:
     if status == "NEUTRAL":
         return "HUDDLE"
     return "TIMEOUT"
+
+
+def _generated_record_id(prefix: str) -> str:
+    stamp = utc_now().replace(":", "").replace("-", "").replace(".", "")
+    return f"{prefix}-{stamp}-{secrets.token_hex(4)}"
 
 
 def _format_fixture_command(command_template: str, *, task_file: Path, result_file: Path, repo_path: Path) -> str:
@@ -326,9 +335,12 @@ def run_controlled_executor_fixture(
     task_path.write_text(json.dumps(task_packet, indent=2, sort_keys=True), encoding="utf-8")
     result_file.parent.mkdir(parents=True, exist_ok=True)
 
+    invocation_id = _generated_record_id("executor-fixture-invocation")
+    run_id = _generated_record_id("execution-run")
     invocation_payload = {
         "protocol_version": PROTOCOL_VERSION,
         "packet": "controlled_executor_fixture_invocation",
+        "invocation_id": invocation_id,
         "task_file": str(task_path),
         "result_file": str(result_file),
         "command": command,
@@ -422,6 +434,27 @@ def run_controlled_executor_fixture(
         root,
         executor_result_validation_audit_record(validation_payload, task_packet, result_evidence),
     )
+    run_record = build_execution_run_record(
+        run_id=run_id,
+        invocation_id=invocation_id,
+        task_file=task_path,
+        result_file=result_file,
+        task_packet=task_packet,
+        result_evidence=result_evidence,
+        validation_packet=validation_payload,
+        closeout_status="pending",
+    )
+    run_record_file = execution_run_path(root, run_id)
+    atomic_write_json(run_record_file, run_record)
+    run_record_audit = append_audit_record(
+        root,
+        execution_run_record_audit_record(
+            run_record,
+            run_record_file=str(run_record_file),
+            action="record_execution_run",
+            reason="execution run record written",
+        ),
+    )
 
     payload: dict[str, Any] = {
         "protocol_version": PROTOCOL_VERSION,
@@ -442,6 +475,14 @@ def run_controlled_executor_fixture(
         "stderr": stderr,
         "audit_record": validation_audit,
         "invocation_audit_record": invocation_audit,
+        "run_record": {
+            "path": str(run_record_file),
+            "run_id": run_id,
+            "invocation_id": invocation_id,
+            "checksum": checksum_json(run_record),
+            "closeout_status": run_record["closeout_status"],
+            "audit_record": run_record_audit,
+        },
         "limitations": [
             "controlled_fixture_only",
             "real_executor_invocation_blocked",

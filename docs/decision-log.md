@@ -28,6 +28,52 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-03 - Keep execution run binding local and optional at closeout
+
+Decision:
+- Add local `execution-run.v1` records under the runtime root to bind task
+  checksum, invocation id, result evidence checksum, validation packet checksum,
+  repo path/branch/head anchors, and closeout status.
+- Have the controlled fixture runner write a run record and compact
+  `execution_run_record` audit event after result validation.
+- Let `closeout-executor-result --run-record-file` fail closed on mismatched or
+  partial supplied run evidence before any epoch mutation, then update accepted
+  run records with closeout status and epoch-closeout checksum.
+- Keep the run ledger local and auditable without adding a remote backend,
+  distributed lock, hash chain, real executor invocation, or named host adapter.
+
+Why:
+- Task/result/snapshot files alone do not prove that the result being closed out
+  is the same run that was invoked and validated.
+- A local record is enough to harden the fixture path and closeout boundary
+  before live executor support exists.
+- Keeping `--run-record-file` optional preserves compatibility for existing
+  local closeout tests while allowing stricter evidence binding when run
+  evidence exists.
+
+Alternatives considered:
+- Make run records mandatory for all closeouts. Deferred because existing local
+  result validation and closeout examples still need to work without a fixture
+  run ledger, and real executor invocation is still out of scope.
+- Add a remote ledger or distributed lock. Rejected for this slice because the
+  current runtime is local filesystem state and no agent pool exists yet.
+- Treat a valid run record as permission to invoke a real executor or perform
+  Git/PR writes. Rejected because run records are evidence, not authority.
+
+Consequences:
+- Controlled fixture runs now leave a deterministic local chain from invocation
+  through result validation and closeout.
+- Supplied run-record mismatches block closeout with stable codes before active
+  epoch state moves.
+- Real executor invocation, autonomous code edits, authenticated approvals,
+  hash chaining, and remote coordination remain future explicit slices.
+
+Open questions:
+- Should a later task require a clean audit replay before accepting supplied
+  run records for closeout?
+- What authenticated approval and hash-chain shape is required before real
+  executor invocation is allowed?
+
 ## 2026-06-03 - Start execution by epoch gate, not executor launch
 
 Decision:

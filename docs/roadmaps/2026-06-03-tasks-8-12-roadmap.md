@@ -20,6 +20,9 @@
 - Task 8 current-tree work adds `start-governed-execution` and
   `execution-start.v1` epoch-start gating while keeping real executor
   invocation out of scope.
+- Task 9 current-tree work adds local `execution-run.v1` records and
+  supplied-run-record closeout binding while keeping real executor invocation
+  out of scope.
 - Current unattended-operation confidence remains 10%.
 
 ## Phase Ladder
@@ -83,7 +86,7 @@ git diff --check
 
 ## Task 9: Bind Execution Run Evidence To Closeout
 
-**Status:** Planned.
+**Status:** Complete in current tree.
 
 **Phase:** Phase 2 governed execution hardening.
 
@@ -93,15 +96,28 @@ git diff --check
 - Modify: `codex_cadence/executor_runner.py`
 - Modify: `codex_cadence/executor_contract.py`
 - Modify: `codex_cadence/epochs.py`
+- Modify: `codex_cadence/cli.py`
+- Modify: `codex_cadence/store.py`
 - Modify: `codex_cadence/policy_audit.py`
-- Test: `tests/test_cadence.py`, `tests/test_epochs.py`, `tests/test_executor_contract.py`
+- Test: `tests/test_cadence.py`, `tests/test_epochs.py`, `tests/test_executor_contract.py`, `tests/test_audit_replay.py`
 - Docs: `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`, `docs/implementation-slices.md`, `docs/progress-log.md`, `docs/decision-log.md`
 
 **Implementation outline:**
-- Add a local execution-run record that binds task checksum, invocation id, result evidence checksum, validation packet checksum, repo branch/head anchors, and closeout status.
-- Require `closeout-executor-result` to detect mismatched run evidence when a run record is supplied.
-- Keep run records local and auditable; do not add a remote backend or distributed lock.
-- Keep real executor invocation outside this slice except the existing controlled fixture path.
+- Added local `execution-run.v1` records that bind task checksum, invocation
+  id, result evidence checksum, validation packet checksum, repo path/branch/head
+  anchors, and closeout status.
+- `run-controlled-executor-fixture` now writes a local run record under
+  `<root>/execution-runs/`, returns its path/checksum, and appends an
+  `execution_run_record` audit event.
+- `closeout-executor-result --run-record-file` validates supplied run records
+  before epoch mutation and rejects task checksum, result checksum, validation
+  checksum, repo anchor, partial-record, and closeout-replay mismatches with
+  stable blocker codes.
+- Successful closeout updates the local run record with closeout status,
+  epoch id/status, and closeout checksum, then appends an
+  `execution_run_record` audit event for the update.
+- Kept run records local and auditable; no remote backend, distributed lock, or
+  real executor invocation was added.
 
 **Validation:**
 - Fixture success produces a run record that closeout accepts.
@@ -235,10 +251,9 @@ git diff --check
 
 ## Recommended Order
 
-1. Task 9, because run evidence should be bound before real executor invocation is considered.
-2. Task 10, because review and CI feedback should become a deterministic plan before response writes exist.
-3. Task 11, because resume verification should bind to the next execution-start decision before cross-session execution is automated.
-4. Task 12, because local ownership records are the lowest-risk first step toward multi-worker coordination.
+1. Task 10, because review and CI feedback should become a deterministic plan before response writes exist.
+2. Task 11, because resume verification should be bound to subsequent governed execution starts before automatic pickup orchestration exists.
+3. Task 12, because local ownership records are the lowest-risk first step toward multi-worker coordination.
 
 ## Boundaries For All Five Tasks
 

@@ -134,17 +134,35 @@ Do not:
 
 ## Execution Run Evidence Needs Binding
 
-Status: active
+Status: fulfilled
+Fulfilled By: Task 9 current-tree `execution-run.v1` and supplied-run-record closeout implementation
 Kind: risk
 Workflow: Controlled executor loop governance
 Time Saved: high
 Risk: high
-Pain: Cadence can start one approved active epoch and can validate or close out local executor evidence, but no run ledger yet binds execution-start, fixture invocation, result validation, and epoch closeout into one replayable chain.
+Pain: Cadence could start one approved active epoch and validate or close out local executor evidence, but it lacked a run ledger binding fixture invocation, result validation, and epoch closeout into one replayable local chain.
 Signals:
 - `start-governed-execution` emits `execution-start.v1` and appends `execution_start_decision` after an approved active epoch start.
 - `run-controlled-executor-fixture`, `validate-executor-result`, and `closeout-executor-result` already write separate local evidence and audit records.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` names Task 9 as the run-evidence binding slice before real executor invocation is considered.
+- Task 9 current-tree work adds local `execution-run.v1` records, supplied-run-record closeout validation, closeout status updates, and `execution_run_record` audit replay support.
 Do not:
 - Do not invoke a real executor, create branches, commit, push, open PRs, auto-merge, release, or publish packages from this backlog entry.
 - Do not treat fixture success or a valid run ledger as approval for named-host adapter support.
 - Do not add distributed locking or remote audit storage before explicit approval.
+
+## Review Feedback Needs A Bounded Response Plan
+
+Kind: risk
+Workflow: PR review and merge readiness
+Time Saved: high
+Risk: high
+Pain: Cadence can sync saved GitHub evidence and evaluate PR readiness, but operators still need a local packet that turns failed checks and unresolved actionable review threads into bounded next work without writing to GitHub.
+Signals:
+- `github-evidence-sync` can save PR JSON and review-thread evidence without mutating GitHub.
+- `pr-readiness` can identify stale checks, failed checks, and unresolved actionable reviewer feedback.
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` names Task 10 as the review feedback response plan slice.
+Do not:
+- Do not resolve review threads, post comments, update PR bodies, create branches, commit, push, merge, release, or publish packages from this backlog entry.
+- Do not spend paid review or invoke review agents from the response-plan packet.
+- Do not treat a response plan as authority to execute work without the existing executor task, approval, epoch, policy, and closeout gates.

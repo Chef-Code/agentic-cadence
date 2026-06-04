@@ -314,8 +314,8 @@ The smallest slices expected to move confidence toward 50% are tracked in
 5. CI/Review Feedback Back Into Candidate Discovery
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete, and Task 8 is complete in the current tree. The bounded public
-roadmap for Tasks 9-12 is `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
+complete, and Tasks 8-9 are complete in the current tree. The bounded public
+roadmap for Tasks 10-12 is `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
 
 ## Roadmap
 
@@ -397,9 +397,12 @@ and `pr_action_started` to false. `start-governed-execution` can then consume
 an exactly approved `generic-executor-task.v1` packet, recheck current repo
 path, branch, `HEAD`, clean worktree, task-carried command and branch policy
 shape, brake state, and active epoch state, start one active epoch, emit
-`execution-start.v1`, and still report `executor_started: false`. Cadence does
-not yet hand work to a real executor, run execution, or drive the full loop from
-election through execution closeout in one command.
+`execution-start.v1`, and still report `executor_started: false`.
+`run-controlled-executor-fixture` can write a local `execution-run.v1` record,
+and `closeout-executor-result --run-record-file` can bind that record to local
+closeout evidence. Cadence does not yet hand work to a real executor, run
+execution, or drive the full loop from election through execution closeout in
+one command.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/candidates.py`,
 `codex_cadence/epochs.py`, `codex_cadence/model.py`,
@@ -432,8 +435,10 @@ and `validate-executor-result` can validate local evidence. Task-packet
 validation now treats the embedded local repo snapshot as a trust anchor by
 validating snapshot shape/readiness, requiring non-empty repo identity,
 absolute cwd/path consistency, branch/head consistency, and rejecting dirty,
-low-confidence, relative-path, or mismatched snapshots. No real executor
-applies code changes yet.
+low-confidence, relative-path, or mismatched snapshots. The controlled fixture
+path now writes local `execution-run.v1` records, and closeout can reject
+supplied run-record mismatches before epoch mutation. No real executor applies
+code changes yet.
 
 Likely files: `docs/adapters.md`, `examples/adapter-template`,
 `examples/adapter-contract-runner`, `codex_cadence/model.py`,
@@ -457,11 +462,13 @@ bound emitted executor task `allowed_paths`, `denied_paths`,
 `allowed_commands`, `denied_commands`, `required_checks`,
 `max_executor_time_minutes`, `stop_conditions`, and a dry-run `branch_policy`
 while retaining built-in safety stops.
-Root-backed `loop-tick`, `start-governed-execution`, and
-`validate-executor-result` append compact `cadence-audit.v1` records to
+Root-backed `loop-tick`, `start-governed-execution`,
+`run-controlled-executor-fixture`, `validate-executor-result`, and
+`closeout-executor-result` append compact `cadence-audit.v1` records to
 `<root>/audit/events.jsonl`; execution-start records include task packet
-checksum and repo branch/head anchors, while result-validation audit records
-include task and result evidence checksums. `audit-replay`
+checksum and repo branch/head anchors, execution-run audit records include run
+record, task, result, and validation checksums, while result-validation audit
+records include task and result evidence checksums. `audit-replay`
 validates that local JSONL history is readable, uses supported record shapes,
 and has valid checksum syntax while reporting stable blockers for corrupt or
 unsupported records. Executor task packets now carry command allow/deny policy
