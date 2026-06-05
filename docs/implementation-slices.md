@@ -1,7 +1,7 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-06-04
+Last updated: 2026-06-05
 Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, and read-only review-response planning current tree
 
 This document tracks the smallest implementation slices expected to move

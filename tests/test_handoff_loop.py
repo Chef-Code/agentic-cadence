@@ -333,6 +333,27 @@ class HandoffLoopTests(unittest.TestCase):
             self.assertIn("resume_verification_stale", {blocker["code"] for blocker in packet["blockers"]})
             self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
 
+    def test_resume_continuation_blocks_missing_resume_packet_once(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+            missing_path = Path(tmp) / "missing-resume-verification.json"
+
+            result, packet = run_cli(
+                tmp,
+                "resume-continuation",
+                "--resume-verification-file",
+                str(missing_path),
+                "--cwd",
+                repo_tmp,
+                "--claimer",
+                "test-agent",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(packet["valid"])
+            codes = [blocker["code"] for blocker in packet["blockers"]]
+            self.assertEqual(codes.count("resume_verification_file_unreadable"), 1)
+
     def test_resume_continuation_blocks_repo_drift_after_saved_resume_packet(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
             init_committed_repo(repo_tmp)

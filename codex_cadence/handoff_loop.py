@@ -1054,6 +1054,16 @@ def resume_continuation(
         max_age_minutes=max_resume_age_minutes,
     )
     blockers.extend(freshness_blockers)
+    if any(blocker.get("code") == "resume_verification_file_unreadable" for blocker in freshness_blockers):
+        return _resume_verification_load_error_packet(
+            root=root,
+            cwd=cwd,
+            resume_verification_file=resume_verification_file,
+            claimer=claimer,
+            max_resume_age_minutes=max_resume_age_minutes,
+            freshness=freshness,
+            blockers=blockers,
+        )
 
     try:
         saved_packet = read_json(resume_verification_file)

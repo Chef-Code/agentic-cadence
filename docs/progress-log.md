@@ -77,6 +77,7 @@ Docs updated:
 - `docs/implementation-slices.md`
 - `docs/progress-log.md`
 - `docs/decision-log.md`
+- `docs/cadence/business-memory.md`
 - `docs/session-handoff.md`
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
 
