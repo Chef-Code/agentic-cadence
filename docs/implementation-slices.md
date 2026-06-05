@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-04
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, and read-only review-response planning current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, and read-only review-response planning current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -354,6 +354,11 @@ Current evidence:
   stable blocker codes for handoff signature/state, clean-square, repo
   branch/head, dirty-worktree, active brake, active epoch, and pickup-policy
   evidence, including persisted resume snapshot binding checks;
+- `resume-continuation` emits a read-only `resume-continuation.v1` packet that
+  consumes a saved resume verifier packet, rechecks handoff id, claimer, repo
+  branch/head, active brake, active epoch state, clean-square evidence, pickup
+  policy, and packet freshness, and recommends `start_governed_execution`
+  without starting an epoch or executor;
 - branch policy is enforced during dry-run planning and immediately before
   operator-approved Git/PR materialization; autonomous branch, commit, push, or
   PR materialization does not exist yet.
@@ -385,6 +390,7 @@ Validation needed:
 - denied command test: complete for Phase 1;
 - stop brake during active loop: complete for Phase 1;
 - resume verifier gate and blocker taxonomy: complete for Phase 1;
+- resume-continuation bridge and blocker taxonomy: complete for Phase 2;
 - audit append ordering;
 - audit replay summary and corrupted audit record handling: complete for Phase
   1 local JSONL records.

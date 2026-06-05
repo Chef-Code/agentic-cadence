@@ -1,8 +1,8 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-06-04
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, and read-only review-response planning current tree
+Last updated: 2026-06-05
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, and read-only review-response planning current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -107,6 +107,10 @@ runtime can do these things end-to-end:
 - verify a handoff pickup with a read-only `verify-resume` packet that checks
   claimed state, clean-square evidence, repo branch/head, dirty worktree state,
   active brake, active epoch state, and pickup-policy evidence;
+- bind a saved `resume-verification.v1` packet to a fresh read-only
+  `resume-continuation.v1` packet that rechecks handoff id, claimer, repo
+  branch/head, brake, active epoch state, clean-square, policy evidence, and
+  packet freshness before recommending governed execution start;
 - approve, claim, complete, or fail handoffs;
 - evaluate saved PR JSON, saved review-thread JSON, and saved PR body/template
   files for readiness, including `saved_input`, `stale`, and caller-asserted
@@ -176,7 +180,7 @@ Agentic Cadence cannot currently:
 | Branch/commit/push/PR creation | Partial, operator-approved only | No autonomous branch/PR writes, no dirty-worktree commit path, no merge, release, or package publication |
 | Review response loop | Partial read-only planning | Saved review files, synced review threads, failed checks, and PR-body evidence can become response-plan items; no automatic response writes |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
-| New-session launch/resume | Partial read-only gate | `prepare-handoff`, clean-square evidence, and `verify-resume` packets exist; external orchestration still launches sessions and performs recommended actions |
+| New-session launch/resume | Partial read-only gates | `prepare-handoff`, clean-square evidence, `verify-resume`, and `resume-continuation.v1` packets exist; external orchestration still launches sessions and performs recommended actions |
 
 ## Can It Run The Full Loop Today?
 
@@ -192,8 +196,9 @@ result evidence, close out the active epoch with supplied run-record binding,
 produce a dry-run Git/PR transition plan for separate review, and
 materialize that plan only after exact target-bound operator approval and local
 rechecks. It can
-govern handoff and continuation decisions, including a read-only resume gate
-that returns stable blocker codes before a fresh session continues. It can
+govern handoff and continuation decisions, including read-only resume and
+resume-continuation gates that return stable blocker codes before a fresh
+session continues or external orchestration starts governed execution. It can
 evaluate saved PR evidence and fetch read-only live PR/check/review-thread
 evidence into saved files, then turn saved failed-check, review-thread, and
 PR-body evidence into read-only response-plan items. It cannot perform the core
@@ -222,8 +227,9 @@ dry-run `git-pr-plan` handoff remains
 review-only until an operator invokes `git-pr-materialize` with a matching plan
 approval token. Real code changes, autonomous Git/PR materialization,
 dirty-worktree commits, review feedback response writes, and new-session launch
-remain external or future-approved slices. Resume verification can block stale or
-mismatched pickup state, but it does not claim handoffs or launch sessions. At
+remain external or future-approved slices. Resume verification and
+resume-continuation can block stale or mismatched pickup state, but they do not
+claim handoffs, start epochs, invoke executors, or launch sessions. At
 `policy_denied`, an operator must adjust the task bounds or policy before
 execution can be considered. Audit history is now locally inspectable through
 `audit-replay`, but clean replay evidence is not approval to execute work and

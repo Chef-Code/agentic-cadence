@@ -172,15 +172,18 @@ Do not:
 
 ## Resume Verification Needs An Execution Continuation Gate
 
+Status: fulfilled
+Fulfilled By: Task 11 current-tree `resume-continuation.v1` implementation
 Kind: risk
 Workflow: Context-window shutdown and pickup
 Time Saved: high
 Risk: high
-Pain: Cadence can verify resume evidence and separately start governed execution, but there is not yet a deterministic packet that binds a successful resume verification to a subsequent governed execution-start decision.
+Pain: Cadence could verify resume evidence and separately start governed execution, but it lacked a deterministic packet that binds a successful resume verification to a subsequent governed execution-start decision.
 Signals:
 - `verify-resume` can inspect claimed or ready handoffs without mutating them.
 - `start-governed-execution` can consume an approved generic executor task and start one active epoch without invoking a real executor.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` names Task 11 as the resume-to-execution continuation gate.
+- Task 11 current-tree work adds read-only `resume-continuation.v1` packets that recheck saved resume verifier anchors before recommending `start_governed_execution`.
 Do not:
 - Do not launch a new session, claim handoffs implicitly, invoke an executor, create branches, commit, push, open PRs, merge, release, or publish packages from this backlog entry.
 - Do not treat a resume verification packet as fresh forever; continuation must recheck repo, handoff, brake, clean-square, policy, and active epoch state.

@@ -20,6 +20,9 @@
 - PR #71 completed the Tasks 8-12 planning handoff from the previous roadmap.
 - PR #72 completed Task 8 by adding governed execution-start epoch gating.
 - PR #73 completed Task 9 by adding local execution-run evidence binding.
+- PR #74 completed Task 10 by adding read-only review feedback response
+  planning.
+- PR #75 completed GitHub Actions cost controls.
 - Task 8 current-tree work adds `start-governed-execution` and
   `execution-start.v1` epoch-start gating while keeping real executor
   invocation out of scope.
@@ -29,6 +32,9 @@
 - Task 10 current-tree work adds read-only `review-response-plan.v1` packets
   while keeping GitHub writes, review-agent invocation, and executor invocation
   out of scope.
+- Task 11 current-tree work adds read-only `resume-continuation.v1` packets
+  while keeping session launch, epoch start, executor invocation, and Git/PR
+  writes out of scope.
 - Current unattended-operation confidence remains 10%.
 
 ## Phase Ladder
@@ -182,7 +188,7 @@ git diff --check
 
 ## Task 11: Add Resume-To-Execution Continuation Gate
 
-**Status:** Planned.
+**Status:** Complete in current tree.
 
 **Phase:** Phase 2 governed execution across sessions.
 
@@ -197,10 +203,17 @@ git diff --check
 - Docs: `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`, `docs/implementation-slices.md`, `docs/progress-log.md`, `docs/decision-log.md`
 
 **Implementation outline:**
-- Add a local `resume-continuation.v1` gate that consumes a saved `resume-verification.v1` packet and rechecks handoff id, claimer, repo branch/head, active brake, active epoch state, clean-square evidence, and packet freshness.
-- Let the packet recommend `start_governed_execution`, `claim_handoff`, `approve_handoff`, `recreate_handoff`, `close_or_fail_active_epoch`, or `inspect_resume_blockers`.
-- Do not launch a new session or invoke an executor.
-- Do not claim handoffs implicitly; any state mutation must remain an explicit public CLI action.
+- Added a local `resume-continuation.v1` gate that consumes a saved
+  `resume-verification.v1` packet and rechecks handoff id, claimer, repo
+  branch/head, dirty-worktree state, active brake, active epoch state,
+  clean-square evidence, pickup-policy evidence, and packet freshness.
+- The packet recommends `start_governed_execution`, `claim_handoff`,
+  `approve_handoff`, `recreate_handoff`, `close_or_fail_active_epoch`, or
+  `inspect_resume_blockers`.
+- It reports `read_only: true`, `executor_started: false`,
+  `epoch_started: false`, and `side_effects: []`.
+- It does not launch a new session, invoke an executor, start an epoch, or claim
+  handoffs implicitly; any state mutation remains an explicit public CLI action.
 
 **Validation:**
 - Fresh matching resume verification recommends governed execution start.
@@ -257,8 +270,8 @@ git diff --check
 
 ## Recommended Order
 
-1. Task 11, because resume verification should be bound to subsequent governed execution starts before automatic pickup orchestration exists.
-2. Task 12, because local ownership records are the lowest-risk first step toward multi-worker coordination.
+1. Task 12, because local ownership records are the lowest-risk first step
+   toward multi-worker coordination.
 
 ## Boundaries For All Five Tasks
 
