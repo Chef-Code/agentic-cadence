@@ -571,6 +571,11 @@ REQUIRED_TOKENS = {
         "codex_review_preflight.py",
         "needs: preflight",
         "needs.preflight.outputs.should_run == 'true'",
+        "preflight_notice",
+        "post_feedback",
+        "fork_notice",
+        "timeout-minutes: 2",
+        "timeout-minutes: 5",
         "timeout-minutes: 20",
         "Check live PR state",
         "Re-check live PR state before paid review",
@@ -616,6 +621,7 @@ REQUIRED_TOKENS = {
         "cancel-in-progress: true",
         "timeout-minutes: 15",
         "Classify changed paths",
+        "persist-credentials: false",
         "code_required",
         "package_required",
         "Skip expensive code checks for docs-only changes",
@@ -978,6 +984,17 @@ def validate_codex_review_workflow(errors: list[str]) -> None:
     fork_notice_condition = fork_notice_block.split("    runs-on:", 1)[0]
     if "github.event.action == 'labeled'" not in fork_notice_condition:
         errors.append(f"{relative} fork notice must run only on labeled elected events")
+
+    for job_name, timeout_minutes in (
+        ("preflight", "5"),
+        ("preflight_notice", "2"),
+        ("codex", "20"),
+        ("post_feedback", "5"),
+        ("fork_notice", "2"),
+    ):
+        job_block = indented_block_after(visible_text, f"  {job_name}:")
+        if f"timeout-minutes: {timeout_minutes}" not in job_block:
+            errors.append(f"{relative} {job_name} must have timeout-minutes: {timeout_minutes}")
 
     try:
         preflight_index = text.index("python ../trusted-preflight/scripts/codex_review_preflight.py")

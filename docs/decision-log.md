@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-06-04
+Last updated: 2026-06-05
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption

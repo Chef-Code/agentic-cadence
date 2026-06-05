@@ -830,6 +830,7 @@ class CiChecksTests(unittest.TestCase):
             "group: pr-checks-${{ github.event.pull_request.number }}",
             "cancel-in-progress: true",
             "Classify changed paths",
+            "persist-credentials: false",
             "code_required",
             "Skip expensive code checks for docs-only changes",
             "git diff --check",
@@ -840,6 +841,7 @@ class CiChecksTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIn(token, text)
+        self.assertEqual(text.count("persist-credentials: false"), 2)
 
     def test_release_dry_run_workflow_is_manual_read_only_and_artifacted(self):
         workflow = ROOT / ".github" / "workflows" / "release-dry-run.yml"
@@ -1166,6 +1168,11 @@ class CiChecksTests(unittest.TestCase):
             "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
             "concurrency:",
             "cancel-in-progress: >-",
+            "preflight_notice",
+            "post_feedback",
+            "fork_notice",
+            "timeout-minutes: 2",
+            "timeout-minutes: 5",
             "codex_review_preflight.py",
             "needs: preflight",
             "needs.preflight.outputs.should_run == 'true'",
@@ -1361,6 +1368,11 @@ class CiChecksTests(unittest.TestCase):
                     1,
                 ),
                 "synchronize must be cancel-only",
+            ),
+            (
+                "missing_auxiliary_timeout",
+                lambda text: text.replace("    timeout-minutes: 2\n    needs: preflight", "    needs: preflight", 1),
+                "preflight_notice must have timeout-minutes: 2",
             ),
         )
 
