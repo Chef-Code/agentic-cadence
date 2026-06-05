@@ -52,6 +52,36 @@ class CodexReviewPreflightTests(unittest.TestCase):
         self.assertTrue(decision["should_run"])
         self.assertEqual(decision["reason"], "operator_elected")
 
+    def test_alias_labels_are_normalized_for_election_and_force(self):
+        self.assertEqual(
+            self.preflight.normalize_labels([" Elect-Codex-Review ", " FORCE-CODEX-REVIEW "]),
+            {"elect-codex-review", "force-codex-review"},
+        )
+
+        elected = self.preflight.decide_preflight(
+            head_sha="abc123",
+            changed_files=["codex_cadence/store.py"],
+            comments=[],
+            comments_available=True,
+            pr_title="Update store",
+            pr_body="",
+            labels=[" Elect-Codex-Review "],
+        )
+        forced = self.preflight.decide_preflight(
+            head_sha="abc123",
+            changed_files=["docs/protocol.md"],
+            comments=[],
+            comments_available=True,
+            pr_title="Docs update",
+            pr_body="",
+            labels=[" FORCE-CODEX-REVIEW "],
+        )
+
+        self.assertTrue(elected["should_run"])
+        self.assertEqual(elected["reason"], "operator_elected")
+        self.assertTrue(forced["should_run"])
+        self.assertEqual(forced["reason"], "force_requested")
+
     def test_skips_duplicate_review_for_same_head_and_dedupe_key(self):
         changed_files = ["codex_cadence/store.py"]
         dedupe_key = self.preflight.compute_dedupe_key("abc123", changed_files)

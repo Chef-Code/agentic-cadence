@@ -2,18 +2,35 @@ name: Codex Review
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
+    branches: [main]
+    types: [labeled, synchronize]
 
 permissions:
   contents: read
 
 concurrency:
   group: codex-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: >-
+    ${{
+      github.event.action == 'synchronize' ||
+      github.event.label.name == 'codex-review-elect' ||
+      github.event.label.name == 'elect-codex-review' ||
+      github.event.label.name == 'codex-review-force' ||
+      github.event.label.name == 'force-codex-review'
+    }}
 
 jobs:
   preflight:
-    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (
+        github.event.label.name == 'codex-review-elect' ||
+        github.event.label.name == 'elect-codex-review' ||
+        github.event.label.name == 'codex-review-force' ||
+        github.event.label.name == 'force-codex-review'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -98,6 +115,7 @@ jobs:
   preflight_notice:
     if: needs.preflight.outputs.should_run == 'false'
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     needs: preflight
     steps:
       - name: Explain skipped Codex review
@@ -212,6 +230,7 @@ jobs:
   post_feedback:
     if: needs.codex.outputs.final_message != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [codex, preflight]
     permissions:
       issues: write
@@ -238,8 +257,18 @@ jobs:
           CODEX_REVIEW_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
 
   fork_notice:
-    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name != github.repository
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name != github.repository &&
+      (
+        github.event.label.name == 'codex-review-elect' ||
+        github.event.label.name == 'elect-codex-review' ||
+        github.event.label.name == 'codex-review-force' ||
+        github.event.label.name == 'force-codex-review'
+      )
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     steps:
       - name: Explain skipped Codex review
         run: echo "Codex Review skipped for fork PRs because pull_request_target must not expose repository secrets to untrusted PR code."
