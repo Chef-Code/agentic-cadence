@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, operator-approved `git-pr-materialize`, read-only `verify-resume`, and a fixture-only controlled executor runner for tests and examples.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, operator-approved `git-pr-materialize`, read-only `verify-resume`, read-only `resume-continuation`, and a fixture-only controlled executor runner for tests and examples.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -418,6 +418,34 @@ invalid resume snapshot, clean-square, or policy evidence recommends
 The command does not claim, complete, fail, or recreate handoffs; it does not
 launch a new session, infer host context pressure, start or invoke an executor,
 create branches, write pull requests, merge, release, or publish packages.
+
+## Resume Continuation
+
+`resume-continuation` is the read-only bridge from a saved
+`resume-verification.v1` packet to the next governed execution-start decision.
+It consumes a saved verifier packet, rechecks the handoff id, claimer, repo
+branch and `HEAD`, dirty-worktree state, active brake, active epoch state,
+clean-square evidence, pickup policy, and packet freshness, then emits a
+`resume-continuation.v1` packet:
+
+```bash
+agentic-cadence --root <runtime-root> resume-continuation --resume-verification-file resume-verification.json --cwd . --claimer codex
+```
+
+A fresh matching packet exits `0` with `recommended_next_action:
+start_governed_execution`, `executor_started: false`, `epoch_started: false`,
+and `side_effects: []`. Blockers exit `2` and recommend only
+`claim_handoff`, `approve_handoff`, `recreate_handoff`,
+`close_or_fail_active_epoch`, or `inspect_resume_blockers`. Stable blocker
+codes include `resume_verification_stale`,
+`resume_verification_not_resumable`, `resume_claimer_mismatch`,
+`resume_verification_anchor_mismatch`, and the forwarded verifier blockers
+such as `repo_head_mismatch`, `clean_square_missing`,
+`policy_approval_missing`, `active_brake_stop`, and
+`active_epoch_exists` or `active_epoch_conflict`.
+
+The command does not claim handoffs, launch sessions, start epochs, invoke an
+executor, create branches, push, open PRs, merge, release, or publish packages.
 
 ## GitHub Evidence Sync
 

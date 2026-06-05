@@ -1,7 +1,10 @@
+import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -36,6 +39,11 @@ def git(cwd, *args):
 
 def current_head(path):
     return git(path, "rev-parse", "HEAD").stdout.strip()
+
+
+def checksum_json(data):
+    payload = json.dumps(data, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def init_committed_repo(path):
@@ -89,6 +97,21 @@ class HandoffLoopTests(unittest.TestCase):
         result, packet = run_cli(root, "claim-handoff", handoff_id, "--claimer", claimer)
         self.assertEqual(result.returncode, 0, result.stderr)
         return packet
+
+    def write_resume_verification_packet(self, root, repo_tmp, *, handoff_id="context-loop", claimer="test-agent"):
+        result, packet = run_cli(
+            root,
+            "verify-resume",
+            handoff_id,
+            "--cwd",
+            repo_tmp,
+            "--claimer",
+            claimer,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        path = Path(root) / "resume-verification.json"
+        path.write_text(json.dumps(packet), encoding="utf-8")
+        return path, packet
 
     def test_seed_message_includes_repo_and_pickup_state(self):
         snapshot = {
@@ -236,6 +259,232 @@ class HandoffLoopTests(unittest.TestCase):
             self.assertEqual(packet["policy_evidence"]["status"], "verified")
             self.assertEqual(before["claimed"], claimed_path.read_text(encoding="utf-8"))
             self.assertEqual(before["clean_square"], clean_square_path.read_text(encoding="utf-8"))
+
+    def test_resume_continuation_allows_fresh_matching_resume_packet_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+            self.prepare_resume_handoff(tmp, repo_tmp)
+            self.claim_resume_handoff(tmp)
+            resume_path, resume_packet = self.write_resume_verification_packet(tmp, repo_tmp)
+            claimed_path = Path(tmp) / "handoffs" / "claimed" / "context-loop.json"
+            clean_square_path = Path(tmp) / "logs" / "clean-square" / "context-loop.json"
+            before = {
+                "claimed": claimed_path.read_text(encoding="utf-8"),
+                "clean_square": clean_square_path.read_text(encoding="utf-8"),
+                "active_epochs": sorted(path.name for path in (Path(tmp) / "epochs" / "active").glob("*.json")),
+            }
+
+            result, packet = run_cli(
+                tmp,
+                "resume-continuation",
+                "--resume-verification-file",
+                str(resume_path),
+                "--cwd",
+                repo_tmp,
+                "--claimer",
+                "test-agent",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(packet["schema_version"], "resume-continuation.v1")
+            self.assertEqual(packet["packet"], "resume_continuation")
+            self.assertTrue(packet["read_only"])
+            self.assertTrue(packet["valid"])
+            self.assertTrue(packet["continuable"])
+            self.assertEqual(packet["handoff_id"], "context-loop")
+            self.assertEqual(packet["claimer"], "test-agent")
+            self.assertEqual(packet["blockers"], [])
+            self.assertEqual(packet["recommended_next_action"], "start_governed_execution")
+            self.assertEqual(packet["resume_verification"]["schema_version"], "resume-verification.v1")
+            self.assertEqual(packet["resume_verification"]["checksum"], packet["fresh_resume_verification"]["checksum"])
+            self.assertEqual(packet["resume_verification"]["checksum"], checksum_json(resume_packet))
+            self.assertFalse(packet["executor_started"])
+            self.assertEqual(packet["side_effects"], [])
+            self.assertEqual(before["claimed"], claimed_path.read_text(encoding="utf-8"))
+            self.assertEqual(before["clean_square"], clean_square_path.read_text(encoding="utf-8"))
+            self.assertEqual(before["active_epochs"], sorted(path.name for path in (Path(tmp) / "epochs" / "active").glob("*.json")))
+
+    def test_resume_continuation_blocks_stale_resume_packet(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+            self.prepare_resume_handoff(tmp, repo_tmp)
+            self.claim_resume_handoff(tmp)
+            resume_path, _resume_packet = self.write_resume_verification_packet(tmp, repo_tmp)
+            old = time.time() - 3600
+            os.utime(resume_path, (old, old))
+
+            result, packet = run_cli(
+                tmp,
+                "resume-continuation",
+                "--resume-verification-file",
+                str(resume_path),
+                "--cwd",
+                repo_tmp,
+                "--claimer",
+                "test-agent",
+                "--max-resume-age-minutes",
+                "5",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertFalse(packet["continuable"])
+            self.assertEqual(packet["recommended_next_action"], "inspect_resume_blockers")
+            self.assertIn("resume_verification_stale", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_resume_continuation_blocks_missing_resume_packet_once(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+            missing_path = Path(tmp) / "missing-resume-verification.json"
+
+            result, packet = run_cli(
+                tmp,
+                "resume-continuation",
+                "--resume-verification-file",
+                str(missing_path),
+                "--cwd",
+                repo_tmp,
+                "--claimer",
+                "test-agent",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(packet["valid"])
+            codes = [blocker["code"] for blocker in packet["blockers"]]
+            self.assertEqual(codes.count("resume_verification_file_unreadable"), 1)
+
+    def test_resume_continuation_blocks_repo_drift_after_saved_resume_packet(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+            self.prepare_resume_handoff(tmp, repo_tmp)
+            self.claim_resume_handoff(tmp)
+            resume_path, _resume_packet = self.write_resume_verification_packet(tmp, repo_tmp)
+            (Path(repo_tmp) / "README.md").write_text("advanced after resume verification\n", encoding="utf-8")
+            git(repo_tmp, "add", "README.md")
+            git(repo_tmp, "commit", "-m", "advance after resume verification")
+
+            result, packet = run_cli(
+                tmp,
+                "resume-continuation",
+                "--resume-verification-file",
+                str(resume_path),
+                "--cwd",
+                repo_tmp,
+                "--claimer",
+                "test-agent",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertFalse(packet["continuable"])
+            self.assertEqual(packet["recommended_next_action"], "recreate_handoff")
+            codes = {blocker["code"] for blocker in packet["blockers"]}
+            self.assertIn("repo_head_mismatch", codes)
+            self.assertIn("resume_verification_anchor_mismatch", codes)
+
+    def test_resume_continuation_blocks_existing_active_epoch_before_start(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+            self.prepare_resume_handoff(tmp, repo_tmp)
+            self.claim_resume_handoff(tmp)
+            resume_path, _resume_packet = self.write_resume_verification_packet(tmp, repo_tmp)
+            active_dir = Path(tmp) / "epochs" / "active"
+            active_dir.mkdir(parents=True, exist_ok=True)
+            active_epoch = {
+                "id": "epoch-existing",
+                "status": "ACTIVE",
+                "repo": "local/test",
+                "branch": "main",
+                "snapshot_before": {"id": "snapshot-before", "head": current_head(repo_tmp)},
+            }
+            (active_dir / "epoch-existing.json").write_text(json.dumps(active_epoch), encoding="utf-8")
+
+            result, packet = run_cli(
+                tmp,
+                "resume-continuation",
+                "--resume-verification-file",
+                str(resume_path),
+                "--cwd",
+                repo_tmp,
+                "--claimer",
+                "test-agent",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertFalse(packet["continuable"])
+            self.assertEqual(packet["recommended_next_action"], "close_or_fail_active_epoch")
+            codes = {blocker["code"] for blocker in packet["blockers"]}
+            self.assertIn("active_epoch_exists", codes)
+            self.assertIn("resume_verification_anchor_mismatch", codes)
+
+    def test_resume_continuation_blocks_different_claimer_without_claiming_handoff(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+            self.prepare_resume_handoff(tmp, repo_tmp)
+            self.claim_resume_handoff(tmp)
+            resume_path, _resume_packet = self.write_resume_verification_packet(tmp, repo_tmp)
+            claimed_path = Path(tmp) / "handoffs" / "claimed" / "context-loop.json"
+            before = claimed_path.read_text(encoding="utf-8")
+
+            result, packet = run_cli(
+                tmp,
+                "resume-continuation",
+                "--resume-verification-file",
+                str(resume_path),
+                "--cwd",
+                repo_tmp,
+                "--claimer",
+                "other-agent",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["recommended_next_action"], "inspect_resume_blockers")
+            codes = {blocker["code"] for blocker in packet["blockers"]}
+            self.assertIn("resume_claimer_mismatch", codes)
+            self.assertIn("handoff_claimed_by_other", codes)
+            self.assertEqual(before, claimed_path.read_text(encoding="utf-8"))
+
+    def test_resume_continuation_preserves_next_action_for_non_resumable_saved_packet(self):
+        cases = [
+            (
+                ["multiple_files"],
+                "claim_handoff",
+            ),
+            (
+                ["cross_subsystem", "migration"],
+                "approve_handoff",
+            ),
+        ]
+        for drivers, expected_action in cases:
+            with self.subTest(expected_action=expected_action):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+                    init_committed_repo(repo_tmp)
+                    self.prepare_resume_handoff(tmp, repo_tmp, drivers=drivers)
+                    verify_result, resume_packet = run_cli(tmp, "verify-resume", "context-loop", "--cwd", repo_tmp)
+                    self.assertEqual(verify_result.returncode, 2, verify_result.stderr)
+                    self.assertFalse(resume_packet["resumable"])
+                    self.assertEqual(resume_packet["recommended_next_action"], expected_action)
+                    resume_path = Path(tmp) / "resume-verification.json"
+                    resume_path.write_text(json.dumps(resume_packet), encoding="utf-8")
+
+                    result, packet = run_cli(
+                        tmp,
+                        "resume-continuation",
+                        "--resume-verification-file",
+                        str(resume_path),
+                        "--cwd",
+                        repo_tmp,
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(packet["valid"])
+                    self.assertFalse(packet["continuable"])
+                    self.assertEqual(packet["recommended_next_action"], expected_action)
+                    self.assertIn("resume_verification_not_resumable", {blocker["code"] for blocker in packet["blockers"]})
+                    self.assertFalse((Path(tmp) / "handoffs" / "claimed" / "context-loop.json").exists())
 
     def test_verify_resume_rejects_tampered_resume_snapshot_metadata(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:

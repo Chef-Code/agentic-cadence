@@ -45,7 +45,12 @@ from codex_cadence.epochs import policy_limit
 from codex_cadence.epochs import REPO_CONFIDENCE_VALUES, UNCERTAINTY_VALUES
 from codex_cadence.epochs import start_epoch as start_epoch_record
 from codex_cadence.epochs import validate_snapshot_after_epoch
-from codex_cadence.handoff_loop import prepare_handoff, verify_resume
+from codex_cadence.handoff_loop import (
+    DEFAULT_RESUME_CONTINUATION_MAX_AGE_MINUTES,
+    prepare_handoff,
+    resume_continuation,
+    verify_resume,
+)
 from codex_cadence.model import BUCKETS, TASK_TYPES, estimate_task, governance_permissions, policy_for_bucket
 from codex_cadence.policy_audit import (
     append_audit_record,
@@ -1247,6 +1252,18 @@ def verify_resume_command(args: argparse.Namespace) -> int:
     return 0 if packet["resumable"] else 2
 
 
+def resume_continuation_command(args: argparse.Namespace) -> int:
+    packet = resume_continuation(
+        root=args.root,
+        cwd=Path(args.cwd),
+        resume_verification_file=Path(args.resume_verification_file),
+        claimer=args.claimer,
+        max_resume_age_minutes=args.max_resume_age_minutes,
+    )
+    emit(packet)
+    return 0 if packet["valid"] else 2
+
+
 def choose_interactive_intent() -> str:
     print("Choose discovery intent:", file=sys.stderr)
     for index, intent in enumerate(DISCOVERY_INTENTS, start=1):
@@ -2262,6 +2279,20 @@ def build_parser() -> argparse.ArgumentParser:
     verify_resume_parser.add_argument("--cwd", default=".")
     verify_resume_parser.add_argument("--claimer")
     verify_resume_parser.set_defaults(func=verify_resume_command)
+
+    resume_continuation_parser = subparsers.add_parser(
+        "resume-continuation",
+        help="Read-only gate that binds a saved resume verification to governed execution start",
+    )
+    resume_continuation_parser.add_argument("--resume-verification-file", required=True)
+    resume_continuation_parser.add_argument("--cwd", default=".")
+    resume_continuation_parser.add_argument("--claimer")
+    resume_continuation_parser.add_argument(
+        "--max-resume-age-minutes",
+        type=non_negative_int,
+        default=DEFAULT_RESUME_CONTINUATION_MAX_AGE_MINUTES,
+    )
+    resume_continuation_parser.set_defaults(func=resume_continuation_command)
 
     clean_parser = subparsers.add_parser("clean-square", help="Record old-session shutdown after handoff")
     clean_parser.add_argument("handoff_id")

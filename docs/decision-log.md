@@ -28,6 +28,52 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-05 - Bind resume evidence before governed execution start
+
+Decision:
+- Add `resume-continuation` as a read-only `resume-continuation.v1` gate that
+  consumes a saved `resume-verification.v1` packet and rechecks the current
+  runtime before recommending governed execution start.
+- Require rechecks for handoff id, claimer, repo branch/head, dirty worktree,
+  active brake, active epoch state, clean-square evidence, pickup policy, and
+  packet freshness.
+- Limit recommendations to `start_governed_execution`, `claim_handoff`,
+  `approve_handoff`, `recreate_handoff`, `close_or_fail_active_epoch`, and
+  `inspect_resume_blockers`.
+- Keep session launch, implicit handoff claim, epoch start, executor
+  invocation, Git/PR writes, merge, release, and package publication outside
+  the command.
+
+Why:
+- A successful resume verification can become stale before the next action if
+  the branch, `HEAD`, brake, clean-square, policy, claimer, or active epoch
+  state changes.
+- The next session needs a stable bridge from pickup evidence to
+  `start-governed-execution`, but that bridge should not grant execution
+  authority by itself.
+
+Alternatives considered:
+- Let `verify-resume` directly recommend `start_governed_execution`. Rejected
+  because saved verifier packets need freshness and anchor rechecks at the
+  continuation boundary.
+- Start an epoch from the continuation gate. Rejected because Task 8 already
+  defines the write-side epoch-start command and its approval gates.
+- Claim a ready handoff from continuation when the saved verifier recommends
+  `claim_handoff`. Rejected because handoff ownership remains an explicit
+  public state mutation.
+
+Consequences:
+- External orchestration can now require a fresh continuation packet before
+  handing a resumed task to the governed execution-start flow.
+- Continuation packets are auditable local evidence, but they are not approval
+  to invoke a real executor or mutate GitHub.
+
+Open questions:
+- Should Task 12 ownership records later become an input to
+  `resume-continuation`, or remain a separate read-only ownership status gate?
+- What authenticated approval shape should eventually bind a continuation
+  packet, task approval, execution-start audit record, and run evidence?
+
 ## 2026-06-05 - Slow GitHub Actions spend without weakening required checks
 
 Decision:

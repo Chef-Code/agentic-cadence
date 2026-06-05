@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-04
+Last updated: 2026-06-05
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,54 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-05 - Add resume continuation gate
+
+Summary:
+- Added read-only `resume-continuation.v1` packets that consume a saved
+  `resume-verification.v1` packet and recheck handoff id, claimer, repo
+  branch/head, active brake, active epoch state, clean-square evidence,
+  pickup-policy evidence, and packet freshness.
+- A fresh matching packet recommends `start_governed_execution` while still
+  reporting `executor_started: false`, `epoch_started: false`, and
+  `side_effects: []`.
+- Stale packets, repo drift, different claimers, and non-resumable saved
+  verifier packets block with stable codes such as
+  `resume_verification_stale`, `resume_verification_not_resumable`,
+  `resume_claimer_mismatch`, and `resume_verification_anchor_mismatch`.
+
+Completed slices:
+- Task 11 current-tree implementation: resume-to-execution continuation gate.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Cadence can now bind resume evidence to a governed execution-start
+  recommendation, but it still cannot launch sessions, invoke a real executor,
+  implement changes, write PRs, auto-merge, release, or publish packages.
+
+Evidence:
+- `python -m py_compile codex_cadence/handoff_loop.py codex_cadence/cli.py codex_cadence/epochs.py codex_cadence/policy_audit.py`
+- `python -m unittest tests.test_handoff_loop tests.test_cadence tests.test_epochs -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- The packet is a read-only bridge only. It does not claim handoffs, start
+  epochs, invoke executors, create branches, push, open PRs, merge, release, or
+  publish packages.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+- `docs/cadence/business-memory.md`
+- `docs/session-handoff.md`
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
 
 ## 2026-06-04 - Add review feedback response plan
 

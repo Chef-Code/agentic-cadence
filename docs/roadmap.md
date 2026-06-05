@@ -1,8 +1,8 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-04
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, and read-only review-response planning current tree
+Last updated: 2026-06-05
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, and read-only review-response planning current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -574,7 +574,11 @@ Current evidence: `verify-resume` emits a read-only
 actions for handoff signature/state, claimed-record content, clean-square
 evidence, persisted resume snapshot binding, current repo branch/head,
 dirty-worktree state, active brake, active epoch state, and pickup-policy
-evidence. Session launch and resume orchestration remain external.
+evidence. `resume-continuation` consumes saved verifier packets, rechecks
+handoff id, claimer, repo branch/head, active brake, active epoch state,
+clean-square evidence, policy evidence, and packet freshness, then emits
+`resume-continuation.v1` with `start_governed_execution` only when the anchors
+still match. Session launch and resume orchestration remain external.
 
 Likely files: `codex_cadence/handoff_loop.py`, `codex_cadence/cli.py`,
 `codex_cadence/store.py`, tests, docs.
@@ -583,9 +587,9 @@ Validation: stale SHA, wrong branch, dirty worktree, double claim, missing
 approval, failed clean-square, malformed readable evidence, invalid resume
 snapshot, and active epoch mismatch fixtures.
 
-Follow-up: Task 11 in `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
-should bind a successful resume verification packet to a subsequent governed
-execution-start decision without launching a session or invoking an executor.
+Follow-up: Task 12 in `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
+should add local work ownership records before role-aware multi-worker
+coordination exists.
 
 ## Long-Term Goals
 

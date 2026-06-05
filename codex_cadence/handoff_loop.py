@@ -32,6 +32,44 @@ from codex_cadence.store import (
 )
 
 RESUME_VERIFICATION_SCHEMA_VERSION = "resume-verification.v1"
+RESUME_CONTINUATION_SCHEMA_VERSION = "resume-continuation.v1"
+DEFAULT_RESUME_CONTINUATION_MAX_AGE_MINUTES = 60
+
+RESUME_CONTINUATION_ACTIONS = {
+    "start_governed_execution",
+    "claim_handoff",
+    "approve_handoff",
+    "recreate_handoff",
+    "close_or_fail_active_epoch",
+    "inspect_resume_blockers",
+}
+
+_RESUME_CONTINUATION_ANCHORS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("handoff_id", ("handoff_id",)),
+    ("handoff.state", ("handoff", "state")),
+    ("handoff.status", ("handoff", "status")),
+    ("handoff.claimed_by", ("handoff", "claimed_by")),
+    ("handoff.signature_valid", ("handoff", "signature_valid")),
+    ("clean_square.present", ("clean_square", "present")),
+    ("clean_square.valid", ("clean_square", "valid")),
+    ("clean_square.created_at", ("clean_square", "created_at")),
+    ("repository.expected_repo", ("repository", "expected_repo")),
+    ("repository.expected_branch", ("repository", "expected_branch")),
+    ("repository.expected_head", ("repository", "expected_head")),
+    ("repository.current_branch", ("repository", "current_branch")),
+    ("repository.current_head", ("repository", "current_head")),
+    ("repository.dirty_worktree", ("repository", "dirty_worktree")),
+    ("repository.snapshot_id", ("repository", "snapshot_id")),
+    ("repository.snapshot_checksum", ("repository", "snapshot_checksum")),
+    ("cadence.brake_status", ("cadence", "brake_status")),
+    ("cadence.state", ("cadence", "state")),
+    ("active_epoch.count", ("active_epoch", "count")),
+    ("active_epoch.epochs", ("active_epoch", "epochs")),
+    ("policy_evidence.status", ("policy_evidence", "status")),
+    ("policy_evidence.approval_required", ("policy_evidence", "approval_required")),
+    ("policy_evidence.approval_present", ("policy_evidence", "approval_present")),
+    ("policy_evidence.estimate_checksum", ("policy_evidence", "estimate_checksum")),
+)
 
 
 def _format_bool(value: Any) -> str:
@@ -776,6 +814,476 @@ def verify_resume(
         "policy_evidence": policy_evidence,
         "blockers": blockers,
         "recommended_next_action": recommended_next_action,
+    }
+
+
+def _nested_value(data: dict[str, Any], path: tuple[str, ...]) -> Any:
+    value: Any = data
+    for key in path:
+        if not isinstance(value, dict):
+            return None
+        value = value.get(key)
+    return value
+
+
+def _resume_verification_freshness(
+    path: Path,
+    *,
+    max_age_minutes: int | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    blockers: list[dict[str, Any]] = []
+    evidence: dict[str, Any] = {
+        "path": str(path),
+        "max_age_minutes": max_age_minutes,
+        "mtime": None,
+        "age_seconds": None,
+        "fresh": False,
+    }
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        blockers.append(
+            _resume_blocker(
+                "resume_verification_file_unreadable",
+                f"resume verification file could not be statted: {exc}",
+                path=str(path),
+            )
+        )
+        return evidence, blockers
+
+    now = datetime.now(timezone.utc)
+    mtime = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
+    age_seconds = (now - mtime).total_seconds()
+    evidence.update(
+        {
+            "mtime": mtime.isoformat().replace("+00:00", "Z"),
+            "age_seconds": round(age_seconds, 3),
+            "fresh": True,
+        }
+    )
+    if age_seconds < -60:
+        evidence["fresh"] = False
+        blockers.append(
+            _resume_blocker(
+                "resume_verification_from_future",
+                "resume verification file mtime is in the future",
+                path=str(path),
+                age_seconds=round(age_seconds, 3),
+            )
+        )
+    if max_age_minutes is not None and age_seconds > max_age_minutes * 60:
+        evidence["fresh"] = False
+        blockers.append(
+            _resume_blocker(
+                "resume_verification_stale",
+                "resume verification packet is older than the allowed freshness window",
+                path=str(path),
+                age_seconds=round(age_seconds, 3),
+                max_age_minutes=max_age_minutes,
+            )
+        )
+    return evidence, blockers
+
+
+def _resume_verification_load_error_packet(
+    *,
+    root: Path,
+    cwd: Path,
+    resume_verification_file: Path,
+    claimer: str | None,
+    max_resume_age_minutes: int | None,
+    blockers: list[dict[str, Any]],
+    freshness: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": RESUME_CONTINUATION_SCHEMA_VERSION,
+        "packet": "resume_continuation",
+        "handoff_id": None,
+        "claimer": claimer,
+        "valid": False,
+        "continuable": False,
+        "read_only": True,
+        "executor_started": False,
+        "epoch_started": False,
+        "pr_action_started": False,
+        "resume_verification": {
+            "path": str(resume_verification_file),
+            "checksum": None,
+            "schema_version": None,
+            "packet": None,
+            "resumable": None,
+            "recommended_next_action": None,
+            "freshness": freshness
+            or {
+                "path": str(resume_verification_file),
+                "max_age_minutes": max_resume_age_minutes,
+                "mtime": None,
+                "age_seconds": None,
+                "fresh": False,
+            },
+        },
+        "fresh_resume_verification": None,
+        "checks": {
+            "saved_packet_shape_valid": False,
+            "saved_packet_resumable": False,
+            "saved_packet_fresh": False,
+            "fresh_packet_resumable": False,
+            "anchors_match": False,
+        },
+        "blockers": blockers,
+        "recommended_next_action": "inspect_resume_blockers",
+        "side_effects": [],
+        "limitations": [
+            "new_session_launch_out_of_scope",
+            "handoff_claim_out_of_scope",
+            "executor_invocation_out_of_scope",
+            "git_pr_writes_out_of_scope",
+            "merge_release_publish_out_of_scope",
+        ],
+        "repo": {"cwd": str(Path(cwd).expanduser().resolve(strict=False))},
+        "root": str(Path(root).expanduser().resolve(strict=False)),
+    }
+
+
+def _resume_continuation_recommendation(
+    blockers: list[dict[str, Any]],
+    *,
+    saved_recommendation: str | None,
+    fresh_recommendation: str | None,
+) -> str:
+    if not blockers:
+        return "start_governed_execution"
+    codes = [blocker.get("code") for blocker in blockers]
+    if "resume_verification_not_resumable" in codes:
+        recovery_actions = RESUME_CONTINUATION_ACTIONS - {"start_governed_execution"}
+        for action in (saved_recommendation, fresh_recommendation):
+            if action in recovery_actions:
+                return action
+    if "policy_approval_missing" in codes:
+        return "approve_handoff"
+    if "handoff_not_claimed" in codes:
+        return "claim_handoff"
+    if any(
+        code in codes
+        for code in (
+            "active_epoch_exists",
+            "active_epoch_conflict",
+            "active_epoch_invalid",
+            "active_epoch_repo_mismatch",
+            "active_epoch_branch_mismatch",
+            "active_epoch_head_mismatch",
+        )
+    ):
+        return "close_or_fail_active_epoch"
+    if any(
+        code in codes
+        for code in (
+            "repo_branch_mismatch",
+            "repo_head_mismatch",
+            "resume_snapshot_invalid",
+            "handoff_unreadable",
+            "handoff_signature_invalid",
+            "handoff_checksum_mismatch",
+            "handoff_protocol_unsupported",
+            "handoff_repo_evidence_missing",
+            "clean_square_missing",
+            "clean_square_invalid",
+            "policy_evidence_invalid",
+            "policy_evidence_missing",
+            "policy_self_evolution_propose_only",
+        )
+    ):
+        return "recreate_handoff"
+    return "inspect_resume_blockers"
+
+
+def _resume_anchor_mismatches(saved_packet: dict[str, Any], fresh_packet: dict[str, Any]) -> list[dict[str, Any]]:
+    mismatches: list[dict[str, Any]] = []
+    for label, path in _RESUME_CONTINUATION_ANCHORS:
+        saved_value = _nested_value(saved_packet, path)
+        fresh_value = _nested_value(fresh_packet, path)
+        if saved_value != fresh_value:
+            mismatches.append(
+                {
+                    "field": label,
+                    "expected": saved_value,
+                    "actual": fresh_value,
+                }
+            )
+    return mismatches
+
+
+def _saved_resume_claimer(packet: dict[str, Any]) -> str | None:
+    handoff = packet.get("handoff") if isinstance(packet.get("handoff"), dict) else {}
+    claimed_by = handoff.get("claimed_by")
+    return claimed_by if isinstance(claimed_by, str) and claimed_by.strip() else None
+
+
+def _fresh_resume_summary(packet: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(packet, dict):
+        return None
+    return {
+        "checksum": _checksum_json(packet),
+        "schema_version": packet.get("schema_version"),
+        "packet": packet.get("packet"),
+        "resumable": packet.get("resumable"),
+        "recommended_next_action": packet.get("recommended_next_action"),
+        "blocker_codes": [
+            blocker.get("code")
+            for blocker in packet.get("blockers", [])
+            if isinstance(blocker, dict)
+        ],
+    }
+
+
+def resume_continuation(
+    *,
+    root: Path,
+    cwd: Path,
+    resume_verification_file: Path,
+    claimer: str | None = None,
+    max_resume_age_minutes: int | None = DEFAULT_RESUME_CONTINUATION_MAX_AGE_MINUTES,
+) -> dict[str, Any]:
+    root = Path(root)
+    cwd = Path(cwd)
+    resume_verification_file = Path(resume_verification_file)
+    blockers: list[dict[str, Any]] = []
+    freshness, freshness_blockers = _resume_verification_freshness(
+        resume_verification_file,
+        max_age_minutes=max_resume_age_minutes,
+    )
+    blockers.extend(freshness_blockers)
+    if any(blocker.get("code") == "resume_verification_file_unreadable" for blocker in freshness_blockers):
+        return _resume_verification_load_error_packet(
+            root=root,
+            cwd=cwd,
+            resume_verification_file=resume_verification_file,
+            claimer=claimer,
+            max_resume_age_minutes=max_resume_age_minutes,
+            freshness=freshness,
+            blockers=blockers,
+        )
+
+    try:
+        saved_packet = read_json(resume_verification_file)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        blockers.append(
+            _resume_blocker(
+                "resume_verification_file_unreadable",
+                f"resume verification file could not be read: {exc}",
+                path=str(resume_verification_file),
+            )
+        )
+        return _resume_verification_load_error_packet(
+            root=root,
+            cwd=cwd,
+            resume_verification_file=resume_verification_file,
+            claimer=claimer,
+            max_resume_age_minutes=max_resume_age_minutes,
+            freshness=freshness,
+            blockers=blockers,
+        )
+
+    if not isinstance(saved_packet, dict):
+        blockers.append(
+            _resume_blocker(
+                "resume_verification_invalid",
+                "resume verification packet must be a JSON object",
+                path=str(resume_verification_file),
+            )
+        )
+        return _resume_verification_load_error_packet(
+            root=root,
+            cwd=cwd,
+            resume_verification_file=resume_verification_file,
+            claimer=claimer,
+            max_resume_age_minutes=max_resume_age_minutes,
+            freshness=freshness,
+            blockers=blockers,
+        )
+
+    saved_checksum = _checksum_json(saved_packet)
+    saved_schema = saved_packet.get("schema_version")
+    saved_packet_kind = saved_packet.get("packet")
+    saved_resumable = saved_packet.get("resumable")
+    saved_recommendation = saved_packet.get("recommended_next_action")
+    saved_handoff_id = saved_packet.get("handoff_id")
+    saved_claimed_by = _saved_resume_claimer(saved_packet)
+    expected_claimer = claimer or saved_claimed_by
+
+    if saved_schema != RESUME_VERIFICATION_SCHEMA_VERSION or saved_packet_kind != "resume_verification":
+        blockers.append(
+            _resume_blocker(
+                "resume_verification_schema_unsupported",
+                "resume continuation requires a saved resume-verification.v1 packet",
+                expected_schema=RESUME_VERIFICATION_SCHEMA_VERSION,
+                actual_schema=saved_schema,
+                actual_packet=saved_packet_kind,
+            )
+        )
+    if not isinstance(saved_handoff_id, str) or not saved_handoff_id.strip():
+        blockers.append(_resume_blocker("resume_handoff_id_missing", "resume verification packet is missing handoff_id"))
+        saved_handoff_id = None
+    else:
+        try:
+            validate_record_id(saved_handoff_id, "handoff")
+        except ValueError as exc:
+            blockers.append(_resume_blocker("resume_handoff_id_invalid", f"resume verification handoff_id is invalid: {exc}", handoff_id=saved_handoff_id))
+            saved_handoff_id = None
+    handoff_summary = saved_packet.get("handoff") if isinstance(saved_packet.get("handoff"), dict) else {}
+    handoff_section_id = handoff_summary.get("id")
+    if isinstance(saved_handoff_id, str) and isinstance(handoff_section_id, str) and handoff_section_id != saved_handoff_id:
+        blockers.append(
+            _resume_blocker(
+                "resume_handoff_id_mismatch",
+                "resume verification handoff section id does not match packet handoff_id",
+                expected=saved_handoff_id,
+                actual=handoff_section_id,
+            )
+        )
+    if saved_resumable is not True:
+        blockers.append(
+            _resume_blocker(
+                "resume_verification_not_resumable",
+                "saved resume verification packet is not resumable",
+                recommended_next_action=saved_recommendation,
+            )
+        )
+    if saved_resumable is True and expected_claimer is None:
+        blockers.append(
+            _resume_blocker(
+                "resume_claimer_missing",
+                "resumable packet must include a claimed_by value or a --claimer",
+            )
+        )
+    if claimer is not None and saved_claimed_by is not None and claimer != saved_claimed_by:
+        blockers.append(
+            _resume_blocker(
+                "resume_claimer_mismatch",
+                "requested claimer does not match saved resume verification claimer",
+                expected=saved_claimed_by,
+                actual=claimer,
+            )
+        )
+
+    fresh_packet: dict[str, Any] | None = None
+    if isinstance(saved_handoff_id, str):
+        try:
+            fresh_packet = verify_resume(
+                root=root,
+                cwd=cwd,
+                handoff_id=saved_handoff_id,
+                claimer=expected_claimer,
+            )
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+            blockers.append(
+                _resume_blocker(
+                    "resume_recheck_failed",
+                    f"fresh resume verification could not be computed: {exc}",
+                )
+            )
+    if isinstance(fresh_packet, dict):
+        blockers.extend(
+            blocker
+            for blocker in fresh_packet.get("blockers", [])
+            if isinstance(blocker, dict)
+        )
+        fresh_codes = {
+            blocker.get("code")
+            for blocker in fresh_packet.get("blockers", [])
+            if isinstance(blocker, dict)
+        }
+        fresh_active_epoch = fresh_packet.get("active_epoch") if isinstance(fresh_packet.get("active_epoch"), dict) else {}
+        active_epoch_count = fresh_active_epoch.get("count")
+        if (
+            isinstance(active_epoch_count, int)
+            and active_epoch_count > 0
+            and not any(
+                code in fresh_codes
+                for code in (
+                    "active_epoch_conflict",
+                    "active_epoch_invalid",
+                    "active_epoch_repo_mismatch",
+                    "active_epoch_branch_mismatch",
+                    "active_epoch_head_mismatch",
+                )
+            )
+        ):
+            blockers.append(
+                _resume_blocker(
+                    "active_epoch_exists",
+                    "an active epoch already exists before governed execution start",
+                    count=active_epoch_count,
+                    epochs=fresh_active_epoch.get("epochs", []),
+                )
+            )
+        mismatches = _resume_anchor_mismatches(saved_packet, fresh_packet)
+        if mismatches:
+            blockers.append(
+                _resume_blocker(
+                    "resume_verification_anchor_mismatch",
+                    "saved resume verification anchors no longer match fresh runtime evidence",
+                    mismatches=mismatches,
+                )
+            )
+
+    fresh_recommendation = fresh_packet.get("recommended_next_action") if isinstance(fresh_packet, dict) else None
+    recommended_next_action = _resume_continuation_recommendation(
+        blockers,
+        saved_recommendation=saved_recommendation if isinstance(saved_recommendation, str) else None,
+        fresh_recommendation=fresh_recommendation if isinstance(fresh_recommendation, str) else None,
+    )
+    valid = not blockers
+    checks = {
+        "saved_packet_shape_valid": (
+            saved_schema == RESUME_VERIFICATION_SCHEMA_VERSION
+            and saved_packet_kind == "resume_verification"
+            and isinstance(saved_packet.get("handoff_id"), str)
+        ),
+        "saved_packet_resumable": saved_resumable is True,
+        "saved_packet_fresh": freshness.get("fresh") is True,
+        "fresh_packet_resumable": fresh_packet.get("resumable") is True if isinstance(fresh_packet, dict) else False,
+        "anchors_match": valid or (
+            isinstance(fresh_packet, dict)
+            and not any(blocker.get("code") == "resume_verification_anchor_mismatch" for blocker in blockers)
+        ),
+    }
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": RESUME_CONTINUATION_SCHEMA_VERSION,
+        "packet": "resume_continuation",
+        "handoff_id": saved_packet.get("handoff_id"),
+        "claimer": expected_claimer,
+        "valid": valid,
+        "continuable": valid,
+        "read_only": True,
+        "executor_started": False,
+        "epoch_started": False,
+        "pr_action_started": False,
+        "resume_verification": {
+            "path": str(resume_verification_file),
+            "checksum": saved_checksum,
+            "schema_version": saved_schema,
+            "packet": saved_packet_kind,
+            "resumable": saved_resumable,
+            "recommended_next_action": saved_recommendation,
+            "freshness": freshness,
+        },
+        "fresh_resume_verification": _fresh_resume_summary(fresh_packet),
+        "checks": checks,
+        "blockers": blockers,
+        "recommended_next_action": recommended_next_action,
+        "side_effects": [],
+        "limitations": [
+            "new_session_launch_out_of_scope",
+            "handoff_claim_out_of_scope",
+            "executor_invocation_out_of_scope",
+            "git_pr_writes_out_of_scope",
+            "merge_release_publish_out_of_scope",
+        ],
+        "repo": {"cwd": str(cwd.expanduser().resolve(strict=False))},
+        "root": str(root.expanduser().resolve(strict=False)),
     }
 
 

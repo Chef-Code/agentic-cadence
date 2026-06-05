@@ -238,6 +238,74 @@ or invoke an executor, create branches, write pull requests, merge, release, or
 publish packages. It is a gate packet only; operators or external orchestration
 must perform any recommended next action separately.
 
+## Resume Continuation
+
+`resume-continuation` is the read-only gate between a saved
+`resume-verification.v1` packet and a governed execution-start decision. It
+does not start execution. It verifies that the saved packet is still fresh, then
+recomputes `verify-resume` for the same handoff and claimer before recommending
+whether external orchestration should call `start-governed-execution`.
+
+```bash
+agentic-cadence --root <runtime-root> resume-continuation --resume-verification-file resume-verification.json --cwd . --claimer codex
+```
+
+The command emits a `resume-continuation.v1` packet shaped as:
+
+```json
+{
+  "protocol_version": "v1",
+  "schema_version": "resume-continuation.v1",
+  "packet": "resume_continuation",
+  "handoff_id": "context-loop",
+  "claimer": "codex",
+  "valid": false,
+  "continuable": false,
+  "read_only": true,
+  "executor_started": false,
+  "epoch_started": false,
+  "pr_action_started": false,
+  "resume_verification": {},
+  "fresh_resume_verification": {},
+  "checks": {},
+  "blockers": [{"code": "stable_code", "message": "human readable"}],
+  "recommended_next_action": "inspect_resume_blockers",
+  "side_effects": []
+}
+```
+
+`resume-continuation` rechecks the saved packet schema and checksum, packet file
+mtime freshness, handoff id, claimer, handoff state, clean-square evidence,
+repository branch and `HEAD`, dirty-worktree state, active brake, active epoch
+state, and policy evidence. The default freshness window is 60 minutes and can
+be overridden with `--max-resume-age-minutes`.
+
+Stable continuation-specific blocker codes include
+`resume_verification_file_unreadable`, `resume_verification_invalid`,
+`resume_verification_schema_unsupported`, `resume_handoff_id_missing`,
+`resume_handoff_id_invalid`, `resume_handoff_id_mismatch`,
+`resume_verification_not_resumable`, `resume_claimer_missing`,
+`resume_claimer_mismatch`, `resume_recheck_failed`,
+`resume_verification_from_future`, `resume_verification_stale`, and
+`resume_verification_anchor_mismatch`. Fresh verifier blockers are forwarded
+unchanged, including `repo_head_mismatch`, `repo_branch_mismatch`,
+`dirty_worktree`, `clean_square_missing`, `policy_approval_missing`,
+`active_brake_stop`, `active_epoch_exists`, and `active_epoch_conflict`.
+
+Recommended actions are limited to `start_governed_execution`,
+`claim_handoff`, `approve_handoff`, `recreate_handoff`,
+`close_or_fail_active_epoch`, and `inspect_resume_blockers`. A valid packet
+recommends `start_governed_execution`; non-resumable saved verifier packets
+preserve `claim_handoff` or `approve_handoff` when that is the saved recovery
+action. Stale repo, handoff, clean-square, snapshot, or policy anchors
+recommend `recreate_handoff`; active epoch blockers recommend
+`close_or_fail_active_epoch`; unsupported combinations recommend
+`inspect_resume_blockers`.
+
+The command must not claim handoffs, write clean-square records, launch a new
+session, infer host context pressure, start or invoke an executor, create
+branches, write pull requests, merge, release, or publish packages.
+
 ## Handoff Signature
 
 Draft marker:
