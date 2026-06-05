@@ -142,7 +142,13 @@ def _match_check_candidate(candidates: list[dict[str, Any]], finding: dict[str, 
         if candidate.get("source") != "pr_check_failure":
             continue
         evidence = candidate.get("evidence") if isinstance(candidate.get("evidence"), dict) else {}
-        if evidence.get("check") == finding.get("check"):
+        if evidence.get("id") and evidence.get("id") == finding.get("id"):
+            return candidate
+        if (
+            evidence.get("check") == finding.get("check")
+            and str(evidence.get("state") or "") == str(finding.get("state") or "")
+            and str(evidence.get("workflow") or "") == str(finding.get("workflow") or "")
+        ):
             return candidate
     return None
 
@@ -182,9 +188,14 @@ def _follow_up_task(
 
 def _failed_check_items(findings: list[dict[str, Any]], candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items = []
-    for finding in sorted(findings, key=lambda item: (str(item.get("check")), str(item.get("state")))):
-        candidate = _match_check_candidate(candidates, finding)
+    seen_keys: set[tuple[str, str, str]] = set()
+    for finding in sorted(findings, key=lambda item: (str(item.get("check")), str(item.get("state")), str(item.get("workflow")))):
         check = str(finding.get("check") or "")
+        key = (check, str(finding.get("state") or ""), str(finding.get("workflow") or ""))
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        candidate = _match_check_candidate(candidates, finding)
         item = {
             "id": _stable_id("failed-check-plan", {"check": check, "state": finding.get("state"), "workflow": finding.get("workflow")}),
             "kind": "failed_check",

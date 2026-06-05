@@ -139,7 +139,7 @@ class PrReadinessTests(unittest.TestCase):
                     "title": "Resolve failing PR check: Python and protocol checks",
                     "task_type": "execution",
                     "bucket": "S",
-                    "evidence": {"check": "Python and protocol checks", "state": "FAILURE"},
+                    "evidence": {"check": "Python and protocol checks", "state": "FAILURE", "workflow": "PR Checks"},
                 },
                 {
                     "id": "review-finding-001",
@@ -174,6 +174,67 @@ class PrReadinessTests(unittest.TestCase):
         self.assertEqual(packet["plan_items"][1]["group"]["file"], "codex_cadence/cli.py")
         self.assertEqual(packet["plan_items"][1]["follow_up_task"]["candidate_id"], "review-finding-001")
         self.assertIn("does_not_update_pr_body", packet["limitations"])
+
+    def test_review_response_plan_groups_duplicate_failed_checks(self):
+        packet = evaluate_review_response_plan(
+            base_pr(
+                statusCheckRollup=[
+                    check_run("Python and protocol checks", conclusion="FAILURE", workflow="PR Checks"),
+                    {
+                        **check_run("Python and protocol checks", conclusion="FAILURE", workflow="PR Checks"),
+                        "detailsUrl": "https://example.test/checks/python-rerun",
+                    },
+                ]
+            )
+        )
+
+        self.assertTrue(packet["valid"])
+        self.assertTrue(packet["plan_ready"])
+        self.assertEqual(packet["summary"]["failed_checks"], 2)
+        self.assertEqual(len(packet["plan_items"]), 1)
+        self.assertEqual(packet["plan_items"][0]["kind"], "failed_check")
+        self.assertEqual(packet["plan_items"][0]["group"]["check"], "Python and protocol checks")
+
+    def test_review_response_plan_matches_check_candidates_by_state_and_workflow(self):
+        pr = base_pr(
+            statusCheckRollup=[
+                check_run("Shared check", conclusion="FAILURE", workflow="Workflow A"),
+                check_run("Shared check", conclusion="FAILURE", workflow="Workflow B"),
+            ]
+        )
+        candidates = {
+            "candidates": [
+                {
+                    "id": "candidate-workflow-b",
+                    "source": "pr_check_failure",
+                    "title": "Resolve failing PR check: Shared check",
+                    "task_type": "execution",
+                    "bucket": "S",
+                    "evidence": {"check": "Shared check", "state": "FAILURE", "workflow": "Workflow B"},
+                },
+                {
+                    "id": "candidate-workflow-a",
+                    "source": "pr_check_failure",
+                    "title": "Resolve failing PR check: Shared check",
+                    "task_type": "execution",
+                    "bucket": "S",
+                    "evidence": {"check": "Shared check", "state": "FAILURE", "workflow": "Workflow A"},
+                },
+            ],
+        }
+
+        packet = evaluate_review_response_plan(pr, candidate_discovery=candidates)
+
+        self.assertTrue(packet["valid"])
+        self.assertEqual(len(packet["plan_items"]), 2)
+        candidates_by_workflow = {
+            item["group"]["workflow"]: item["follow_up_task"]["candidate_id"]
+            for item in packet["plan_items"]
+        }
+        self.assertEqual(
+            candidates_by_workflow,
+            {"Workflow A": "candidate-workflow-a", "Workflow B": "candidate-workflow-b"},
+        )
 
     def test_review_response_plan_recommends_refresh_for_stale_pr_evidence(self):
         packet = evaluate_review_response_plan(
