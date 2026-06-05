@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, operator-approved `git-pr-materialize`, read-only `verify-resume`, and a fixture-only controlled executor runner for tests and examples.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, operator-approved `git-pr-materialize`, read-only `verify-resume`, and a fixture-only controlled executor runner for tests and examples.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -449,6 +449,24 @@ agentic-cadence pr-readiness --pr-json-file pr.json --review-threads-file review
 ```
 
 The packet reports blockers, waiting checks, duplicate check groups, skipped Codex Review jobs, unresolved actionable review comments, malformed or incomplete review-thread evidence, missing body sections, missing PR-template sections, readiness evidence freshness, and the recommended next action. Saved PR JSON is labeled `saved_input`; when `--max-pr-json-age-minutes` is supplied and the file mtime is older than that limit, or appears to come from the future, the packet is labeled `stale`, waits, and recommends `refresh_pr_evidence`. The age limit must be non-negative and applies to saved PR JSON only; caller-asserted `live_like` evaluator inputs are labeled but not stale-gated by this saved-file policy. `--pr-template-file` reads a local Markdown template and checks that its headings are represented in the saved PR body; it does not rewrite the PR. `discover-candidates --pr-json-file <path> --review-threads-file <path>` can turn failing checks and unresolved current actionable review comments from saved evidence into bounded candidates.
+
+## Review Response Plan
+
+`review-response-plan` consumes saved PR JSON, optional saved review-thread JSON,
+and optional candidate discovery output, then emits a read-only
+`review-response-plan.v1` packet. It groups failed checks by check name,
+unresolved actionable current review comments by review thread and file path,
+and missing PR body sections as bounded plan items with likely follow-up tasks.
+
+```bash
+agentic-cadence review-response-plan --pr-json-file pr.json --review-threads-file review-threads.json --candidate-discovery-file candidates.json --pr-template-file .github/pull_request_template.md
+```
+
+The command recommends `emit_executor_task`, `refresh_pr_evidence`,
+`update_pr_body`, `wait_for_checks`, or `operator_review`. It reads local saved
+evidence only and does not call GitHub, resolve review threads, post comments,
+update PR bodies, create branches, commit, push, merge, release, publish
+packages, spend paid review, or invoke review agents.
 
 ## PR Body Preflight
 

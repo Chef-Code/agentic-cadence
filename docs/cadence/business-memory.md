@@ -153,16 +153,35 @@ Do not:
 
 ## Review Feedback Needs A Bounded Response Plan
 
+Status: fulfilled
+Fulfilled By: Task 10 current-tree `review-response-plan.v1` implementation
 Kind: risk
 Workflow: PR review and merge readiness
 Time Saved: high
 Risk: high
-Pain: Cadence can sync saved GitHub evidence and evaluate PR readiness, but operators still need a local packet that turns failed checks and unresolved actionable review threads into bounded next work without writing to GitHub.
+Pain: Cadence could sync saved GitHub evidence and evaluate PR readiness, but operators still needed a local packet that turns failed checks and unresolved actionable review threads into bounded next work without writing to GitHub.
 Signals:
 - `github-evidence-sync` can save PR JSON and review-thread evidence without mutating GitHub.
 - `pr-readiness` can identify stale checks, failed checks, and unresolved actionable reviewer feedback.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` names Task 10 as the review feedback response plan slice.
+- Task 10 current-tree work adds read-only `review-response-plan.v1` packets that consume saved PR JSON, saved review-thread JSON, and optional candidate discovery output.
 Do not:
 - Do not resolve review threads, post comments, update PR bodies, create branches, commit, push, merge, release, or publish packages from this backlog entry.
 - Do not spend paid review or invoke review agents from the response-plan packet.
 - Do not treat a response plan as authority to execute work without the existing executor task, approval, epoch, policy, and closeout gates.
+
+## Resume Verification Needs An Execution Continuation Gate
+
+Kind: risk
+Workflow: Context-window shutdown and pickup
+Time Saved: high
+Risk: high
+Pain: Cadence can verify resume evidence and separately start governed execution, but there is not yet a deterministic packet that binds a successful resume verification to a subsequent governed execution-start decision.
+Signals:
+- `verify-resume` can inspect claimed or ready handoffs without mutating them.
+- `start-governed-execution` can consume an approved generic executor task and start one active epoch without invoking a real executor.
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` names Task 11 as the resume-to-execution continuation gate.
+Do not:
+- Do not launch a new session, claim handoffs implicitly, invoke an executor, create branches, commit, push, open PRs, merge, release, or publish packages from this backlog entry.
+- Do not treat a resume verification packet as fresh forever; continuation must recheck repo, handoff, brake, clean-square, policy, and active epoch state.
+- Do not add distributed ownership or scheduler behavior before the local ownership slice exists.

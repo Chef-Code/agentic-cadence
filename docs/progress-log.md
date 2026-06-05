@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-03
+Last updated: 2026-06-04
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,53 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-04 - Add review feedback response plan
+
+Summary:
+- Added read-only `review-response-plan.v1` packets for saved PR JSON, saved
+  review-thread JSON, optional candidate discovery output, and PR-body evidence.
+- Grouped actionable feedback by failed check, review thread, file path, and
+  likely follow-up task, with optional candidate matches when discovery output
+  is supplied.
+- Limited recommendations to `emit_executor_task`, `refresh_pr_evidence`,
+  `update_pr_body`, `wait_for_checks`, and `operator_review`, with no GitHub
+  writes or review-agent invocation.
+
+Completed slices:
+- Task 10 current-tree implementation: review feedback response planning.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Cadence can now plan bounded review/CI follow-up work from saved
+  evidence, but it still cannot invoke a real executor, implement changes,
+  resolve comments, update PRs, launch sessions, auto-merge, release, or
+  publish packages.
+
+Evidence:
+- `python -m py_compile codex_cadence/review_response.py codex_cadence/cli.py codex_cadence/pr_readiness.py codex_cadence/github_evidence.py codex_cadence/candidates.py`
+- `python -m unittest tests.test_pr_readiness tests.test_candidates -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- The packet is response planning only. It does not resolve GitHub comments,
+  update pull request bodies, invoke review agents, start executors, create
+  branches, commit, push, merge, release, or publish packages.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
+- `docs/session-handoff.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+- `docs/cadence/business-memory.md`
 
 ## 2026-06-03 - Bind execution run evidence to closeout
 

@@ -10,18 +10,24 @@
 
 ---
 
-## Baseline Captured On 2026-06-03
+## Baseline Captured On 2026-06-04
 
-- Local `main` is merged through PR #71 at `cbeca53`.
+- Local `main` is merged through PR #73 at
+  `6371a74379f8ed3f9642bb00cea24b0302205e9b`.
 - Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are complete.
 - PR #69 completed Task 6 by adding operator-approved `git-pr-materialize`.
 - PR #70 completed Task 7 by adding read-only `verify-resume` and hardening review findings.
 - PR #71 completed the Tasks 8-12 planning handoff from the previous roadmap.
+- PR #72 completed Task 8 by adding governed execution-start epoch gating.
+- PR #73 completed Task 9 by adding local execution-run evidence binding.
 - Task 8 current-tree work adds `start-governed-execution` and
   `execution-start.v1` epoch-start gating while keeping real executor
   invocation out of scope.
 - Task 9 current-tree work adds local `execution-run.v1` records and
   supplied-run-record closeout binding while keeping real executor invocation
+  out of scope.
+- Task 10 current-tree work adds read-only `review-response-plan.v1` packets
+  while keeping GitHub writes, review-agent invocation, and executor invocation
   out of scope.
 - Current unattended-operation confidence remains 10%.
 
@@ -138,25 +144,24 @@ git diff --check
 
 ## Task 10: Add Review Feedback Response Plan
 
-**Status:** Planned.
+**Status:** Complete in current tree.
 
 **Phase:** Phase 3 Git/PR governance.
 
 **Why now:** `github-evidence-sync`, `pr-readiness`, and candidate discovery can identify failing checks and unresolved actionable review comments. Cadence still lacks a packet that turns saved feedback evidence into a bounded response plan without writing to GitHub.
 
 **Files:**
-- Modify: `codex_cadence/candidates.py`
-- Modify: `codex_cadence/pr_readiness.py`
-- Modify: `codex_cadence/github_evidence.py`
+- Create: `codex_cadence/review_response.py`
 - Modify: `codex_cadence/cli.py`
-- Test: `tests/test_candidates.py`, `tests/test_pr_readiness.py`, `tests/test_cadence.py`
-- Docs: `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`, `docs/implementation-slices.md`, `docs/progress-log.md`, `docs/decision-log.md`
+- Reuse: `codex_cadence/pr_readiness.py`, `codex_cadence/github_evidence.py`
+- Test: `tests/test_pr_readiness.py`, `tests/test_candidates.py`
+- Docs: `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`, `docs/implementation-slices.md`, `docs/progress-log.md`, `docs/decision-log.md`, `docs/cadence/business-memory.md`
 
 **Implementation outline:**
-- Add a read-only `review-response-plan.v1` packet that consumes saved PR JSON, saved review-thread JSON, and optional candidate discovery output.
-- Group actionable current feedback by check name, review thread, file path, and likely follow-up task.
-- Recommend `emit_executor_task`, `refresh_pr_evidence`, `update_pr_body`, `wait_for_checks`, or `operator_review` without resolving GitHub comments.
-- Keep GitHub writes, review-thread resolution, branch creation, commits, pushes, merge, release, package publication, and paid review spending outside this slice.
+- Added a read-only `review-response-plan.v1` packet that consumes saved PR JSON, saved review-thread JSON, and optional candidate discovery output.
+- Groups actionable current feedback by check name, review thread, file path, and likely follow-up task.
+- Recommends `emit_executor_task`, `refresh_pr_evidence`, `update_pr_body`, `wait_for_checks`, or `operator_review` without resolving GitHub comments.
+- Keeps GitHub writes, review-thread resolution, branch creation, commits, pushes, merge, release, package publication, paid review spending, and review-agent invocation outside this slice.
 
 **Validation:**
 - Failed checks produce bounded response-plan items with stable fingerprints.
@@ -168,8 +173,8 @@ git diff --check
 Run:
 
 ```powershell
-python -m py_compile codex_cadence/candidates.py codex_cadence/pr_readiness.py codex_cadence/github_evidence.py codex_cadence/cli.py
-python -m unittest tests.test_candidates tests.test_pr_readiness tests.test_cadence -v
+python -m py_compile codex_cadence/review_response.py codex_cadence/cli.py codex_cadence/pr_readiness.py codex_cadence/github_evidence.py codex_cadence/candidates.py
+python -m unittest tests.test_pr_readiness tests.test_candidates -v
 python scripts/validate_protocol.py
 python scripts/ci_smoke.py
 git diff --check
@@ -252,9 +257,8 @@ git diff --check
 
 ## Recommended Order
 
-1. Task 10, because review and CI feedback should become a deterministic plan before response writes exist.
-2. Task 11, because resume verification should be bound to subsequent governed execution starts before automatic pickup orchestration exists.
-3. Task 12, because local ownership records are the lowest-risk first step toward multi-worker coordination.
+1. Task 11, because resume verification should be bound to subsequent governed execution starts before automatic pickup orchestration exists.
+2. Task 12, because local ownership records are the lowest-risk first step toward multi-worker coordination.
 
 ## Boundaries For All Five Tasks
 

@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 from codex_cadence.pr_readiness import evaluate_pr_body_preflight, evaluate_pr_readiness, required_sections_from_template
+from codex_cadence.review_response import evaluate_review_response_plan
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "cadence.py"
@@ -71,6 +72,295 @@ def review_threads_payload(nodes):
 
 
 class PrReadinessTests(unittest.TestCase):
+    def test_review_response_plan_groups_failed_checks_and_review_threads_with_candidates(self):
+        pr = base_pr(
+            statusCheckRollup=[
+                check_run("Python and protocol checks", conclusion="FAILURE", workflow="PR Checks"),
+                check_run("Package install", conclusion="SUCCESS", workflow="PR Checks"),
+            ]
+        )
+        threads = review_threads_payload(
+            [
+                {
+                    "id": "thread-1",
+                    "path": "codex_cadence/cli.py",
+                    "line": 42,
+                    "isResolved": False,
+                    "isOutdated": False,
+                    "comments": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [
+                            {
+                                "id": "comment-1",
+                                "path": "codex_cadence/cli.py",
+                                "line": 42,
+                                "outdated": False,
+                                "body": "Handle this current review finding before merge.",
+                                "author": {"login": "coderabbitai"},
+                            },
+                            {
+                                "id": "comment-2",
+                                "path": "codex_cadence/cli.py",
+                                "line": 44,
+                                "outdated": False,
+                                "body": "No actionable comments.",
+                                "author": {"login": "coderabbitai"},
+                            },
+                        ],
+                    },
+                },
+                {
+                    "id": "thread-2",
+                    "path": "README.md",
+                    "line": 9,
+                    "isResolved": True,
+                    "isOutdated": False,
+                    "comments": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [
+                            {
+                                "id": "comment-3",
+                                "path": "README.md",
+                                "line": 9,
+                                "outdated": False,
+                                "body": "Resolved comment should not be planned.",
+                            }
+                        ],
+                    },
+                },
+            ]
+        )
+        candidates = {
+            "schema_version": "candidate-discovery.v1",
+            "candidates": [
+                {
+                    "id": "pr-check-failure-001",
+                    "source": "pr_check_failure",
+                    "title": "Resolve failing PR check: Python and protocol checks",
+                    "task_type": "execution",
+                    "bucket": "S",
+                    "evidence": {"check": "Python and protocol checks", "state": "FAILURE", "workflow": "PR Checks"},
+                },
+                {
+                    "id": "review-finding-001",
+                    "source": "review_finding",
+                    "title": "Address review finding: Handle this current review finding before merge.",
+                    "task_type": "execution",
+                    "bucket": "S",
+                    "evidence": {
+                        "id": "comment-1",
+                        "thread_id": "thread-1",
+                        "file": "codex_cadence/cli.py",
+                        "line": 42,
+                    },
+                },
+            ],
+        }
+
+        packet = evaluate_review_response_plan(pr, review_threads=threads, candidate_discovery=candidates)
+
+        self.assertTrue(packet["valid"])
+        self.assertTrue(packet["plan_ready"])
+        self.assertEqual(packet["schema_version"], "review-response-plan.v1")
+        self.assertEqual(packet["recommended_next_action"], "emit_executor_task")
+        self.assertEqual(packet["summary"]["failed_checks"], 1)
+        self.assertEqual(packet["summary"]["review_threads"], 1)
+        self.assertEqual(packet["summary"]["files"], ["codex_cadence/cli.py"])
+        self.assertEqual(packet["side_effects"], [])
+        self.assertEqual([item["kind"] for item in packet["plan_items"]], ["failed_check", "review_thread"])
+        self.assertEqual(packet["plan_items"][0]["group"]["check"], "Python and protocol checks")
+        self.assertEqual(packet["plan_items"][0]["follow_up_task"]["candidate_id"], "pr-check-failure-001")
+        self.assertEqual(packet["plan_items"][1]["group"]["thread_id"], "thread-1")
+        self.assertEqual(packet["plan_items"][1]["group"]["file"], "codex_cadence/cli.py")
+        self.assertEqual(packet["plan_items"][1]["follow_up_task"]["candidate_id"], "review-finding-001")
+        self.assertIn("does_not_update_pr_body", packet["limitations"])
+
+    def test_review_response_plan_groups_duplicate_failed_checks(self):
+        packet = evaluate_review_response_plan(
+            base_pr(
+                statusCheckRollup=[
+                    check_run("Python and protocol checks", conclusion="FAILURE", workflow="PR Checks"),
+                    {
+                        **check_run("Python and protocol checks", conclusion="FAILURE", workflow="PR Checks"),
+                        "detailsUrl": "https://example.test/checks/python-rerun",
+                    },
+                ]
+            )
+        )
+
+        self.assertTrue(packet["valid"])
+        self.assertTrue(packet["plan_ready"])
+        self.assertEqual(packet["summary"]["failed_checks"], 2)
+        self.assertEqual(len(packet["plan_items"]), 1)
+        self.assertEqual(packet["plan_items"][0]["kind"], "failed_check")
+        self.assertEqual(packet["plan_items"][0]["group"]["check"], "Python and protocol checks")
+
+    def test_review_response_plan_matches_check_candidates_by_state_and_workflow(self):
+        pr = base_pr(
+            statusCheckRollup=[
+                check_run("Shared check", conclusion="FAILURE", workflow="Workflow A"),
+                check_run("Shared check", conclusion="FAILURE", workflow="Workflow B"),
+            ]
+        )
+        candidates = {
+            "candidates": [
+                {
+                    "id": "candidate-workflow-b",
+                    "source": "pr_check_failure",
+                    "title": "Resolve failing PR check: Shared check",
+                    "task_type": "execution",
+                    "bucket": "S",
+                    "evidence": {"check": "Shared check", "state": "FAILURE", "workflow": "Workflow B"},
+                },
+                {
+                    "id": "candidate-workflow-a",
+                    "source": "pr_check_failure",
+                    "title": "Resolve failing PR check: Shared check",
+                    "task_type": "execution",
+                    "bucket": "S",
+                    "evidence": {"check": "Shared check", "state": "FAILURE", "workflow": "Workflow A"},
+                },
+            ],
+        }
+
+        packet = evaluate_review_response_plan(pr, candidate_discovery=candidates)
+
+        self.assertTrue(packet["valid"])
+        self.assertEqual(len(packet["plan_items"]), 2)
+        candidates_by_workflow = {
+            item["group"]["workflow"]: item["follow_up_task"]["candidate_id"]
+            for item in packet["plan_items"]
+        }
+        self.assertEqual(
+            candidates_by_workflow,
+            {"Workflow A": "candidate-workflow-a", "Workflow B": "candidate-workflow-b"},
+        )
+
+    def test_review_response_plan_recommends_refresh_for_stale_pr_evidence(self):
+        packet = evaluate_review_response_plan(
+            base_pr(statusCheckRollup=[check_run("Python and protocol checks", conclusion="FAILURE")]),
+            evidence_captured_at="2026-06-04T00:00:00Z",
+            now="2026-06-04T02:00:00Z",
+            max_evidence_age_minutes=30,
+        )
+
+        self.assertTrue(packet["valid"])
+        self.assertFalse(packet["plan_ready"])
+        self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
+        self.assertTrue(packet["evidence"]["stale"])
+        self.assertEqual(packet["plan_items"], [])
+
+    def test_review_response_plan_recommends_wait_for_pending_checks(self):
+        packet = evaluate_review_response_plan(
+            base_pr(statusCheckRollup=[check_run("Python and protocol checks", status="IN_PROGRESS", conclusion="")])
+        )
+
+        self.assertTrue(packet["valid"])
+        self.assertFalse(packet["plan_ready"])
+        self.assertEqual(packet["recommended_next_action"], "wait_for_checks")
+        self.assertEqual(packet["summary"]["pending_checks"], 1)
+        self.assertEqual({item["code"] for item in packet["waiting"]}, {"check_pending"})
+
+    def test_review_response_plan_recommends_pr_body_update_for_missing_sections(self):
+        packet = evaluate_review_response_plan(
+            base_pr(body="## Summary\nReady slice.\n"),
+            required_body_sections=["Summary", "Testing"],
+        )
+
+        self.assertTrue(packet["valid"])
+        self.assertTrue(packet["plan_ready"])
+        self.assertEqual(packet["recommended_next_action"], "update_pr_body")
+        self.assertEqual(packet["plan_items"][0]["kind"], "pr_body")
+        self.assertEqual(packet["plan_items"][0]["missing_sections"], ["Testing"])
+
+    def test_review_response_plan_blocks_malformed_review_threads(self):
+        packet = evaluate_review_response_plan(
+            base_pr(),
+            review_threads={"data": {"repository": {"pullRequest": {"reviewThreads": {"nodes": "not-list"}}}}},
+        )
+
+        self.assertFalse(packet["valid"])
+        self.assertFalse(packet["plan_ready"])
+        self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
+        self.assertEqual({blocker["code"] for blocker in packet["blockers"]}, {"review_thread_evidence_invalid"})
+
+    def test_cli_review_response_plan_reads_saved_files_without_side_effects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            pr_path = tmp_path / "pr.json"
+            threads_path = tmp_path / "review-threads.json"
+            candidates_path = tmp_path / "candidates.json"
+            pr = base_pr(statusCheckRollup=[check_run("Python and protocol checks", conclusion="FAILURE")])
+            threads = review_threads_payload(
+                [
+                    {
+                        "id": "thread-1",
+                        "path": "codex_cadence/cli.py",
+                        "line": 42,
+                        "isResolved": False,
+                        "isOutdated": False,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-1",
+                                    "path": "codex_cadence/cli.py",
+                                    "line": 42,
+                                    "outdated": False,
+                                    "body": "Handle this current review finding before merge.",
+                                }
+                            ],
+                        },
+                    }
+                ]
+            )
+            candidates = {
+                "candidates": [
+                    {
+                        "id": "review-finding-001",
+                        "source": "review_finding",
+                        "title": "Address review finding",
+                        "task_type": "execution",
+                        "bucket": "S",
+                        "evidence": {"id": "comment-1", "thread_id": "thread-1", "file": "codex_cadence/cli.py", "line": 42},
+                    }
+                ]
+            }
+            pr_path.write_text(json.dumps(pr), encoding="utf-8")
+            threads_path.write_text(json.dumps(threads), encoding="utf-8")
+            candidates_path.write_text(json.dumps(candidates), encoding="utf-8")
+            before = {
+                pr_path: pr_path.read_text(encoding="utf-8"),
+                threads_path: threads_path.read_text(encoding="utf-8"),
+                candidates_path: candidates_path.read_text(encoding="utf-8"),
+            }
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "review-response-plan",
+                    "--pr-json-file",
+                    str(pr_path),
+                    "--review-threads-file",
+                    str(threads_path),
+                    "--candidate-discovery-file",
+                    str(candidates_path),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            packet = json.loads(result.stdout)
+            self.assertEqual(packet["schema_version"], "review-response-plan.v1")
+            self.assertEqual(packet["recommended_next_action"], "emit_executor_task")
+            self.assertEqual(packet["side_effects"], [])
+            self.assertEqual(packet["summary"]["failed_checks"], 1)
+            self.assertEqual(packet["summary"]["review_threads"], 1)
+            self.assertEqual({path: path.read_text(encoding="utf-8") for path in before}, before)
+
     def test_body_preflight_reports_ready_draft_body(self):
         packet = evaluate_pr_body_preflight(
             "# Summary\nReady slice.\n\nTesting\n-------\n- unit tests\n",

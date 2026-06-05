@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-06-03
+Last updated: 2026-06-04
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption
@@ -27,6 +27,49 @@ Consequences:
 Open questions:
 - Remaining unknowns.
 ```
+
+## 2026-06-04 - Keep review feedback response planning read-only
+
+Decision:
+- Add `review-response-plan` as a deterministic local command that consumes
+  saved PR JSON, saved review-thread JSON, optional candidate discovery output,
+  and PR-body evidence, then emits a `review-response-plan.v1` packet.
+- Group failed checks, unresolved actionable current review-thread feedback,
+  missing PR body sections, and optional candidate matches into bounded
+  response-plan items.
+- Restrict recommendations to `emit_executor_task`, `refresh_pr_evidence`,
+  `update_pr_body`, `wait_for_checks`, and `operator_review`.
+- Keep GitHub comments, PR body updates, review-agent invocation, branch
+  creation, commits, pushes, merge, release, and package publication outside
+  this command.
+
+Why:
+- Cadence needs a bridge from saved CI/review evidence to follow-up work, but
+  reading local evidence must not imply authority to mutate GitHub or spend
+  review resources.
+- Reusing saved evidence keeps planning deterministic and auditable after
+  explicit `github-evidence-sync` capture.
+
+Alternatives considered:
+- Post or resolve GitHub review comments from the same packet. Rejected because
+  comment writes need separate operator approval, freshness checks, and audit
+  evidence.
+- Invoke paid review agents from response planning. Rejected because the packet
+  should summarize local evidence and recommend bounded next actions only.
+- Fold response planning into `pr-readiness`. Rejected because readiness is a
+  merge gate, while response planning chooses next work when readiness fails.
+
+Consequences:
+- Operators can review one stable packet before deciding whether to emit an
+  executor task, refresh PR evidence, update the PR body, wait for checks, or
+  escalate for manual review.
+- Response plans remain advisory and do not prove that feedback is resolved.
+
+Open questions:
+- What approval and identity model should govern future write-side PR/comment
+  response actions?
+- Should future role-aware planning distinguish Builder, Reviewer, Maintainer,
+  QA, and Documentation follow-up ownership before response writes exist?
 
 ## 2026-06-03 - Keep execution run binding local and optional at closeout
 
@@ -253,8 +296,9 @@ Consequences:
 Open questions:
 - What freshness policy should Task 6 require immediately before
   operator-approved Git/PR materialization?
-- Should future review-response packets distinguish Builder, Reviewer, and
-  Maintainer roles before any write-side response loop exists?
+- Should future write-side response planning distinguish Builder, Reviewer,
+  Maintainer, QA, and Documentation ownership before any PR/comment mutation
+  loop exists?
 
 ## 2026-06-02 - Keep first executor launch fixture-only
 
