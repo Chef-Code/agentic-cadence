@@ -3,18 +3,26 @@ name: Codex Review
 on:
   pull_request_target:
     branches: [main]
-    types: [labeled]
+    types: [labeled, synchronize]
 
 permissions:
   contents: read
 
 concurrency:
   group: codex-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  cancel-in-progress: >-
+    ${{
+      github.event.action == 'synchronize' ||
+      github.event.label.name == 'codex-review-elect' ||
+      github.event.label.name == 'elect-codex-review' ||
+      github.event.label.name == 'codex-review-force' ||
+      github.event.label.name == 'force-codex-review'
+    }}
 
 jobs:
   preflight:
     if: >-
+      github.event.action == 'labeled' &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       (
@@ -250,6 +258,7 @@ jobs:
 
   fork_notice:
     if: >-
+      github.event.action == 'labeled' &&
       github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name != github.repository &&
       (

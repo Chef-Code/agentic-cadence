@@ -1129,8 +1129,10 @@ class CiChecksTests(unittest.TestCase):
         for token in (
             "pull_request_target",
             "branches: [main]",
-            "types: [labeled]",
+            "types: [labeled, synchronize]",
             "labeled",
+            "github.event.action == 'labeled'",
+            "github.event.action == 'synchronize'",
             "github.event.label.name == 'codex-review-elect'",
             "github.event.label.name == 'elect-codex-review'",
             "github.event.label.name == 'codex-review-force'",
@@ -1163,7 +1165,7 @@ class CiChecksTests(unittest.TestCase):
             "final-message",
             "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b",
             "concurrency:",
-            "cancel-in-progress: true",
+            "cancel-in-progress: >-",
             "codex_review_preflight.py",
             "needs: preflight",
             "needs.preflight.outputs.should_run == 'true'",
@@ -1185,9 +1187,14 @@ class CiChecksTests(unittest.TestCase):
             with self.subTest(token=token):
                 self.assertIn(token, workflow_text)
 
-        for token in ("opened", "synchronize", "ready_for_review", "unlabeled"):
+        for token in ("opened", "ready_for_review", "unlabeled"):
             with self.subTest(removed_trigger=token):
                 self.assertNotIn(token, workflow_text.split("permissions:", 1)[0])
+        preflight_condition = workflow_text[
+            workflow_text.index("  preflight:") : workflow_text.index("    runs-on: ubuntu-latest")
+        ]
+        self.assertIn("github.event.action == 'labeled'", preflight_condition)
+        self.assertNotIn("github.event.action == 'synchronize'", preflight_condition)
 
         self.assertNotIn("prompt-file:", workflow_text)
         self.assertNotIn("[skip codex]", workflow_text)
@@ -1301,6 +1308,78 @@ class CiChecksTests(unittest.TestCase):
             any("forbidden token" in error for error in errors),
             f"expected forbidden token error, got {errors}",
         )
+
+    def test_protocol_validator_rejects_codex_review_trigger_drift(self):
+        validator = load_validate_protocol()
+        source = ROOT / ".github" / "workflows" / "codex-review.yml"
+
+        cases = (
+            (
+                "duplicate_types",
+                lambda text: text.replace(
+                    "    types: [labeled, synchronize]",
+                    "    types: [labeled, synchronize]\n    types: [opened, synchronize, ready_for_review]",
+                ),
+                "pull_request_target types must be exactly [labeled, synchronize]",
+            ),
+            (
+                "legacy_opened_trigger",
+                lambda text: text.replace(
+                    "    types: [labeled, synchronize]",
+                    "    types: [labeled, synchronize, opened]",
+                ),
+                "pull_request_target types must be exactly [labeled, synchronize]",
+            ),
+            (
+                "missing_cancel_only_synchronize",
+                lambda text: text.replace(
+                    "    types: [labeled, synchronize]",
+                    "    types: [labeled]",
+                ),
+                "pull_request_target types must be exactly [labeled, synchronize]",
+            ),
+            (
+                "bare_cancellation",
+                lambda text: text.replace(
+                    "  cancel-in-progress: >-\n"
+                    "    ${{\n"
+                    "      github.event.action == 'synchronize' ||\n"
+                    "      github.event.label.name == 'codex-review-elect' ||\n"
+                    "      github.event.label.name == 'elect-codex-review' ||\n"
+                    "      github.event.label.name == 'codex-review-force' ||\n"
+                    "      github.event.label.name == 'force-codex-review'\n"
+                    "    }}",
+                    "  cancel-in-progress: true",
+                ),
+                "concurrency cancellation must be conditional",
+            ),
+            (
+                "preflight_on_synchronize",
+                lambda text: text.replace(
+                    "      github.event.action == 'labeled' &&",
+                    "      github.event.action == 'synchronize' &&",
+                    1,
+                ),
+                "synchronize must be cancel-only",
+            ),
+        )
+
+        for name, mutate, expected in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as tmp:
+                tmp_root = Path(tmp)
+                workflow = tmp_root / ".github" / "workflows" / "codex-review.yml"
+                workflow.parent.mkdir(parents=True)
+                workflow.write_text(mutate(source.read_text(encoding="utf-8")), encoding="utf-8")
+
+                original_root = validator.ROOT
+                validator.ROOT = tmp_root
+                try:
+                    errors = []
+                    validator.validate_codex_review_workflow(errors)
+                finally:
+                    validator.ROOT = original_root
+
+            self.assertTrue(any(expected in error for error in errors), f"expected {expected!r}, got {errors}")
 
     def test_protocol_validator_rejects_stale_handoff_pr_state(self):
         validator = load_validate_protocol()

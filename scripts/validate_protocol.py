@@ -52,6 +52,10 @@ REQUIRED_TOKENS = {
         "codex-review-force",
         "codex-review:v1",
         "canonical workflow-owned",
+        "PR-number-scoped concurrency cancellation",
+        "docs-only changes",
+        "`synchronize` cancels obsolete in-flight elected reviews",
+        "unrelated label events",
         "Guardrail changes",
         "manual operator review",
         "discover-candidates",
@@ -66,6 +70,8 @@ REQUIRED_TOKENS = {
         "provide_template_or_sections",
         "release-dry-run",
         ".github/workflows/release-dry-run.yml",
+        "group: release-dry-run-${{ inputs.tag }}",
+        "timeout-minutes: 10",
         "operator_confirmation_required",
         "release-dry-run.json",
         "release-notes.md",
@@ -176,6 +182,10 @@ REQUIRED_TOKENS = {
         "codex-review-force",
         "codex-review:v1",
         "canonical workflow-owned",
+        "classify changed paths",
+        "Docs-only PRs",
+        "`synchronize` is a cancel-only event",
+        "Unrelated label events",
         "Guardrail changes",
         "manual operator review",
         "Candidate discovery is read-only",
@@ -198,6 +208,8 @@ REQUIRED_TOKENS = {
         "provide_template_or_sections",
         "release-dry-run",
         ".github/workflows/release-dry-run.yml",
+        "group: release-dry-run-${{ inputs.tag }}",
+        "timeout-minutes: 10",
         "operator_confirmation_required",
         "release-dry-run.json",
         "release-notes.md",
@@ -540,8 +552,10 @@ REQUIRED_TOKENS = {
     ".github/workflows/codex-review.yml": (
         "pull_request_target",
         "branches: [main]",
-        "types: [labeled]",
+        "types: [labeled, synchronize]",
         "labeled",
+        "github.event.action == 'labeled'",
+        "github.event.action == 'synchronize'",
         "github.event.label.name == 'codex-review-elect'",
         "github.event.label.name == 'elect-codex-review'",
         "github.event.label.name == 'codex-review-force'",
@@ -553,7 +567,7 @@ REQUIRED_TOKENS = {
         "github.event.pull_request.draft == false",
         "concurrency:",
         "group: codex-review-${{ github.event.pull_request.number }}",
-        "cancel-in-progress: true",
+        "cancel-in-progress: >-",
         "codex_review_preflight.py",
         "needs: preflight",
         "needs.preflight.outputs.should_run == 'true'",
@@ -761,6 +775,36 @@ def mapping_at_indent(text: str, indent: int) -> dict[str, str]:
     return mapping
 
 
+def key_values_at_indent(text: str, indent: int, key: str) -> tuple[str, ...]:
+    """Return values for exact YAML-like key declarations at one indentation level."""
+    values = []
+    prefix = " " * indent
+    child_prefix = " " * (indent + 1)
+    for line in text.splitlines():
+        if not line.startswith(prefix) or line.startswith(child_prefix):
+            continue
+        stripped = line.strip()
+        if not stripped.startswith(f"{key}:"):
+            continue
+        values.append(stripped.split(":", 1)[1].strip())
+    return tuple(values)
+
+
+def key_names_at_indent(text: str, indent: int) -> tuple[str, ...]:
+    """Return YAML-like key names found at one indentation level, preserving duplicates."""
+    names = []
+    prefix = " " * indent
+    child_prefix = " " * (indent + 1)
+    for line in text.splitlines():
+        if not line.startswith(prefix) or line.startswith(child_prefix):
+            continue
+        stripped = line.strip()
+        if ":" not in stripped:
+            continue
+        names.append(stripped.split(":", 1)[0])
+    return tuple(names)
+
+
 def workflow_uses_values(text: str) -> tuple[str, ...]:
     """Return external action references from workflow uses entries."""
     values = []
@@ -877,6 +921,74 @@ def validate_release_workflow_mutations(relative: str, text: str, errors: list[s
                         errors.append(f"{relative} must not run forbidden release command: {label}")
 
 
+def validate_codex_review_workflow(errors: list[str]) -> None:
+    """Validate that paid Codex Review stays explicitly elected and cancel-bounded."""
+    relative = ".github/workflows/codex-review.yml"
+    path = ROOT / relative
+    if not path.exists():
+        errors.append(f"missing required file: {relative}")
+        return
+
+    text = path.read_text(encoding="utf-8")
+    visible_text = "\n".join(workflow_non_run_lines(text))
+
+    on_block = indented_block_after(visible_text, "on:")
+    event_keys = key_names_at_indent(on_block, 2)
+    if event_keys != ("pull_request_target",):
+        errors.append(f"{relative} must declare only pull_request_target")
+
+    trigger_block = indented_block_after(visible_text, "  pull_request_target:")
+    if key_values_at_indent(trigger_block, 4, "branches") != ("[main]",):
+        errors.append(f"{relative} pull_request_target branches must be exactly [main]")
+    if key_values_at_indent(trigger_block, 4, "types") != ("[labeled, synchronize]",):
+        errors.append(f"{relative} pull_request_target types must be exactly [labeled, synchronize]")
+
+    concurrency_block = indented_block_after(visible_text, "concurrency:")
+    if "group: codex-review-${{ github.event.pull_request.number }}" not in concurrency_block:
+        errors.append(f"{relative} concurrency group must stay PR-scoped")
+    if "cancel-in-progress: true" in concurrency_block:
+        errors.append(f"{relative} concurrency cancellation must be conditional")
+    for token in (
+        "cancel-in-progress: >-",
+        "github.event.action == 'synchronize'",
+        "github.event.label.name == 'codex-review-elect'",
+        "github.event.label.name == 'elect-codex-review'",
+        "github.event.label.name == 'codex-review-force'",
+        "github.event.label.name == 'force-codex-review'",
+    ):
+        if token not in concurrency_block:
+            errors.append(f"{relative} concurrency cancellation missing: {token}")
+
+    preflight_block = indented_block_after(visible_text, "  preflight:")
+    preflight_condition = preflight_block.split("    runs-on:", 1)[0]
+    if "github.event.action == 'labeled'" not in preflight_condition:
+        errors.append(f"{relative} preflight must run paid-review checks only on labeled events")
+    if "github.event.action == 'synchronize'" in preflight_condition:
+        errors.append(f"{relative} synchronize must be cancel-only and not run paid-review preflight")
+    for label in (
+        "github.event.label.name == 'codex-review-elect'",
+        "github.event.label.name == 'elect-codex-review'",
+        "github.event.label.name == 'codex-review-force'",
+        "github.event.label.name == 'force-codex-review'",
+    ):
+        if label not in preflight_condition:
+            errors.append(f"{relative} preflight missing elected label gate: {label}")
+
+    fork_notice_block = indented_block_after(visible_text, "  fork_notice:")
+    fork_notice_condition = fork_notice_block.split("    runs-on:", 1)[0]
+    if "github.event.action == 'labeled'" not in fork_notice_condition:
+        errors.append(f"{relative} fork notice must run only on labeled elected events")
+
+    try:
+        preflight_index = text.index("python ../trusted-preflight/scripts/codex_review_preflight.py")
+        openai_key_index = text.index("openai-api-key: ${{ secrets.OPENAI_API_KEY }}")
+    except ValueError:
+        errors.append(f"{relative} missing trusted preflight or OpenAI key wiring")
+    else:
+        if preflight_index > openai_key_index:
+            errors.append(f"{relative} trusted preflight must run before OpenAI API key use")
+
+
 def validate_release_dry_run_workflow(errors: list[str]) -> None:
     """Validate that the release dry-run workflow remains manual and read-only."""
     relative = ".github/workflows/release-dry-run.yml"
@@ -899,6 +1011,17 @@ def validate_release_dry_run_workflow(errors: list[str]) -> None:
         errors.append(f"{relative} workflow permissions must be exactly contents: read")
     if workflow_has_job_permissions(text):
         errors.append(f"{relative} must not define job-level permissions")
+
+    concurrency_block = indented_block_after(text, "concurrency:")
+    if mapping_at_indent(concurrency_block, 2) != {
+        "group": "release-dry-run-${{ inputs.tag }}",
+        "cancel-in-progress": "true",
+    }:
+        errors.append(f"{relative} concurrency must cancel by release tag")
+
+    dry_run_job_block = indented_block_after(text, "  dry-run:")
+    if "timeout-minutes: 10" not in dry_run_job_block:
+        errors.append(f"{relative} dry-run job must have timeout-minutes: 10")
 
     for input_name in ("version", "tag"):
         block = indented_block_after(text, f"      {input_name}:")
@@ -1088,6 +1211,7 @@ def main() -> int:
     errors: list[str] = []
     validate_frontmatter(ROOT / "SKILL.md", errors)
     validate_tokens(errors)
+    validate_codex_review_workflow(errors)
     validate_release_dry_run_workflow(errors)
     validate_business_memory_contract(errors)
     if errors:

@@ -38,8 +38,10 @@ Decision:
   example steps when a PR does not change code, packaging, tests, examples, or
   workflow files.
 - Limit PR workflows to PRs targeting `main`.
-- Change repo-owned Codex Review from repeated PR lifecycle triggers to a
-  `pull_request_target` `labeled` trigger for explicit elect/force labels only.
+- Change repo-owned Codex Review from repeated PR lifecycle paid-review
+  triggers to explicit elect/force label events, while allowing
+  `synchronize` events to cancel obsolete in-flight elected reviews without
+  starting paid-review preflight.
 - Add cancellation and timeout bounds to the manual release dry-run workflow.
 
 Why:
@@ -49,6 +51,8 @@ Why:
   not run full package/example validation for docs-only or non-code changes.
 - Paid AI review should be deliberate. Leaving an elect label on a PR should
   not cause paid review attempts on every new push.
+- A pushed commit should still cancel an already-running paid review for the
+  stale head instead of allowing obsolete feedback to finish.
 
 Alternatives considered:
 - Use workflow-level `paths-ignore`. Rejected for the current required checks
@@ -63,8 +67,9 @@ Consequences:
 - Rapid force-push or fixup loops cancel obsolete PR runs.
 - Docs-only changes still run diff hygiene and protocol validation, while
   expensive code/package work exits quickly.
-- Codex Review now requires re-adding an elect/force label when an operator
-  wants a new paid review after a push.
+- Codex Review now requires a new elect/force label event when an operator
+  wants a fresh paid review after a push.
+- Unrelated label churn does not cancel an in-flight elected review.
 
 Open questions:
 - Should branch protection later require only a lightweight always-on check and
