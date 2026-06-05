@@ -2,20 +2,68 @@ name: PR Checks
 
 on:
   pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
 
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   checks:
     name: Python and protocol checks
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
+
+      - name: Classify changed paths
+        id: changes
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          $changed = git diff --name-only "$env:BASE_SHA...HEAD"
+          $codePrefixes = @(
+            "codex_cadence/",
+            "transmission_control/",
+            "scripts/",
+            "tests/",
+            "examples/",
+            ".github/workflows/"
+          )
+          $codeFiles = @(
+            "pyproject.toml",
+            "setup.py",
+            "setup.cfg",
+            "MANIFEST.in"
+          )
+          $codeRequired = "false"
+          foreach ($path in $changed) {
+            $normalized = $path.Replace("\", "/")
+            if ($codeFiles -contains $normalized) {
+              $codeRequired = "true"
+              break
+            }
+            foreach ($prefix in $codePrefixes) {
+              if ($normalized.StartsWith($prefix)) {
+                $codeRequired = "true"
+                break
+              }
+            }
+            if ($codeRequired -eq "true") {
+              break
+            }
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "code_required=$codeRequired"
 
       - name: Set up Python
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
@@ -25,31 +73,42 @@ jobs:
       - name: Diff hygiene
         run: git diff --check "${{ github.event.pull_request.base.sha }}...HEAD"
 
+      - name: Skip expensive code checks for docs-only changes
+        if: steps.changes.outputs.code_required != 'true'
+        run: echo "Compile, unit, smoke, and adapter contract checks skipped because this PR does not change code, packaging, examples, tests, or workflow files."
+
       - name: Compile Python files
+        if: steps.changes.outputs.code_required == 'true'
         run: python -m compileall scripts codex_cadence transmission_control tests
 
       - name: Unit tests
+        if: steps.changes.outputs.code_required == 'true'
         run: python -m unittest discover -s tests -v
 
       - name: Protocol validation
         run: python scripts/validate_protocol.py
 
       - name: CLI smoke lifecycle
+        if: steps.changes.outputs.code_required == 'true'
         run: python scripts/ci_smoke.py
 
       - name: Run generic adapter contract pre-claim suite
+        if: steps.changes.outputs.code_required == 'true'
         shell: bash
         run: python examples/adapter-contract-runner/run.py --cadence-python python --evidence-summary | tee adapter-contract-evidence.json
 
       - name: Validate generic adapter contract evidence
+        if: steps.changes.outputs.code_required == 'true'
         shell: bash
         run: python examples/adapter-contract-runner/run.py --validate-evidence-file adapter-contract-evidence.json
 
       - name: Verify generic adapter claim boundary
+        if: steps.changes.outputs.code_required == 'true'
         shell: bash
         run: python examples/adapter-claim-verifier/run.py --evidence-file adapter-contract-evidence.json
 
       - name: Upload generic adapter contract evidence
+        if: steps.changes.outputs.code_required == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: generic-adapter-contract-evidence
@@ -58,7 +117,9 @@ jobs:
 
   package:
     name: Package install and first-run examples (${{ matrix.os }})
+    if: github.event.pull_request.draft == false
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -70,45 +131,100 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Classify changed paths
+        id: changes
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          $changed = git diff --name-only "$env:BASE_SHA...HEAD"
+          $packagePrefixes = @(
+            "codex_cadence/",
+            "transmission_control/",
+            "scripts/",
+            "tests/",
+            "examples/",
+            ".github/workflows/"
+          )
+          $packageFiles = @(
+            "pyproject.toml",
+            "setup.py",
+            "setup.cfg",
+            "MANIFEST.in"
+          )
+          $packageRequired = "false"
+          foreach ($path in $changed) {
+            $normalized = $path.Replace("\", "/")
+            if ($packageFiles -contains $normalized) {
+              $packageRequired = "true"
+              break
+            }
+            foreach ($prefix in $packagePrefixes) {
+              if ($normalized.StartsWith($prefix)) {
+                $packageRequired = "true"
+                break
+              }
+            }
+            if ($packageRequired -eq "true") {
+              break
+            }
+          }
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "package_required=$packageRequired"
+
+      - name: Skip package checks for docs-only changes
+        if: steps.changes.outputs.package_required != 'true'
+        run: echo "Package and first-run checks skipped because this PR does not change code, packaging, examples, tests, or workflow files."
+
       - name: Set up Python
+        if: steps.changes.outputs.package_required == 'true'
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
         with:
           python-version: "3.12"
 
       - name: Install build tooling
+        if: steps.changes.outputs.package_required == 'true'
         run: python -m pip install --upgrade pip build
 
       - name: Verify package build and installs
+        if: steps.changes.outputs.package_required == 'true'
         run: python scripts/verify_package.py
 
       - name: Install package for example commands
+        if: steps.changes.outputs.package_required == 'true'
         run: python -m pip install .
 
       - name: Run POSIX first-run example
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && steps.changes.outputs.package_required == 'true'
         run: bash examples/first-run/run.sh
 
       - name: Run PowerShell first-run example
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && steps.changes.outputs.package_required == 'true'
         run: pwsh examples/first-run/run.ps1
 
       - name: Run adapter smoke example
+        if: steps.changes.outputs.package_required == 'true'
         run: python examples/adapter-smoke/run.py --cadence-python python
 
       - name: Run host signal contract schema
+        if: steps.changes.outputs.package_required == 'true'
         run: python examples/adapter-template/host_signal_contract.py
 
       - name: Run generic host-signal smoke example
+        if: steps.changes.outputs.package_required == 'true'
         run: python examples/generic-host-signal/run.py --cadence-python python
 
       - name: Run generic shell host-binding stub example
+        if: steps.changes.outputs.package_required == 'true'
         run: python examples/generic-shell-host-binding/run.py --cadence-python python
 
       - name: Run generic shell host-binding replay contract
+        if: steps.changes.outputs.package_required == 'true'
         run: python examples/generic-shell-host-binding/run.py --replay-contract --cadence-python python
 
       - name: Run generic host/shell parity contract
+        if: steps.changes.outputs.package_required == 'true'
         run: python examples/generic-host-signal/run.py --parity-contract --cadence-python python
 
       - name: Run external host-binding conformance harness
+        if: steps.changes.outputs.package_required == 'true'
         run: python examples/external-host-binding-conformance/run.py --cadence-python python

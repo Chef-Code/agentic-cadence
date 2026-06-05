@@ -630,6 +630,8 @@ class CiChecksTests(unittest.TestCase):
             "package:",
             "ubuntu-latest",
             "windows-latest",
+            "package_required",
+            "Skip package checks for docs-only changes",
             "python -m pip install --upgrade pip build",
             "python scripts/verify_package.py",
             "python -m pip install .",
@@ -823,6 +825,13 @@ class CiChecksTests(unittest.TestCase):
 
         for token in (
             "pull_request",
+            "branches: [main]",
+            "types: [opened, synchronize, reopened, ready_for_review]",
+            "group: pr-checks-${{ github.event.pull_request.number }}",
+            "cancel-in-progress: true",
+            "Classify changed paths",
+            "code_required",
+            "Skip expensive code checks for docs-only changes",
             "git diff --check",
             "python -m compileall scripts codex_cadence transmission_control tests",
             "python -m unittest discover -s tests -v",
@@ -844,6 +853,9 @@ class CiChecksTests(unittest.TestCase):
             "target_ref:",
             "permissions:",
             "contents: read",
+            "group: release-dry-run-${{ inputs.tag }}",
+            "cancel-in-progress: true",
+            "timeout-minutes: 10",
             "fetch-depth: 0",
             "persist-credentials: false",
             "python-version: \"3.12\"",
@@ -1116,12 +1128,13 @@ class CiChecksTests(unittest.TestCase):
 
         for token in (
             "pull_request_target",
-            "opened",
-            "synchronize",
-            "reopened",
-            "ready_for_review",
+            "branches: [main]",
+            "types: [labeled]",
             "labeled",
-            "unlabeled",
+            "github.event.label.name == 'codex-review-elect'",
+            "github.event.label.name == 'elect-codex-review'",
+            "github.event.label.name == 'codex-review-force'",
+            "github.event.label.name == 'force-codex-review'",
             "github.event.pull_request.draft == false",
             "github.event.pull_request.head.repo.full_name == github.repository",
             "github.event.pull_request.head.repo.full_name != github.repository",
@@ -1171,6 +1184,10 @@ class CiChecksTests(unittest.TestCase):
         ):
             with self.subTest(token=token):
                 self.assertIn(token, workflow_text)
+
+        for token in ("opened", "synchronize", "ready_for_review", "unlabeled"):
+            with self.subTest(removed_trigger=token):
+                self.assertNotIn(token, workflow_text.split("permissions:", 1)[0])
 
         self.assertNotIn("prompt-file:", workflow_text)
         self.assertNotIn("[skip codex]", workflow_text)

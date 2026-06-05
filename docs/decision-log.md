@@ -28,6 +28,50 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-05 - Slow GitHub Actions spend without weakening required checks
+
+Decision:
+- Add PR-level concurrency cancellation to `PR Checks` so superseded pushes do
+  not keep burning Actions minutes.
+- Keep the existing required PR check names, but classify changed paths inside
+  the jobs and skip expensive compile, unit, smoke, adapter, package, and
+  example steps when a PR does not change code, packaging, tests, examples, or
+  workflow files.
+- Limit PR workflows to PRs targeting `main`.
+- Change repo-owned Codex Review from repeated PR lifecycle triggers to a
+  `pull_request_target` `labeled` trigger for explicit elect/force labels only.
+- Add cancellation and timeout bounds to the manual release dry-run workflow.
+
+Why:
+- The organization saw material GitHub Actions Linux spend, and this repository
+  was running multi-job PR CI on every PR update.
+- The Windows/Linux package matrix is useful before code merges, but it should
+  not run full package/example validation for docs-only or non-code changes.
+- Paid AI review should be deliberate. Leaving an elect label on a PR should
+  not cause paid review attempts on every new push.
+
+Alternatives considered:
+- Use workflow-level `paths-ignore`. Rejected for the current required checks
+  because skipped required workflows can leave branch protection waiting for
+  contexts that were never created.
+- Remove Windows package validation entirely. Rejected because the package
+  still exposes PowerShell/Windows first-run behavior.
+- Make all heavy checks manual. Rejected because code PRs still need reliable
+  required CI before merge.
+
+Consequences:
+- Rapid force-push or fixup loops cancel obsolete PR runs.
+- Docs-only changes still run diff hygiene and protocol validation, while
+  expensive code/package work exits quickly.
+- Codex Review now requires re-adding an elect/force label when an operator
+  wants a new paid review after a push.
+
+Open questions:
+- Should branch protection later require only a lightweight always-on check and
+  make package matrix checks conditional rather than required by name?
+- Should Windows package validation become label-triggered for non-release PRs
+  after more cost data is collected?
+
 ## 2026-06-04 - Keep review feedback response planning read-only
 
 Decision:
