@@ -232,7 +232,7 @@ git diff --check
 
 ## Task 12: Add Local Work Ownership Registry
 
-**Status:** Planned.
+**Status:** Implemented in current tree.
 
 **Phase:** Phase 4 preparation, local-only.
 
@@ -248,7 +248,7 @@ git diff --check
 
 **Implementation outline:**
 - Add local `work-ownership.v1` records under the runtime root with task id, candidate id, role label, claimer, repo, branch, optional PR number, optional epoch id, optional handoff id, status, and timestamps.
-- Add read-only status and validation commands for ownership records.
+- Add read-only `work-ownership-status` and `validate-work-ownership` commands for ownership records.
 - Emit duplicate-ownership blockers from the ownership status and validation commands. Leave execution-start and resume-continuation enforcement as a later explicit integration point, and do not enforce distributed locks.
 - Keep role assignment, agent pool scheduling, GitHub issue assignment, shared runtime, merge authority, release authority, and package publication outside this slice.
 
@@ -257,6 +257,11 @@ git diff --check
 - Duplicate active ownership for the same task/branch blocks ownership status recommendations without mutating execution-start or resume-continuation gates in this slice.
 - Malformed, stale, closed, or repo-mismatched ownership evidence returns stable blockers.
 - Records remain local filesystem evidence and do not call GitHub.
+
+**Current-tree evidence:**
+- `codex_cadence/ownership.py` validates `work-ownership.v1` records and emits `work-ownership-status.v1` / `work-ownership-validation.v1`.
+- `codex_cadence/store.py` exposes `work-ownership` state directories for active, closed, and failed records.
+- `tests/test_cadence.py` covers valid active status, duplicate active ownership, closed evidence, stale evidence, and repo mismatch.
 
 Run:
 
@@ -270,8 +275,8 @@ git diff --check
 
 ## Recommended Order
 
-1. Task 12, because local ownership records are the lowest-risk first step
-   toward multi-worker coordination.
+1. Create the next roadmap after Task 12 merges, because the Tasks 8-12 roadmap
+   is complete in the current tree.
 
 ## Boundaries For All Five Tasks
 

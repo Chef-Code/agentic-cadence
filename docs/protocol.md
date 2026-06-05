@@ -306,6 +306,65 @@ The command must not claim handoffs, write clean-square records, launch a new
 session, infer host context pressure, start or invoke an executor, create
 branches, write pull requests, merge, release, or publish packages.
 
+## Local Work Ownership
+
+`work-ownership.v1` records are local filesystem evidence under
+`<runtime-root>/work-ownership/{active,closed,failed}`. A record binds the
+local task id, candidate id, role label, claimer, repo, branch, optional PR
+number, optional epoch id, optional handoff id, status, `created_at`, and
+`updated_at` before any future multi-worker orchestration is introduced.
+
+The read-only status command scans local ownership records for the current
+repository scope:
+
+```bash
+agentic-cadence --root <runtime-root> work-ownership-status --cwd . --repo owner/repo --task-id task-1
+```
+
+It emits a `work-ownership-status.v1` packet shaped as:
+
+```json
+{
+  "protocol_version": "v1",
+  "schema_version": "work-ownership-status.v1",
+  "packet": "work_ownership_status",
+  "read_only": true,
+  "valid": false,
+  "counts": {"total": 2, "active": 2, "closed": 0, "failed": 0},
+  "records": [],
+  "blockers": [{"code": "duplicate_active_ownership", "message": "human readable"}],
+  "recommended_next_action": "resolve_duplicate_ownership",
+  "side_effects": []
+}
+```
+
+The read-only validation command checks one record by id or path:
+
+```bash
+agentic-cadence --root <runtime-root> validate-work-ownership ownership-1 --cwd . --repo owner/repo --task-id task-1 --require-active
+```
+
+It emits `work-ownership-validation.v1` with the checked record summary,
+stable blockers, and a bounded recommendation. Stable blocker codes include
+`duplicate_active_ownership`, `ownership_record_missing`,
+`ownership_record_unreadable`, `ownership_record_invalid`,
+`ownership_schema_unsupported`, `ownership_required_field_missing`,
+`ownership_field_type_invalid`, `ownership_id_invalid`,
+`ownership_status_invalid`, `ownership_state_mismatch`,
+`ownership_timestamp_invalid`, `ownership_stale`, `ownership_closed`,
+`ownership_repo_mismatch`, `ownership_branch_mismatch`, and
+`ownership_task_mismatch`. Recommended actions are limited to
+`use_work_ownership_status`, `use_work_ownership_record`,
+`resolve_duplicate_ownership`, `provide_ownership_record`,
+`refresh_ownership_evidence`, `repair_ownership_record`, and
+`inspect_ownership_evidence`.
+
+Duplicate active ownership is local evidence only. These records are not
+distributed locks, do not assign roles, do not schedule agents, do not write
+GitHub issues, and do not mutate execution-start or resume-continuation gates
+in this slice. The commands do not start epochs, invoke executors, create
+branches, push, open or update PRs, merge, release, or publish packages.
+
 ## Handoff Signature
 
 Draft marker:

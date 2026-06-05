@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, operator-approved `git-pr-materialize`, read-only `verify-resume`, read-only `resume-continuation`, and a fixture-only controlled executor runner for tests and examples.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, operator-approved `git-pr-materialize`, read-only `verify-resume`, read-only `resume-continuation`, read-only `work-ownership-status`, read-only `validate-work-ownership`, and a fixture-only controlled executor runner for tests and examples.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -446,6 +446,32 @@ such as `repo_head_mismatch`, `clean_square_missing`,
 
 The command does not claim handoffs, launch sessions, start epochs, invoke an
 executor, create branches, push, open PRs, merge, release, or publish packages.
+
+## Local Work Ownership
+
+`work-ownership-status` and `validate-work-ownership` are read-only local
+evidence gates for `work-ownership.v1` records under
+`<runtime-root>/work-ownership/{active,closed,failed}`. Records bind a local
+task id, candidate id, role label, claimer, repo, branch, optional PR number,
+optional epoch id, optional handoff id, status, and timestamps.
+
+```bash
+agentic-cadence --root <runtime-root> work-ownership-status --cwd . --repo owner/repo --task-id task-1
+agentic-cadence --root <runtime-root> validate-work-ownership ownership-1 --cwd . --repo owner/repo --task-id task-1 --require-active
+```
+
+Status emits `work-ownership-status.v1`; validation emits
+`work-ownership-validation.v1`. Both packets report `read_only: true`,
+`side_effects: []`, stable blockers such as `duplicate_active_ownership`,
+`ownership_stale`, `ownership_closed`, `ownership_repo_mismatch`, and
+`ownership_record_invalid`, and bounded next actions such as
+`use_work_ownership_status`, `resolve_duplicate_ownership`,
+`refresh_ownership_evidence`, and `repair_ownership_record`.
+
+These commands do not assign roles, schedule agents, write GitHub issues,
+claim distributed locks, start epochs, invoke executors, mutate Git/PR state,
+merge, release, or publish packages. Execution-start and resume-continuation
+enforcement remains a later explicit integration point.
 
 ## GitHub Evidence Sync
 

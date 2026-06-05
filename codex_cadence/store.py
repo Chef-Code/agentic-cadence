@@ -15,6 +15,7 @@ from . import PROTOCOL_VERSION
 HANDOFF_STATES = ("ready", "claimed", "completed", "failed")
 BRAKE_STATUSES = ("DRIVE", "NEUTRAL", "PARK")
 EPOCH_STATES = ("active", "completed", "failed")
+WORK_OWNERSHIP_STATES = ("active", "closed", "failed")
 SAFE_RECORD_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 WINDOWS_RESERVED_NAMES = {
     "CON",
@@ -120,6 +121,16 @@ def execution_run_path(root: Path, run_id: str) -> Path:
     return execution_run_dir(root) / f"{validate_record_id(run_id, 'execution run')}.json"
 
 
+def work_ownership_state_dir(root: Path, state: str) -> Path:
+    if state not in WORK_OWNERSHIP_STATES:
+        raise ValueError(f"unsupported work ownership state: {state}")
+    return root / "work-ownership" / state
+
+
+def work_ownership_path(root: Path, state: str, ownership_id: str) -> Path:
+    return work_ownership_state_dir(root, state) / f"{validate_record_id(ownership_id, 'work ownership')}.json"
+
+
 def lock_path(root: Path, name: str) -> Path:
     return root / "locks" / f"{validate_record_id(name, 'lock')}.lock"
 
@@ -160,6 +171,8 @@ def ensure_layout(root: Path) -> None:
     (root / "snapshots").mkdir(parents=True, exist_ok=True)
     (root / "plans").mkdir(parents=True, exist_ok=True)
     execution_run_dir(root).mkdir(parents=True, exist_ok=True)
+    for state in WORK_OWNERSHIP_STATES:
+        work_ownership_state_dir(root, state).mkdir(parents=True, exist_ok=True)
     if not brake_path(root).exists():
         atomic_write_json(
             brake_path(root),

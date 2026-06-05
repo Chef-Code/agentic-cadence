@@ -28,6 +28,54 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-05 - Keep work ownership local before multi-worker orchestration
+
+Decision:
+- Add `work-ownership.v1` records under
+  `<runtime-root>/work-ownership/{active,closed,failed}` with task id,
+  candidate id, role label, claimer, repo, branch, optional PR number,
+  optional epoch id, optional handoff id, status, and timestamps.
+- Add read-only `work-ownership-status` and `validate-work-ownership` commands
+  that emit `work-ownership-status.v1` and `work-ownership-validation.v1`
+  packets with stable blocker codes.
+- Treat duplicate active records for the same repo, branch, and task as a
+  local blocker, but do not treat the records as distributed locks.
+- Leave execution-start, resume-continuation, role assignment, agent pools,
+  GitHub issue assignment, shared runtimes, merge authority, release authority,
+  and package publication outside this slice.
+
+Why:
+- Future multi-worker coordination needs a local, auditable way to see who is
+  associated with a task, branch, PR, epoch, handoff, and role before Cadence
+  gains a scheduler or role-aware assignment model.
+- Duplicate local ownership is a risk worth surfacing now, but enforcing it
+  inside execution-start or resume-continuation would couple Task 12 to
+  workflow semantics that have not been designed yet.
+
+Alternatives considered:
+- Make ownership records distributed locks. Rejected because the current
+  runtime is local filesystem evidence and does not provide cross-host
+  consensus or lease semantics.
+- Auto-create ownership records from execution-start. Deferred because Task 12
+  is a read-only status/validation slice and write-side ownership creation
+  needs explicit operator and workflow design.
+- Wire ownership blockers into `resume-continuation` immediately. Deferred so
+  the registry contract can stabilize independently before becoming a hard
+  gate for execution.
+
+Consequences:
+- Operators and external orchestration can inspect local ownership evidence
+  before starting or resuming work.
+- The system still needs a later write-side ownership creation command and a
+  separate integration task before ownership blocks execution-start or resume
+  continuation.
+
+Open questions:
+- What event should create or close ownership records: candidate election,
+  handoff claim, execution-start approval, branch materialization, or PR open?
+- Should active ownership freshness use a fixed local default or be governed by
+  a policy packet once role-aware orchestration exists?
+
 ## 2026-06-05 - Bind resume evidence before governed execution start
 
 Decision:

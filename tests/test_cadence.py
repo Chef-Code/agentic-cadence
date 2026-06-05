@@ -144,6 +144,32 @@ def write_active_epoch_raw(root, epoch_id):
     return path
 
 
+def write_work_ownership(root, ownership_id, **overrides):
+    status = overrides.pop("status", "ACTIVE")
+    state = overrides.pop("state", status.lower())
+    path = Path(root) / "work-ownership" / state / f"{ownership_id}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "schema_version": "work-ownership.v1",
+        "id": ownership_id,
+        "task_id": "task-1",
+        "candidate_id": "candidate-1",
+        "role": "implementer",
+        "claimer": "test-agent",
+        "repo": "local/test",
+        "branch": "main",
+        "pr_number": 76,
+        "epoch_id": "epoch-1",
+        "handoff_id": "handoff-1",
+        "status": status,
+        "created_at": utc_now(),
+        "updated_at": utc_now(),
+    }
+    data.update(overrides)
+    path.write_text(json.dumps(data), encoding="utf-8")
+    return path, data
+
+
 def governed_execution_task_packet(root, repo, **snapshot_overrides):
     return build_executor_task_packet(
         task={
@@ -7744,6 +7770,103 @@ class CadenceCliTests(unittest.TestCase):
             audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
             self.assertEqual(len(audit_lines), 1)
             self.assertEqual(json.loads(audit_lines[0])["event"], "executor_epoch_closeout")
+
+    def test_work_ownership_status_surfaces_valid_active_record(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            write_work_ownership(tmp, "ownership-1", branch=current_branch(repo))
+
+            result, output = run_cli(
+                tmp,
+                "work-ownership-status",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "work-ownership-status.v1")
+            self.assertEqual(output["packet"], "work_ownership_status")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(output["recommended_next_action"], "use_work_ownership_status")
+            self.assertEqual(output["counts"]["active"], 1)
+            self.assertEqual(output["records"][0]["id"], "ownership-1")
+            self.assertEqual(output["records"][0]["task_id"], "task-1")
+            self.assertEqual(output["records"][0]["branch"], current_branch(repo))
+
+    def test_work_ownership_status_blocks_duplicate_active_task_branch(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            branch = current_branch(repo)
+            write_work_ownership(tmp, "ownership-1", branch=branch)
+            write_work_ownership(tmp, "ownership-2", branch=branch, claimer="other-agent")
+
+            result, output = run_cli(
+                tmp,
+                "work-ownership-status",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "resolve_duplicate_ownership")
+            self.assertIn("duplicate_active_ownership", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_validate_work_ownership_blocks_closed_stale_and_repo_mismatch(self):
+        cases = [
+            (
+                "closed-ownership",
+                {"state": "closed", "status": "CLOSED"},
+                "ownership_closed",
+            ),
+            (
+                "stale-ownership",
+                {"updated_at": "2000-01-01T00:00:00Z"},
+                "ownership_stale",
+            ),
+            (
+                "repo-mismatch",
+                {"repo": "local/other"},
+                "ownership_repo_mismatch",
+            ),
+        ]
+        for ownership_id, overrides, expected_code in cases:
+            with self.subTest(expected_code=expected_code):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    write_work_ownership(tmp, ownership_id, branch=current_branch(repo), **overrides)
+
+                    result, output = run_cli(
+                        tmp,
+                        "validate-work-ownership",
+                        ownership_id,
+                        "--cwd",
+                        repo,
+                        "--repo",
+                        "local/test",
+                        "--task-id",
+                        "task-1",
+                        "--require-active",
+                        "--max-age-minutes",
+                        "5",
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertEqual(output["schema_version"], "work-ownership-validation.v1")
+                    self.assertEqual(output["packet"], "work_ownership_validation")
+                    self.assertTrue(output["read_only"])
+                    self.assertFalse(output["valid"])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
 
 
 if __name__ == "__main__":

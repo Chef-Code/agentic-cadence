@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-05
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, and read-only review-response planning current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, read-only review-response planning, and local work ownership evidence current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -38,11 +38,12 @@ These changes reduce state-awareness footguns. The current tree also includes
 the Phase 1 read-only `loop-tick` command for the first slice and a generic
 executor task/result contract, plus read-only GitHub evidence sync,
 operator-approved Git/PR materialization, read-only resume verification,
-read-only review-response planning, and a governed execution-start gate. It
+read-only review-response planning, local work ownership status and validation
+packets, and a governed execution-start gate. It
 still does not add autonomous live GitHub synchronization, dirty-worktree
 commit materialization, real executor invocation, automatic resume
-orchestration, agent-role assignment, agent-pool coordination, or enforced
-review separation.
+orchestration, agent-role assignment, agent-pool coordination, distributed
+ownership locks, or enforced review separation.
 The first local policy/audit controls can bound
 emitted executor task packets, append decision/result-validation audit records,
 and replay local audit history with a read-only `audit-replay.v1` packet.
@@ -67,14 +68,19 @@ dirty-worktree state, active brake, active epoch state, and pickup-policy
 evidence before a fresh session continues. `review-response-plan` can turn
 saved PR JSON, saved review-thread JSON, optional candidate discovery output,
 and PR-body evidence into bounded read-only follow-up recommendations without
-writing to GitHub. Real executor invocation, autonomous branch/commit/push or
-PR creation, automatic session launch, and continuous loop orchestration remain
-missing.
+writing to GitHub. `work-ownership-status` and `validate-work-ownership` can
+read local `work-ownership.v1` records, surface active/closed/failed ownership
+evidence, reject malformed, stale, closed, or repo-mismatched records, and
+block duplicate active ownership for the same repo, branch, and task. Real
+executor invocation, autonomous branch/commit/push or PR creation, automatic
+session launch, distributed work ownership, role assignment, and continuous
+loop orchestration remain missing.
 Current unattended-operation confidence remains 10%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete, and Tasks 8-10 are complete in the current tree. Tasks 11-12 are tracked in
-`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
+complete, and Tasks 8-12 from
+`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete in the current
+tree.
 
 ## Vision Framing
 
