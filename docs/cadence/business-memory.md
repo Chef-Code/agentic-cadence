@@ -188,3 +188,19 @@ Do not:
 - Do not launch a new session, claim handoffs implicitly, invoke an executor, create branches, commit, push, open PRs, merge, release, or publish packages from this backlog entry.
 - Do not treat a resume verification packet as fresh forever; continuation must recheck repo, handoff, brake, clean-square, policy, and active epoch state.
 - Do not add distributed ownership or scheduler behavior before the local ownership slice exists.
+
+## Local Work Ownership Needs A Registry
+
+Kind: risk
+Workflow: Multi-worker coordination
+Time Saved: high
+Risk: high
+Pain: Cadence can start governed local work and resume handoffs, but it does not yet have a local record that shows which task, branch, PR, epoch, handoff, role, and claimer are associated before multiple workers are introduced.
+Signals:
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` names Task 12 as the local work ownership registry.
+- Task 11 current-tree work leaves ownership enforcement outside `resume-continuation`.
+- Multi-worker coordination needs duplicate active ownership blockers before any agent pool, role assignment, or distributed scheduler exists.
+Do not:
+- Do not treat local ownership records as distributed locks.
+- Do not add role assignment, agent pool scheduling, GitHub issue assignment, shared runtime, merge authority, release authority, or package-publication authority from this backlog entry.
+- Do not mutate execution-start or resume-continuation gates in the ownership registry slice.
