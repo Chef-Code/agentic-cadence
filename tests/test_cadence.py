@@ -8309,7 +8309,8 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
                     if target == "ownership-1" and expected_code != "ownership_closed":
                         self.assertTrue((Path(tmp) / "work-ownership" / "active" / "ownership-1.json").exists())
-                    self.assertFalse((Path(tmp) / "work-ownership" / "failed" / f"{target}.json").exists())
+                    if expected_code != "ownership_closed":
+                        self.assertFalse((Path(tmp) / "work-ownership" / "closed" / f"{target}.json").exists())
                     self.assertEqual(audit_records(tmp), [])
 
     def test_work_ownership_status_blocks_duplicate_active_task_branch(self):
