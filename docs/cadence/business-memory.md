@@ -210,7 +210,8 @@ Do not:
 
 ## Next Roadmap Needs Tasks 13-17
 
-Status: active
+Status: fulfilled
+Fulfilled By: `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
 Kind: direction
 Workflow: Roadmap planning
 Time Saved: high
@@ -224,3 +225,37 @@ Do not:
 - Do not start role assignment, agent pool scheduling, GitHub issue assignment, distributed locking, merge authority, release authority, or package-publication authority without a new roadmap.
 - Do not mutate execution-start or resume-continuation gates from this planning backlog entry.
 - Do not create branches, commits, PRs, merges, releases, or package publication from discovery alone.
+
+## Ownership Enforcement Needs Local Write Gates
+
+Status: active
+Kind: risk
+Workflow: Multi-worker coordination
+Time Saved: high
+Risk: high
+Pain: Cadence can validate local work ownership records, but execution-start and resume-continuation cannot rely on ownership until there is an explicit local command that creates, closes, and fails ownership records under stable blockers.
+Signals:
+- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` names Task 13 as local ownership claim and closeout.
+- Task 12 is read-only status/validation evidence only.
+- Future execution-start and resume-continuation ownership gates need canonical active ownership records before they can fail closed on mismatches.
+Do not:
+- Do not treat local ownership as a distributed lock.
+- Do not assign roles, schedule agents, write GitHub issues, invoke executors, create branches, commit, push, merge, release, or publish packages from this backlog entry.
+- Do not skip local ownership write/closeout governance and jump directly to agent-pool orchestration.
+
+## Real Executor Readiness Needs A Preflight Packet
+
+Status: active
+Kind: risk
+Workflow: Controlled executor loop governance
+Time Saved: high
+Risk: high
+Pain: Real executor invocation remains the first hard stop in unattended operation, and Cadence should prove task, epoch, ownership, role, policy, repo, and result-path anchors before any future command starts a real executor process.
+Signals:
+- `docs/autonomous-loop-readiness.md` still identifies real executor invocation as the first hard stop.
+- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` names Task 17 as executor invocation readiness planning.
+- The controlled fixture path proves local evidence handling, but fixture success is not named-host or real-executor authority.
+Do not:
+- Do not invoke a real executor from readiness planning.
+- Do not treat a readiness packet as permission to mutate code, create branches, push, open PRs, merge, release, or publish packages.
+- Do not claim named-host adapter support without generic contract evidence and explicit operator approval.

@@ -82,7 +82,8 @@ Current unattended-operation confidence remains 10%.
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
 complete, and Tasks 8-12 from
 `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete in the current
-tree.
+tree. The next bounded roadmap is
+`docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`.
 
 ## Vision Framing
 

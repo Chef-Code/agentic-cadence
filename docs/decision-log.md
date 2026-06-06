@@ -28,6 +28,48 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-05 - Sequence ownership enforcement before real executor invocation
+
+Decision:
+- Use `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` as the next bounded
+  roadmap after Task 12.
+- Sequence write-side local ownership claim/closeout before making
+  `start-governed-execution` or `resume-continuation` depend on ownership.
+- Add role-policy and review-separation readiness before role assignment or
+  paid review automation.
+- Add real-executor invocation readiness planning before any command can invoke
+  a real executor.
+
+Why:
+- Task 12 made ownership inspectable, but read-only evidence is not enough for
+  execution or resume enforcement.
+- Jumping directly from local ownership status to role assignment, distributed
+  locks, agent pools, or real executor invocation would skip the local blocker
+  and audit contracts needed for safe follow-up work.
+
+Alternatives considered:
+- Start with role assignment or agent-pool scheduling. Deferred because the
+  project still lacks explicit local ownership creation, ownership closeout,
+  and ownership-bound execution/resume gates.
+- Invoke a real executor next. Deferred because Cadence still needs an
+  invocation readiness packet that proves task, epoch, ownership, role, policy,
+  repo, and result-path anchors without starting a process.
+- Add distributed locks. Rejected for this roadmap because the current runtime
+  is local filesystem state and there is no shared remote backend.
+
+Consequences:
+- The next implementation work stays local and auditable while preparing for
+  multi-worker coordination.
+- Real executor invocation, GitHub issue assignment, distributed locking,
+  branch/PR writes, merge, release, and package publication remain explicit
+  future work.
+
+Open questions:
+- Which approval shape should authorize write-side ownership claims and
+  closeouts once role-aware orchestration exists?
+- Should role-readiness evidence become a required execution-start input before
+  or after the first real executor readiness packet lands?
+
 ## 2026-06-05 - Keep work ownership local before multi-worker orchestration
 
 Decision:

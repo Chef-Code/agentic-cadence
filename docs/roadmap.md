@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-05
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, and read-only review-response planning current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, read-only review-response planning, and local work ownership evidence current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -321,7 +321,8 @@ The smallest slices expected to move confidence toward 50% are tracked in
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
 complete, and Tasks 8-12 from
 `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete in the current
-tree. The next bounded public roadmap should cover Tasks 13-17.
+tree. The next bounded public roadmap is
+`docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`.
 
 ## Roadmap
 
@@ -611,10 +612,13 @@ Validation: valid active ownership, duplicate active ownership for the same
 repo/branch/task, stale active ownership, closed evidence, malformed records,
 and repo/branch/task mismatch fixtures.
 
-Follow-up: design the next roadmap after Task 12 merges. Write-side ownership
-creation, role assignment, distributed locking, agent pools, GitHub issue
-assignment, and execution-start/resume-continuation enforcement remain future
-work.
+Follow-up: use `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the next
+bounded implementation sequence. Write-side ownership creation,
+execution-start ownership enforcement, resume-continuation ownership
+enforcement, role-readiness evidence, and real-executor invocation readiness
+planning are sequenced there. Distributed locking, agent pools, GitHub issue
+assignment, real executor invocation, merge, release, and package publication
+remain future work.
 
 ## Long-Term Goals
 
