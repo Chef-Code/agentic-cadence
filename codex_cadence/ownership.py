@@ -509,13 +509,13 @@ def _validation_recommendation(blockers: list[dict[str, Any]]) -> str:
 
 def _matches_scope(record: Any, *, repo: str | None, branch: str | None, task_id: str | None) -> bool:
     if not isinstance(record, dict):
-        return True
+        return False
     for field, expected in (("repo", repo), ("branch", branch), ("task_id", task_id)):
         if expected is None:
             continue
         value = record.get(field)
         if not isinstance(value, str) or not value.strip():
-            return True
+            return False
         if value != expected:
             return False
     return True
