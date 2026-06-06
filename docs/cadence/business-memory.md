@@ -228,7 +228,8 @@ Do not:
 
 ## Ownership Enforcement Needs Local Write Gates
 
-Status: active
+Status: fulfilled
+Fulfilled By: Task 13 current-tree `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership` implementation
 Kind: risk
 Workflow: Multi-worker coordination
 Time Saved: high
