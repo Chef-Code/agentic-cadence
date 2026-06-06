@@ -54,6 +54,8 @@ from codex_cadence.handoff_loop import (
 from codex_cadence.model import BUCKETS, TASK_TYPES, estimate_task, governance_permissions, policy_for_bucket
 from codex_cadence.ownership import (
     DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+    claim_work_ownership,
+    closeout_work_ownership,
     validate_work_ownership,
     work_ownership_status,
 )
@@ -67,6 +69,7 @@ from codex_cadence.policy_audit import (
     loop_tick_audit_record,
     replay_audit_log,
     resolve_executor_policy,
+    work_ownership_mutation_audit_record,
 )
 from codex_cadence.pr_readiness import (
     evaluate_pr_body_preflight,
@@ -1297,6 +1300,83 @@ def validate_work_ownership_command(args: argparse.Namespace) -> int:
     return 0 if packet["valid"] else 2
 
 
+def append_work_ownership_mutation_audit(root: Path, packet: dict[str, Any]) -> dict[str, Any]:
+    if not packet.get("valid"):
+        return packet
+    try:
+        packet["audit_record"] = append_audit_record(root, work_ownership_mutation_audit_record(packet))
+        packet.setdefault("side_effects", []).append("work_ownership_audit_appended")
+    except (OSError, RuntimeError, ValueError) as exc:
+        packet.setdefault("blockers", []).append(
+            {
+                "code": "audit_append_failed",
+                "message": f"work ownership audit record could not be written: {exc}",
+            }
+        )
+        packet["valid"] = False
+        packet["recommended_next_action"] = "inspect_runtime_state"
+        packet["reason"] = packet["blockers"][-1]["message"]
+    return packet
+
+
+def claim_work_ownership_command(args: argparse.Namespace) -> int:
+    packet = claim_work_ownership(
+        root=args.root,
+        cwd=Path(args.cwd),
+        repo=args.repo,
+        branch=args.branch,
+        head=args.head,
+        task_id=args.task_id,
+        candidate_id=args.candidate_id,
+        role=args.role,
+        claimer=args.claimer,
+        ownership_id=args.id,
+        pr_number=args.pr_number,
+        epoch_id=args.epoch_id,
+        handoff_id=args.handoff_id,
+        max_age_minutes=args.max_age_minutes,
+    )
+    packet = append_work_ownership_mutation_audit(args.root, packet)
+    emit(packet)
+    return 0 if packet["valid"] else 2
+
+
+def close_work_ownership_command(args: argparse.Namespace) -> int:
+    packet = closeout_work_ownership(
+        root=args.root,
+        cwd=Path(args.cwd),
+        target=args.target,
+        closeout_status="CLOSED",
+        repo=args.repo,
+        branch=args.branch,
+        head=args.head,
+        task_id=args.task_id,
+        claimer=args.claimer,
+        summary=args.summary,
+    )
+    packet = append_work_ownership_mutation_audit(args.root, packet)
+    emit(packet)
+    return 0 if packet["valid"] else 2
+
+
+def fail_work_ownership_command(args: argparse.Namespace) -> int:
+    packet = closeout_work_ownership(
+        root=args.root,
+        cwd=Path(args.cwd),
+        target=args.target,
+        closeout_status="FAILED",
+        repo=args.repo,
+        branch=args.branch,
+        head=args.head,
+        task_id=args.task_id,
+        claimer=args.claimer,
+        summary=args.summary,
+    )
+    packet = append_work_ownership_mutation_audit(args.root, packet)
+    emit(packet)
+    return 0 if packet["valid"] else 2
+
+
 def choose_interactive_intent() -> str:
     print("Choose discovery intent:", file=sys.stderr)
     for index, intent in enumerate(DISCOVERY_INTENTS, start=1):
@@ -2358,6 +2438,57 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
     )
     validate_ownership_parser.set_defaults(func=validate_work_ownership_command)
+
+    claim_ownership_parser = subparsers.add_parser(
+        "claim-work-ownership",
+        help="Create one governed local active work ownership record",
+    )
+    claim_ownership_parser.add_argument("--id")
+    claim_ownership_parser.add_argument("--cwd", default=".")
+    claim_ownership_parser.add_argument("--repo", required=True)
+    claim_ownership_parser.add_argument("--branch", required=True)
+    claim_ownership_parser.add_argument("--head", required=True)
+    claim_ownership_parser.add_argument("--task-id", required=True)
+    claim_ownership_parser.add_argument("--candidate-id", required=True)
+    claim_ownership_parser.add_argument("--role", required=True)
+    claim_ownership_parser.add_argument("--claimer", required=True)
+    claim_ownership_parser.add_argument("--pr-number", type=positive_int)
+    claim_ownership_parser.add_argument("--epoch-id")
+    claim_ownership_parser.add_argument("--handoff-id")
+    claim_ownership_parser.add_argument(
+        "--max-age-minutes",
+        type=non_negative_int,
+        default=DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+    )
+    claim_ownership_parser.set_defaults(func=claim_work_ownership_command)
+
+    close_ownership_parser = subparsers.add_parser(
+        "close-work-ownership",
+        help="Move one active work ownership record to closed local evidence",
+    )
+    close_ownership_parser.add_argument("target")
+    close_ownership_parser.add_argument("--cwd", default=".")
+    close_ownership_parser.add_argument("--repo", required=True)
+    close_ownership_parser.add_argument("--branch", required=True)
+    close_ownership_parser.add_argument("--head", required=True)
+    close_ownership_parser.add_argument("--task-id", required=True)
+    close_ownership_parser.add_argument("--claimer", required=True)
+    close_ownership_parser.add_argument("--summary", required=True)
+    close_ownership_parser.set_defaults(func=close_work_ownership_command)
+
+    fail_ownership_parser = subparsers.add_parser(
+        "fail-work-ownership",
+        help="Move one active work ownership record to failed local evidence",
+    )
+    fail_ownership_parser.add_argument("target")
+    fail_ownership_parser.add_argument("--cwd", default=".")
+    fail_ownership_parser.add_argument("--repo", required=True)
+    fail_ownership_parser.add_argument("--branch", required=True)
+    fail_ownership_parser.add_argument("--head", required=True)
+    fail_ownership_parser.add_argument("--task-id", required=True)
+    fail_ownership_parser.add_argument("--claimer", required=True)
+    fail_ownership_parser.add_argument("--summary", required=True)
+    fail_ownership_parser.set_defaults(func=fail_work_ownership_command)
 
     clean_parser = subparsers.add_parser("clean-square", help="Record old-session shutdown after handoff")
     clean_parser.add_argument("handoff_id")

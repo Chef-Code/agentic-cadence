@@ -1,8 +1,8 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-05
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, read-only review-response planning, and local work ownership evidence current tree
+Last updated: 2026-06-06
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, read-only review-response planning, and local work ownership claim/closeout evidence current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -597,28 +597,35 @@ multi-worker coordination exists.
 Current evidence: `work-ownership-status` and `validate-work-ownership` read
 local `work-ownership.v1` records under
 `<runtime-root>/work-ownership/{active,closed,failed}`. Records bind task id,
-candidate id, role label, claimer, repo, branch, optional PR number, optional
-epoch id, optional handoff id, status, and timestamps. The commands emit
+candidate id, role label, claimer, repo, branch, optional head, optional PR
+number, optional epoch id, optional handoff id, status, and timestamps. The
+read-only commands emit
 `work-ownership-status.v1` and `work-ownership-validation.v1` packets with
 stable blockers such as `duplicate_active_ownership`, `ownership_stale`,
 `ownership_registry_state_invalid`, and `repo_inspection_failed`; validation
 also reports target-record blockers such as `ownership_closed` and
-`ownership_repo_mismatch`.
+`ownership_repo_mismatch`. The write-side commands emit
+`work-ownership-claim.v1` and `work-ownership-closeout.v1`, create active
+claims, move active claims to `closed` or `failed`, block stale repo anchors,
+dirty worktrees, duplicate/stale ownership, invalid role or claimer labels,
+malformed records, and unsafe registry paths, and append replayable
+`work_ownership_mutation` audit records for accepted mutations.
 
 Likely files: `codex_cadence/ownership.py`, `codex_cadence/cli.py`,
 `codex_cadence/store.py`, tests, docs.
 
-Validation: valid active ownership, duplicate active ownership for the same
-repo/branch/task, stale active ownership, closed evidence, malformed records,
-and repo/branch/task mismatch fixtures.
+Validation: valid active ownership, valid claim, duplicate active ownership for
+the same repo/branch/task, stale active ownership, dirty worktree, branch/head
+mismatch, invalid role/claimer, closed evidence, close/fail move, malformed
+records, repo/branch/task mismatch fixtures, and audit replay of ownership
+mutation evidence.
 
 Follow-up: use `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the next
-bounded implementation sequence. Write-side ownership creation,
-execution-start ownership enforcement, resume-continuation ownership
-enforcement, role-readiness evidence, and real-executor invocation readiness
-planning are sequenced there. Distributed locking, agent pools, GitHub issue
-assignment, real executor invocation, merge, release, and package publication
-remain future work.
+bounded implementation sequence. Execution-start ownership enforcement,
+resume-continuation ownership enforcement, role-readiness evidence, and
+real-executor invocation readiness planning are sequenced there. Distributed
+locking, agent pools, GitHub issue assignment, real executor invocation,
+merge, release, and package publication remain future work.
 
 ## Long-Term Goals
 

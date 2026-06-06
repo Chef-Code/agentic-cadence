@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption
@@ -27,6 +27,49 @@ Consequences:
 Open questions:
 - Remaining unknowns.
 ```
+
+## 2026-06-06 - Keep ownership mutations explicit and local
+
+Decision:
+- Add explicit `claim-work-ownership`, `close-work-ownership`, and
+  `fail-work-ownership` commands instead of implicitly mutating ownership from
+  candidate discovery, handoff claim, execution-start, or resume-continuation.
+- Require current branch, `HEAD`, clean worktree, duplicate/stale ownership,
+  malformed evidence, and registry path-safety rechecks before accepted local
+  mutations.
+- Append compact `work_ownership_mutation` audit evidence for accepted
+  ownership writes and moves.
+
+Why:
+- Task 13 needs a public local write path before later tasks can make
+  execution-start or resume-continuation fail closed on ownership evidence.
+- Keeping mutations explicit makes the local record lifecycle testable without
+  granting role assignment, scheduler, distributed lock, GitHub issue
+  assignment, executor invocation, or Git/PR write authority.
+
+Alternatives considered:
+- Auto-create ownership during `start-governed-execution`. Deferred to avoid
+  hiding ownership mutation inside an execution gate before ownership-bound
+  execution has its own design.
+- Treat active local ownership as a lock. Rejected because this runtime is
+  local filesystem evidence and does not provide distributed consensus or
+  lease semantics.
+- Allow closeout without repo anchors. Rejected because closeout is a write
+  path and should prove the current local repo still matches the claimed work.
+
+Consequences:
+- Future execution-start and resume-continuation ownership gates can consume
+  canonical active records written by an explicit command.
+- Operators can close or fail local claims with audit evidence before any
+  remote agent pool or role policy exists.
+- Role assignment, review separation, real executor invocation, distributed
+  locks, branch/PR writes, merge, release, and publication remain future work.
+
+Open questions:
+- Should ownership claim and closeout eventually require an operator approval
+  token or role-policy packet?
+- Should the active ownership freshness window move from a command option into
+  a role or loop policy packet?
 
 ## 2026-06-05 - Sequence ownership enforcement before real executor invocation
 

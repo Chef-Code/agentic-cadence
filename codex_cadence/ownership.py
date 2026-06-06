@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -9,7 +10,9 @@ from codex_cadence import PROTOCOL_VERSION
 from codex_cadence.repo_state import current_repo_evidence
 from codex_cadence.store import (
     WORK_OWNERSHIP_STATES,
+    atomic_write_json,
     read_json,
+    utc_now,
     validate_record_id,
     work_ownership_path,
     work_ownership_state_dir,
@@ -18,6 +21,8 @@ from codex_cadence.store import (
 WORK_OWNERSHIP_SCHEMA_VERSION = "work-ownership.v1"
 WORK_OWNERSHIP_STATUS_SCHEMA_VERSION = "work-ownership-status.v1"
 WORK_OWNERSHIP_VALIDATION_SCHEMA_VERSION = "work-ownership-validation.v1"
+WORK_OWNERSHIP_CLAIM_SCHEMA_VERSION = "work-ownership-claim.v1"
+WORK_OWNERSHIP_CLOSEOUT_SCHEMA_VERSION = "work-ownership-closeout.v1"
 WORK_OWNERSHIP_STATUSES = ("ACTIVE", "CLOSED", "FAILED")
 ACTIVE_WORK_OWNERSHIP_STATUS = "ACTIVE"
 DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES = 24 * 60
@@ -119,6 +124,7 @@ def ownership_record_summary(record: Any, path: Path | None = None, state: str |
         "claimer": record.get("claimer") if isinstance(record, dict) else None,
         "repo": record.get("repo") if isinstance(record, dict) else None,
         "branch": record.get("branch") if isinstance(record, dict) else None,
+        "head": record.get("head") if isinstance(record, dict) else None,
         "pr_number": record.get("pr_number") if isinstance(record, dict) else None,
         "epoch_id": record.get("epoch_id") if isinstance(record, dict) else None,
         "handoff_id": record.get("handoff_id") if isinstance(record, dict) else None,
@@ -164,6 +170,16 @@ def validate_work_ownership_record(
 
     for field in ("id", "task_id", "candidate_id", "role", "claimer", "repo", "branch", "status", "created_at", "updated_at"):
         blockers.extend(_required_string(record, field, path))
+
+    if "head" in record and (not isinstance(record.get("head"), str) or not record.get("head", "").strip()):
+        blockers.append(
+            ownership_blocker(
+                "ownership_field_type_invalid",
+                "head must be a non-empty string when present",
+                field="head",
+                path=str(path) if path else None,
+            )
+        )
 
     for field, kind in (
         ("id", "work ownership"),
@@ -314,6 +330,36 @@ def _repo_evidence(cwd: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         ]
 
 
+def _repo_anchor_blockers(repository: dict[str, Any], *, branch: str, head: str) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if repository.get("branch") != branch:
+        blockers.append(
+            ownership_blocker(
+                "repo_branch_mismatch",
+                "current branch does not match requested work ownership branch",
+                expected=branch,
+                actual=repository.get("branch"),
+            )
+        )
+    if repository.get("head") != head:
+        blockers.append(
+            ownership_blocker(
+                "repo_head_mismatch",
+                "current HEAD does not match requested work ownership head",
+                expected=head,
+                actual=repository.get("head"),
+            )
+        )
+    if repository.get("dirty_worktree") is not False:
+        blockers.append(
+            ownership_blocker(
+                "dirty_worktree",
+                "current worktree must be clean before work ownership mutation",
+            )
+        )
+    return blockers
+
+
 def _registry_state_directory_blockers(root: Path) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
     registry_dir = root / "work-ownership"
@@ -372,6 +418,26 @@ def _registry_state_directory_blockers(root: Path) -> list[dict[str, Any]]:
                 ownership_blocker(
                     "ownership_registry_state_invalid",
                     f"work ownership state directory could not be inspected: {exc}",
+                    state=state,
+                    path=str(directory),
+                )
+            )
+    return blockers
+
+
+def _ensure_ownership_layout_blockers(root: Path) -> list[dict[str, Any]]:
+    blockers = _registry_state_directory_blockers(root)
+    if blockers:
+        return blockers
+    for state in WORK_OWNERSHIP_STATES:
+        directory = work_ownership_state_dir(root, state)
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            blockers.append(
+                ownership_blocker(
+                    "ownership_registry_state_invalid",
+                    f"work ownership state directory could not be created: {exc}",
                     state=state,
                     path=str(directory),
                 )
@@ -549,6 +615,18 @@ def _duplicate_active_blockers(records: list[dict[str, Any]]) -> list[dict[str, 
     return blockers
 
 
+def _active_claim_blocker(record: dict[str, Any]) -> dict[str, Any]:
+    return ownership_blocker(
+        "duplicate_active_ownership",
+        "an active work ownership record already exists for this repo, branch, and task",
+        repo=record.get("repo"),
+        branch=record.get("branch"),
+        task_id=record.get("task_id"),
+        ownership_ids=[record.get("id")],
+        paths=[record.get("path")],
+    )
+
+
 def _active_records_for_duplicate_scan(
     root: Path,
     *,
@@ -584,6 +662,508 @@ def _active_records_for_duplicate_scan(
         ):
             records.append(ownership_record_summary(record, path, state))
     return records, blockers
+
+
+def _validate_record_id_field(value: Any, field: str, kind: str) -> list[dict[str, Any]]:
+    if not isinstance(value, str) or not value.strip():
+        return [ownership_blocker("ownership_required_field_missing", f"{field} is required", field=field)]
+    try:
+        validate_record_id(value, kind)
+    except ValueError as exc:
+        return [ownership_blocker("ownership_id_invalid", str(exc), field=field)]
+    return []
+
+
+def _validate_label_field(value: Any, field: str, code: str) -> list[dict[str, Any]]:
+    if not isinstance(value, str) or not value.strip():
+        return [ownership_blocker("ownership_required_field_missing", f"{field} is required", field=field)]
+    try:
+        validate_record_id(value, field)
+    except ValueError as exc:
+        return [ownership_blocker(code, str(exc), field=field)]
+    return []
+
+
+def _validate_required_text_field(value: Any, field: str) -> list[dict[str, Any]]:
+    if not isinstance(value, str) or not value.strip():
+        return [ownership_blocker("ownership_required_field_missing", f"{field} is required", field=field)]
+    return []
+
+
+def _ownership_mutation_recommendation(blockers: list[dict[str, Any]]) -> str:
+    if not blockers:
+        return "use_work_ownership_record"
+    codes = {blocker.get("code") for blocker in blockers}
+    if "dirty_worktree" in codes:
+        return "clean_worktree"
+    if codes & {"repo_inspection_failed", "repo_branch_mismatch", "repo_head_mismatch"}:
+        return "inspect_repo_state"
+    if codes & {
+        "ownership_id_invalid",
+        "ownership_role_invalid",
+        "ownership_claimer_invalid",
+        "ownership_required_field_missing",
+    }:
+        return "fix_ownership_request"
+    if codes & {"duplicate_active_ownership", "ownership_stale"}:
+        return "close_or_fail_active_ownership"
+    if "ownership_record_missing" in codes:
+        return "provide_ownership_record"
+    if codes & {
+        "ownership_registry_state_invalid",
+        "ownership_record_unreadable",
+        "ownership_record_path_invalid",
+        "ownership_record_outside_registry",
+        "ownership_record_ambiguous",
+        "ownership_record_invalid",
+        "ownership_schema_unsupported",
+        "ownership_field_type_invalid",
+        "ownership_id_mismatch",
+        "ownership_status_invalid",
+        "ownership_state_mismatch",
+        "ownership_timestamp_invalid",
+    }:
+        return "repair_ownership_record"
+    if "audit_append_failed" in codes:
+        return "inspect_runtime_state"
+    return "inspect_ownership_evidence"
+
+
+def _ownership_reason(valid: bool, blockers: list[dict[str, Any]], success: str) -> str:
+    if valid:
+        return success
+    if blockers:
+        return blockers[0]["message"]
+    return "work ownership mutation blocked"
+
+
+def _slug(value: str) -> str:
+    safe = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
+    while "--" in safe:
+        safe = safe.replace("--", "-")
+    return (safe or "work")[:48].strip("-") or "work"
+
+
+def generate_work_ownership_id(task_id: str) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return f"{stamp}-{_slug(task_id)}-{secrets.token_hex(4)}"
+
+
+def _claim_packet(
+    *,
+    root: Path,
+    cwd: Path,
+    ownership_id: str | None,
+    repo: str,
+    branch: str,
+    head: str,
+    task_id: str,
+    candidate_id: str,
+    role: str,
+    claimer: str,
+    repository: dict[str, Any],
+    blockers: list[dict[str, Any]],
+    record: Any | None = None,
+    record_path: Path | None = None,
+    side_effects: list[str] | None = None,
+) -> dict[str, Any]:
+    valid = not blockers
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": WORK_OWNERSHIP_CLAIM_SCHEMA_VERSION,
+        "packet": "work_ownership_claim",
+        "read_only": False,
+        "valid": valid,
+        "ownership_written": record_path is not None and valid,
+        "ownership_id": ownership_id,
+        "root": str(root),
+        "repository": {
+            **repository,
+            "expected_repo": repo,
+            "expected_branch": branch,
+            "expected_head": head,
+            "cwd": str(Path(cwd).expanduser().resolve(strict=False)),
+        },
+        "request": {
+            "repo": repo,
+            "branch": branch,
+            "head": head,
+            "task_id": task_id,
+            "candidate_id": candidate_id,
+            "role": role,
+            "claimer": claimer,
+        },
+        "record": ownership_record_summary(record, record_path, "active") if record is not None else None,
+        "blockers": blockers,
+        "side_effects": list(side_effects or []),
+        "recommended_next_action": _ownership_mutation_recommendation(blockers),
+        "reason": _ownership_reason(valid, blockers, "work ownership claim written"),
+        "limitations": [
+            "local_evidence_only",
+            "not_a_distributed_lock",
+            "role_assignment_out_of_scope",
+            "execution_start_enforcement_out_of_scope",
+            "resume_continuation_enforcement_out_of_scope",
+            "git_github_writes_out_of_scope",
+        ],
+    }
+
+
+def claim_work_ownership(
+    *,
+    root: Path,
+    cwd: Path,
+    repo: str,
+    branch: str,
+    head: str,
+    task_id: str,
+    candidate_id: str,
+    role: str,
+    claimer: str,
+    ownership_id: str | None = None,
+    pr_number: int | None = None,
+    epoch_id: str | None = None,
+    handoff_id: str | None = None,
+    max_age_minutes: int | None = DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+) -> dict[str, Any]:
+    requested_id = ownership_id or generate_work_ownership_id(task_id)
+    repository, repo_blockers = _repo_evidence(cwd)
+    blockers: list[dict[str, Any]] = []
+    blockers.extend(repo_blockers)
+    if not repo_blockers:
+        blockers.extend(_repo_anchor_blockers(repository, branch=branch, head=head))
+
+    for field, value in (("repo", repo), ("branch", branch), ("head", head)):
+        blockers.extend(_validate_required_text_field(value, field))
+    blockers.extend(_validate_record_id_field(requested_id, "id", "work ownership"))
+    blockers.extend(_validate_record_id_field(task_id, "task_id", "task"))
+    blockers.extend(_validate_record_id_field(candidate_id, "candidate_id", "candidate"))
+    blockers.extend(_validate_label_field(role, "role", "ownership_role_invalid"))
+    blockers.extend(_validate_label_field(claimer, "claimer", "ownership_claimer_invalid"))
+    if epoch_id:
+        blockers.extend(_validate_record_id_field(epoch_id, "epoch_id", "epoch"))
+    if handoff_id:
+        blockers.extend(_validate_record_id_field(handoff_id, "handoff_id", "handoff"))
+    if pr_number is not None and (isinstance(pr_number, bool) or not isinstance(pr_number, int) or pr_number <= 0):
+        blockers.append(ownership_blocker("ownership_field_type_invalid", "pr_number must be a positive integer", field="pr_number"))
+
+    status_packet: dict[str, Any] | None = None
+    if not repo_blockers:
+        status_packet = work_ownership_status(
+            root=root,
+            cwd=cwd,
+            repo=repo,
+            branch=branch,
+            task_id=task_id,
+            max_age_minutes=max_age_minutes,
+        )
+        blockers.extend(status_packet["blockers"])
+        codes = {blocker.get("code") for blocker in blockers}
+        active_records = [
+            record
+            for record in status_packet.get("records", [])
+            if record.get("status") == ACTIVE_WORK_OWNERSHIP_STATUS
+            and record.get("repo") == repo
+            and record.get("branch") == branch
+            and record.get("task_id") == task_id
+        ]
+        if active_records and not (codes & {"duplicate_active_ownership", "ownership_stale"}):
+            blockers.append(_active_claim_blocker(active_records[0]))
+
+    if not blockers:
+        blockers.extend(_ensure_ownership_layout_blockers(root))
+
+    if not blockers:
+        for state in WORK_OWNERSHIP_STATES:
+            existing_path = work_ownership_path(root, state, requested_id)
+            if existing_path.exists():
+                blockers.append(
+                    ownership_blocker(
+                        "ownership_record_exists",
+                        "work ownership id already exists",
+                        ownership_id=requested_id,
+                        path=str(existing_path),
+                    )
+                )
+                break
+
+    record: dict[str, Any] | None = None
+    target: Path | None = None
+    side_effects: list[str] = []
+    if not blockers:
+        now = utc_now()
+        record = {
+            "schema_version": WORK_OWNERSHIP_SCHEMA_VERSION,
+            "id": requested_id,
+            "task_id": task_id,
+            "candidate_id": candidate_id,
+            "role": role,
+            "claimer": claimer,
+            "repo": repo,
+            "branch": branch,
+            "head": head,
+            "status": ACTIVE_WORK_OWNERSHIP_STATUS,
+            "created_at": now,
+            "updated_at": now,
+        }
+        if pr_number is not None:
+            record["pr_number"] = pr_number
+        if epoch_id:
+            record["epoch_id"] = epoch_id
+        if handoff_id:
+            record["handoff_id"] = handoff_id
+        target = work_ownership_path(root, "active", requested_id)
+        blockers.extend(_record_path_blockers(root, target, "active"))
+        blockers.extend(validate_work_ownership_record(record, path=target, state="active", expected_id=requested_id, max_age_minutes=None))
+
+    if not blockers and record is not None and target is not None:
+        try:
+            atomic_write_json(target, record)
+            side_effects.append("work_ownership_active_written")
+        except (OSError, ValueError) as exc:
+            blockers.append(ownership_blocker("ownership_record_write_failed", f"work ownership record could not be written: {exc}"))
+            record = None
+            target = None
+
+    return _claim_packet(
+        root=root,
+        cwd=cwd,
+        ownership_id=requested_id,
+        repo=repo,
+        branch=branch,
+        head=head,
+        task_id=task_id,
+        candidate_id=candidate_id,
+        role=role,
+        claimer=claimer,
+        repository=repository,
+        blockers=blockers,
+        record=record,
+        record_path=target,
+        side_effects=side_effects,
+    )
+
+
+def _closeout_packet(
+    *,
+    root: Path,
+    cwd: Path,
+    target: str,
+    closeout_status: str,
+    repo: str,
+    branch: str,
+    head: str,
+    task_id: str,
+    claimer: str,
+    repository: dict[str, Any],
+    blockers: list[dict[str, Any]],
+    record: Any | None = None,
+    record_path: Path | None = None,
+    source_path: Path | None = None,
+    side_effects: list[str] | None = None,
+) -> dict[str, Any]:
+    valid = not blockers
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": WORK_OWNERSHIP_CLOSEOUT_SCHEMA_VERSION,
+        "packet": "work_ownership_closeout",
+        "read_only": False,
+        "valid": valid,
+        "ownership_moved": record_path is not None and valid,
+        "ownership_id": record.get("id") if isinstance(record, dict) else None,
+        "target": target,
+        "closeout_status": closeout_status,
+        "root": str(root),
+        "repository": {
+            **repository,
+            "expected_repo": repo,
+            "expected_branch": branch,
+            "expected_head": head,
+            "cwd": str(Path(cwd).expanduser().resolve(strict=False)),
+        },
+        "request": {
+            "repo": repo,
+            "branch": branch,
+            "head": head,
+            "task_id": task_id,
+            "claimer": claimer,
+        },
+        "source_record": str(source_path) if source_path else None,
+        "record": ownership_record_summary(record, record_path, closeout_status.lower()) if record is not None else None,
+        "blockers": blockers,
+        "side_effects": list(side_effects or []),
+        "recommended_next_action": _ownership_mutation_recommendation(blockers),
+        "reason": _ownership_reason(valid, blockers, f"work ownership marked {closeout_status.lower()}"),
+        "limitations": [
+            "local_evidence_only",
+            "not_a_distributed_lock",
+            "role_assignment_out_of_scope",
+            "execution_start_enforcement_out_of_scope",
+            "resume_continuation_enforcement_out_of_scope",
+            "git_github_writes_out_of_scope",
+        ],
+    }
+
+
+def closeout_work_ownership(
+    *,
+    root: Path,
+    cwd: Path,
+    target: str,
+    closeout_status: str,
+    repo: str,
+    branch: str,
+    head: str,
+    task_id: str,
+    claimer: str,
+    summary: str | None = None,
+) -> dict[str, Any]:
+    if closeout_status not in ("CLOSED", "FAILED"):
+        raise ValueError("closeout_status must be CLOSED or FAILED")
+    destination_state = "closed" if closeout_status == "CLOSED" else "failed"
+    repository, repo_blockers = _repo_evidence(cwd)
+    blockers: list[dict[str, Any]] = []
+    blockers.extend(repo_blockers)
+    if not repo_blockers:
+        blockers.extend(_repo_anchor_blockers(repository, branch=branch, head=head))
+    for field, value in (("repo", repo), ("branch", branch), ("head", head), ("summary", summary or "")):
+        blockers.extend(_validate_required_text_field(value, field))
+    blockers.extend(_validate_record_id_field(task_id, "task_id", "task"))
+    blockers.extend(_validate_label_field(claimer, "claimer", "ownership_claimer_invalid"))
+
+    path: Path | None = None
+    state: str | None = None
+    record: Any | None = None
+    if not repo_blockers:
+        path, state, find_blockers = find_work_ownership_record(root, target)
+        blockers.extend(find_blockers)
+        if path is not None:
+            path_blockers = _record_path_blockers(root, path, state or "active")
+            blockers.extend(path_blockers)
+            if not path_blockers:
+                record, read_blockers = _read_record(path)
+                blockers.extend(read_blockers)
+                if not read_blockers:
+                    blockers.extend(
+                        validate_work_ownership_record(
+                            record,
+                            path=path,
+                            state=state,
+                            expected_id=path.stem,
+                            expected_repo=repo,
+                            expected_branch=branch,
+                            expected_task_id=task_id,
+                            require_active=True,
+                            max_age_minutes=None,
+                        )
+                    )
+                    if state != "active":
+                        blockers.append(
+                            ownership_blocker(
+                                "ownership_closed",
+                                "work ownership record is not active",
+                                actual_state=state,
+                                path=str(path),
+                            )
+                        )
+                    if isinstance(record, dict):
+                        if record.get("claimer") != claimer:
+                            blockers.append(
+                                ownership_blocker(
+                                    "ownership_claimer_mismatch",
+                                    "work ownership claimer does not match closeout claimer",
+                                    expected_claimer=record.get("claimer"),
+                                    actual_claimer=claimer,
+                                    path=str(path),
+                                )
+                            )
+                        if record.get("head") is not None and record.get("head") != head:
+                            blockers.append(
+                                ownership_blocker(
+                                    "ownership_head_mismatch",
+                                    "work ownership head does not match requested head",
+                                    expected_head=record.get("head"),
+                                    actual_head=head,
+                                    path=str(path),
+                                )
+                            )
+
+    if not blockers:
+        blockers.extend(_ensure_ownership_layout_blockers(root))
+
+    destination: Path | None = None
+    updated_record: dict[str, Any] | None = None
+    side_effects: list[str] = []
+    if not blockers and isinstance(record, dict) and path is not None:
+        destination = work_ownership_path(root, destination_state, record["id"])
+        blockers.extend(_record_path_blockers(root, destination, destination_state))
+        if destination.exists():
+            blockers.append(
+                ownership_blocker(
+                    "ownership_record_exists",
+                    "destination work ownership record already exists",
+                    ownership_id=record.get("id"),
+                    path=str(destination),
+                )
+            )
+        now = utc_now()
+        updated_record = dict(record)
+        updated_record["status"] = closeout_status
+        updated_record["updated_at"] = now
+        updated_record["closeout"] = {
+            "status": closeout_status,
+            "claimer": claimer,
+            "summary": summary,
+            "repo": repo,
+            "branch": branch,
+            "head": head,
+            "recorded_at": now,
+        }
+        if closeout_status == "CLOSED":
+            updated_record["closed_at"] = now
+        else:
+            updated_record["failed_at"] = now
+        blockers.extend(
+            validate_work_ownership_record(
+                updated_record,
+                path=destination,
+                state=destination_state,
+                expected_id=record["id"],
+                expected_repo=repo,
+                expected_branch=branch,
+                expected_task_id=task_id,
+                require_active=False,
+                max_age_minutes=None,
+            )
+        )
+
+    if not blockers and updated_record is not None and destination is not None and path is not None:
+        try:
+            atomic_write_json(destination, updated_record)
+            path.unlink()
+            side_effects.append("work_ownership_active_moved")
+        except (OSError, ValueError) as exc:
+            blockers.append(ownership_blocker("ownership_record_write_failed", f"work ownership record could not be moved: {exc}"))
+            updated_record = None
+            destination = None
+
+    return _closeout_packet(
+        root=root,
+        cwd=cwd,
+        target=target,
+        closeout_status=closeout_status,
+        repo=repo,
+        branch=branch,
+        head=head,
+        task_id=task_id,
+        claimer=claimer,
+        repository=repository,
+        blockers=blockers,
+        record=updated_record,
+        record_path=destination,
+        source_path=path,
+        side_effects=side_effects,
+    )
 
 
 def work_ownership_status(

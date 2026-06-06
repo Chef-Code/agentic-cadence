@@ -310,9 +310,10 @@ branches, write pull requests, merge, release, or publish packages.
 
 `work-ownership.v1` records are local filesystem evidence under
 `<runtime-root>/work-ownership/{active,closed,failed}`. A record binds the
-local task id, candidate id, role label, claimer, repo, branch, optional PR
-number, optional epoch id, optional handoff id, status, `created_at`, and
-`updated_at` before any future multi-worker orchestration is introduced.
+local task id, candidate id, role label, claimer, repo, branch, optional
+`head`, optional PR number, optional epoch id, optional handoff id, status,
+`created_at`, and `updated_at` before any future multi-worker orchestration is
+introduced.
 
 The read-only status command scans local ownership records for the current
 repository scope:
@@ -363,16 +364,67 @@ stable blockers, and a bounded recommendation. Stable blocker codes include
 `refresh_ownership_evidence`, `repair_ownership_record`, and
 `inspect_ownership_evidence`.
 
+The explicit local claim command creates one active record:
+
+```bash
+agentic-cadence --root <runtime-root> claim-work-ownership \
+  --cwd . \
+  --repo owner/repo \
+  --branch feature/task-1 \
+  --head <current-head-sha> \
+  --task-id task-1 \
+  --candidate-id candidate-1 \
+  --role implementer \
+  --claimer local-agent
+```
+
+It emits `work-ownership-claim.v1` with `read_only: false`, `valid`,
+`ownership_written`, `ownership_id`, `repository`, `request`, `record`,
+`blockers`, `side_effects`, and `recommended_next_action`. The command rechecks
+current branch, `HEAD`, dirty-worktree state, duplicate active ownership, stale
+active ownership, malformed existing ownership evidence, and registry path
+safety before writing. Accepted claims append a compact
+`work_ownership_mutation` audit record.
+
+The closeout commands move one active record by id or registry path:
+
+```bash
+agentic-cadence --root <runtime-root> close-work-ownership ownership-1 \
+  --cwd . --repo owner/repo --branch feature/task-1 --head <current-head-sha> \
+  --task-id task-1 --claimer local-agent --summary "completed locally"
+agentic-cadence --root <runtime-root> fail-work-ownership ownership-1 \
+  --cwd . --repo owner/repo --branch feature/task-1 --head <current-head-sha> \
+  --task-id task-1 --claimer local-agent --summary "blocked locally"
+```
+
+Both emit `work-ownership-closeout.v1`, move the active record to `closed` or
+`failed`, write closeout evidence onto the record, and append
+`work_ownership_mutation` audit evidence. Missing records, mismatched repo,
+branch, head, task, or claimer, already closed/failed records, malformed
+records, dirty worktrees, stale repo heads, and unsafe registry paths block
+before mutation.
+
+Additional mutation blocker codes include `repo_branch_mismatch`,
+`repo_head_mismatch`, `dirty_worktree`, `ownership_role_invalid`,
+`ownership_claimer_invalid`, `ownership_claimer_mismatch`,
+`ownership_head_mismatch`, `ownership_record_exists`,
+`ownership_record_write_failed`, and `audit_append_failed`. Bounded mutation
+recommendations include `use_work_ownership_record`,
+`close_or_fail_active_ownership`, `clean_worktree`, `inspect_repo_state`,
+`fix_ownership_request`, `provide_ownership_record`, `repair_ownership_record`,
+`inspect_runtime_state`, and `inspect_ownership_evidence`.
+
 Status scans the requested repository, branch, and task scope; well-formed
 records outside that scope are ignored, while malformed, unreadable, symlinked
 registry or record-file paths, id/path mismatches, future timestamp, or failed
 repo-inspection evidence still blocks with stable codes. Validation checks the
 selected target record for active status and repo/branch/task mismatch when
-requested. Duplicate active ownership is local evidence only. These records are not
-distributed locks, do not assign roles, do not schedule agents, do not write
-GitHub issues, and do not mutate execution-start or resume-continuation gates
-in this slice. The commands do not start epochs, invoke executors, create
-branches, push, open or update PRs, merge, release, or publish packages.
+requested. Duplicate active ownership is local evidence only. These records
+are not distributed locks, do not assign roles, do not schedule agents, do not
+write GitHub issues, and do not mutate execution-start or resume-continuation
+gates in this slice. The commands do not start epochs, invoke executors, create
+branches, commit, push, open or update PRs, merge, release, or publish
+packages.
 
 ## Handoff Signature
 

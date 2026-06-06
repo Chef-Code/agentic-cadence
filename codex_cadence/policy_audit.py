@@ -293,6 +293,46 @@ def validate_execution_start_audit_record(record: dict[str, Any], line: int) -> 
     return blockers
 
 
+def validate_work_ownership_mutation_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate local work-ownership mutation audit fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in (
+        "action",
+        "reason",
+        "ownership_id",
+        "ownership_status",
+        "task_id",
+        "candidate_id",
+        "role",
+        "claimer",
+        "repo",
+        "branch",
+        "head",
+        "record_file",
+    ):
+        blockers.extend(required_string(record, field, line))
+    blockers.extend(required_bool(record, "valid", line))
+    for field in ("payload_checksum", "ownership_record_checksum"):
+        blockers.extend(required_checksum_present(record, field, line))
+    if record.get("action") not in {"claim_work_ownership", "close_work_ownership", "fail_work_ownership"}:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_work_ownership_action_invalid",
+                "work_ownership_mutation action is invalid",
+                line,
+            )
+        )
+    if record.get("ownership_status") not in {"ACTIVE", "CLOSED", "FAILED"}:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_work_ownership_status_invalid",
+                "work_ownership_mutation ownership_status is invalid",
+                line,
+            )
+        )
+    return blockers
+
+
 def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict[str, Any]]]:
     """Validate one decoded audit record and return its countable event."""
     if not isinstance(record, dict):
@@ -340,6 +380,8 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
         blockers.extend(validate_git_pr_materialization_result_audit_record(record, line))
     elif event == "execution_start_decision":
         blockers.extend(validate_execution_start_audit_record(record, line))
+    elif event == "work_ownership_mutation":
+        blockers.extend(validate_work_ownership_mutation_audit_record(record, line))
     else:
         blockers.append(audit_replay_blocker("audit_event_unsupported", f"unsupported audit event: {event}", line))
         return None, blockers
@@ -613,6 +655,41 @@ def execution_start_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
         "payload_checksum": checksum_json(payload),
     }
     return {key: value for key, value in record.items() if value is not None}
+
+
+def work_ownership_mutation_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
+    record_summary = payload.get("record") if isinstance(payload.get("record"), dict) else {}
+    request = payload.get("request") if isinstance(payload.get("request"), dict) else {}
+    packet = payload.get("packet")
+    status = payload.get("closeout_status") or record_summary.get("status")
+    if packet == "work_ownership_claim":
+        action = "claim_work_ownership"
+    elif status == "CLOSED":
+        action = "close_work_ownership"
+    elif status == "FAILED":
+        action = "fail_work_ownership"
+    else:
+        action = payload.get("recommended_next_action")
+    audit = {
+        "event": "work_ownership_mutation",
+        "action": action,
+        "reason": payload.get("reason"),
+        "valid": payload.get("valid"),
+        "ownership_id": payload.get("ownership_id") or record_summary.get("id"),
+        "ownership_status": status,
+        "closeout_status": payload.get("closeout_status"),
+        "task_id": record_summary.get("task_id") or request.get("task_id"),
+        "candidate_id": record_summary.get("candidate_id"),
+        "role": record_summary.get("role"),
+        "claimer": record_summary.get("claimer") or request.get("claimer"),
+        "repo": record_summary.get("repo") or request.get("repo"),
+        "branch": record_summary.get("branch") or request.get("branch"),
+        "head": record_summary.get("head") or request.get("head"),
+        "record_file": record_summary.get("path"),
+        "payload_checksum": checksum_json(payload),
+        "ownership_record_checksum": checksum_json(record_summary),
+    }
+    return {key: value for key, value in audit.items() if value is not None}
 
 
 def git_pr_materialization_intent_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
