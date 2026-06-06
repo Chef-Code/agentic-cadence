@@ -1138,12 +1138,26 @@ def closeout_work_ownership(
         )
 
     if not blockers and updated_record is not None and destination is not None and path is not None:
+        destination_written = False
         try:
             atomic_write_json(destination, updated_record)
+            destination_written = True
             path.unlink()
             side_effects.append("work_ownership_active_moved")
         except (OSError, ValueError) as exc:
             blockers.append(ownership_blocker("ownership_record_write_failed", f"work ownership record could not be moved: {exc}"))
+            if destination_written:
+                try:
+                    destination.unlink()
+                    side_effects.append("work_ownership_destination_rollback")
+                except OSError as rollback_exc:
+                    blockers.append(
+                        ownership_blocker(
+                            "ownership_rollback_failed",
+                            f"partial closeout destination could not be removed: {rollback_exc}",
+                            path=str(destination),
+                        )
+                    )
             updated_record = None
             destination = None
 

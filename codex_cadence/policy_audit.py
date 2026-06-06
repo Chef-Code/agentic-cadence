@@ -322,11 +322,43 @@ def validate_work_ownership_mutation_audit_record(record: dict[str, Any], line: 
                 line,
             )
         )
+    expected_status_by_action = {
+        "claim_work_ownership": "ACTIVE",
+        "close_work_ownership": "CLOSED",
+        "fail_work_ownership": "FAILED",
+    }
+    expected_status = expected_status_by_action.get(record.get("action"))
     if record.get("ownership_status") not in {"ACTIVE", "CLOSED", "FAILED"}:
         blockers.append(
             audit_replay_blocker(
                 "audit_work_ownership_status_invalid",
                 "work_ownership_mutation ownership_status is invalid",
+                line,
+            )
+        )
+    elif expected_status is not None and record.get("ownership_status") != expected_status:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_work_ownership_status_invalid",
+                f"work_ownership_mutation ownership_status must be {expected_status} for action {record.get('action')}",
+                line,
+            )
+        )
+    if record.get("action") in {"close_work_ownership", "fail_work_ownership"}:
+        blockers.extend(required_string(record, "closeout_status", line))
+        if record.get("closeout_status") != expected_status:
+            blockers.append(
+                audit_replay_blocker(
+                    "audit_work_ownership_status_invalid",
+                    f"work_ownership_mutation closeout_status must be {expected_status} for action {record.get('action')}",
+                    line,
+                )
+            )
+    elif record.get("action") == "claim_work_ownership" and record.get("closeout_status") not in (None, ""):
+        blockers.append(
+            audit_replay_blocker(
+                "audit_work_ownership_status_invalid",
+                "claim_work_ownership audit records must not include closeout_status",
                 line,
             )
         )

@@ -56,6 +56,7 @@ from codex_cadence.ownership import (
     DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
     claim_work_ownership,
     closeout_work_ownership,
+    find_work_ownership_record,
     validate_work_ownership,
     work_ownership_status,
 )
@@ -1300,13 +1301,92 @@ def validate_work_ownership_command(args: argparse.Namespace) -> int:
     return 0 if packet["valid"] else 2
 
 
-def append_work_ownership_mutation_audit(root: Path, packet: dict[str, Any]) -> dict[str, Any]:
+def ownership_mutation_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def read_work_ownership_rollback_record(root: Path, target: str) -> dict[str, Any] | None:
+    path, state, blockers = find_work_ownership_record(root, target)
+    if blockers or path is None or state != "active":
+        return None
+    try:
+        record = read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def rollback_work_ownership_mutation(packet: dict[str, Any], rollback_record: dict[str, Any] | None = None) -> None:
+    side_effects = packet.setdefault("side_effects", [])
+    packet_type = packet.get("packet")
+    record = packet.get("record") if isinstance(packet.get("record"), dict) else {}
+    record_path = record.get("path")
+    if packet_type == "work_ownership_claim" and isinstance(record_path, str):
+        path = Path(record_path)
+        try:
+            if path.exists():
+                path.unlink()
+            packet["ownership_written"] = False
+            side_effects.append("work_ownership_active_rollback")
+        except OSError as exc:
+            packet.setdefault("blockers", []).append(
+                ownership_mutation_blocker(
+                    "ownership_rollback_failed",
+                    f"active work ownership record could not be removed after audit failure: {exc}",
+                    path=str(path),
+                )
+            )
+        return
+
+    if packet_type == "work_ownership_closeout" and isinstance(record_path, str):
+        destination = Path(record_path)
+        source_value = packet.get("source_record")
+        source = Path(source_value) if isinstance(source_value, str) else None
+        try:
+            if destination.exists() and source is not None:
+                if rollback_record is not None:
+                    active_record = dict(rollback_record)
+                else:
+                    terminal_record = read_json(destination)
+                    if not isinstance(terminal_record, dict):
+                        raise ValueError("terminal work ownership record is not an object")
+                    active_record = dict(terminal_record)
+                    active_record["status"] = "ACTIVE"
+                    active_record.pop("closeout", None)
+                    active_record.pop("closed_at", None)
+                    active_record.pop("failed_at", None)
+                atomic_write_json(source, active_record)
+                destination.unlink()
+            packet["ownership_moved"] = False
+            side_effects.append("work_ownership_closeout_rollback")
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            packet.setdefault("blockers", []).append(
+                ownership_mutation_blocker(
+                    "ownership_rollback_failed",
+                    f"work ownership closeout could not be restored after audit failure: {exc}",
+                    source=str(source) if source else None,
+                    destination=str(destination),
+                )
+            )
+
+
+def append_work_ownership_mutation_audit(
+    root: Path,
+    packet: dict[str, Any],
+    rollback_record: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not packet.get("valid"):
         return packet
+    packet.setdefault("side_effects", []).append("work_ownership_audit_appended")
     try:
         packet["audit_record"] = append_audit_record(root, work_ownership_mutation_audit_record(packet))
-        packet.setdefault("side_effects", []).append("work_ownership_audit_appended")
     except (OSError, RuntimeError, ValueError) as exc:
+        packet["side_effects"] = [
+            effect for effect in packet.get("side_effects", []) if effect != "work_ownership_audit_appended"
+        ]
+        rollback_work_ownership_mutation(packet, rollback_record=rollback_record)
         packet.setdefault("blockers", []).append(
             {
                 "code": "audit_append_failed",
@@ -1320,59 +1400,64 @@ def append_work_ownership_mutation_audit(root: Path, packet: dict[str, Any]) -> 
 
 
 def claim_work_ownership_command(args: argparse.Namespace) -> int:
-    packet = claim_work_ownership(
-        root=args.root,
-        cwd=Path(args.cwd),
-        repo=args.repo,
-        branch=args.branch,
-        head=args.head,
-        task_id=args.task_id,
-        candidate_id=args.candidate_id,
-        role=args.role,
-        claimer=args.claimer,
-        ownership_id=args.id,
-        pr_number=args.pr_number,
-        epoch_id=args.epoch_id,
-        handoff_id=args.handoff_id,
-        max_age_minutes=args.max_age_minutes,
-    )
-    packet = append_work_ownership_mutation_audit(args.root, packet)
+    with exclusive_lock(lock_path(args.root, "work-ownership")):
+        packet = claim_work_ownership(
+            root=args.root,
+            cwd=Path(args.cwd),
+            repo=args.repo,
+            branch=args.branch,
+            head=args.head,
+            task_id=args.task_id,
+            candidate_id=args.candidate_id,
+            role=args.role,
+            claimer=args.claimer,
+            ownership_id=args.id,
+            pr_number=args.pr_number,
+            epoch_id=args.epoch_id,
+            handoff_id=args.handoff_id,
+            max_age_minutes=args.max_age_minutes,
+        )
+        packet = append_work_ownership_mutation_audit(args.root, packet)
     emit(packet)
     return 0 if packet["valid"] else 2
 
 
 def close_work_ownership_command(args: argparse.Namespace) -> int:
-    packet = closeout_work_ownership(
-        root=args.root,
-        cwd=Path(args.cwd),
-        target=args.target,
-        closeout_status="CLOSED",
-        repo=args.repo,
-        branch=args.branch,
-        head=args.head,
-        task_id=args.task_id,
-        claimer=args.claimer,
-        summary=args.summary,
-    )
-    packet = append_work_ownership_mutation_audit(args.root, packet)
+    with exclusive_lock(lock_path(args.root, "work-ownership")):
+        rollback_record = read_work_ownership_rollback_record(args.root, args.target)
+        packet = closeout_work_ownership(
+            root=args.root,
+            cwd=Path(args.cwd),
+            target=args.target,
+            closeout_status="CLOSED",
+            repo=args.repo,
+            branch=args.branch,
+            head=args.head,
+            task_id=args.task_id,
+            claimer=args.claimer,
+            summary=args.summary,
+        )
+        packet = append_work_ownership_mutation_audit(args.root, packet, rollback_record=rollback_record)
     emit(packet)
     return 0 if packet["valid"] else 2
 
 
 def fail_work_ownership_command(args: argparse.Namespace) -> int:
-    packet = closeout_work_ownership(
-        root=args.root,
-        cwd=Path(args.cwd),
-        target=args.target,
-        closeout_status="FAILED",
-        repo=args.repo,
-        branch=args.branch,
-        head=args.head,
-        task_id=args.task_id,
-        claimer=args.claimer,
-        summary=args.summary,
-    )
-    packet = append_work_ownership_mutation_audit(args.root, packet)
+    with exclusive_lock(lock_path(args.root, "work-ownership")):
+        rollback_record = read_work_ownership_rollback_record(args.root, args.target)
+        packet = closeout_work_ownership(
+            root=args.root,
+            cwd=Path(args.cwd),
+            target=args.target,
+            closeout_status="FAILED",
+            repo=args.repo,
+            branch=args.branch,
+            head=args.head,
+            task_id=args.task_id,
+            claimer=args.claimer,
+            summary=args.summary,
+        )
+        packet = append_work_ownership_mutation_audit(args.root, packet, rollback_record=rollback_record)
     emit(packet)
     return 0 if packet["valid"] else 2
 

@@ -7851,12 +7851,16 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(record["repo"], "local/test")
             self.assertEqual(record["branch"], branch)
             self.assertEqual(record["head"], head)
+            self.assertEqual(list((Path(tmp) / "work-ownership" / "active").glob("*.json")), [record_path])
 
             records = audit_records(tmp)
             self.assertEqual(len(records), 1)
             self.assertEqual(records[0]["event"], "work_ownership_mutation")
             self.assertEqual(records[0]["action"], "claim_work_ownership")
             self.assertEqual(records[0]["ownership_id"], "ownership-claim-1")
+            payload_without_audit_ref = dict(output)
+            payload_without_audit_ref.pop("audit_record")
+            self.assertEqual(records[0]["payload_checksum"], checksum_json(payload_without_audit_ref))
 
             replay_result, replay_output = run_cli(tmp, "audit-replay")
             self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
@@ -8028,6 +8032,48 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertFalse((Path(tmp) / "work-ownership" / "active" / "ownership-new.json").exists())
                     self.assertEqual(audit_records(tmp), [])
 
+    def test_claim_work_ownership_rolls_back_record_when_audit_append_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            branch = current_branch(repo)
+            head = current_head(repo)
+            emitted = []
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "id": "ownership-audit-fail",
+                    "cwd": repo,
+                    "repo": "local/test",
+                    "branch": branch,
+                    "head": head,
+                    "task_id": "task-1",
+                    "candidate_id": "candidate-1",
+                    "role": "implementer",
+                    "claimer": "test-agent",
+                    "pr_number": None,
+                    "epoch_id": None,
+                    "handoff_id": None,
+                    "max_age_minutes": 5,
+                },
+            )()
+
+            with mock.patch.object(cadence_cli, "append_audit_record", side_effect=OSError("disk full")):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.claim_work_ownership_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertEqual(len(emitted), 1)
+            self.assertFalse(emitted[0]["valid"])
+            self.assertFalse(emitted[0]["ownership_written"])
+            self.assertIn("audit_append_failed", {blocker["code"] for blocker in emitted[0]["blockers"]})
+            self.assertIn("work_ownership_active_rollback", emitted[0]["side_effects"])
+            self.assertFalse((Path(tmp) / "work-ownership" / "active" / "ownership-audit-fail.json").exists())
+            self.assertEqual(audit_records(tmp), [])
+
     def test_close_and_fail_work_ownership_move_active_record_with_audit(self):
         cases = [
             ("close-work-ownership", "CLOSED", "closed", "close_work_ownership"),
@@ -8082,10 +8128,95 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertEqual(records[0]["event"], "work_ownership_mutation")
                     self.assertEqual(records[0]["action"], action)
                     self.assertEqual(records[0]["closeout_status"], status)
+                    payload_without_audit_ref = dict(output)
+                    payload_without_audit_ref.pop("audit_record")
+                    self.assertEqual(records[0]["payload_checksum"], checksum_json(payload_without_audit_ref))
 
                     replay_result, replay_output = run_cli(tmp, "audit-replay")
                     self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
                     self.assertTrue(replay_output["valid"])
+
+    def test_close_and_fail_work_ownership_roll_back_move_when_audit_append_fails(self):
+        cases = [
+            ("close_work_ownership_command", "closed"),
+            ("fail_work_ownership_command", "failed"),
+        ]
+        for command_name, state in cases:
+            with self.subTest(command_name=command_name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    import codex_cadence.cli as cadence_cli
+
+                    init_committed_repo(repo)
+                    branch = current_branch(repo)
+                    head = current_head(repo)
+                    active_path, before = write_work_ownership(tmp, "ownership-1", branch=branch, head=head)
+                    emitted = []
+                    args = type(
+                        "Args",
+                        (),
+                        {
+                            "root": Path(tmp),
+                            "target": "ownership-1",
+                            "cwd": repo,
+                            "repo": "local/test",
+                            "branch": branch,
+                            "head": head,
+                            "task_id": "task-1",
+                            "claimer": "test-agent",
+                            "summary": "done locally",
+                        },
+                    )()
+
+                    with mock.patch.object(cadence_cli, "append_audit_record", side_effect=OSError("disk full")):
+                        with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                            code = getattr(cadence_cli, command_name)(args)
+
+                    self.assertEqual(code, 2)
+                    self.assertEqual(len(emitted), 1)
+                    self.assertFalse(emitted[0]["valid"])
+                    self.assertFalse(emitted[0]["ownership_moved"])
+                    self.assertIn("audit_append_failed", {blocker["code"] for blocker in emitted[0]["blockers"]})
+                    self.assertIn("work_ownership_closeout_rollback", emitted[0]["side_effects"])
+                    self.assertTrue(active_path.exists())
+                    self.assertEqual(json.loads(active_path.read_text(encoding="utf-8")), before)
+                    self.assertFalse((Path(tmp) / "work-ownership" / state / "ownership-1.json").exists())
+                    self.assertEqual(audit_records(tmp), [])
+
+    def test_closeout_work_ownership_removes_destination_when_source_unlink_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.ownership as ownership
+
+            init_committed_repo(repo)
+            branch = current_branch(repo)
+            head = current_head(repo)
+            active_path, _data = write_work_ownership(tmp, "ownership-1", branch=branch, head=head)
+            original_unlink = Path.unlink
+
+            def fail_active_unlink(path, *args, **kwargs):
+                if path == active_path:
+                    raise OSError("cannot remove source")
+                return original_unlink(path, *args, **kwargs)
+
+            with mock.patch.object(Path, "unlink", fail_active_unlink):
+                packet = ownership.closeout_work_ownership(
+                    root=Path(tmp),
+                    cwd=Path(repo),
+                    target="ownership-1",
+                    closeout_status="CLOSED",
+                    repo="local/test",
+                    branch=branch,
+                    head=head,
+                    task_id="task-1",
+                    claimer="test-agent",
+                    summary="done locally",
+                )
+
+            self.assertFalse(packet["valid"])
+            self.assertFalse(packet["ownership_moved"])
+            self.assertIn("ownership_record_write_failed", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertIn("work_ownership_destination_rollback", packet["side_effects"])
+            self.assertTrue(active_path.exists())
+            self.assertFalse((Path(tmp) / "work-ownership" / "closed" / "ownership-1.json").exists())
 
     def test_close_work_ownership_blocks_missing_mismatched_closed_and_malformed_records(self):
         cases = [
@@ -8093,6 +8224,30 @@ class CadenceCliTests(unittest.TestCase):
                 "ownership_record_missing",
                 lambda tmp, repo, branch, head: None,
                 "missing-ownership",
+                {},
+            ),
+            (
+                "ownership_repo_mismatch",
+                lambda tmp, repo, branch, head: write_work_ownership(tmp, "ownership-1", repo="local/other", branch=branch, head=head),
+                "ownership-1",
+                {},
+            ),
+            (
+                "ownership_branch_mismatch",
+                lambda tmp, repo, branch, head: write_work_ownership(tmp, "ownership-1", branch="other-branch", head=head),
+                "ownership-1",
+                {},
+            ),
+            (
+                "ownership_task_mismatch",
+                lambda tmp, repo, branch, head: write_work_ownership(tmp, "ownership-1", branch=branch, head=head),
+                "ownership-1",
+                {"--task-id": "task-other"},
+            ),
+            (
+                "ownership_head_mismatch",
+                lambda tmp, repo, branch, head: write_work_ownership(tmp, "ownership-1", branch=branch, head="0" * 40),
+                "ownership-1",
                 {},
             ),
             (
@@ -8152,6 +8307,9 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 2, result.stderr)
                     self.assertFalse(output["valid"])
                     self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    if target == "ownership-1" and expected_code != "ownership_closed":
+                        self.assertTrue((Path(tmp) / "work-ownership" / "active" / "ownership-1.json").exists())
+                    self.assertFalse((Path(tmp) / "work-ownership" / "failed" / f"{target}.json").exists())
                     self.assertEqual(audit_records(tmp), [])
 
     def test_work_ownership_status_blocks_duplicate_active_task_branch(self):

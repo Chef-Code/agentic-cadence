@@ -504,11 +504,13 @@ event names, event-specific required fields, physical JSONL line counts, and
 `sha256:` checksum syntax. Supported events are `loop_tick_decision`,
 `executor_fixture_invocation`, `execution_run_record`,
 `executor_result_validation`, `executor_epoch_closeout`,
-`execution_start_decision`, `git_pr_materialization_intent`, and
-`git_pr_materialization_result`. It does not recompute `payload_checksum`,
+`execution_start_decision`, `git_pr_materialization_intent`,
+`git_pr_materialization_result`, and `work_ownership_mutation`. It does not
+recompute `payload_checksum`,
 `run_record_checksum`,
 `task_packet_checksum`, `result_evidence_checksum`,
-`validation_packet_checksum`, `plan_checksum`, or `snapshot_after_checksum`
+`validation_packet_checksum`, `plan_checksum`, `snapshot_after_checksum`, or
+`ownership_record_checksum`
 from original packet bodies because those bodies are not stored in the compact
 audit log.
 
