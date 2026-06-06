@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-05
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, and read-only review-response planning current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, read-only review-response planning, and local work ownership evidence current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -119,6 +119,11 @@ runtime can do these things end-to-end:
   saved review-thread JSON, optional candidate discovery output, and PR-body
   evidence, grouping actionable feedback into bounded next-action
   recommendations without calling GitHub or invoking review agents.
+- read and validate local `work-ownership.v1` records through
+  `work-ownership-status` and `validate-work-ownership`, surfacing duplicate
+  active ownership, stale evidence, malformed records, closed evidence, and
+  repo/branch/task mismatches without assigning roles or claiming distributed
+  locks.
 
 These capabilities are still single-agent Phase 1 primitives, but they are not
 throwaway work. They are the same primitives a future orchestrator needs for

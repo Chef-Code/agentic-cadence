@@ -33,6 +33,51 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-05 - Prepare post-Task-12 handoff and Tasks 13-17 roadmap
+
+Summary:
+- Refreshed the current handoff to start from PR #77's merge commit on
+  `main`.
+- Added `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the next bounded
+  sequence: local ownership claim/closeout, ownership-bound execution start,
+  ownership-bound resume continuation, role/readiness evidence, and real
+  executor invocation readiness planning.
+- Marked the Tasks 8-12 roadmap follow-up and business-memory planning entry as
+  fulfilled by the new roadmap.
+
+Completed slices:
+- Documentation and handoff preparation after Task 12.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: The next implementation sequence is clearer, but no runtime behavior
+  changed and real executor invocation, role assignment, distributed locks,
+  merge, release, and package publication remain unimplemented.
+
+Evidence:
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- None beyond the existing missing write-side ownership creation,
+  ownership-bound execution/resume gates, role-readiness evidence, real
+  executor invocation, distributed locks, agent pools, merge, release, and
+  package publication.
+
+Docs updated:
+- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
+- `docs/session-handoff.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+- `docs/agent-team-orchestration.md`
+- `docs/cadence/business-memory.md`
+
 ## 2026-06-05 - Add local work ownership registry
 
 Summary:

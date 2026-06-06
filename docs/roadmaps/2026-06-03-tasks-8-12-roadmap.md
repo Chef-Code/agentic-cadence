@@ -23,6 +23,8 @@
 - PR #74 completed Task 10 by adding read-only review feedback response
   planning.
 - PR #75 completed GitHub Actions cost controls.
+- PR #77 completed Task 12 by adding local work ownership status and
+  validation.
 - Task 8 current-tree work adds `start-governed-execution` and
   `execution-start.v1` epoch-start gating while keeping real executor
   invocation out of scope.
@@ -232,7 +234,7 @@ git diff --check
 
 ## Task 12: Add Local Work Ownership Registry
 
-**Status:** Implemented in current tree.
+**Status:** Complete in current tree.
 
 **Phase:** Phase 4 preparation, local-only.
 
@@ -274,8 +276,8 @@ git diff --check
 
 ## Recommended Order
 
-1. Create the next roadmap after Task 12 merges, because the Tasks 8-12 roadmap
-   is complete in the current tree.
+1. Continue with `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`, because
+   the Tasks 8-12 roadmap is complete in the current tree.
 
 ## Boundaries For All Five Tasks
 
