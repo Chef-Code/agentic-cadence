@@ -463,8 +463,10 @@ agentic-cadence --root <runtime-root> validate-work-ownership ownership-1 --cwd 
 Status emits `work-ownership-status.v1`; validation emits
 `work-ownership-validation.v1`. Both packets report `read_only: true`,
 `side_effects: []`, stable blockers such as `duplicate_active_ownership`,
-`ownership_stale`, `ownership_closed`, `ownership_repo_mismatch`, and
-`ownership_record_invalid`, and bounded next actions such as
+`ownership_record_invalid`, `ownership_registry_state_invalid`,
+`ownership_timestamp_invalid`, and `repo_inspection_failed`. Validation also
+reports target-record blockers such as `ownership_closed` and
+`ownership_repo_mismatch`. Bounded next actions include
 `use_work_ownership_status`, `resolve_duplicate_ownership`,
 `refresh_ownership_evidence`, and `repair_ownership_record`.
 

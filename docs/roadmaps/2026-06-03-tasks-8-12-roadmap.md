@@ -242,8 +242,7 @@ git diff --check
 - Create: `codex_cadence/ownership.py`
 - Modify: `codex_cadence/cli.py`
 - Modify: `codex_cadence/store.py`
-- Modify: `codex_cadence/policy_audit.py`
-- Test: `tests/test_cadence.py`, `tests/test_ci_checks.py`
+- Test: `tests/test_cadence.py`
 - Docs: `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`, `docs/implementation-slices.md`, `docs/progress-log.md`, `docs/decision-log.md`
 
 **Implementation outline:**
@@ -255,13 +254,13 @@ git diff --check
 **Validation:**
 - Valid local ownership records validate and surface in status packets.
 - Duplicate active ownership for the same task/branch blocks ownership status recommendations without mutating execution-start or resume-continuation gates in this slice.
-- Malformed, stale, closed, or repo-mismatched ownership evidence returns stable blockers.
+- Malformed, stale, future-dated, symlinked-registry, or failed repo-inspection evidence returns stable blockers; validation also blocks closed or repo-mismatched target records.
 - Records remain local filesystem evidence and do not call GitHub.
 
 **Current-tree evidence:**
 - `codex_cadence/ownership.py` validates `work-ownership.v1` records and emits `work-ownership-status.v1` / `work-ownership-validation.v1`.
 - `codex_cadence/store.py` exposes `work-ownership` state directories for active, closed, and failed records.
-- `tests/test_cadence.py` covers valid active status, duplicate active ownership, closed evidence, stale evidence, and repo mismatch.
+- `tests/test_cadence.py` covers valid active status, duplicate active ownership, malformed duplicate evidence, closed evidence, stale and future-dated evidence, repo mismatch, registry path boundaries, and repo-inspection failures.
 
 Run:
 

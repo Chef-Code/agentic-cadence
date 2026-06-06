@@ -70,8 +70,10 @@ saved PR JSON, saved review-thread JSON, optional candidate discovery output,
 and PR-body evidence into bounded read-only follow-up recommendations without
 writing to GitHub. `work-ownership-status` and `validate-work-ownership` can
 read local `work-ownership.v1` records, surface active/closed/failed ownership
-evidence, reject malformed, stale, closed, or repo-mismatched records, and
-block duplicate active ownership for the same repo, branch, and task. Real
+evidence, reject malformed or stale scoped records, block invalid registry and
+repo-inspection evidence, and block duplicate active ownership for the same
+repo, branch, and task. Validation additionally rejects closed or
+repo-mismatched target records. Real
 executor invocation, autonomous branch/commit/push or PR creation, automatic
 session launch, distributed work ownership, role assignment, and continuous
 loop orchestration remain missing.

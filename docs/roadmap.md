@@ -599,7 +599,9 @@ candidate id, role label, claimer, repo, branch, optional PR number, optional
 epoch id, optional handoff id, status, and timestamps. The commands emit
 `work-ownership-status.v1` and `work-ownership-validation.v1` packets with
 stable blockers such as `duplicate_active_ownership`, `ownership_stale`,
-`ownership_closed`, and `ownership_repo_mismatch`.
+`ownership_registry_state_invalid`, and `repo_inspection_failed`; validation
+also reports target-record blockers such as `ownership_closed` and
+`ownership_repo_mismatch`.
 
 Likely files: `codex_cadence/ownership.py`, `codex_cadence/cli.py`,
 `codex_cadence/store.py`, tests, docs.
