@@ -232,7 +232,7 @@ git diff --check
 
 ## Task 12: Add Local Work Ownership Registry
 
-**Status:** Planned.
+**Status:** Implemented in current tree.
 
 **Phase:** Phase 4 preparation, local-only.
 
@@ -242,21 +242,25 @@ git diff --check
 - Create: `codex_cadence/ownership.py`
 - Modify: `codex_cadence/cli.py`
 - Modify: `codex_cadence/store.py`
-- Modify: `codex_cadence/policy_audit.py`
-- Test: `tests/test_cadence.py`, `tests/test_ci_checks.py`
+- Test: `tests/test_cadence.py`
 - Docs: `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`, `docs/implementation-slices.md`, `docs/progress-log.md`, `docs/decision-log.md`
 
 **Implementation outline:**
 - Add local `work-ownership.v1` records under the runtime root with task id, candidate id, role label, claimer, repo, branch, optional PR number, optional epoch id, optional handoff id, status, and timestamps.
-- Add read-only status and validation commands for ownership records.
+- Add read-only `work-ownership-status` and `validate-work-ownership` commands for ownership records.
 - Emit duplicate-ownership blockers from the ownership status and validation commands. Leave execution-start and resume-continuation enforcement as a later explicit integration point, and do not enforce distributed locks.
 - Keep role assignment, agent pool scheduling, GitHub issue assignment, shared runtime, merge authority, release authority, and package publication outside this slice.
 
 **Validation:**
 - Valid local ownership records validate and surface in status packets.
 - Duplicate active ownership for the same task/branch blocks ownership status recommendations without mutating execution-start or resume-continuation gates in this slice.
-- Malformed, stale, closed, or repo-mismatched ownership evidence returns stable blockers.
+- Malformed, stale, future-dated, symlinked-registry, or failed repo-inspection evidence returns stable blockers; validation also blocks closed or repo-mismatched target records.
 - Records remain local filesystem evidence and do not call GitHub.
+
+**Current-tree evidence:**
+- `codex_cadence/ownership.py` validates `work-ownership.v1` records and emits `work-ownership-status.v1` / `work-ownership-validation.v1`.
+- `codex_cadence/store.py` exposes `work-ownership` state directories for active, closed, and failed records.
+- `tests/test_cadence.py` covers valid active status, duplicate active ownership, malformed duplicate evidence, closed evidence, stale and future-dated evidence, repo mismatch, registry path boundaries, and repo-inspection failures.
 
 Run:
 
@@ -270,8 +274,8 @@ git diff --check
 
 ## Recommended Order
 
-1. Task 12, because local ownership records are the lowest-risk first step
-   toward multi-worker coordination.
+1. Create the next roadmap after Task 12 merges, because the Tasks 8-12 roadmap
+   is complete in the current tree.
 
 ## Boundaries For All Five Tasks
 

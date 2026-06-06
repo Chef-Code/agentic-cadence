@@ -33,6 +33,54 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-05 - Add local work ownership registry
+
+Summary:
+- Added local `work-ownership.v1` evidence records under
+  `<runtime-root>/work-ownership/{active,closed,failed}` for task, candidate,
+  role, claimer, repo, branch, optional PR, optional epoch, optional handoff,
+  status, and timestamp binding.
+- Added read-only `work-ownership-status.v1` and
+  `work-ownership-validation.v1` packets with stable blockers for duplicate active ownership, malformed records, stale evidence, closed evidence, and
+  repo/branch/task mismatches.
+- Kept execution-start and resume-continuation enforcement outside this slice;
+  ownership records are local evidence, not distributed locks.
+
+Completed slices:
+- Task 12 current-tree implementation: local work ownership registry.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Cadence can now expose duplicate local ownership evidence before
+  multi-worker coordination exists, but it still cannot assign roles, schedule
+  agent pools, invoke a real executor, write PRs, auto-merge, release, or
+  publish packages.
+
+Evidence:
+- `python -m py_compile codex_cadence/ownership.py codex_cadence/cli.py codex_cadence/store.py codex_cadence/policy_audit.py`
+- `python -m unittest tests.test_cadence tests.test_ci_checks -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- The registry is local-only and read-only in this slice. It does not create
+  ownership records, assign roles, coordinate agents, enforce distributed
+  locks, or gate execution-start/resume-continuation yet.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+- `docs/roadmap.md`
+- `docs/cadence/business-memory.md`
+- `docs/session-handoff.md`
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
+
 ## 2026-06-05 - Add resume continuation gate
 
 Summary:

@@ -191,16 +191,36 @@ Do not:
 
 ## Local Work Ownership Needs A Registry
 
+Status: fulfilled
+Fulfilled By: Task 12 / PR #77
 Kind: risk
 Workflow: Multi-worker coordination
 Time Saved: high
 Risk: high
-Pain: Cadence can start governed local work and resume handoffs, but it does not yet have a local record that shows which task, branch, PR, epoch, handoff, role, and claimer are associated before multiple workers are introduced.
+Pain: Cadence could start governed local work and resume handoffs, but it did not yet have a local record that showed which task, branch, PR, epoch, handoff, role, and claimer were associated before multiple workers are introduced.
 Signals:
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` names Task 12 as the local work ownership registry.
 - Task 11 current-tree work leaves ownership enforcement outside `resume-continuation`.
 - Multi-worker coordination needs duplicate active ownership blockers before any agent pool, role assignment, or distributed scheduler exists.
+- Task 12 current-tree work adds `work-ownership.v1`, `work-ownership-status.v1`, and `work-ownership-validation.v1` local packets.
 Do not:
 - Do not treat local ownership records as distributed locks.
 - Do not add role assignment, agent pool scheduling, GitHub issue assignment, shared runtime, merge authority, release authority, or package-publication authority from this backlog entry.
 - Do not mutate execution-start or resume-continuation gates in the ownership registry slice.
+
+## Next Roadmap Needs Tasks 13-17
+
+Status: active
+Kind: direction
+Workflow: Roadmap planning
+Time Saved: high
+Risk: medium
+Pain: The Tasks 8-12 roadmap is complete in the current tree, so the project needs the next bounded roadmap before starting more implementation slices.
+Signals:
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
+- Task 12 leaves write-side ownership creation, role assignment, distributed locks, execution-start ownership enforcement, and resume-continuation ownership enforcement as future work.
+- The session handoff points to roadmap creation as the next post-Task-12 action.
+Do not:
+- Do not start role assignment, agent pool scheduling, GitHub issue assignment, distributed locking, merge authority, release authority, or package-publication authority without a new roadmap.
+- Do not mutate execution-start or resume-continuation gates from this planning backlog entry.
+- Do not create branches, commits, PRs, merges, releases, or package publication from discovery alone.

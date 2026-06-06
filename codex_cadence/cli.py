@@ -52,6 +52,11 @@ from codex_cadence.handoff_loop import (
     verify_resume,
 )
 from codex_cadence.model import BUCKETS, TASK_TYPES, estimate_task, governance_permissions, policy_for_bucket
+from codex_cadence.ownership import (
+    DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+    validate_work_ownership,
+    work_ownership_status,
+)
 from codex_cadence.policy_audit import (
     append_audit_record,
     execution_start_audit_record,
@@ -1264,6 +1269,34 @@ def resume_continuation_command(args: argparse.Namespace) -> int:
     return 0 if packet["valid"] else 2
 
 
+def work_ownership_status_command(args: argparse.Namespace) -> int:
+    packet = work_ownership_status(
+        root=args.root,
+        cwd=Path(args.cwd),
+        repo=args.repo,
+        branch=args.branch,
+        task_id=args.task_id,
+        max_age_minutes=args.max_age_minutes,
+    )
+    emit(packet)
+    return 0 if packet["valid"] else 2
+
+
+def validate_work_ownership_command(args: argparse.Namespace) -> int:
+    packet = validate_work_ownership(
+        root=args.root,
+        target=args.target,
+        cwd=Path(args.cwd),
+        repo=args.repo,
+        branch=args.branch,
+        task_id=args.task_id,
+        require_active=args.require_active,
+        max_age_minutes=args.max_age_minutes,
+    )
+    emit(packet)
+    return 0 if packet["valid"] else 2
+
+
 def choose_interactive_intent() -> str:
     print("Choose discovery intent:", file=sys.stderr)
     for index, intent in enumerate(DISCOVERY_INTENTS, start=1):
@@ -2293,6 +2326,38 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_RESUME_CONTINUATION_MAX_AGE_MINUTES,
     )
     resume_continuation_parser.set_defaults(func=resume_continuation_command)
+
+    ownership_status_parser = subparsers.add_parser(
+        "work-ownership-status",
+        help="Read-only status for local work ownership records",
+    )
+    ownership_status_parser.add_argument("--cwd", default=".")
+    ownership_status_parser.add_argument("--repo")
+    ownership_status_parser.add_argument("--branch")
+    ownership_status_parser.add_argument("--task-id")
+    ownership_status_parser.add_argument(
+        "--max-age-minutes",
+        type=non_negative_int,
+        default=DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+    )
+    ownership_status_parser.set_defaults(func=work_ownership_status_command)
+
+    validate_ownership_parser = subparsers.add_parser(
+        "validate-work-ownership",
+        help="Validate one local work ownership record without mutating runtime state",
+    )
+    validate_ownership_parser.add_argument("target")
+    validate_ownership_parser.add_argument("--cwd", default=".")
+    validate_ownership_parser.add_argument("--repo")
+    validate_ownership_parser.add_argument("--branch")
+    validate_ownership_parser.add_argument("--task-id")
+    validate_ownership_parser.add_argument("--require-active", action="store_true")
+    validate_ownership_parser.add_argument(
+        "--max-age-minutes",
+        type=non_negative_int,
+        default=DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+    )
+    validate_ownership_parser.set_defaults(func=validate_work_ownership_command)
 
     clean_parser = subparsers.add_parser("clean-square", help="Record old-session shutdown after handoff")
     clean_parser.add_argument("handoff_id")

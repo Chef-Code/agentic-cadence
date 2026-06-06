@@ -319,8 +319,9 @@ The smallest slices expected to move confidence toward 50% are tracked in
 5. CI/Review Feedback Back Into Candidate Discovery
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete, and Tasks 8-10 are complete in the current tree. The bounded public
-roadmap for Tasks 11-12 is `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
+complete, and Tasks 8-12 from
+`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete in the current
+tree. The next bounded public roadmap should cover Tasks 13-17.
 
 ## Roadmap
 
@@ -587,9 +588,33 @@ Validation: stale SHA, wrong branch, dirty worktree, double claim, missing
 approval, failed clean-square, malformed readable evidence, invalid resume
 snapshot, and active epoch mismatch fixtures.
 
-Follow-up: Task 12 in `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`
-should add local work ownership records before role-aware multi-worker
-coordination exists.
+### Local work ownership registry
+
+Goal: expose local task/branch ownership evidence before role-aware
+multi-worker coordination exists.
+
+Current evidence: `work-ownership-status` and `validate-work-ownership` read
+local `work-ownership.v1` records under
+`<runtime-root>/work-ownership/{active,closed,failed}`. Records bind task id,
+candidate id, role label, claimer, repo, branch, optional PR number, optional
+epoch id, optional handoff id, status, and timestamps. The commands emit
+`work-ownership-status.v1` and `work-ownership-validation.v1` packets with
+stable blockers such as `duplicate_active_ownership`, `ownership_stale`,
+`ownership_registry_state_invalid`, and `repo_inspection_failed`; validation
+also reports target-record blockers such as `ownership_closed` and
+`ownership_repo_mismatch`.
+
+Likely files: `codex_cadence/ownership.py`, `codex_cadence/cli.py`,
+`codex_cadence/store.py`, tests, docs.
+
+Validation: valid active ownership, duplicate active ownership for the same
+repo/branch/task, stale active ownership, closed evidence, malformed records,
+and repo/branch/task mismatch fixtures.
+
+Follow-up: design the next roadmap after Task 12 merges. Write-side ownership
+creation, role assignment, distributed locking, agent pools, GitHub issue
+assignment, and execution-start/resume-continuation enforcement remain future
+work.
 
 ## Long-Term Goals
 
