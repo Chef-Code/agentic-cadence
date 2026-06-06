@@ -7822,6 +7822,98 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["recommended_next_action"], "resolve_duplicate_ownership")
             self.assertIn("duplicate_active_ownership", {blocker["code"] for blocker in output["blockers"]})
 
+    def test_work_ownership_status_ignores_other_repo_same_task_id(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            branch = current_branch(repo)
+            write_work_ownership(tmp, "ownership-1", branch=branch)
+            write_work_ownership(tmp, "ownership-other", repo="local/other", branch=branch)
+
+            result, output = run_cli(
+                tmp,
+                "work-ownership-status",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["counts"]["active"], 1)
+            self.assertEqual([record["id"] for record in output["records"]], ["ownership-1"])
+
+    def test_work_ownership_status_reports_malformed_record_even_when_task_filter_is_set(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            path, data = write_work_ownership(tmp, "ownership-malformed", branch=current_branch(repo))
+            data.pop("task_id")
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "work-ownership-status",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("ownership_required_field_missing", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(output["records"][0]["id"], "ownership-malformed")
+
+    def test_validate_work_ownership_blocks_duplicate_active_task_branch(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            branch = current_branch(repo)
+            write_work_ownership(tmp, "ownership-1", branch=branch)
+            write_work_ownership(tmp, "ownership-2", branch=branch, claimer="other-agent")
+
+            result, output = run_cli(
+                tmp,
+                "validate-work-ownership",
+                "ownership-1",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+                "--require-active",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "resolve_duplicate_ownership")
+            self.assertIn("duplicate_active_ownership", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_validate_work_ownership_rejects_path_outside_runtime_registry(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            outside_path, _data = write_work_ownership(Path(tmp) / "outside-runtime", "ownership-1", branch=current_branch(repo))
+
+            result, output = run_cli(
+                tmp,
+                "validate-work-ownership",
+                str(outside_path),
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("ownership_record_outside_registry", {blocker["code"] for blocker in output["blockers"]})
+
     def test_validate_work_ownership_blocks_closed_stale_and_repo_mismatch(self):
         cases = [
             (

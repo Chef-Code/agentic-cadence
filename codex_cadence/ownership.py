@@ -300,6 +300,8 @@ def _status_recommendation(blockers: list[dict[str, Any]]) -> str:
 
 def _validation_recommendation(blockers: list[dict[str, Any]]) -> str:
     codes = {blocker.get("code") for blocker in blockers}
+    if "duplicate_active_ownership" in codes:
+        return "resolve_duplicate_ownership"
     if "ownership_record_missing" in codes:
         return "provide_ownership_record"
     if "ownership_closed" in codes or "ownership_stale" in codes:
@@ -309,10 +311,18 @@ def _validation_recommendation(blockers: list[dict[str, Any]]) -> str:
     return "use_work_ownership_record"
 
 
-def _matching_status_scope(record: Any, task_id: str | None) -> bool:
-    if task_id is None or not isinstance(record, dict):
+def _matches_scope(record: Any, *, repo: str | None, branch: str | None, task_id: str | None) -> bool:
+    if not isinstance(record, dict):
         return True
-    return record.get("task_id") == task_id
+    for field, expected in (("repo", repo), ("branch", branch), ("task_id", task_id)):
+        if expected is None:
+            continue
+        value = record.get(field)
+        if not isinstance(value, str) or not value.strip():
+            return True
+        if value != expected:
+            return False
+    return True
 
 
 def _duplicate_active_blockers(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -343,6 +353,32 @@ def _duplicate_active_blockers(records: list[dict[str, Any]]) -> list[dict[str, 
     return blockers
 
 
+def _active_records_for_duplicate_scan(
+    root: Path,
+    *,
+    repo: Any,
+    branch: Any,
+    task_id: Any,
+) -> list[dict[str, Any]]:
+    if not all(isinstance(value, str) and value.strip() for value in (repo, branch, task_id)):
+        return []
+    records: list[dict[str, Any]] = []
+    for state, path in _iter_ownership_files(root):
+        if state != "active":
+            continue
+        record, read_blockers = _read_record(path)
+        if read_blockers or not isinstance(record, dict):
+            continue
+        if (
+            record.get("status") == ACTIVE_WORK_OWNERSHIP_STATUS
+            and record.get("repo") == repo
+            and record.get("branch") == branch
+            and record.get("task_id") == task_id
+        ):
+            records.append(ownership_record_summary(record, path, state))
+    return records
+
+
 def work_ownership_status(
     *,
     root: Path,
@@ -364,14 +400,22 @@ def work_ownership_status(
         if read_blockers:
             records.append(ownership_record_summary(record, path, state))
             continue
-        if not _matching_status_scope(record, task_id):
+        structural_blockers = validate_work_ownership_record(
+            record,
+            path=path,
+            state=state,
+            max_age_minutes=None,
+        )
+        if structural_blockers:
+            blockers.extend(structural_blockers)
+            records.append(ownership_record_summary(record, path, state))
+            continue
+        if not _matches_scope(record, repo=repo, branch=expected_branch, task_id=task_id):
             continue
         record_blockers = validate_work_ownership_record(
             record,
             path=path,
             state=state,
-            expected_repo=repo,
-            expected_branch=expected_branch,
             max_age_minutes=max_age_minutes,
         )
         blockers.extend(record_blockers)
@@ -412,10 +456,31 @@ def work_ownership_status(
     }
 
 
+def _registry_state_for_path(root: Path, path: Path) -> str | None:
+    try:
+        resolved_path = path.expanduser().resolve(strict=True)
+    except OSError:
+        return None
+    for state in WORK_OWNERSHIP_STATES:
+        state_dir = work_ownership_state_dir(root, state).resolve(strict=False)
+        if resolved_path.parent == state_dir and resolved_path.suffix == ".json":
+            return state
+    return None
+
+
 def find_work_ownership_record(root: Path, target: str) -> tuple[Path | None, str | None, list[dict[str, Any]]]:
     supplied = Path(target)
     if supplied.exists():
-        state = supplied.parent.name if supplied.parent.name in WORK_OWNERSHIP_STATES else None
+        state = _registry_state_for_path(root, supplied)
+        if state is None:
+            return None, None, [
+                ownership_blocker(
+                    "ownership_record_outside_registry",
+                    "work ownership record path must be under the runtime work-ownership registry",
+                    path=str(supplied),
+                    registry=str(root / "work-ownership"),
+                )
+            ]
         return supplied, state, []
     try:
         ownership_id = validate_record_id(target, "work ownership")
@@ -477,6 +542,17 @@ def validate_work_ownership(
                     max_age_minutes=max_age_minutes,
                 )
             )
+            if isinstance(record, dict) and record.get("status") == ACTIVE_WORK_OWNERSHIP_STATUS:
+                blockers.extend(
+                    _duplicate_active_blockers(
+                        _active_records_for_duplicate_scan(
+                            root,
+                            repo=record.get("repo"),
+                            branch=record.get("branch"),
+                            task_id=record.get("task_id"),
+                        )
+                    )
+                )
 
     return {
         "protocol_version": PROTOCOL_VERSION,

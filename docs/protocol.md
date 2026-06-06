@@ -347,7 +347,8 @@ agentic-cadence --root <runtime-root> validate-work-ownership ownership-1 --cwd 
 It emits `work-ownership-validation.v1` with the checked record summary,
 stable blockers, and a bounded recommendation. Stable blocker codes include
 `duplicate_active_ownership`, `ownership_record_missing`,
-`ownership_record_unreadable`, `ownership_record_invalid`,
+`ownership_record_unreadable`, `ownership_record_outside_registry`,
+`ownership_record_ambiguous`, `ownership_record_invalid`,
 `ownership_schema_unsupported`, `ownership_required_field_missing`,
 `ownership_field_type_invalid`, `ownership_id_invalid`,
 `ownership_status_invalid`, `ownership_state_mismatch`,
@@ -359,7 +360,10 @@ stable blockers, and a bounded recommendation. Stable blocker codes include
 `refresh_ownership_evidence`, `repair_ownership_record`, and
 `inspect_ownership_evidence`.
 
-Duplicate active ownership is local evidence only. These records are not
+Status scans the requested repository, branch, and task scope; well-formed
+records outside that scope are ignored, while malformed or unreadable registry
+evidence still blocks with stable codes. Duplicate active ownership is local
+evidence only. These records are not
 distributed locks, do not assign roles, do not schedule agents, do not write
 GitHub issues, and do not mutate execution-start or resume-continuation gates
 in this slice. The commands do not start epochs, invoke executors, create
