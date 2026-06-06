@@ -59,7 +59,7 @@ Last updated: 2026-06-05
 - Disabled executor permissions now also reject merge, release, and package-publication command forms, including `gh pr merge`, `gh release create`, `gh release upload`, mutating `git tag` forms while allowing read-only tag listing/verification, `twine upload`, Python launcher `-m twine upload` forms including versioned `python3.x`, `npm publish`, `pnpm publish`, `yarn publish`, `yarn npm publish`, `poetry publish`, `uv publish`, `hatch publish`, and `flit publish`.
 - Dry-run-only `git-pr-plan` is merged. It turns validated executor evidence into proposed branch, commit, PR title, and PR body text without creating a branch, committing, pushing, calling GitHub, opening a pull request, merging, releasing, or publishing packages.
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
-- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is the current public planning artifact for the next bounded slices.
+- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12; the next bounded planning artifact should cover Tasks 13-17.
 
 ## Important Boundaries
 

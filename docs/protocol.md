@@ -348,10 +348,12 @@ It emits `work-ownership-validation.v1` with the checked record summary,
 stable blockers, and a bounded recommendation. Stable blocker codes include
 `duplicate_active_ownership`, `repo_inspection_failed`,
 `ownership_registry_state_invalid`, `ownership_record_missing`,
-`ownership_record_unreadable`, `ownership_record_outside_registry`,
+`ownership_record_unreadable`, `ownership_record_path_invalid`,
+`ownership_record_outside_registry`,
 `ownership_record_ambiguous`, `ownership_record_invalid`,
 `ownership_schema_unsupported`, `ownership_required_field_missing`,
 `ownership_field_type_invalid`, `ownership_id_invalid`,
+`ownership_id_mismatch`,
 `ownership_status_invalid`, `ownership_state_mismatch`,
 `ownership_timestamp_invalid`, `ownership_stale`, `ownership_closed`,
 `ownership_repo_mismatch`, `ownership_branch_mismatch`, and
@@ -363,10 +365,10 @@ stable blockers, and a bounded recommendation. Stable blocker codes include
 
 Status scans the requested repository, branch, and task scope; well-formed
 records outside that scope are ignored, while malformed, unreadable, symlinked
-registry, future timestamp, or failed repo-inspection evidence still blocks
-with stable codes. Validation checks the selected target record for active
-status and repo/branch/task mismatch when requested. Duplicate active ownership
-is local evidence only. These records are not
+registry or record-file paths, id/path mismatches, future timestamp, or failed
+repo-inspection evidence still blocks with stable codes. Validation checks the
+selected target record for active status and repo/branch/task mismatch when
+requested. Duplicate active ownership is local evidence only. These records are not
 distributed locks, do not assign roles, do not schedule agents, do not write
 GitHub issues, and do not mutate execution-start or resume-continuation gates
 in this slice. The commands do not start epochs, invoke executors, create

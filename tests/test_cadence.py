@@ -7948,6 +7948,78 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIn("ownership_registry_state_invalid", {blocker["code"] for blocker in output["blockers"]})
             self.assertEqual(output["records"], [])
 
+    def test_work_ownership_status_rejects_invalid_registry_parent_path(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            (Path(tmp) / "work-ownership").write_text("not a directory\n", encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "work-ownership-status",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("ownership_registry_state_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(output["records"], [])
+
+    def test_work_ownership_status_rejects_symlinked_record_file(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            outside_root = Path(tmp) / "outside-root"
+            outside_path, _data = write_work_ownership(outside_root, "ownership-1", branch=current_branch(repo))
+            active = Path(tmp) / "work-ownership" / "active"
+            active.mkdir(parents=True, exist_ok=True)
+            link = active / "ownership-1.json"
+            try:
+                link.symlink_to(outside_path)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"file symlink unavailable: {exc}")
+
+            result, output = run_cli(
+                tmp,
+                "work-ownership-status",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("ownership_record_path_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(output["records"][0]["path"], str(link))
+
+    def test_work_ownership_status_rejects_record_id_mismatch_with_filename(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            path, data = write_work_ownership(tmp, "ownership-a", branch=current_branch(repo))
+            data["id"] = "ownership-b"
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "work-ownership-status",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("ownership_id_mismatch", {blocker["code"] for blocker in output["blockers"]})
+
     def test_work_ownership_status_reports_repo_inspection_failed_as_packet(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as non_repo:
             result, output = run_cli(
@@ -8011,6 +8083,54 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertFalse(output["valid"])
             self.assertIn("ownership_record_outside_registry", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_validate_work_ownership_reports_missing_registry_path_target(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            missing_path = Path(tmp) / "work-ownership" / "active" / "missing-ownership.json"
+            missing_path.parent.mkdir(parents=True, exist_ok=True)
+
+            result, output = run_cli(
+                tmp,
+                "validate-work-ownership",
+                str(missing_path),
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertIn("ownership_record_missing", codes)
+            self.assertNotIn("ownership_id_invalid", codes)
+
+    def test_validate_work_ownership_rejects_record_id_mismatch_with_target(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            path, data = write_work_ownership(tmp, "ownership-a", branch=current_branch(repo))
+            data["id"] = "ownership-b"
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "validate-work-ownership",
+                "ownership-a",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+                "--require-active",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("ownership_id_mismatch", {blocker["code"] for blocker in output["blockers"]})
 
     def test_validate_work_ownership_prefers_registry_id_over_local_path_collision(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as collision_cwd:

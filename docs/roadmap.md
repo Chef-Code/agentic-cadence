@@ -319,8 +319,9 @@ The smallest slices expected to move confidence toward 50% are tracked in
 5. CI/Review Feedback Back Into Candidate Discovery
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete, and Tasks 8-10 are complete in the current tree. The bounded public
-roadmap for Tasks 11-12 is `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`.
+complete, and Tasks 8-12 from
+`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete in the current
+tree. The next bounded public roadmap should cover Tasks 13-17.
 
 ## Roadmap
 

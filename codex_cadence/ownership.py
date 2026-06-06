@@ -134,6 +134,7 @@ def validate_work_ownership_record(
     *,
     path: Path | None = None,
     state: str | None = None,
+    expected_id: str | None = None,
     expected_repo: str | None = None,
     expected_branch: str | None = None,
     expected_task_id: str | None = None,
@@ -172,6 +173,17 @@ def validate_work_ownership_record(
         ("handoff_id", "handoff"),
     ):
         blockers.extend(_validate_optional_id(record, field, kind, path))
+
+    if expected_id is not None and record.get("id") != expected_id:
+        blockers.append(
+            ownership_blocker(
+                "ownership_id_mismatch",
+                "work ownership record id does not match registry path",
+                expected_id=expected_id,
+                actual_id=record.get("id"),
+                path=str(path) if path else None,
+            )
+        )
 
     pr_number = record.get("pr_number")
     if pr_number is not None and (isinstance(pr_number, bool) or not isinstance(pr_number, int) or pr_number <= 0):
@@ -304,6 +316,36 @@ def _repo_evidence(cwd: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
 
 def _registry_state_directory_blockers(root: Path) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
+    registry_dir = root / "work-ownership"
+    try:
+        if registry_dir.is_symlink():
+            return [
+                ownership_blocker(
+                    "ownership_registry_state_invalid",
+                    "work ownership registry directory must not be a symlink",
+                    state="registry",
+                    path=str(registry_dir),
+                )
+            ]
+        if registry_dir.exists() and not registry_dir.is_dir():
+            return [
+                ownership_blocker(
+                    "ownership_registry_state_invalid",
+                    "work ownership registry path must be a directory",
+                    state="registry",
+                    path=str(registry_dir),
+                )
+            ]
+    except OSError as exc:
+        return [
+            ownership_blocker(
+                "ownership_registry_state_invalid",
+                f"work ownership registry directory could not be inspected: {exc}",
+                state="registry",
+                path=str(registry_dir),
+            )
+        ]
+
     for state in WORK_OWNERSHIP_STATES:
         directory = work_ownership_state_dir(root, state)
         try:
@@ -338,6 +380,8 @@ def _registry_state_directory_blockers(root: Path) -> list[dict[str, Any]]:
 
 
 def _valid_registry_state_directory(root: Path, state: str) -> Path | None:
+    if _registry_state_directory_blockers(root):
+        return None
     directory = work_ownership_state_dir(root, state)
     try:
         if directory.is_symlink() or not directory.exists() or not directory.is_dir():
@@ -345,6 +389,78 @@ def _valid_registry_state_directory(root: Path, state: str) -> Path | None:
     except OSError:
         return None
     return directory
+
+
+def _registry_state_for_candidate_path(root: Path, path: Path) -> str | None:
+    if path.suffix != ".json":
+        return None
+    try:
+        candidate_parent = path.expanduser().resolve(strict=False).parent
+    except OSError:
+        return None
+    for state in WORK_OWNERSHIP_STATES:
+        try:
+            expected_parent = work_ownership_state_dir(root, state).resolve(strict=False)
+        except OSError:
+            continue
+        if candidate_parent == expected_parent:
+            return state
+    return None
+
+
+def _record_path_blockers(root: Path, path: Path, state: str) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    try:
+        if path.is_symlink():
+            return [
+                ownership_blocker(
+                    "ownership_record_path_invalid",
+                    "work ownership record file must not be a symlink",
+                    path=str(path),
+                )
+            ]
+        if path.exists() and not path.is_file():
+            blockers.append(
+                ownership_blocker(
+                    "ownership_record_path_invalid",
+                    "work ownership record path must be a file",
+                    path=str(path),
+                )
+            )
+    except OSError as exc:
+        return [
+            ownership_blocker(
+                "ownership_record_path_invalid",
+                f"work ownership record path could not be inspected: {exc}",
+                path=str(path),
+            )
+        ]
+
+    state_dir = _valid_registry_state_directory(root, state)
+    if state_dir is None:
+        return blockers
+    try:
+        resolved_parent = path.expanduser().resolve(strict=False).parent
+        resolved_state_dir = state_dir.resolve(strict=True)
+    except OSError as exc:
+        blockers.append(
+            ownership_blocker(
+                "ownership_record_path_invalid",
+                f"work ownership record path could not be resolved: {exc}",
+                path=str(path),
+            )
+        )
+        return blockers
+    if resolved_parent != resolved_state_dir:
+        blockers.append(
+            ownership_blocker(
+                "ownership_record_outside_registry",
+                "work ownership record path must be under the runtime work-ownership registry",
+                path=str(path),
+                registry=str(root / "work-ownership"),
+            )
+        )
+    return blockers
 
 
 def _iter_ownership_files(root: Path) -> list[tuple[str, Path]]:
@@ -447,15 +563,19 @@ def _active_records_for_duplicate_scan(
     for state, path in _iter_ownership_files(root):
         if state != "active":
             continue
+        path_blockers = _record_path_blockers(root, path, state)
+        if path_blockers:
+            blockers.extend(path_blockers)
+            continue
         record, read_blockers = _read_record(path)
         if read_blockers:
             blockers.extend(read_blockers)
             continue
         if not isinstance(record, dict):
-            blockers.extend(validate_work_ownership_record(record, path=path, state=state, max_age_minutes=None))
+            blockers.extend(validate_work_ownership_record(record, path=path, state=state, expected_id=path.stem, max_age_minutes=None))
             continue
         if _matches_scope(record, repo=repo, branch=branch, task_id=task_id):
-            blockers.extend(validate_work_ownership_record(record, path=path, state=state, max_age_minutes=None))
+            blockers.extend(validate_work_ownership_record(record, path=path, state=state, expected_id=path.stem, max_age_minutes=None))
         if (
             record.get("status") == ACTIVE_WORK_OWNERSHIP_STATUS
             and record.get("repo") == repo
@@ -484,6 +604,11 @@ def work_ownership_status(
     active_records_for_duplicates: list[dict[str, Any]] = []
 
     for state, path in _iter_ownership_files(root):
+        path_blockers = _record_path_blockers(root, path, state)
+        if path_blockers:
+            blockers.extend(path_blockers)
+            records.append(ownership_record_summary(None, path, state))
+            continue
         record, read_blockers = _read_record(path)
         blockers.extend(read_blockers)
         if read_blockers:
@@ -497,6 +622,7 @@ def work_ownership_status(
             record,
             path=path,
             state=state,
+            expected_id=path.stem,
             max_age_minutes=None,
         )
         if structural_blockers:
@@ -509,6 +635,7 @@ def work_ownership_status(
             record,
             path=path,
             state=state,
+            expected_id=path.stem,
             max_age_minutes=max_age_minutes,
         )
         blockers.extend(record_blockers)
@@ -569,15 +696,25 @@ def find_work_ownership_record(root: Path, target: str) -> tuple[Path | None, st
     except ValueError:
         ownership_id = None
     if ownership_id is not None:
+        invalid_path_blockers: list[dict[str, Any]] = []
         matches = [
             (state, work_ownership_path(root, state, ownership_id))
             for state in WORK_OWNERSHIP_STATES
             if _valid_registry_state_directory(root, state) is not None
         ]
-        existing = [(state, path) for state, path in matches if path.exists()]
+        existing = []
+        for state, path in matches:
+            if not path.exists():
+                continue
+            path_blockers = _record_path_blockers(root, path, state)
+            if path_blockers:
+                invalid_path_blockers.extend(path_blockers)
+                continue
+            existing.append((state, path))
         if len(existing) > 1:
             return None, None, [
                 *registry_blockers,
+                *invalid_path_blockers,
                 ownership_blocker(
                     "ownership_record_ambiguous",
                     "work ownership id exists in more than one state directory",
@@ -587,7 +724,9 @@ def find_work_ownership_record(root: Path, target: str) -> tuple[Path | None, st
             ]
         if len(existing) == 1:
             state, path = existing[0]
-            return path, state, registry_blockers
+            return path, state, [*registry_blockers, *invalid_path_blockers]
+        if invalid_path_blockers:
+            return None, None, [*registry_blockers, *invalid_path_blockers]
         return None, None, [
             *registry_blockers,
             ownership_blocker(
@@ -610,7 +749,30 @@ def find_work_ownership_record(root: Path, target: str) -> tuple[Path | None, st
                     registry=str(root / "work-ownership"),
                 )
             ]
+        path_blockers = _record_path_blockers(root, supplied, state)
+        if path_blockers:
+            return None, None, [*registry_blockers, *path_blockers]
         return supplied, state, registry_blockers
+    if supplied.is_absolute() or supplied.suffix == ".json" or len(supplied.parts) > 1:
+        state = _registry_state_for_candidate_path(root, supplied)
+        if state is None:
+            return None, None, [
+                *registry_blockers,
+                ownership_blocker(
+                    "ownership_record_outside_registry",
+                    "work ownership record path must be under the runtime work-ownership registry",
+                    path=str(supplied),
+                    registry=str(root / "work-ownership"),
+                ),
+            ]
+        return None, None, [
+            *registry_blockers,
+            ownership_blocker(
+                "ownership_record_missing",
+                "work ownership record was not found",
+                path=str(supplied),
+            ),
+        ]
     try:
         ownership_id = validate_record_id(target, "work ownership")
     except ValueError as exc:
@@ -652,6 +814,7 @@ def validate_work_ownership(
                     record,
                     path=path,
                     state=state,
+                    expected_id=path.stem,
                     expected_repo=repo,
                     expected_branch=expected_branch,
                     expected_task_id=task_id,
