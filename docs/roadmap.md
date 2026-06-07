@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-06
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, read-only review-response planning, and local work ownership claim/closeout evidence current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, and local work ownership claim/closeout evidence current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -139,6 +139,10 @@ command-policy and active-stop controls. It includes:
   state, clean-square evidence, persisted resume snapshot binding, repo
   branch/head, dirty-worktree state, active brake, active epoch state, and
   pickup-policy evidence before a fresh session continues;
+- read-only `resume-continuation` packets that bind a saved verifier packet to
+  fresh resume evidence and can recheck supplied active local ownership for the
+  resumed handoff/task, role, claimer, repo, branch, and `HEAD` before
+  recommending governed execution start;
 - explicit read-only `github-evidence-sync` packets that fetch PR metadata,
   status checks, and review threads into saved local JSON evidence files without
   GitHub writes;
@@ -581,9 +585,10 @@ evidence, persisted resume snapshot binding, current repo branch/head,
 dirty-worktree state, active brake, active epoch state, and pickup-policy
 evidence. `resume-continuation` consumes saved verifier packets, rechecks
 handoff id, claimer, repo branch/head, active brake, active epoch state,
-clean-square evidence, policy evidence, and packet freshness, then emits
-`resume-continuation.v1` with `start_governed_execution` only when the anchors
-still match. Session launch and resume orchestration remain external.
+clean-square evidence, policy evidence, packet freshness, and supplied active
+local ownership evidence, then emits `resume-continuation.v1` with
+`start_governed_execution` only when the anchors still match. Session launch
+and resume orchestration remain external.
 
 Likely files: `codex_cadence/handoff_loop.py`, `codex_cadence/cli.py`,
 `codex_cadence/store.py`, tests, docs.
@@ -616,7 +621,9 @@ malformed records, and unsafe registry paths, and append replayable
 `start-governed-execution --ownership-target` can recheck matching active
 ownership before epoch mutation, bind the started epoch id back to the record,
 and append compact execution-start audit evidence with ownership id and
-ownership-record checksum.
+ownership-record checksum. `resume-continuation --ownership-target` can
+recheck matching active ownership before recommending governed execution start
+without mutating ownership or starting an epoch.
 
 Likely files: `codex_cadence/ownership.py`, `codex_cadence/cli.py`,
 `codex_cadence/store.py`, tests, docs.

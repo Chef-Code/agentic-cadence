@@ -248,6 +248,7 @@ whether external orchestration should call `start-governed-execution`.
 
 ```bash
 agentic-cadence --root <runtime-root> resume-continuation --resume-verification-file resume-verification.json --cwd . --claimer codex
+agentic-cadence --root <runtime-root> resume-continuation --resume-verification-file resume-verification.json --cwd . --claimer codex --ownership-target ownership-1 --ownership-role implementer
 ```
 
 The command emits a `resume-continuation.v1` packet shaped as:
@@ -267,6 +268,8 @@ The command emits a `resume-continuation.v1` packet shaped as:
   "pr_action_started": false,
   "resume_verification": {},
   "fresh_resume_verification": {},
+  "ownership": {},
+  "ownership_scope": {},
   "checks": {},
   "blockers": [{"code": "stable_code", "message": "human readable"}],
   "recommended_next_action": "inspect_resume_blockers",
@@ -278,7 +281,13 @@ The command emits a `resume-continuation.v1` packet shaped as:
 mtime freshness, handoff id, claimer, handoff state, clean-square evidence,
 repository branch and `HEAD`, dirty-worktree state, active brake, active epoch
 state, and policy evidence. The default freshness window is 60 minutes and can
-be overridden with `--max-resume-age-minutes`.
+be overridden with `--max-resume-age-minutes`. When `--ownership-target` is
+supplied, ownership is checked only after those resume blockers pass. The
+continuation ownership scope uses the resumed handoff id as the local task id
+and rechecks active `work-ownership.v1` evidence for task id, handoff id, role,
+claimer, repo, branch, `HEAD`, duplicate active ownership, freshness, malformed
+evidence, and registry path safety. Ownership freshness defaults to the local
+ownership window and can be overridden with `--max-ownership-age-minutes`.
 
 Stable continuation-specific blocker codes include
 `resume_verification_file_unreadable`, `resume_verification_invalid`,
@@ -287,20 +296,35 @@ Stable continuation-specific blocker codes include
 `resume_verification_not_resumable`, `resume_claimer_missing`,
 `resume_claimer_mismatch`, `resume_recheck_failed`,
 `resume_verification_from_future`, `resume_verification_stale`, and
-`resume_verification_anchor_mismatch`. Fresh verifier blockers are forwarded
-unchanged, including `repo_head_mismatch`, `repo_branch_mismatch`,
-`dirty_worktree`, `clean_square_missing`, `policy_approval_missing`,
-`active_brake_stop`, `active_epoch_exists`, and `active_epoch_conflict`.
+`resume_verification_anchor_mismatch`. Ownership blocker codes include
+`ownership_record_missing`, `ownership_closed`, `ownership_stale`,
+`duplicate_active_ownership`, `ownership_record_invalid`,
+`ownership_schema_unsupported`, `ownership_required_field_missing`,
+`ownership_field_type_invalid`, `ownership_record_unreadable`,
+`ownership_record_path_invalid`, `ownership_record_outside_registry`,
+`ownership_record_ambiguous`, `ownership_registry_state_invalid`,
+`ownership_repo_evidence_missing`, `ownership_repo_mismatch`,
+`ownership_branch_mismatch`, `ownership_task_mismatch`, `ownership_handoff_mismatch`,
+`ownership_role_mismatch`, `ownership_claimer_mismatch`, and
+`ownership_head_mismatch`. Fresh verifier blockers are forwarded unchanged,
+including `repo_head_mismatch`, `repo_branch_mismatch`, `dirty_worktree`,
+`clean_square_missing`, `policy_approval_missing`, `active_brake_stop`,
+`active_epoch_exists`, and `active_epoch_conflict`.
 
 Recommended actions are limited to `start_governed_execution`,
 `claim_handoff`, `approve_handoff`, `recreate_handoff`,
-`close_or_fail_active_epoch`, and `inspect_resume_blockers`. A valid packet
-recommends `start_governed_execution`; non-resumable saved verifier packets
-preserve `claim_handoff` or `approve_handoff` when that is the saved recovery
-action. Stale repo, handoff, clean-square, snapshot, or policy anchors
-recommend `recreate_handoff`; active epoch blockers recommend
-`close_or_fail_active_epoch`; unsupported combinations recommend
-`inspect_resume_blockers`.
+`close_or_fail_active_epoch`, `claim_work_ownership`,
+`refresh_ownership_evidence`, `close_or_fail_active_ownership`, and
+`inspect_resume_blockers`. A valid packet recommends
+`start_governed_execution`; non-resumable saved verifier packets preserve
+`claim_handoff` or `approve_handoff` when that is the saved recovery action.
+Stale repo, handoff, clean-square, snapshot, or policy anchors recommend
+`recreate_handoff`; active epoch blockers recommend
+`close_or_fail_active_epoch`; missing or closed ownership recommends
+`claim_work_ownership`; stale ownership recommends
+`refresh_ownership_evidence`; duplicate or mismatched active ownership
+recommends `close_or_fail_active_ownership`; unsupported combinations
+recommend `inspect_resume_blockers`.
 
 The command must not claim handoffs, write clean-square records, launch a new
 session, infer host context pressure, start or invoke an executor, create
@@ -424,8 +448,9 @@ are not distributed locks, do not assign roles, do not schedule agents, and do
 not write GitHub issues. The ownership mutation commands do not start epochs,
 invoke executors, create branches, commit, push, open or update PRs, merge,
 release, or publish packages. `start-governed-execution` can deliberately
-consume a supplied active ownership record and bind its `epoch_id`; resume
-continuation remains a later ownership-enforcement slice.
+consume a supplied active ownership record and bind its `epoch_id`;
+`resume-continuation` can deliberately consume supplied active ownership
+evidence without mutating ownership or starting an epoch.
 
 ## Handoff Signature
 

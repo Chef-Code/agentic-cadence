@@ -13,6 +13,7 @@ from typing import Any
 from codex_cadence import PROTOCOL_VERSION
 from codex_cadence.epochs import read_active_epoch_records
 from codex_cadence.model import BUCKETS, TASK_TYPES, estimate_task, governance_permissions, policy_for_bucket
+from codex_cadence.ownership import DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES, validate_work_ownership
 from codex_cadence.repo_state import current_repo_evidence, snapshot_repo
 from codex_cadence.store import (
     HANDOFF_STATES,
@@ -41,7 +42,38 @@ RESUME_CONTINUATION_ACTIONS = {
     "approve_handoff",
     "recreate_handoff",
     "close_or_fail_active_epoch",
+    "claim_work_ownership",
+    "refresh_ownership_evidence",
+    "close_or_fail_active_ownership",
     "inspect_resume_blockers",
+}
+
+_RESUME_OWNERSHIP_ACTIVE_MISMATCH_CODES = {
+    "duplicate_active_ownership",
+    "ownership_repo_mismatch",
+    "ownership_branch_mismatch",
+    "ownership_task_mismatch",
+    "ownership_handoff_mismatch",
+    "ownership_role_mismatch",
+    "ownership_claimer_mismatch",
+    "ownership_head_mismatch",
+}
+
+_RESUME_OWNERSHIP_STRUCTURAL_BLOCKER_CODES = {
+    "ownership_record_invalid",
+    "ownership_schema_unsupported",
+    "ownership_required_field_missing",
+    "ownership_field_type_invalid",
+    "ownership_id_invalid",
+    "ownership_id_mismatch",
+    "ownership_status_invalid",
+    "ownership_state_mismatch",
+    "ownership_timestamp_invalid",
+    "ownership_record_unreadable",
+    "ownership_record_path_invalid",
+    "ownership_record_outside_registry",
+    "ownership_record_ambiguous",
+    "ownership_registry_state_invalid",
 }
 
 _RESUME_CONTINUATION_ANCHORS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -894,6 +926,9 @@ def _resume_verification_load_error_packet(
     max_resume_age_minutes: int | None,
     blockers: list[dict[str, Any]],
     freshness: dict[str, Any] | None = None,
+    ownership_target: str | None = None,
+    ownership_role: str | None = None,
+    max_ownership_age_minutes: int | None = DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
 ) -> dict[str, Any]:
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -930,6 +965,21 @@ def _resume_verification_load_error_packet(
             "saved_packet_fresh": False,
             "fresh_packet_resumable": False,
             "anchors_match": False,
+            "ownership_requested": ownership_target is not None,
+            "ownership_checked": False,
+            "ownership_valid": None,
+        },
+        "ownership": None,
+        "ownership_scope": {
+            "target": ownership_target,
+            "role": ownership_role,
+            "claimer": claimer,
+            "repo": None,
+            "branch": None,
+            "head": None,
+            "task_id": None,
+            "handoff_id": None,
+            "max_age_minutes": max_ownership_age_minutes,
         },
         "blockers": blockers,
         "recommended_next_action": "inspect_resume_blockers",
@@ -964,6 +1014,12 @@ def _resume_continuation_recommendation(
         return "approve_handoff"
     if "handoff_not_claimed" in codes:
         return "claim_handoff"
+    if "ownership_stale" in codes:
+        return "refresh_ownership_evidence"
+    if "ownership_record_missing" in codes or "ownership_closed" in codes:
+        return "claim_work_ownership"
+    if any(code in codes for code in _RESUME_OWNERSHIP_ACTIVE_MISMATCH_CODES):
+        return "close_or_fail_active_ownership"
     if any(
         code in codes
         for code in (
@@ -1037,6 +1093,130 @@ def _fresh_resume_summary(packet: dict[str, Any] | None) -> dict[str, Any] | Non
     }
 
 
+def _resume_ownership_scope(
+    *,
+    ownership_target: str | None,
+    ownership_role: str | None,
+    claimer: str | None,
+    repository: dict[str, Any],
+    handoff_id: str | None,
+    max_ownership_age_minutes: int | None,
+) -> dict[str, Any]:
+    return {
+        "target": ownership_target,
+        "role": ownership_role,
+        "claimer": claimer,
+        "repo": repository.get("expected_repo"),
+        "branch": repository.get("expected_branch"),
+        "head": repository.get("expected_head"),
+        "task_id": handoff_id,
+        "handoff_id": handoff_id,
+        "max_age_minutes": max_ownership_age_minutes,
+    }
+
+
+def _validate_resume_continuation_ownership(
+    *,
+    root: Path,
+    cwd: Path,
+    target: str,
+    scope: dict[str, Any],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """Validate supplied ownership evidence for a read-only resume continuation."""
+    validation = validate_work_ownership(
+        root=root,
+        target=target,
+        cwd=cwd,
+        repo=scope.get("repo") if isinstance(scope.get("repo"), str) else None,
+        branch=scope.get("branch") if isinstance(scope.get("branch"), str) else None,
+        task_id=scope.get("task_id") if isinstance(scope.get("task_id"), str) else None,
+        require_active=True,
+        max_age_minutes=scope.get("max_age_minutes") if isinstance(scope.get("max_age_minutes"), int) else None,
+    )
+    blockers = [
+        blocker
+        for blocker in validation.get("blockers", [])
+        if isinstance(blocker, dict)
+    ]
+    ownership = validation.get("record") if isinstance(validation.get("record"), dict) else None
+    role = scope.get("role")
+    claimer = scope.get("claimer")
+    handoff_id = scope.get("handoff_id")
+    head = scope.get("head")
+
+    if not isinstance(scope.get("repo"), str) or not scope.get("repo", "").strip():
+        blockers.append(
+            _resume_blocker(
+                "ownership_repo_evidence_missing",
+                "resumed handoff must include repo evidence when ownership is supplied",
+                field="repo",
+            )
+        )
+    if not isinstance(role, str) or not role.strip():
+        blockers.append(
+            _resume_blocker(
+                "ownership_required_field_missing",
+                "ownership role is required when ownership evidence is supplied",
+                field="ownership_role",
+            )
+        )
+    if not isinstance(claimer, str) or not claimer.strip():
+        blockers.append(
+            _resume_blocker(
+                "ownership_required_field_missing",
+                "ownership claimer is required when ownership evidence is supplied",
+                field="ownership_claimer",
+            )
+        )
+    structural_blockers = {
+        blocker.get("code")
+        for blocker in blockers
+        if isinstance(blocker.get("code"), str)
+    } & _RESUME_OWNERSHIP_STRUCTURAL_BLOCKER_CODES
+    if ownership is not None and not structural_blockers:
+        if isinstance(handoff_id, str) and ownership.get("handoff_id") != handoff_id:
+            blockers.append(
+                _resume_blocker(
+                    "ownership_handoff_mismatch",
+                    "work ownership handoff_id does not match resumed handoff",
+                    expected_handoff_id=handoff_id,
+                    actual_handoff_id=ownership.get("handoff_id"),
+                    path=ownership.get("path"),
+                )
+            )
+        if isinstance(role, str) and role.strip() and ownership.get("role") != role:
+            blockers.append(
+                _resume_blocker(
+                    "ownership_role_mismatch",
+                    "work ownership role does not match requested resume-continuation role",
+                    expected_role=role,
+                    actual_role=ownership.get("role"),
+                    path=ownership.get("path"),
+                )
+            )
+        if isinstance(claimer, str) and claimer.strip() and ownership.get("claimer") != claimer:
+            blockers.append(
+                _resume_blocker(
+                    "ownership_claimer_mismatch",
+                    "work ownership claimer does not match resumed claimer",
+                    expected_claimer=claimer,
+                    actual_claimer=ownership.get("claimer"),
+                    path=ownership.get("path"),
+                )
+            )
+        if isinstance(head, str) and ownership.get("head") != head:
+            blockers.append(
+                _resume_blocker(
+                    "ownership_head_mismatch",
+                    "work ownership head does not match resumed repo head",
+                    expected_head=head,
+                    actual_head=ownership.get("head"),
+                    path=ownership.get("path"),
+                )
+            )
+    return ownership, blockers
+
+
 def resume_continuation(
     *,
     root: Path,
@@ -1044,6 +1224,9 @@ def resume_continuation(
     resume_verification_file: Path,
     claimer: str | None = None,
     max_resume_age_minutes: int | None = DEFAULT_RESUME_CONTINUATION_MAX_AGE_MINUTES,
+    ownership_target: str | None = None,
+    ownership_role: str | None = None,
+    max_ownership_age_minutes: int | None = DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
 ) -> dict[str, Any]:
     root = Path(root)
     cwd = Path(cwd)
@@ -1063,6 +1246,9 @@ def resume_continuation(
             max_resume_age_minutes=max_resume_age_minutes,
             freshness=freshness,
             blockers=blockers,
+            ownership_target=ownership_target,
+            ownership_role=ownership_role,
+            max_ownership_age_minutes=max_ownership_age_minutes,
         )
 
     try:
@@ -1083,6 +1269,9 @@ def resume_continuation(
             max_resume_age_minutes=max_resume_age_minutes,
             freshness=freshness,
             blockers=blockers,
+            ownership_target=ownership_target,
+            ownership_role=ownership_role,
+            max_ownership_age_minutes=max_ownership_age_minutes,
         )
 
     if not isinstance(saved_packet, dict):
@@ -1101,6 +1290,9 @@ def resume_continuation(
             max_resume_age_minutes=max_resume_age_minutes,
             freshness=freshness,
             blockers=blockers,
+            ownership_target=ownership_target,
+            ownership_role=ownership_role,
+            max_ownership_age_minutes=max_ownership_age_minutes,
         )
 
     saved_checksum = _checksum_json(saved_packet)
@@ -1228,6 +1420,29 @@ def resume_continuation(
                 )
             )
 
+    fresh_repository = fresh_packet.get("repository") if isinstance(fresh_packet, dict) and isinstance(fresh_packet.get("repository"), dict) else {}
+    ownership_scope = _resume_ownership_scope(
+        ownership_target=ownership_target,
+        ownership_role=ownership_role,
+        claimer=expected_claimer,
+        repository=fresh_repository,
+        handoff_id=saved_handoff_id if isinstance(saved_handoff_id, str) else None,
+        max_ownership_age_minutes=max_ownership_age_minutes,
+    )
+    ownership_summary: dict[str, Any] | None = None
+    ownership_checked = False
+    ownership_valid: bool | None = None
+    if ownership_target is not None and not blockers:
+        ownership_checked = True
+        ownership_summary, ownership_blockers = _validate_resume_continuation_ownership(
+            root=root,
+            cwd=cwd,
+            target=ownership_target,
+            scope=ownership_scope,
+        )
+        blockers.extend(ownership_blockers)
+        ownership_valid = not ownership_blockers
+
     fresh_recommendation = fresh_packet.get("recommended_next_action") if isinstance(fresh_packet, dict) else None
     recommended_next_action = _resume_continuation_recommendation(
         blockers,
@@ -1248,6 +1463,9 @@ def resume_continuation(
             isinstance(fresh_packet, dict)
             and not any(blocker.get("code") == "resume_verification_anchor_mismatch" for blocker in blockers)
         ),
+        "ownership_requested": ownership_target is not None,
+        "ownership_checked": ownership_checked,
+        "ownership_valid": ownership_valid,
     }
     return {
         "protocol_version": PROTOCOL_VERSION,
@@ -1271,6 +1489,8 @@ def resume_continuation(
             "freshness": freshness,
         },
         "fresh_resume_verification": _fresh_resume_summary(fresh_packet),
+        "ownership": ownership_summary,
+        "ownership_scope": ownership_scope,
         "checks": checks,
         "blockers": blockers,
         "recommended_next_action": recommended_next_action,

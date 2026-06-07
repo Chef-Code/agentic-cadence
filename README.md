@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, operator-approved `git-pr-materialize`, read-only `verify-resume`, read-only `resume-continuation`, local `work-ownership-status` / `validate-work-ownership` / `claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, and a fixture-only controlled executor runner for tests and examples.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, operator-approved `git-pr-materialize`, read-only `verify-resume`, ownership-aware read-only `resume-continuation`, local `work-ownership-status` / `validate-work-ownership` / `claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, and a fixture-only controlled executor runner for tests and examples.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -440,24 +440,34 @@ create branches, write pull requests, merge, release, or publish packages.
 `resume-verification.v1` packet to the next governed execution-start decision.
 It consumes a saved verifier packet, rechecks the handoff id, claimer, repo
 branch and `HEAD`, dirty-worktree state, active brake, active epoch state,
-clean-square evidence, pickup policy, and packet freshness, then emits a
-`resume-continuation.v1` packet:
+clean-square evidence, pickup policy, packet freshness, and any supplied local
+ownership evidence, then emits a `resume-continuation.v1` packet:
 
 ```bash
 agentic-cadence --root <runtime-root> resume-continuation --resume-verification-file resume-verification.json --cwd . --claimer codex
+agentic-cadence --root <runtime-root> resume-continuation --resume-verification-file resume-verification.json --cwd . --claimer codex --ownership-target ownership-1 --ownership-role implementer
 ```
 
 A fresh matching packet exits `0` with `recommended_next_action:
 start_governed_execution`, `executor_started: false`, `epoch_started: false`,
 and `side_effects: []`. Blockers exit `2` and recommend only
 `claim_handoff`, `approve_handoff`, `recreate_handoff`,
-`close_or_fail_active_epoch`, or `inspect_resume_blockers`. Stable blocker
-codes include `resume_verification_stale`,
+`close_or_fail_active_epoch`, `claim_work_ownership`,
+`refresh_ownership_evidence`, `close_or_fail_active_ownership`, or
+`inspect_resume_blockers`. When `--ownership-target` is supplied, the command
+checks the active `work-ownership.v1` record for resumed task/handoff id,
+role, claimer, repo, branch, `HEAD`, freshness, duplicate active ownership,
+and registry path safety after the existing resume blockers pass. Stable
+blocker codes include `resume_verification_stale`,
 `resume_verification_not_resumable`, `resume_claimer_mismatch`,
-`resume_verification_anchor_mismatch`, and the forwarded verifier blockers
-such as `repo_head_mismatch`, `clean_square_missing`,
-`policy_approval_missing`, `active_brake_stop`, and
-`active_epoch_exists` or `active_epoch_conflict`.
+`resume_verification_anchor_mismatch`, `ownership_record_missing`,
+`ownership_closed`, `ownership_stale`, `duplicate_active_ownership`,
+`ownership_repo_evidence_missing`, `ownership_repo_mismatch`,
+`ownership_branch_mismatch`, `ownership_task_mismatch`, `ownership_handoff_mismatch`,
+`ownership_role_mismatch`, `ownership_claimer_mismatch`,
+`ownership_head_mismatch`, and the forwarded verifier blockers such as
+`repo_head_mismatch`, `clean_square_missing`, `policy_approval_missing`,
+`active_brake_stop`, and `active_epoch_exists` or `active_epoch_conflict`.
 
 The command does not claim handoffs, launch sessions, start epochs, invoke an
 executor, create branches, push, open PRs, merge, release, or publish packages.
@@ -502,8 +512,9 @@ These commands do not assign roles, schedule agents, write GitHub issues,
 claim distributed locks, invoke executors, create branches, commit, push, open
 or update PRs, merge, release, or publish packages. `start-governed-execution`
 can deliberately consume an active ownership record through
-`--ownership-target`; resume-continuation ownership enforcement remains a later
-explicit integration point.
+`--ownership-target`; `resume-continuation` can deliberately consume matching
+active ownership evidence through `--ownership-target` and `--ownership-role`
+without mutating ownership or starting an epoch.
 
 ## GitHub Evidence Sync
 

@@ -10,6 +10,7 @@ from pathlib import Path
 from unittest import mock
 
 from codex_cadence.handoff_loop import build_seed_message, prepare_handoff
+from codex_cadence.store import utc_now
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -69,7 +70,7 @@ def _write_active_epoch_json(root, data):
 
 
 class HandoffLoopTests(unittest.TestCase):
-    def prepare_resume_handoff(self, root, repo_tmp, *, handoff_id="context-loop", drivers=None):
+    def prepare_resume_handoff(self, root, repo_tmp, *, handoff_id="context-loop", drivers=None, repo="local/test"):
         args = [
             "prepare-handoff",
             "--id",
@@ -78,8 +79,6 @@ class HandoffLoopTests(unittest.TestCase):
             "Implement resume verifier",
             "--guardrail",
             "context",
-            "--repo",
-            "local/test",
             "--cwd",
             repo_tmp,
             "--task-type",
@@ -87,6 +86,8 @@ class HandoffLoopTests(unittest.TestCase):
             "--summary",
             "ready for pickup",
         ]
+        if repo is not None:
+            args.extend(["--repo", repo])
         for driver in drivers or ["multiple_files"]:
             args.extend(["--driver", driver])
         result, packet = run_cli(root, *args)
@@ -112,6 +113,41 @@ class HandoffLoopTests(unittest.TestCase):
         path = Path(root) / "resume-verification.json"
         path.write_text(json.dumps(packet), encoding="utf-8")
         return path, packet
+
+    def write_resume_work_ownership(self, root, repo_tmp, ownership_id="ownership-1", **overrides):
+        status = overrides.pop("status", "ACTIVE")
+        state = overrides.pop("state", status.lower())
+        path = Path(root) / "work-ownership" / state / f"{ownership_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "schema_version": "work-ownership.v1",
+            "id": ownership_id,
+            "task_id": "context-loop",
+            "candidate_id": "context-loop",
+            "role": "implementer",
+            "claimer": "test-agent",
+            "repo": "local/test",
+            "branch": "main",
+            "head": current_head(repo_tmp),
+            "pr_number": None,
+            "epoch_id": None,
+            "handoff_id": "context-loop",
+            "status": status,
+            "created_at": utc_now(),
+            "updated_at": utc_now(),
+        }
+        data.update(overrides)
+        path.write_text(json.dumps(data), encoding="utf-8")
+        return path, data
+
+    def work_ownership_snapshot(self, root):
+        base = Path(root) / "work-ownership"
+        if not base.exists():
+            return {}
+        return {
+            path.relative_to(base).as_posix(): path.read_text(encoding="utf-8")
+            for path in sorted(base.glob("**/*.json"))
+        }
 
     def test_seed_message_includes_repo_and_pickup_state(self):
         snapshot = {
@@ -303,6 +339,285 @@ class HandoffLoopTests(unittest.TestCase):
             self.assertEqual(before["claimed"], claimed_path.read_text(encoding="utf-8"))
             self.assertEqual(before["clean_square"], clean_square_path.read_text(encoding="utf-8"))
             self.assertEqual(before["active_epochs"], sorted(path.name for path in (Path(tmp) / "epochs" / "active").glob("*.json")))
+
+    def test_resume_continuation_binds_matching_work_ownership_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+            self.prepare_resume_handoff(tmp, repo_tmp)
+            self.claim_resume_handoff(tmp)
+            resume_path, _resume_packet = self.write_resume_verification_packet(tmp, repo_tmp)
+            ownership_path, _ownership = self.write_resume_work_ownership(tmp, repo_tmp)
+            before_ownership = ownership_path.read_text(encoding="utf-8")
+
+            result, packet = run_cli(
+                tmp,
+                "resume-continuation",
+                "--resume-verification-file",
+                str(resume_path),
+                "--cwd",
+                repo_tmp,
+                "--claimer",
+                "test-agent",
+                "--ownership-target",
+                "ownership-1",
+                "--ownership-role",
+                "implementer",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(packet["valid"])
+            self.assertTrue(packet["continuable"])
+            self.assertTrue(packet["read_only"])
+            self.assertEqual(packet["recommended_next_action"], "start_governed_execution")
+            self.assertEqual(packet["blockers"], [])
+            self.assertEqual(packet["ownership"]["id"], "ownership-1")
+            self.assertEqual(packet["ownership"]["task_id"], "context-loop")
+            self.assertEqual(packet["ownership"]["handoff_id"], "context-loop")
+            self.assertEqual(packet["ownership"]["claimer"], "test-agent")
+            self.assertTrue(packet["checks"]["ownership_checked"])
+            self.assertTrue(packet["checks"]["ownership_valid"])
+            self.assertFalse(packet["executor_started"])
+            self.assertFalse(packet["epoch_started"])
+            self.assertFalse(packet["pr_action_started"])
+            self.assertEqual(packet["side_effects"], [])
+            self.assertEqual(before_ownership, ownership_path.read_text(encoding="utf-8"))
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_resume_continuation_blocks_bad_work_ownership_evidence(self):
+        cases = [
+            (
+                "ownership_record_missing",
+                "claim_work_ownership",
+                lambda tmp, repo_tmp: None,
+                "missing-ownership",
+                [],
+            ),
+            (
+                "ownership_stale",
+                "refresh_ownership_evidence",
+                lambda tmp, repo_tmp: self.write_resume_work_ownership(
+                    tmp,
+                    repo_tmp,
+                    created_at="2000-01-01T00:00:00Z",
+                    updated_at="2000-01-01T00:00:00Z",
+                ),
+                "ownership-1",
+                [],
+            ),
+            (
+                "duplicate_active_ownership",
+                "close_or_fail_active_ownership",
+                lambda tmp, repo_tmp: (
+                    self.write_resume_work_ownership(tmp, repo_tmp),
+                    self.write_resume_work_ownership(tmp, repo_tmp, "ownership-2", claimer="other-agent"),
+                ),
+                "ownership-1",
+                [],
+            ),
+            (
+                "ownership_closed",
+                "claim_work_ownership",
+                lambda tmp, repo_tmp: self.write_resume_work_ownership(tmp, repo_tmp, status="CLOSED", state="closed"),
+                "ownership-1",
+                [],
+            ),
+            (
+                "ownership_closed",
+                "claim_work_ownership",
+                lambda tmp, repo_tmp: self.write_resume_work_ownership(tmp, repo_tmp, status="FAILED", state="failed"),
+                "ownership-1",
+                [],
+            ),
+            (
+                "ownership_repo_mismatch",
+                "close_or_fail_active_ownership",
+                lambda tmp, repo_tmp: self.write_resume_work_ownership(tmp, repo_tmp, repo="other/repo"),
+                "ownership-1",
+                [],
+            ),
+            (
+                "ownership_branch_mismatch",
+                "close_or_fail_active_ownership",
+                lambda tmp, repo_tmp: self.write_resume_work_ownership(tmp, repo_tmp, branch="other"),
+                "ownership-1",
+                [],
+            ),
+            (
+                "ownership_handoff_mismatch",
+                "close_or_fail_active_ownership",
+                lambda tmp, repo_tmp: self.write_resume_work_ownership(tmp, repo_tmp, handoff_id="other-handoff"),
+                "ownership-1",
+                [],
+            ),
+            (
+                "ownership_task_mismatch",
+                "close_or_fail_active_ownership",
+                lambda tmp, repo_tmp: self.write_resume_work_ownership(tmp, repo_tmp, task_id="other-task"),
+                "ownership-1",
+                [],
+            ),
+            (
+                "ownership_claimer_mismatch",
+                "close_or_fail_active_ownership",
+                lambda tmp, repo_tmp: self.write_resume_work_ownership(tmp, repo_tmp, claimer="other-agent"),
+                "ownership-1",
+                [],
+            ),
+            (
+                "ownership_role_mismatch",
+                "close_or_fail_active_ownership",
+                lambda tmp, repo_tmp: self.write_resume_work_ownership(tmp, repo_tmp, role="reviewer"),
+                "ownership-1",
+                [],
+            ),
+            (
+                "ownership_head_mismatch",
+                "close_or_fail_active_ownership",
+                lambda tmp, repo_tmp: self.write_resume_work_ownership(tmp, repo_tmp, head="0" * 40),
+                "ownership-1",
+                [],
+            ),
+        ]
+        for expected_code, expected_action, seed_ownership, ownership_target, extra_args in cases:
+            with self.subTest(expected_code=expected_code):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+                    init_committed_repo(repo_tmp)
+                    self.prepare_resume_handoff(tmp, repo_tmp)
+                    self.claim_resume_handoff(tmp)
+                    resume_path, _resume_packet = self.write_resume_verification_packet(tmp, repo_tmp)
+                    seed_ownership(tmp, repo_tmp)
+                    ownership_before = self.work_ownership_snapshot(tmp)
+
+                    result, packet = run_cli(
+                        tmp,
+                        "resume-continuation",
+                        "--resume-verification-file",
+                        str(resume_path),
+                        "--cwd",
+                        repo_tmp,
+                        "--claimer",
+                        "test-agent",
+                        "--ownership-target",
+                        ownership_target,
+                        "--ownership-role",
+                        "implementer",
+                        *extra_args,
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(packet["valid"])
+                    self.assertFalse(packet["continuable"])
+                    self.assertTrue(packet["read_only"])
+                    self.assertEqual(packet["recommended_next_action"], expected_action)
+                    self.assertIn(expected_code, {blocker["code"] for blocker in packet["blockers"]})
+                    self.assertTrue(packet["checks"]["ownership_checked"])
+                    self.assertFalse(packet["checks"]["ownership_valid"])
+                    self.assertFalse(packet["executor_started"])
+                    self.assertFalse(packet["epoch_started"])
+                    self.assertFalse(packet["pr_action_started"])
+                    self.assertEqual(packet["side_effects"], [])
+                    self.assertEqual(ownership_before, self.work_ownership_snapshot(tmp))
+                    self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_resume_continuation_existing_blockers_precede_work_ownership_validation(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+            self.prepare_resume_handoff(tmp, repo_tmp)
+            self.claim_resume_handoff(tmp)
+            resume_path, _resume_packet = self.write_resume_verification_packet(tmp, repo_tmp)
+            old = time.time() - 3600
+            os.utime(resume_path, (old, old))
+
+            result, packet = run_cli(
+                tmp,
+                "resume-continuation",
+                "--resume-verification-file",
+                str(resume_path),
+                "--cwd",
+                repo_tmp,
+                "--claimer",
+                "test-agent",
+                "--max-resume-age-minutes",
+                "5",
+                "--ownership-target",
+                "missing-ownership",
+                "--ownership-role",
+                "implementer",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["recommended_next_action"], "inspect_resume_blockers")
+            codes = {blocker["code"] for blocker in packet["blockers"]}
+            self.assertIn("resume_verification_stale", codes)
+            self.assertNotIn("ownership_record_missing", codes)
+            self.assertFalse(packet["checks"]["ownership_checked"])
+            self.assertIsNone(packet["checks"]["ownership_valid"])
+
+    def test_resume_continuation_malformed_ownership_does_not_add_resume_mismatch_blockers(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+            self.prepare_resume_handoff(tmp, repo_tmp)
+            self.claim_resume_handoff(tmp)
+            resume_path, _resume_packet = self.write_resume_verification_packet(tmp, repo_tmp)
+            ownership_path, ownership = self.write_resume_work_ownership(tmp, repo_tmp)
+            ownership.pop("role")
+            ownership_path.write_text(json.dumps(ownership), encoding="utf-8")
+
+            result, packet = run_cli(
+                tmp,
+                "resume-continuation",
+                "--resume-verification-file",
+                str(resume_path),
+                "--cwd",
+                repo_tmp,
+                "--claimer",
+                "test-agent",
+                "--ownership-target",
+                "ownership-1",
+                "--ownership-role",
+                "implementer",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["recommended_next_action"], "inspect_resume_blockers")
+            codes = {blocker["code"] for blocker in packet["blockers"]}
+            self.assertIn("ownership_required_field_missing", codes)
+            self.assertNotIn("ownership_role_mismatch", codes)
+            self.assertTrue(packet["checks"]["ownership_checked"])
+            self.assertFalse(packet["checks"]["ownership_valid"])
+
+    def test_resume_continuation_blocks_ownership_when_handoff_repo_evidence_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+            self.prepare_resume_handoff(tmp, repo_tmp, repo=None)
+            self.claim_resume_handoff(tmp)
+            resume_path, _resume_packet = self.write_resume_verification_packet(tmp, repo_tmp)
+            self.write_resume_work_ownership(tmp, repo_tmp)
+
+            result, packet = run_cli(
+                tmp,
+                "resume-continuation",
+                "--resume-verification-file",
+                str(resume_path),
+                "--cwd",
+                repo_tmp,
+                "--claimer",
+                "test-agent",
+                "--ownership-target",
+                "ownership-1",
+                "--ownership-role",
+                "implementer",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["recommended_next_action"], "inspect_resume_blockers")
+            codes = {blocker["code"] for blocker in packet["blockers"]}
+            self.assertIn("ownership_repo_evidence_missing", codes)
+            self.assertTrue(packet["checks"]["ownership_checked"])
+            self.assertFalse(packet["checks"]["ownership_valid"])
 
     def test_resume_continuation_blocks_stale_resume_packet(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:

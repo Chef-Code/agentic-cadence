@@ -229,7 +229,7 @@ Do not:
 ## Ownership Enforcement Needs Local Write Gates
 
 Status: fulfilled
-Fulfilled By: Task 13 current-tree `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership` implementation; Task 14 current-tree execution-start ownership binding
+Fulfilled By: Task 13 current-tree `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership` implementation; Task 14 current-tree execution-start ownership binding; Task 15 current-branch resume-continuation ownership recheck
 Kind: risk
 Workflow: Multi-worker coordination
 Time Saved: high
@@ -238,7 +238,7 @@ Pain: Cadence can validate local work ownership records, but execution-start and
 Signals:
 - `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` names Task 13 as local ownership claim and closeout.
 - Task 12 is read-only status/validation evidence only.
-- Task 14 current-tree work lets `start-governed-execution` consume and bind canonical active ownership records; resume-continuation ownership enforcement remains future work.
+- Task 14 current-tree work lets `start-governed-execution` consume and bind canonical active ownership records, and Task 15 current-branch work lets `resume-continuation` recheck supplied active ownership before recommending governed execution start.
 Do not:
 - Do not treat local ownership as a distributed lock.
 - Do not assign roles, schedule agents, write GitHub issues, invoke executors, create branches, commit, push, merge, release, or publish packages from this backlog entry.

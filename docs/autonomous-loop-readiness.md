@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-06
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, read-only review-response planning, and local work ownership claim/closeout evidence current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, and local work ownership claim/closeout evidence current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -111,7 +111,8 @@ runtime can do these things end-to-end:
 - bind a saved `resume-verification.v1` packet to a fresh read-only
   `resume-continuation.v1` packet that rechecks handoff id, claimer, repo
   branch/head, brake, active epoch state, clean-square, policy evidence, and
-  packet freshness before recommending governed execution start;
+  packet freshness, and supplied local ownership evidence before recommending
+  governed execution start;
 - approve, claim, complete, or fail handoffs;
 - evaluate saved PR JSON, saved review-thread JSON, and saved PR body/template
   files for readiness, including `saved_input`, `stale`, and caller-asserted
@@ -131,6 +132,9 @@ runtime can do these things end-to-end:
 - bind matching active ownership to governed execution start through
   `start-governed-execution --ownership-target`, with rollback of both epoch
   and ownership binding when audit append fails.
+- bind supplied matching active ownership to read-only resume continuation
+  through `resume-continuation --ownership-target` without mutating ownership,
+  starting an epoch, or invoking an executor.
 
 These capabilities are still single-agent Phase 1 primitives, but they are not
 throwaway work. They are the same primitives a future orchestrator needs for
@@ -191,7 +195,7 @@ Agentic Cadence cannot currently:
 | Git/PR transition planning | Partial, dry-run plus approved materialization | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects; `git-pr-materialize` can create branch, push, and create/update PR only after exact target-bound operator approval and local rechecks |
 | Branch/commit/push/PR creation | Partial, operator-approved only | No autonomous branch/PR writes, no dirty-worktree commit path, no merge, release, or package publication |
 | Review response loop | Partial read-only planning | Saved review files, synced review threads, failed checks, and PR-body evidence can become response-plan items; no automatic response writes |
-| Local work ownership | Partial, execution-start-bound local evidence | `work-ownership-status` and `validate-work-ownership` validate local `work-ownership.v1` records; `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership` create/move local records with audit evidence; `start-governed-execution --ownership-target` can bind matching active ownership to the started epoch; no distributed lock, role assignment, scheduler, or resume-continuation enforcement |
+| Local work ownership | Partial, execution/resume-bound local evidence | `work-ownership-status` and `validate-work-ownership` validate local `work-ownership.v1` records; `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership` create/move local records with audit evidence; `start-governed-execution --ownership-target` can bind matching active ownership to the started epoch; `resume-continuation --ownership-target` can recheck matching active ownership before recommending execution start; no distributed lock, role assignment, or scheduler |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
 | New-session launch/resume | Partial read-only gates | `prepare-handoff`, clean-square evidence, `verify-resume`, and `resume-continuation.v1` packets exist; external orchestration still launches sessions and performs recommended actions |
 
@@ -217,8 +221,9 @@ evidence into saved files, then turn saved failed-check, review-thread, and
 PR-body evidence into read-only response-plan items. It can validate, claim,
 close, and fail local `work-ownership.v1` records, detect duplicate active
 ownership for the same repo, branch, and task, bind matching active ownership
-to a governed execution start, and replay accepted ownership mutations through
-the local audit log before future multi-worker coordination exists. It cannot
+to a governed execution start, recheck matching active ownership at
+resume-continuation, and replay accepted ownership mutations through the local
+audit log before future multi-worker coordination exists. It cannot
 perform the core build loop by itself, and it cannot yet coordinate a team of
 role-specific agents.
 
