@@ -966,7 +966,7 @@ def _resume_verification_load_error_packet(
             "saved_packet_fresh": False,
             "fresh_packet_resumable": False,
             "anchors_match": False,
-            "ownership_requested": ownership_target is not None,
+            "ownership_requested": _resume_ownership_requested(ownership_target, ownership_role, ownership_task_id),
             "ownership_checked": False,
             "ownership_valid": None,
         },
@@ -1092,6 +1092,14 @@ def _fresh_resume_summary(packet: dict[str, Any] | None) -> dict[str, Any] | Non
             if isinstance(blocker, dict)
         ],
     }
+
+
+def _resume_ownership_requested(
+    ownership_target: str | None,
+    ownership_role: str | None,
+    ownership_task_id: str | None,
+) -> bool:
+    return ownership_target is not None or ownership_role is not None or ownership_task_id is not None
 
 
 def _resume_ownership_scope(
@@ -1235,6 +1243,7 @@ def resume_continuation(
     root = Path(root)
     cwd = Path(cwd)
     resume_verification_file = Path(resume_verification_file)
+    ownership_requested = _resume_ownership_requested(ownership_target, ownership_role, ownership_task_id)
     blockers: list[dict[str, Any]] = []
     freshness, freshness_blockers = _resume_verification_freshness(
         resume_verification_file,
@@ -1440,7 +1449,16 @@ def resume_continuation(
     ownership_summary: dict[str, Any] | None = None
     ownership_checked = False
     ownership_valid: bool | None = None
-    if ownership_target is not None and not blockers:
+    if ownership_requested and ownership_target is None and not blockers:
+        blockers.append(
+            _resume_blocker(
+                "ownership_target_missing",
+                "ownership target is required when ownership options are supplied",
+                fields=["ownership_target"],
+            )
+        )
+        ownership_valid = False
+    elif ownership_target is not None and not blockers:
         ownership_checked = True
         ownership_summary, ownership_blockers = _validate_resume_continuation_ownership(
             root=root,
@@ -1471,7 +1489,7 @@ def resume_continuation(
             isinstance(fresh_packet, dict)
             and not any(blocker.get("code") == "resume_verification_anchor_mismatch" for blocker in blockers)
         ),
-        "ownership_requested": ownership_target is not None,
+        "ownership_requested": ownership_requested,
         "ownership_checked": ownership_checked,
         "ownership_valid": ownership_valid,
     }

@@ -298,8 +298,8 @@ Stable continuation-specific blocker codes include
 `resume_claimer_mismatch`, `resume_recheck_failed`,
 `resume_verification_from_future`, `resume_verification_stale`, and
 `resume_verification_anchor_mismatch`. Ownership blocker codes include
-`ownership_record_missing`, `ownership_closed`, `ownership_stale`,
-`duplicate_active_ownership`, `ownership_record_invalid`,
+`ownership_target_missing`, `ownership_record_missing`, `ownership_closed`,
+`ownership_stale`, `duplicate_active_ownership`, `ownership_record_invalid`,
 `ownership_schema_unsupported`, `ownership_required_field_missing`,
 `ownership_field_type_invalid`, `ownership_record_unreadable`,
 `ownership_record_path_invalid`, `ownership_record_outside_registry`,

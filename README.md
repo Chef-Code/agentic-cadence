@@ -461,7 +461,7 @@ and registry path safety after the existing resume blockers pass. The resumed
 handoff id is the default local task anchor; callers with a separate local task
 id can pass `--ownership-task-id`. Stable blocker codes include `resume_verification_stale`,
 `resume_verification_not_resumable`, `resume_claimer_mismatch`,
-`resume_verification_anchor_mismatch`, `ownership_record_missing`,
+`resume_verification_anchor_mismatch`, `ownership_target_missing`, `ownership_record_missing`,
 `ownership_closed`, `ownership_stale`, `duplicate_active_ownership`,
 `ownership_repo_evidence_missing`, `ownership_repo_mismatch`,
 `ownership_branch_mismatch`, `ownership_task_mismatch`, `ownership_handoff_mismatch`,

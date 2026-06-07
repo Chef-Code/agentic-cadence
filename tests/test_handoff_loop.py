@@ -425,6 +425,48 @@ class HandoffLoopTests(unittest.TestCase):
             self.assertEqual(before_ownership, ownership_path.read_text(encoding="utf-8"))
             self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
 
+    def test_resume_continuation_blocks_ownership_options_without_target(self):
+        cases = [
+            ("role-only", ["--ownership-role", "implementer"]),
+            ("task-id-only", ["--ownership-task-id", "task-1"]),
+        ]
+        for name, ownership_args in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+                    init_committed_repo(repo_tmp)
+                    self.prepare_resume_handoff(tmp, repo_tmp)
+                    self.claim_resume_handoff(tmp)
+                    resume_path, _resume_packet = self.write_resume_verification_packet(tmp, repo_tmp)
+                    ownership_before = self.work_ownership_snapshot(tmp)
+
+                    result, packet = run_cli(
+                        tmp,
+                        "resume-continuation",
+                        "--resume-verification-file",
+                        str(resume_path),
+                        "--cwd",
+                        repo_tmp,
+                        "--claimer",
+                        "test-agent",
+                        *ownership_args,
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(packet["valid"])
+                    self.assertFalse(packet["continuable"])
+                    self.assertTrue(packet["read_only"])
+                    self.assertEqual(packet["recommended_next_action"], "inspect_resume_blockers")
+                    self.assertIn("ownership_target_missing", {blocker["code"] for blocker in packet["blockers"]})
+                    self.assertTrue(packet["checks"]["ownership_requested"])
+                    self.assertFalse(packet["checks"]["ownership_checked"])
+                    self.assertFalse(packet["checks"]["ownership_valid"])
+                    self.assertFalse(packet["executor_started"])
+                    self.assertFalse(packet["epoch_started"])
+                    self.assertFalse(packet["pr_action_started"])
+                    self.assertEqual(packet["side_effects"], [])
+                    self.assertEqual(ownership_before, self.work_ownership_snapshot(tmp))
+                    self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
     def test_resume_continuation_blocks_bad_work_ownership_evidence(self):
         cases = [
             (
