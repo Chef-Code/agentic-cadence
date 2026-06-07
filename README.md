@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, operator-approved `git-pr-materialize`, read-only `verify-resume`, read-only `resume-continuation`, read-only `work-ownership-status`, read-only `validate-work-ownership`, and a fixture-only controlled executor runner for tests and examples.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, operator-approved `git-pr-materialize`, read-only `verify-resume`, read-only `resume-continuation`, local `work-ownership-status` / `validate-work-ownership` / `claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, and a fixture-only controlled executor runner for tests and examples.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -449,15 +449,20 @@ executor, create branches, push, open PRs, merge, release, or publish packages.
 
 ## Local Work Ownership
 
-`work-ownership-status` and `validate-work-ownership` are read-only local
-evidence gates for `work-ownership.v1` records under
+The read-only `work-ownership-status` and read-only `validate-work-ownership`
+commands are local evidence gates for
+`work-ownership.v1` records under
 `<runtime-root>/work-ownership/{active,closed,failed}`. Records bind a local
 task id, candidate id, role label, claimer, repo, branch, optional PR number,
-optional epoch id, optional handoff id, status, and timestamps.
+optional epoch id, optional handoff id, optional `head`, status, and
+timestamps.
 
 ```bash
 agentic-cadence --root <runtime-root> work-ownership-status --cwd . --repo owner/repo --task-id task-1
 agentic-cadence --root <runtime-root> validate-work-ownership ownership-1 --cwd . --repo owner/repo --task-id task-1 --require-active
+agentic-cadence --root <runtime-root> claim-work-ownership --cwd . --repo owner/repo --branch feature --head <sha> --task-id task-1 --candidate-id candidate-1 --role implementer --claimer local-agent
+agentic-cadence --root <runtime-root> close-work-ownership ownership-1 --cwd . --repo owner/repo --branch feature --head <sha> --task-id task-1 --claimer local-agent --summary "completed locally"
+agentic-cadence --root <runtime-root> fail-work-ownership ownership-1 --cwd . --repo owner/repo --branch feature --head <sha> --task-id task-1 --claimer local-agent --summary "blocked locally"
 ```
 
 Status emits `work-ownership-status.v1`; validation emits
@@ -470,10 +475,19 @@ reports target-record blockers such as `ownership_closed` and
 `use_work_ownership_status`, `resolve_duplicate_ownership`,
 `refresh_ownership_evidence`, and `repair_ownership_record`.
 
+`claim-work-ownership` emits `work-ownership-claim.v1` and writes exactly one
+active local record only after rechecking the current branch, `HEAD`, clean
+worktree state, duplicate or stale active ownership, malformed ownership
+evidence, and registry path safety. `close-work-ownership` and
+`fail-work-ownership` emit `work-ownership-closeout.v1`, move a targeted active
+record to `closed` or `failed`, and append compact `work_ownership_mutation`
+audit evidence for accepted mutations.
+
 These commands do not assign roles, schedule agents, write GitHub issues,
-claim distributed locks, start epochs, invoke executors, mutate Git/PR state,
-merge, release, or publish packages. Execution-start and resume-continuation
-enforcement remains a later explicit integration point.
+claim distributed locks, start epochs, invoke executors, create branches,
+commit, push, open or update PRs, merge, release, or publish packages.
+Execution-start and resume-continuation enforcement remains a later explicit
+integration point.
 
 ## GitHub Evidence Sync
 

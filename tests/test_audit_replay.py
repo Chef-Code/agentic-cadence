@@ -234,6 +234,40 @@ def git_pr_materialization_result_record(valid: bool = True, **overrides):
     return record
 
 
+def work_ownership_mutation_record(action: str = "claim_work_ownership", **overrides):
+    status_by_action = {
+        "claim_work_ownership": "ACTIVE",
+        "close_work_ownership": "CLOSED",
+        "fail_work_ownership": "FAILED",
+    }
+    record = {
+        "schema_version": "cadence-audit.v1",
+        "recorded_at": "2999-05-22T00:00:00Z",
+        "event": "work_ownership_mutation",
+        "action": action,
+        "reason": "work ownership mutation accepted",
+        "valid": True,
+        "ownership_id": "ownership-1",
+        "ownership_status": status_by_action[action],
+        "task_id": "task-1",
+        "candidate_id": "candidate-1",
+        "role": "implementer",
+        "claimer": "test-agent",
+        "repo": "local/test",
+        "branch": "main",
+        "head": "abc123",
+        "record_file": "C:/tmp/work-ownership/active/ownership-1.json",
+        "payload_checksum": GOOD_CHECKSUM,
+        "ownership_record_checksum": GOOD_CHECKSUM,
+    }
+    if action == "close_work_ownership":
+        record["closeout_status"] = "CLOSED"
+    elif action == "fail_work_ownership":
+        record["closeout_status"] = "FAILED"
+    record.update(overrides)
+    return record
+
+
 def blocker_codes(output: dict) -> list[str]:
     return [blocker["code"] for blocker in output["blockers"]]
 
@@ -322,15 +356,16 @@ class AuditReplayCliTests(unittest.TestCase):
                 executor_epoch_closeout_record(),
                 git_pr_materialization_intent_record(),
                 git_pr_materialization_result_record(),
+                work_ownership_mutation_record(),
             )
 
             result, output = run_cli(root, "audit-replay")
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(output["valid"])
-            self.assertEqual(output["lines_seen"], 6)
-            self.assertEqual(output["records_seen"], 6)
-            self.assertEqual(output["records_valid"], 6)
+            self.assertEqual(output["lines_seen"], 7)
+            self.assertEqual(output["records_seen"], 7)
+            self.assertEqual(output["records_valid"], 7)
             self.assertEqual(output["records_invalid"], 0)
             self.assertEqual(
                 output["events_by_type"],
@@ -341,9 +376,28 @@ class AuditReplayCliTests(unittest.TestCase):
                     "git_pr_materialization_intent": 1,
                     "git_pr_materialization_result": 1,
                     "loop_tick_decision": 1,
+                    "work_ownership_mutation": 1,
                 },
             )
             self.assertEqual(output["recommended_next_action"], "use_audit_replay_evidence")
+
+    def test_work_ownership_audit_requires_action_status_consistency(self):
+        cases = [
+            {"action": "claim_work_ownership", "ownership_status": "FAILED"},
+            {"action": "close_work_ownership", "ownership_status": "ACTIVE"},
+            {"action": "fail_work_ownership", "ownership_status": "FAILED", "closeout_status": "CLOSED"},
+        ]
+        for overrides in cases:
+            with self.subTest(overrides=overrides):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    write_audit_records(root, work_ownership_mutation_record(**overrides))
+
+                    result, output = run_cli(root, "audit-replay")
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(output["valid"])
+                    self.assertIn("audit_work_ownership_status_invalid", blocker_codes(output))
 
     def test_execution_run_audit_record_requires_run_anchors(self):
         with tempfile.TemporaryDirectory() as tmp:

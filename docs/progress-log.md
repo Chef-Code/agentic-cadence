@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-05
+Last updated: 2026-06-06
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,57 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-06 - Add local work ownership claim and closeout
+
+Summary:
+- Added explicit `claim-work-ownership`, `close-work-ownership`, and
+  `fail-work-ownership` commands for local `work-ownership.v1` evidence under
+  `<runtime-root>/work-ownership/{active,closed,failed}`.
+- Claims recheck branch, `HEAD`, clean worktree state, duplicate active
+  ownership, stale active ownership, malformed ownership records, invalid role
+  or claimer labels, and registry path safety before writing one active
+  record.
+- Closeout commands move one active record to `closed` or `failed`, attach
+  closeout evidence, and accepted mutations append replayable
+  `work_ownership_mutation` audit records.
+
+Completed slices:
+- Task 13 current-tree implementation: local work ownership claim and
+  closeout.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Cadence can now write and close local ownership evidence under
+  governance, but ownership is not yet enforced by execution-start or
+  resume-continuation and there is still no role assignment, distributed lock,
+  real executor invocation, autonomous Git/PR write, merge, release, or
+  package publication path.
+
+Evidence:
+- `python -m py_compile codex_cadence/ownership.py codex_cadence/cli.py codex_cadence/store.py codex_cadence/policy_audit.py`
+- `python -m unittest tests.test_cadence -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- Ownership records remain local evidence only. Tasks 14 and 15 still need to
+  make execution-start and resume-continuation consume ownership evidence.
+- Role policy, review separation, real executor readiness, distributed locks,
+  agent pools, GitHub issue assignment, merge, release, and package
+  publication remain future work.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
 
 ## 2026-06-05 - Prepare post-Task-12 handoff and Tasks 13-17 roadmap
 

@@ -1,8 +1,8 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-06-05
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, read-only review-response planning, and local work ownership evidence current tree
+Last updated: 2026-06-06
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, read-only review-response planning, and local work ownership claim/closeout evidence current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -38,8 +38,8 @@ These changes reduce state-awareness footguns. The current tree also includes
 the Phase 1 read-only `loop-tick` command for the first slice and a generic
 executor task/result contract, plus read-only GitHub evidence sync,
 operator-approved Git/PR materialization, read-only resume verification,
-read-only review-response planning, local work ownership status and validation
-packets, and a governed execution-start gate. It
+read-only review-response planning, local work ownership status, validation,
+claim, closeout, and failure packets, and a governed execution-start gate. It
 still does not add autonomous live GitHub synchronization, dirty-worktree
 commit materialization, real executor invocation, automatic resume
 orchestration, agent-role assignment, agent-pool coordination, distributed
@@ -73,7 +73,11 @@ read local `work-ownership.v1` records, surface active/closed/failed ownership
 evidence, reject malformed or stale scoped records, block invalid registry and
 repo-inspection evidence, and block duplicate active ownership for the same
 repo, branch, and task. Validation additionally rejects closed or
-repo-mismatched target records. Real
+repo-mismatched target records. `claim-work-ownership`,
+`close-work-ownership`, and `fail-work-ownership` can create or move local
+ownership records after branch, `HEAD`, dirty-worktree, duplicate/stale
+ownership, malformed-record, and registry path-safety rechecks, then append
+replayable `work_ownership_mutation` audit evidence. Real
 executor invocation, autonomous branch/commit/push or PR creation, automatic
 session launch, distributed work ownership, role assignment, and continuous
 loop orchestration remain missing.

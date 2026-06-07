@@ -2057,10 +2057,10 @@ Risk: medium
             ]
             self.assertEqual(len(business_memory_candidates), 1)
             candidate = business_memory_candidates[0]
-            self.assertEqual(candidate["evidence"]["heading"], "Next Roadmap Needs Tasks 13-17")
-            self.assertEqual(candidate["classification"], "direction")
+            self.assertEqual(candidate["evidence"]["heading"], "Real Executor Readiness Needs A Preflight Packet")
+            self.assertEqual(candidate["classification"], "risk")
             self.assertEqual(candidate["classification_confidence"], "high")
-            self.assertEqual(candidate["workflow"], "Roadmap planning")
+            self.assertEqual(candidate["workflow"], "Controlled executor loop governance")
 
     def test_repo_business_memory_current_entries_are_closed_and_parse_without_warnings(self):
         self.assert_repo_business_memory_seeds_next_roadmap_backlog_without_warnings()
