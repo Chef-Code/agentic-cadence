@@ -248,7 +248,7 @@ whether external orchestration should call `start-governed-execution`.
 
 ```bash
 agentic-cadence --root <runtime-root> resume-continuation --resume-verification-file resume-verification.json --cwd . --claimer codex
-agentic-cadence --root <runtime-root> resume-continuation --resume-verification-file resume-verification.json --cwd . --claimer codex --ownership-target ownership-1 --ownership-role implementer
+agentic-cadence --root <runtime-root> resume-continuation --resume-verification-file resume-verification.json --cwd . --claimer codex --ownership-target ownership-1 --ownership-role implementer --ownership-task-id task-1
 ```
 
 The command emits a `resume-continuation.v1` packet shaped as:
@@ -283,11 +283,12 @@ repository branch and `HEAD`, dirty-worktree state, active brake, active epoch
 state, and policy evidence. The default freshness window is 60 minutes and can
 be overridden with `--max-resume-age-minutes`. When `--ownership-target` is
 supplied, ownership is checked only after those resume blockers pass. The
-continuation ownership scope uses the resumed handoff id as the local task id
-and rechecks active `work-ownership.v1` evidence for task id, handoff id, role,
-claimer, repo, branch, `HEAD`, duplicate active ownership, freshness, malformed
-evidence, and registry path safety. Ownership freshness defaults to the local
-ownership window and can be overridden with `--max-ownership-age-minutes`.
+continuation ownership scope uses `--ownership-task-id` when supplied, otherwise
+the resumed handoff id as the local task anchor, and rechecks active
+`work-ownership.v1` evidence for task id, handoff id, role, claimer, repo,
+branch, `HEAD`, duplicate active ownership, freshness, malformed evidence, and
+registry path safety. Ownership freshness defaults to the local ownership
+window and can be overridden with `--max-ownership-age-minutes`.
 
 Stable continuation-specific blocker codes include
 `resume_verification_file_unreadable`, `resume_verification_invalid`,
@@ -309,7 +310,8 @@ Stable continuation-specific blocker codes include
 `ownership_head_mismatch`. Fresh verifier blockers are forwarded unchanged,
 including `repo_head_mismatch`, `repo_branch_mismatch`, `dirty_worktree`,
 `clean_square_missing`, `policy_approval_missing`, `active_brake_stop`,
-`active_epoch_exists`, and `active_epoch_conflict`.
+and `active_epoch_conflict`; resume continuation may also add
+`active_epoch_exists` from fresh active-epoch evidence.
 
 Recommended actions are limited to `start_governed_execution`,
 `claim_handoff`, `approve_handoff`, `recreate_handoff`,

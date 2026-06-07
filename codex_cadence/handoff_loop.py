@@ -928,6 +928,7 @@ def _resume_verification_load_error_packet(
     freshness: dict[str, Any] | None = None,
     ownership_target: str | None = None,
     ownership_role: str | None = None,
+    ownership_task_id: str | None = None,
     max_ownership_age_minutes: int | None = DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
 ) -> dict[str, Any]:
     return {
@@ -977,7 +978,7 @@ def _resume_verification_load_error_packet(
             "repo": None,
             "branch": None,
             "head": None,
-            "task_id": None,
+            "task_id": ownership_task_id,
             "handoff_id": None,
             "max_age_minutes": max_ownership_age_minutes,
         },
@@ -1097,11 +1098,13 @@ def _resume_ownership_scope(
     *,
     ownership_target: str | None,
     ownership_role: str | None,
+    ownership_task_id: str | None,
     claimer: str | None,
     repository: dict[str, Any],
     handoff_id: str | None,
     max_ownership_age_minutes: int | None,
 ) -> dict[str, Any]:
+    task_id = ownership_task_id if isinstance(ownership_task_id, str) and ownership_task_id.strip() else handoff_id
     return {
         "target": ownership_target,
         "role": ownership_role,
@@ -1109,7 +1112,7 @@ def _resume_ownership_scope(
         "repo": repository.get("expected_repo"),
         "branch": repository.get("expected_branch"),
         "head": repository.get("expected_head"),
-        "task_id": handoff_id,
+        "task_id": task_id,
         "handoff_id": handoff_id,
         "max_age_minutes": max_ownership_age_minutes,
     }
@@ -1226,6 +1229,7 @@ def resume_continuation(
     max_resume_age_minutes: int | None = DEFAULT_RESUME_CONTINUATION_MAX_AGE_MINUTES,
     ownership_target: str | None = None,
     ownership_role: str | None = None,
+    ownership_task_id: str | None = None,
     max_ownership_age_minutes: int | None = DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
 ) -> dict[str, Any]:
     root = Path(root)
@@ -1248,6 +1252,7 @@ def resume_continuation(
             blockers=blockers,
             ownership_target=ownership_target,
             ownership_role=ownership_role,
+            ownership_task_id=ownership_task_id,
             max_ownership_age_minutes=max_ownership_age_minutes,
         )
 
@@ -1271,6 +1276,7 @@ def resume_continuation(
             blockers=blockers,
             ownership_target=ownership_target,
             ownership_role=ownership_role,
+            ownership_task_id=ownership_task_id,
             max_ownership_age_minutes=max_ownership_age_minutes,
         )
 
@@ -1292,6 +1298,7 @@ def resume_continuation(
             blockers=blockers,
             ownership_target=ownership_target,
             ownership_role=ownership_role,
+            ownership_task_id=ownership_task_id,
             max_ownership_age_minutes=max_ownership_age_minutes,
         )
 
@@ -1424,6 +1431,7 @@ def resume_continuation(
     ownership_scope = _resume_ownership_scope(
         ownership_target=ownership_target,
         ownership_role=ownership_role,
+        ownership_task_id=ownership_task_id,
         claimer=expected_claimer,
         repository=fresh_repository,
         handoff_id=saved_handoff_id if isinstance(saved_handoff_id, str) else None,

@@ -383,6 +383,48 @@ class HandoffLoopTests(unittest.TestCase):
             self.assertEqual(before_ownership, ownership_path.read_text(encoding="utf-8"))
             self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
 
+    def test_resume_continuation_allows_distinct_ownership_task_id_when_supplied(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo_tmp:
+            init_committed_repo(repo_tmp)
+            self.prepare_resume_handoff(tmp, repo_tmp)
+            self.claim_resume_handoff(tmp)
+            resume_path, _resume_packet = self.write_resume_verification_packet(tmp, repo_tmp)
+            ownership_path, _ownership = self.write_resume_work_ownership(
+                tmp,
+                repo_tmp,
+                task_id="task-1",
+                handoff_id="context-loop",
+            )
+            before_ownership = ownership_path.read_text(encoding="utf-8")
+
+            result, packet = run_cli(
+                tmp,
+                "resume-continuation",
+                "--resume-verification-file",
+                str(resume_path),
+                "--cwd",
+                repo_tmp,
+                "--claimer",
+                "test-agent",
+                "--ownership-target",
+                "ownership-1",
+                "--ownership-role",
+                "implementer",
+                "--ownership-task-id",
+                "task-1",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(packet["valid"])
+            self.assertEqual(packet["recommended_next_action"], "start_governed_execution")
+            self.assertEqual(packet["ownership_scope"]["task_id"], "task-1")
+            self.assertEqual(packet["ownership_scope"]["handoff_id"], "context-loop")
+            self.assertEqual(packet["ownership"]["task_id"], "task-1")
+            self.assertEqual(packet["ownership"]["handoff_id"], "context-loop")
+            self.assertEqual(packet["side_effects"], [])
+            self.assertEqual(before_ownership, ownership_path.read_text(encoding="utf-8"))
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
     def test_resume_continuation_blocks_bad_work_ownership_evidence(self):
         cases = [
             (

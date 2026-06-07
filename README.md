@@ -445,7 +445,7 @@ ownership evidence, then emits a `resume-continuation.v1` packet:
 
 ```bash
 agentic-cadence --root <runtime-root> resume-continuation --resume-verification-file resume-verification.json --cwd . --claimer codex
-agentic-cadence --root <runtime-root> resume-continuation --resume-verification-file resume-verification.json --cwd . --claimer codex --ownership-target ownership-1 --ownership-role implementer
+agentic-cadence --root <runtime-root> resume-continuation --resume-verification-file resume-verification.json --cwd . --claimer codex --ownership-target ownership-1 --ownership-role implementer --ownership-task-id task-1
 ```
 
 A fresh matching packet exits `0` with `recommended_next_action:
@@ -457,8 +457,9 @@ and `side_effects: []`. Blockers exit `2` and recommend only
 `inspect_resume_blockers`. When `--ownership-target` is supplied, the command
 checks the active `work-ownership.v1` record for resumed task/handoff id,
 role, claimer, repo, branch, `HEAD`, freshness, duplicate active ownership,
-and registry path safety after the existing resume blockers pass. Stable
-blocker codes include `resume_verification_stale`,
+and registry path safety after the existing resume blockers pass. The resumed
+handoff id is the default local task anchor; callers with a separate local task
+id can pass `--ownership-task-id`. Stable blocker codes include `resume_verification_stale`,
 `resume_verification_not_resumable`, `resume_claimer_mismatch`,
 `resume_verification_anchor_mismatch`, `ownership_record_missing`,
 `ownership_closed`, `ownership_stale`, `duplicate_active_ownership`,

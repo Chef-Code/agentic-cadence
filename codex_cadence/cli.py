@@ -1528,6 +1528,7 @@ def resume_continuation_command(args: argparse.Namespace) -> int:
         max_resume_age_minutes=args.max_resume_age_minutes,
         ownership_target=args.ownership_target,
         ownership_role=args.ownership_role,
+        ownership_task_id=args.ownership_task_id,
         max_ownership_age_minutes=args.max_ownership_age_minutes,
     )
     emit(packet)
@@ -2756,6 +2757,7 @@ def build_parser() -> argparse.ArgumentParser:
     resume_continuation_parser.add_argument("--claimer")
     resume_continuation_parser.add_argument("--ownership-target")
     resume_continuation_parser.add_argument("--ownership-role")
+    resume_continuation_parser.add_argument("--ownership-task-id")
     resume_continuation_parser.add_argument(
         "--max-ownership-age-minutes",
         type=non_negative_int,
