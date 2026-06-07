@@ -33,6 +33,61 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-06 - Bind work ownership to resume continuation
+
+Summary:
+- Added ownership-aware `resume-continuation` flags for a supplied active
+  `work-ownership.v1` record.
+- Resume continuation now rechecks matching ownership evidence after existing
+  saved/fresh resume blockers and before recommending governed execution start.
+- Missing, mismatched, duplicate, stale, closed, failed, or malformed ownership
+  blocks with ownership-specific recommended next actions while existing
+  resume blockers keep precedence.
+- The command remains read-only: it does not mutate ownership, start an epoch,
+  invoke an executor, or write Git/PR state.
+
+Completed slices:
+- Task 15 current-branch implementation: work-ownership-bound resume
+  continuation.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Resume continuation can now consume local ownership evidence, but
+  role policy, review separation, real executor invocation, autonomous Git/PR
+  writes, merge, release, and package publication remain future work.
+
+Evidence:
+- `python -m py_compile codex_cadence/handoff_loop.py codex_cadence/ownership.py codex_cadence/cli.py`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+- `python -m unittest tests.test_handoff_loop.HandoffLoopTests.test_resume_continuation_binds_matching_work_ownership_without_mutation tests.test_handoff_loop.HandoffLoopTests.test_resume_continuation_blocks_bad_work_ownership_evidence tests.test_handoff_loop.HandoffLoopTests.test_resume_continuation_existing_blockers_precede_work_ownership_validation -v`
+- `python -m unittest tests.test_handoff_loop -v`
+- `python -m unittest tests.test_cadence -v` (241 tests, 2 expected Windows symlink skips)
+- `python -m unittest tests.test_candidates -v` (84 tests, 2 expected Windows symlink skips)
+- `python -m unittest tests.test_ci_checks -v`
+- `python -m unittest tests.test_executor_contract tests.test_epochs tests.test_candidates tests.test_audit_replay tests.test_repo_state tests.test_task_planning -v` (241 tests, 2 expected Windows symlink skips)
+- `python -m unittest tests.test_git_pr_plan tests.test_pr_readiness tests.test_release_dry_run tests.test_ci_checks tests.test_codex_review_preflight -v`
+- `python -m unittest tests.test_adapter_template_example tests.test_adapter_smoke_example tests.test_adapter_claim_verifier tests.test_adapter_contract_runner tests.test_generic_host_signal_smoke_example tests.test_generic_shell_host_binding_example tests.test_external_host_binding_conformance tests.test_host_signal_contract_schema -v` (98 tests, 2 expected Windows symlink skips)
+
+New risks or blockers:
+- Ownership is still local evidence, not a distributed lock or scheduler.
+- Role policy, review separation, real executor readiness, distributed locks,
+  agent pools, GitHub issue assignment, merge, release, and package publication
+  remain future work.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
+- `docs/cadence/business-memory.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
 ## 2026-06-06 - Bind work ownership to governed execution start
 
 Summary:

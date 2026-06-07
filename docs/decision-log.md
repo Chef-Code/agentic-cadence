@@ -28,6 +28,48 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-06 - Bind resume continuation to supplied local ownership
+
+Decision:
+- Extend `resume-continuation` with explicit ownership flags instead of
+  implicitly discovering or creating ownership.
+- Recheck the supplied active `work-ownership.v1` record only after saved and
+  fresh resume verification blockers pass.
+- Keep resume continuation read-only: ownership blockers affect the decision
+  packet and recommended next action, but no ownership record, epoch, executor,
+  branch, PR, merge, release, or package state is mutated.
+
+Why:
+- Task 15 needs the continuation boundary to fail closed on missing, duplicate,
+  stale, closed, failed, or mismatched local ownership evidence before a fresh
+  session is handed to execution-start.
+- Checking ownership after existing resume blockers keeps stale handoff,
+  policy, brake, repo, and active-epoch failures stable and avoids hiding them
+  behind ownership diagnostics.
+
+Alternatives considered:
+- Auto-create or refresh ownership during resume continuation. Rejected because
+  ownership mutations remain explicit `claim-work-ownership`,
+  `close-work-ownership`, and `fail-work-ownership` commands.
+- Implicitly discover ownership by handoff id. Deferred because explicit
+  targets match execution-start ownership binding and avoid choosing among
+  ambiguous local evidence.
+- Treat active ownership as a distributed lock. Rejected because records are
+  local evidence only.
+
+Consequences:
+- Resume continuation can now require matching local ownership evidence for the
+  resumed handoff/task, role, claimer, repo, branch, and `HEAD` before
+  recommending `start_governed_execution`.
+- Role policy, review separation, real executor invocation, autonomous Git/PR
+  writes, merge, release, and publication remain future work.
+
+Open questions:
+- Should a later policy packet make ownership mandatory for every resume
+  continuation instead of explicitly supplied by target?
+- Should accepted roles and ownership freshness move from command flags into a
+  role or loop policy packet?
+
 ## 2026-06-06 - Bind execution start to supplied local ownership
 
 Decision:

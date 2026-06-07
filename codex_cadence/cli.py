@@ -1526,6 +1526,10 @@ def resume_continuation_command(args: argparse.Namespace) -> int:
         resume_verification_file=Path(args.resume_verification_file),
         claimer=args.claimer,
         max_resume_age_minutes=args.max_resume_age_minutes,
+        ownership_target=args.ownership_target,
+        ownership_role=args.ownership_role,
+        ownership_task_id=args.ownership_task_id,
+        max_ownership_age_minutes=args.max_ownership_age_minutes,
     )
     emit(packet)
     return 0 if packet["valid"] else 2
@@ -2751,6 +2755,14 @@ def build_parser() -> argparse.ArgumentParser:
     resume_continuation_parser.add_argument("--resume-verification-file", required=True)
     resume_continuation_parser.add_argument("--cwd", default=".")
     resume_continuation_parser.add_argument("--claimer")
+    resume_continuation_parser.add_argument("--ownership-target")
+    resume_continuation_parser.add_argument("--ownership-role")
+    resume_continuation_parser.add_argument("--ownership-task-id")
+    resume_continuation_parser.add_argument(
+        "--max-ownership-age-minutes",
+        type=non_negative_int,
+        default=DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+    )
     resume_continuation_parser.add_argument(
         "--max-resume-age-minutes",
         type=non_negative_int,

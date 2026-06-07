@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-06
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, read-only resume continuation, read-only review-response planning, and local work ownership claim/closeout evidence current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, and local work ownership claim/closeout evidence current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -81,10 +81,12 @@ ownership records after branch, `HEAD`, dirty-worktree, duplicate/stale
 ownership, malformed-record, and registry path-safety rechecks, then append
 replayable `work_ownership_mutation` audit evidence. Execution-start can bind
 matching active ownership records and append ownership checksums to
-`execution_start_decision` audit evidence. Real executor invocation,
+`execution_start_decision` audit evidence. Resume-continuation can recheck
+supplied active ownership evidence for the resumed handoff/task, role, claimer,
+repo, branch, and `HEAD` before recommending governed execution start. Real executor invocation,
 autonomous branch/commit/push or PR creation, automatic session launch,
-distributed work ownership, resume-continuation ownership enforcement, role
-assignment, and continuous loop orchestration remain missing.
+distributed work ownership, role assignment, and continuous loop orchestration
+remain missing.
 Current unattended-operation confidence remains 10%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
@@ -155,6 +157,11 @@ Current evidence:
   active brake, active epoch state, and supplied local ownership evidence, then
   start one active epoch, bind matching active ownership to that epoch, and
   emit `execution-start.v1` with `executor_started: false`;
+- `resume-continuation` can consume supplied active local ownership evidence
+  after existing saved/fresh resume blockers pass, then recommend
+  `start_governed_execution`, `claim_work_ownership`,
+  `refresh_ownership_evidence`, `close_or_fail_active_ownership`, or
+  `inspect_resume_blockers` without mutating runtime state;
 - `closeout-executor-result` can consume local task/result/snapshot-after
   packets, mark a successful task complete while the epoch remains active when
   other tasks remain, complete or fail terminal epochs, append closeout audit,
@@ -375,8 +382,8 @@ Current evidence:
 - `resume-continuation` emits a read-only `resume-continuation.v1` packet that
   consumes a saved resume verifier packet, rechecks handoff id, claimer, repo
   branch/head, active brake, active epoch state, clean-square evidence, pickup
-  policy, and packet freshness, and recommends `start_governed_execution`
-  without starting an epoch or executor;
+  policy, packet freshness, and supplied local ownership evidence, and
+  recommends `start_governed_execution` without starting an epoch or executor;
 - branch policy is enforced during dry-run planning and immediately before
   operator-approved Git/PR materialization; autonomous branch, commit, push, or
   PR materialization does not exist yet.
