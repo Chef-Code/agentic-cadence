@@ -238,9 +238,7 @@ Pain: Cadence can validate local work ownership records, but execution-start and
 Signals:
 - `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` names Task 13 as local ownership claim and closeout.
 - Task 12 is read-only status/validation evidence only.
-- Task 14 current-tree work lets `start-governed-execution` consume and bind
-  canonical active ownership records; resume-continuation ownership enforcement
-  remains future work.
+- Task 14 current-tree work lets `start-governed-execution` consume and bind canonical active ownership records; resume-continuation ownership enforcement remains future work.
 Do not:
 - Do not treat local ownership as a distributed lock.
 - Do not assign roles, schedule agents, write GitHub issues, invoke executors, create branches, commit, push, merge, release, or publish packages from this backlog entry.
