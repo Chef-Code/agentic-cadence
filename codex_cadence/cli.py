@@ -83,6 +83,7 @@ from codex_cadence.pr_readiness import (
     load_template_sections,
 )
 from codex_cadence.review_response import evaluate_review_response_plan
+from codex_cadence.roles import evaluate_role_readiness
 from codex_cadence.release import evaluate_release_dry_run
 from codex_cadence.repo_state import (
     git_repo_root,
@@ -2298,6 +2299,22 @@ def review_response_plan_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 1
 
 
+def role_readiness_command(args: argparse.Namespace) -> int:
+    payload = evaluate_role_readiness(
+        root=args.root,
+        cwd=Path(args.cwd),
+        role_policy_file=Path(args.role_policy_file) if args.role_policy_file else None,
+        pr_json_file=Path(args.pr_json_file) if args.pr_json_file else None,
+        review_threads_file=Path(args.review_threads_file) if args.review_threads_file else None,
+        repo=args.repo,
+        branch=args.branch,
+        task_id=args.task_id,
+        max_ownership_age_minutes=args.max_ownership_age_minutes,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 2
+
+
 def github_evidence_out_dir_safety_issue(out_dir: Path) -> str | None:
     target = out_dir.expanduser().resolve(strict=False)
     cwd_repo_root = git_repo_root(Path.cwd())
@@ -2626,6 +2643,24 @@ def build_parser() -> argparse.ArgumentParser:
     review_response_parser.add_argument("--pr-template-file")
     review_response_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
     review_response_parser.set_defaults(func=review_response_plan_command, requires_root=False)
+
+    role_readiness_parser = subparsers.add_parser(
+        "role-readiness",
+        help="Evaluate local role policy and builder/reviewer separation evidence",
+    )
+    role_readiness_parser.add_argument("--cwd", default=".")
+    role_readiness_parser.add_argument("--repo")
+    role_readiness_parser.add_argument("--branch")
+    role_readiness_parser.add_argument("--task-id")
+    role_readiness_parser.add_argument("--role-policy-file")
+    role_readiness_parser.add_argument("--pr-json-file")
+    role_readiness_parser.add_argument("--review-threads-file")
+    role_readiness_parser.add_argument(
+        "--max-ownership-age-minutes",
+        type=non_negative_int,
+        default=DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+    )
+    role_readiness_parser.set_defaults(func=role_readiness_command, requires_root=True)
 
     github_evidence_parser = subparsers.add_parser(
         "github-evidence-sync",

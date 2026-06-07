@@ -1,8 +1,8 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-06
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, and local work ownership claim/closeout evidence current tree
+Last updated: 2026-06-07
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, and local work ownership claim/closeout evidence current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -635,9 +635,9 @@ records, repo/branch/task mismatch fixtures, and audit replay of ownership
 mutation evidence.
 
 Follow-up: use `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the next
-bounded implementation sequence. Resume-continuation ownership enforcement,
-role-readiness evidence, and real-executor invocation readiness planning are
-sequenced there. Distributed
+bounded implementation sequence. Resume-continuation ownership enforcement and
+role-readiness evidence are implemented in the current tree; real-executor
+invocation readiness planning remains sequenced there. Distributed
 locking, agent pools, GitHub issue assignment, real executor invocation,
 merge, release, and package publication remain future work.
 
@@ -649,9 +649,10 @@ Goal: coordinate multiple bounded agents through GitHub-native work ownership,
 branch isolation, PR review, CI, documentation updates, handoff contracts, and
 merge decisions.
 
-Current evidence: Phase 1 governance primitives exist locally, but no agent
-pool, role registry, issue assignment workflow, distributed lock, write-side
-GitHub sync, or role-aware permission system exists.
+Current evidence: Phase 1 governance primitives exist locally, and
+`role-readiness` can verify local role policy plus saved review-separation
+evidence. No agent pool, role registry, issue assignment workflow, distributed
+lock, write-side GitHub sync, or role-aware permission system exists.
 
 Risk: high.
 

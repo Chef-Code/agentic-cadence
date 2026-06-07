@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, operator-approved `git-pr-materialize`, read-only `verify-resume`, ownership-aware read-only `resume-continuation`, local `work-ownership-status` / `validate-work-ownership` / `claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, and a fixture-only controlled executor runner for tests and examples.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, read-only `role-readiness`, operator-approved `git-pr-materialize`, read-only `verify-resume`, ownership-aware read-only `resume-continuation`, local `work-ownership-status` / `validate-work-ownership` / `claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, and a fixture-only controlled executor runner for tests and examples.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -516,6 +516,38 @@ can deliberately consume an active ownership record through
 `--ownership-target`; `resume-continuation` can deliberately consume matching
 active ownership evidence through `--ownership-target` and `--ownership-role`
 without mutating ownership or starting an epoch.
+
+## Role Readiness
+
+`role-readiness` is a read-only local verifier for role labels and
+builder/reviewer separation evidence. It consumes a `role-policy.v1` file,
+local `work-ownership.v1` records, saved PR JSON, and saved review-thread JSON,
+then emits a `role-readiness.v1` packet:
+
+```bash
+agentic-cadence --root <runtime-root> role-readiness --cwd . --repo owner/repo --task-id task-1 --role-policy-file role-policy.json --pr-json-file pr.json --review-threads-file review-threads.json
+```
+
+The policy lists allowed role labels, bounded capabilities, and optional
+review-separation requirements. Stable blocker codes include
+`role_policy_missing`, `role_policy_unreadable`,
+`role_policy_schema_unsupported`, `role_policy_invalid`,
+`pr_evidence_missing`, `pr_evidence_unreadable`, `pr_evidence_invalid`,
+`pr_branch_mismatch`, `pr_head_mismatch`, `pr_number_mismatch`,
+`review_thread_evidence_invalid`, `ownership_role_unknown`,
+`builder_ownership_missing`, `reviewer_evidence_missing`,
+`review_separation_conflict`, and forwarded ownership/repo blockers such as
+`ownership_stale`, `ownership_head_mismatch`, `duplicate_active_ownership`,
+`repo_branch_mismatch`, and `repo_inspection_failed`.
+Recommended actions include `use_role_readiness`, `provide_role_policy`,
+`fix_role_policy_or_ownership`, `refresh_ownership_evidence`,
+`claim_work_ownership`, `provide_reviewer_evidence`,
+`assign_independent_reviewer`, `refresh_pr_evidence`, `inspect_repo_state`,
+and `inspect_role_readiness_blockers`.
+
+The command does not assign roles, schedule agents, invoke review agents or
+paid review, call GitHub, post comments, resolve review threads, update PRs,
+create branches, commit, push, merge, release, or publish packages.
 
 ## GitHub Evidence Sync
 

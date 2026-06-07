@@ -170,6 +170,100 @@ def write_work_ownership(root, ownership_id, **overrides):
     return path, data
 
 
+def write_role_policy(path, **overrides):
+    data = {
+        "schema_version": "role-policy.v1",
+        "roles": [
+            {"role": "implementer", "capabilities": ["build", "modify_files"]},
+            {"role": "reviewer", "capabilities": ["review", "comment"]},
+        ],
+        "review_separation": {
+            "required": True,
+            "builder_roles": ["implementer"],
+            "reviewer_roles": ["reviewer"],
+        },
+    }
+    data.update(overrides)
+    Path(path).write_text(json.dumps(data), encoding="utf-8")
+    return Path(path), data
+
+
+def write_role_pr_json(path, **overrides):
+    data = {
+        "number": 76,
+        "title": "Bind role readiness",
+        "state": "OPEN",
+        "isDraft": False,
+        "reviewDecision": "CHANGES_REQUESTED",
+        "headRefName": "codex/task-16",
+        "baseRefName": "main",
+        "headRefOid": "abc123",
+        "statusCheckRollup": [],
+    }
+    data.update(overrides)
+    Path(path).write_text(json.dumps(data), encoding="utf-8")
+    return Path(path), data
+
+
+def write_matching_role_pr_json(path, repo, **overrides):
+    data = {
+        "headRefName": current_branch(repo),
+        "headRefOid": current_head(repo),
+    }
+    data.update(overrides)
+    return write_role_pr_json(
+        path,
+        **data,
+    )
+
+
+def role_review_threads(
+    author="reviewer-agent",
+    *,
+    resolved=False,
+    outdated=False,
+    body="Please fix this before merge.",
+):
+    return {
+        "data": {
+            "repository": {
+                "pullRequest": {
+                    "reviewThreads": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [
+                            {
+                                "id": "thread-1",
+                                "path": "codex_cadence/roles.py",
+                                "line": 42,
+                                "isResolved": resolved,
+                                "isOutdated": outdated,
+                                "comments": {
+                                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                    "nodes": [
+                                        {
+                                            "id": "comment-1",
+                                            "path": "codex_cadence/roles.py",
+                                            "line": 42,
+                                            "outdated": outdated,
+                                            "body": body,
+                                            "author": {"login": author},
+                                        }
+                                    ],
+                                },
+                            }
+                        ],
+                    }
+                }
+            }
+        }
+    }
+
+
+def write_role_review_threads(path, payload):
+    Path(path).write_text(json.dumps(payload), encoding="utf-8")
+    return Path(path), payload
+
+
 def governed_execution_task_packet(root, repo, **snapshot_overrides):
     return build_executor_task_packet(
         task={
@@ -8992,6 +9086,492 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertTrue(output["read_only"])
                     self.assertFalse(output["valid"])
                     self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+
+    def test_role_readiness_accepts_separated_builder_and_review_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            branch = current_branch(repo)
+            write_work_ownership(
+                tmp,
+                "ownership-builder",
+                branch=branch,
+                role="implementer",
+                claimer="builder-agent",
+                task_id="task-1",
+            )
+            policy_path, _policy = write_role_policy(Path(tmp) / "role-policy.json")
+            pr_path, _pr = write_matching_role_pr_json(Path(tmp) / "pr.json", repo)
+            review_threads_path, _threads = write_role_review_threads(
+                Path(tmp) / "review-threads.json",
+                role_review_threads(author="reviewer-agent"),
+            )
+
+            result, output = run_cli(
+                tmp,
+                "role-readiness",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+                "--role-policy-file",
+                str(policy_path),
+                "--pr-json-file",
+                str(pr_path),
+                "--review-threads-file",
+                str(review_threads_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "role-readiness.v1")
+            self.assertEqual(output["packet"], "role_readiness")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"])
+            self.assertTrue(output["role_ready"])
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(output["recommended_next_action"], "use_role_readiness")
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(output["role_summary"]["builder_claimers"], ["builder-agent"])
+            self.assertEqual(output["role_summary"]["reviewer_claimers"], ["reviewer-agent"])
+            self.assertEqual(output["review_evidence"]["actionable_review_authors"], ["reviewer-agent"])
+            self.assertIn("does_not_call_github", output["limitations"])
+
+    def test_role_readiness_blocks_missing_policy_unknown_role_and_same_claimer_review(self):
+        cases = [
+            (
+                "missing-policy",
+                None,
+                {"role": "implementer", "claimer": "builder-agent"},
+                role_review_threads(author="reviewer-agent"),
+                "role_policy_missing",
+                "provide_role_policy",
+            ),
+            (
+                "unknown-role",
+                {},
+                {"role": "planner", "claimer": "builder-agent"},
+                role_review_threads(author="reviewer-agent"),
+                "ownership_role_unknown",
+                "fix_role_policy_or_ownership",
+            ),
+            (
+                "invalid-separation-role",
+                {
+                    "review_separation": {
+                        "required": True,
+                        "builder_roles": ["builder-unknown"],
+                        "reviewer_roles": ["reviewer"],
+                    }
+                },
+                {"role": "implementer", "claimer": "builder-agent"},
+                role_review_threads(author="reviewer-agent"),
+                "role_policy_invalid",
+                "provide_role_policy",
+            ),
+            (
+                "same-claimer-review",
+                {},
+                {"role": "implementer", "claimer": "builder-agent"},
+                role_review_threads(author="builder-agent"),
+                "review_separation_conflict",
+                "assign_independent_reviewer",
+            ),
+        ]
+        for name, policy_overrides, ownership_overrides, review_threads, expected_code, expected_action in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    branch = current_branch(repo)
+                    write_work_ownership(
+                        tmp,
+                        "ownership-builder",
+                        branch=branch,
+                        task_id="task-1",
+                        **ownership_overrides,
+                    )
+                    args = [
+                        "role-readiness",
+                        "--cwd",
+                        repo,
+                        "--repo",
+                        "local/test",
+                        "--task-id",
+                        "task-1",
+                    ]
+                    if policy_overrides is not None:
+                        policy_path, _policy = write_role_policy(Path(tmp) / "role-policy.json", **policy_overrides)
+                        args.extend(["--role-policy-file", str(policy_path)])
+                    pr_path, _pr = write_matching_role_pr_json(Path(tmp) / "pr.json", repo)
+                    review_threads_path, _threads = write_role_review_threads(
+                        Path(tmp) / "review-threads.json",
+                        review_threads,
+                    )
+                    args.extend(["--pr-json-file", str(pr_path), "--review-threads-file", str(review_threads_path)])
+
+                    result, output = run_cli(tmp, *args)
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIsNotNone(output, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertFalse(output["role_ready"])
+                    self.assertEqual(output["recommended_next_action"], expected_action)
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertTrue(output["read_only"])
+                    self.assertEqual(output["side_effects"], [])
+
+    def test_role_readiness_blocks_stale_ownership_and_missing_builder_evidence(self):
+        cases = [
+            (
+                "stale-builder",
+                {
+                    "role": "implementer",
+                    "claimer": "builder-agent",
+                    "created_at": "2000-01-01T00:00:00Z",
+                    "updated_at": "2000-01-01T00:00:00Z",
+                },
+                "ownership_stale",
+                "refresh_ownership_evidence",
+            ),
+            (
+                "missing-builder",
+                None,
+                "builder_ownership_missing",
+                "claim_work_ownership",
+            ),
+        ]
+        for name, ownership_overrides, expected_code, expected_action in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    branch = current_branch(repo)
+                    if ownership_overrides is not None:
+                        write_work_ownership(
+                            tmp,
+                            "ownership-builder",
+                            branch=branch,
+                            task_id="task-1",
+                            **ownership_overrides,
+                        )
+                    policy_path, _policy = write_role_policy(Path(tmp) / "role-policy.json")
+                    pr_path, _pr = write_matching_role_pr_json(Path(tmp) / "pr.json", repo)
+                    review_threads_path, _threads = write_role_review_threads(
+                        Path(tmp) / "review-threads.json",
+                        role_review_threads(author="reviewer-agent"),
+                    )
+
+                    result, output = run_cli(
+                        tmp,
+                        "role-readiness",
+                        "--cwd",
+                        repo,
+                        "--repo",
+                        "local/test",
+                        "--task-id",
+                        "task-1",
+                        "--role-policy-file",
+                        str(policy_path),
+                        "--pr-json-file",
+                        str(pr_path),
+                        "--review-threads-file",
+                        str(review_threads_path),
+                        "--max-ownership-age-minutes",
+                        "5",
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertFalse(output["role_ready"])
+                    self.assertEqual(output["recommended_next_action"], expected_action)
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+
+    def test_role_readiness_forwards_duplicate_active_ownership(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            branch = current_branch(repo)
+            for ownership_id, claimer in (
+                ("ownership-builder-1", "builder-agent-1"),
+                ("ownership-builder-2", "builder-agent-2"),
+            ):
+                write_work_ownership(
+                    tmp,
+                    ownership_id,
+                    branch=branch,
+                    role="implementer",
+                    claimer=claimer,
+                    task_id="task-1",
+                )
+            policy_path, _policy = write_role_policy(Path(tmp) / "role-policy.json")
+            pr_path, _pr = write_matching_role_pr_json(Path(tmp) / "pr.json", repo)
+            review_threads_path, _threads = write_role_review_threads(
+                Path(tmp) / "review-threads.json",
+                role_review_threads(author="reviewer-agent"),
+            )
+
+            result, output = run_cli(
+                tmp,
+                "role-readiness",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+                "--role-policy-file",
+                str(policy_path),
+                "--pr-json-file",
+                str(pr_path),
+                "--review-threads-file",
+                str(review_threads_path),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "refresh_ownership_evidence")
+            self.assertIn("duplicate_active_ownership", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_role_readiness_blocks_pr_and_review_evidence_refresh_inputs(self):
+        cases = [
+            ("missing-pr", "missing-pr", "pr_evidence_missing"),
+            ("invalid-pr", "invalid-pr", "pr_evidence_invalid"),
+            ("malformed-review", "malformed-review", "review_thread_evidence_invalid"),
+        ]
+        for name, mode, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    branch = current_branch(repo)
+                    write_work_ownership(
+                        tmp,
+                        "ownership-builder",
+                        branch=branch,
+                        role="implementer",
+                        claimer="builder-agent",
+                        task_id="task-1",
+                    )
+                    policy_path, _policy = write_role_policy(Path(tmp) / "role-policy.json")
+                    args = [
+                        "role-readiness",
+                        "--cwd",
+                        repo,
+                        "--repo",
+                        "local/test",
+                        "--task-id",
+                        "task-1",
+                        "--role-policy-file",
+                        str(policy_path),
+                    ]
+                    if mode != "missing-pr":
+                        if mode == "invalid-pr":
+                            pr_path = Path(tmp) / "pr.json"
+                            pr_path.write_text("{}", encoding="utf-8")
+                        else:
+                            pr_path, _pr = write_matching_role_pr_json(Path(tmp) / "pr.json", repo)
+                        args.extend(["--pr-json-file", str(pr_path)])
+
+                    review_threads_path = Path(tmp) / "review-threads.json"
+                    if mode == "malformed-review":
+                        review_threads_path.write_text(json.dumps({"data": {}}), encoding="utf-8")
+                    else:
+                        write_role_review_threads(
+                            review_threads_path,
+                            role_review_threads(author="reviewer-agent"),
+                        )
+                    args.extend(["--review-threads-file", str(review_threads_path)])
+
+                    result, output = run_cli(tmp, *args)
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["recommended_next_action"], "refresh_pr_evidence")
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+
+    def test_role_readiness_blocks_mismatched_pr_repo_and_ownership_anchors(self):
+        cases = [
+            (
+                "pr-branch",
+                {"headRefName": "other-branch"},
+                {},
+                None,
+                "pr_branch_mismatch",
+                "refresh_pr_evidence",
+            ),
+            (
+                "pr-head",
+                {"headRefOid": "stale-head"},
+                {},
+                None,
+                "pr_head_mismatch",
+                "refresh_pr_evidence",
+            ),
+            (
+                "pr-number",
+                {"number": 999},
+                {"pr_number": 123},
+                None,
+                "pr_number_mismatch",
+                "refresh_pr_evidence",
+            ),
+            (
+                "requested-branch",
+                {},
+                {"branch": "other-branch"},
+                "other-branch",
+                "repo_branch_mismatch",
+                "inspect_repo_state",
+            ),
+            (
+                "ownership-head",
+                {},
+                {"head": "stale-head"},
+                None,
+                "ownership_head_mismatch",
+                "refresh_ownership_evidence",
+            ),
+        ]
+        for name, pr_overrides, ownership_overrides, requested_branch, expected_code, expected_action in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    branch = current_branch(repo)
+                    ownership_values = dict(ownership_overrides)
+                    ownership_branch = ownership_values.pop("branch", branch)
+                    write_work_ownership(
+                        tmp,
+                        "ownership-builder",
+                        branch=ownership_branch,
+                        role="implementer",
+                        claimer="builder-agent",
+                        task_id="task-1",
+                        **ownership_values,
+                    )
+                    policy_path, _policy = write_role_policy(Path(tmp) / "role-policy.json")
+                    pr_path, _pr = write_matching_role_pr_json(
+                        Path(tmp) / "pr.json",
+                        repo,
+                        **pr_overrides,
+                    )
+                    review_threads_path, _threads = write_role_review_threads(
+                        Path(tmp) / "review-threads.json",
+                        role_review_threads(author="reviewer-agent"),
+                    )
+                    args = [
+                        "role-readiness",
+                        "--cwd",
+                        repo,
+                        "--repo",
+                        "local/test",
+                        "--task-id",
+                        "task-1",
+                        "--role-policy-file",
+                        str(policy_path),
+                        "--pr-json-file",
+                        str(pr_path),
+                        "--review-threads-file",
+                        str(review_threads_path),
+                    ]
+                    if requested_branch is not None:
+                        args.extend(["--branch", requested_branch])
+
+                    result, output = run_cli(tmp, *args)
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["recommended_next_action"], expected_action)
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+
+    def test_role_readiness_uses_default_ownership_freshness_window(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            branch = current_branch(repo)
+            write_work_ownership(
+                tmp,
+                "ownership-builder",
+                branch=branch,
+                role="implementer",
+                claimer="builder-agent",
+                task_id="task-1",
+                created_at="2000-01-01T00:00:00Z",
+                updated_at="2000-01-01T00:00:00Z",
+            )
+            policy_path, _policy = write_role_policy(Path(tmp) / "role-policy.json")
+            pr_path, _pr = write_matching_role_pr_json(Path(tmp) / "pr.json", repo)
+            review_threads_path, _threads = write_role_review_threads(
+                Path(tmp) / "review-threads.json",
+                role_review_threads(author="reviewer-agent"),
+            )
+
+            result, output = run_cli(
+                tmp,
+                "role-readiness",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+                "--role-policy-file",
+                str(policy_path),
+                "--pr-json-file",
+                str(pr_path),
+                "--review-threads-file",
+                str(review_threads_path),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("ownership_stale", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(output["scope"]["max_ownership_age_minutes"], 1440)
+            self.assertEqual(output["recommended_next_action"], "refresh_ownership_evidence")
+
+    def test_role_readiness_ignores_resolved_or_outdated_review_threads_for_separation_conflicts(self):
+        cases = [
+            ("resolved", role_review_threads(author="builder-agent", resolved=True)),
+            ("outdated", role_review_threads(author="builder-agent", outdated=True)),
+        ]
+        for name, review_threads in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    branch = current_branch(repo)
+                    write_work_ownership(
+                        tmp,
+                        "ownership-builder",
+                        branch=branch,
+                        role="implementer",
+                        claimer="builder-agent",
+                        task_id="task-1",
+                    )
+                    policy_path, _policy = write_role_policy(Path(tmp) / "role-policy.json")
+                    pr_path, _pr = write_matching_role_pr_json(Path(tmp) / "pr.json", repo)
+                    review_threads_path, _threads = write_role_review_threads(
+                        Path(tmp) / "review-threads.json",
+                        review_threads,
+                    )
+
+                    result, output = run_cli(
+                        tmp,
+                        "role-readiness",
+                        "--cwd",
+                        repo,
+                        "--repo",
+                        "local/test",
+                        "--task-id",
+                        "task-1",
+                        "--role-policy-file",
+                        str(policy_path),
+                        "--pr-json-file",
+                        str(pr_path),
+                        "--review-threads-file",
+                        str(review_threads_path),
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIsNotNone(output, result.stderr)
+                    codes = {blocker["code"] for blocker in output["blockers"]}
+                    self.assertIn("reviewer_evidence_missing", codes)
+                    self.assertNotIn("review_separation_conflict", codes)
+                    self.assertEqual(output["review_evidence"]["actionable_review_authors"], [])
+                    self.assertEqual(output["recommended_next_action"], "provide_reviewer_evidence")
 
 
 if __name__ == "__main__":
