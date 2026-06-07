@@ -28,6 +28,46 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-06 - Bind execution start to supplied local ownership
+
+Decision:
+- Extend `start-governed-execution` with explicit ownership flags instead of
+  implicitly discovering or creating ownership.
+- Recheck the supplied active `work-ownership.v1` record after existing
+  execution-start gates pass and before epoch mutation.
+- Bind the started epoch id back to the ownership record only after epoch start,
+  append ownership id/checksum audit evidence, and restore both epoch and
+  ownership binding when audit append fails.
+
+Why:
+- Task 14 needs execution-start to fail closed on missing, duplicate, stale, or
+  mismatched local ownership evidence without granting scheduler, role
+  assignment, distributed lock, or real executor authority.
+- Keeping ownership explicit preserves the Task 13 mutation boundary and makes
+  blocked ownership evidence visible in stable decision packets.
+
+Alternatives considered:
+- Auto-create ownership during execution-start. Rejected because ownership
+  claim remains an explicit local mutation command.
+- Treat active ownership as a distributed lock. Rejected because records are
+  local evidence only.
+- Make ownership mandatory for every execution start immediately. Deferred so
+  current approved task-packet flows remain compatible while orchestration can
+  deliberately opt into ownership-bound starts.
+
+Consequences:
+- Execution-start can now bind a matching active ownership record to the
+  started epoch and make that binding replayable through audit evidence.
+- Resume-continuation ownership enforcement, role policy, review separation,
+  real executor invocation, autonomous Git/PR writes, merge, release, and
+  publication remain future work.
+
+Open questions:
+- Should a later policy packet make ownership mandatory for all governed
+  execution starts?
+- Should ownership freshness and accepted roles move from command flags into a
+  role or loop policy packet?
+
 ## 2026-06-06 - Keep ownership mutations explicit and local
 
 Decision:

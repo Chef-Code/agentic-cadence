@@ -126,6 +126,29 @@ def executor_result_record(valid: bool = True, **overrides):
     return record
 
 
+def execution_start_record(**overrides):
+    record = {
+        "schema_version": "cadence-audit.v1",
+        "recorded_at": "2999-05-22T00:00:00Z",
+        "event": "execution_start_decision",
+        "action": "handoff_to_executor",
+        "reason": "approved executor task started a governed epoch",
+        "valid": True,
+        "epoch_started": True,
+        "executor_started": False,
+        "epoch_id": "epoch-1",
+        "task_id": "candidate-1",
+        "task_file": "C:/tmp/executor-task.json",
+        "task_checksum": GOOD_CHECKSUM,
+        "repo": "local/test",
+        "branch": "main",
+        "head": "abc123",
+        "payload_checksum": GOOD_CHECKSUM,
+    }
+    record.update(overrides)
+    return record
+
+
 def executor_epoch_closeout_record(valid: bool = True, **overrides):
     record = {
         "schema_version": "cadence-audit.v1",
@@ -352,6 +375,7 @@ class AuditReplayCliTests(unittest.TestCase):
                 root,
                 loop_tick_record(),
                 executor_result_record(),
+                execution_start_record(),
                 execution_run_record(),
                 executor_epoch_closeout_record(),
                 git_pr_materialization_intent_record(),
@@ -363,15 +387,16 @@ class AuditReplayCliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(output["valid"])
-            self.assertEqual(output["lines_seen"], 7)
-            self.assertEqual(output["records_seen"], 7)
-            self.assertEqual(output["records_valid"], 7)
+            self.assertEqual(output["lines_seen"], 8)
+            self.assertEqual(output["records_seen"], 8)
+            self.assertEqual(output["records_valid"], 8)
             self.assertEqual(output["records_invalid"], 0)
             self.assertEqual(
                 output["events_by_type"],
                 {
                     "executor_epoch_closeout": 1,
                     "executor_result_validation": 1,
+                    "execution_start_decision": 1,
                     "execution_run_record": 1,
                     "git_pr_materialization_intent": 1,
                     "git_pr_materialization_result": 1,
@@ -380,6 +405,61 @@ class AuditReplayCliTests(unittest.TestCase):
                 },
             )
             self.assertEqual(output["recommended_next_action"], "use_audit_replay_evidence")
+
+    def test_execution_start_audit_accepts_valid_ownership_pair(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_audit_records(
+                root,
+                execution_start_record(
+                    ownership_id="ownership-1",
+                    ownership_record_checksum=GOOD_CHECKSUM,
+                ),
+            )
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["records_valid"], 1)
+            self.assertEqual(output["events_by_type"], {"execution_start_decision": 1})
+
+    def test_execution_start_audit_rejects_malformed_ownership_pair(self):
+        cases = [
+            (
+                "both null",
+                {"ownership_id": None, "ownership_record_checksum": None},
+                ["audit_required_field_missing", "audit_required_field_missing"],
+            ),
+            (
+                "missing checksum",
+                {"ownership_id": "ownership-1"},
+                ["audit_required_field_missing"],
+            ),
+            (
+                "missing ownership id",
+                {"ownership_record_checksum": GOOD_CHECKSUM},
+                ["audit_required_field_missing"],
+            ),
+            (
+                "bad checksum",
+                {"ownership_id": "ownership-1", "ownership_record_checksum": "sha256:bad"},
+                ["audit_checksum_invalid"],
+            ),
+        ]
+        for name, overrides, expected_codes in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    write_audit_records(root, execution_start_record(**overrides))
+
+                    result, output = run_cli(root, "audit-replay")
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["records_valid"], 0)
+                    self.assertEqual(output["records_invalid"], 1)
+                    self.assertEqual(blocker_codes(output), expected_codes)
 
     def test_work_ownership_audit_requires_action_status_consistency(self):
         cases = [

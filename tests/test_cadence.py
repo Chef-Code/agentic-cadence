@@ -2827,6 +2827,234 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(epoch_task["allowance"], "elect")
             self.assertEqual(epoch_task["allowance_reason"], "operator allowed proposal election")
 
+    def test_start_governed_execution_binds_matching_work_ownership(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            ownership_path, _ownership = write_work_ownership(
+                tmp,
+                "ownership-1",
+                task_id=task_packet["task"]["id"],
+                candidate_id=task_packet["task"]["id"],
+                branch=current_branch(repo),
+                head=current_head(repo),
+                epoch_id=None,
+                handoff_id=None,
+            )
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--approval-token",
+                approval_token,
+                "--ownership-target",
+                "ownership-1",
+                "--ownership-role",
+                "implementer",
+                "--ownership-claimer",
+                "test-agent",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertTrue(output["epoch_started"])
+            self.assertEqual(output["ownership"]["id"], "ownership-1")
+            self.assertEqual(output["ownership"]["epoch_id"], output["epoch_id"])
+            self.assertIn("work_ownership_epoch_bound", output["side_effects"])
+            updated_ownership = json.loads(ownership_path.read_text(encoding="utf-8"))
+            self.assertEqual(updated_ownership["epoch_id"], output["epoch_id"])
+            self.assertEqual(updated_ownership["status"], "ACTIVE")
+            records = audit_records(tmp)
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["event"], "execution_start_decision")
+            self.assertEqual(records[0]["ownership_id"], "ownership-1")
+            self.assertEqual(records[0]["ownership_record_checksum"], checksum_json(output["ownership"]))
+            replay_result, replay = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay["valid"])
+
+    def test_start_governed_execution_blocks_missing_mismatched_and_duplicate_work_ownership(self):
+        cases = [
+            ("ownership_record_missing", lambda tmp, repo, task_packet: None, "missing-ownership", {}),
+            (
+                "ownership_claimer_mismatch",
+                lambda tmp, repo, task_packet: write_work_ownership(
+                    tmp,
+                    "ownership-1",
+                    task_id=task_packet["task"]["id"],
+                    candidate_id=task_packet["task"]["id"],
+                    branch=current_branch(repo),
+                    head=current_head(repo),
+                    claimer="other-agent",
+                    epoch_id=None,
+                    handoff_id=None,
+                ),
+                "ownership-1",
+                {},
+            ),
+            (
+                "ownership_role_mismatch",
+                lambda tmp, repo, task_packet: write_work_ownership(
+                    tmp,
+                    "ownership-1",
+                    task_id=task_packet["task"]["id"],
+                    candidate_id=task_packet["task"]["id"],
+                    branch=current_branch(repo),
+                    head=current_head(repo),
+                    role="reviewer",
+                    epoch_id=None,
+                    handoff_id=None,
+                ),
+                "ownership-1",
+                {},
+            ),
+            (
+                "ownership_head_mismatch",
+                lambda tmp, repo, task_packet: write_work_ownership(
+                    tmp,
+                    "ownership-1",
+                    task_id=task_packet["task"]["id"],
+                    candidate_id=task_packet["task"]["id"],
+                    branch=current_branch(repo),
+                    head="0" * 40,
+                    epoch_id=None,
+                    handoff_id=None,
+                ),
+                "ownership-1",
+                {},
+            ),
+            (
+                "duplicate_active_ownership",
+                lambda tmp, repo, task_packet: (
+                    write_work_ownership(
+                        tmp,
+                        "ownership-1",
+                        task_id=task_packet["task"]["id"],
+                        candidate_id=task_packet["task"]["id"],
+                        branch=current_branch(repo),
+                        head=current_head(repo),
+                        epoch_id=None,
+                        handoff_id=None,
+                    ),
+                    write_work_ownership(
+                        tmp,
+                        "ownership-2",
+                        task_id=task_packet["task"]["id"],
+                        candidate_id=task_packet["task"]["id"],
+                        branch=current_branch(repo),
+                        head=current_head(repo),
+                        claimer="other-agent",
+                        epoch_id=None,
+                        handoff_id=None,
+                    ),
+                ),
+                "ownership-1",
+                {},
+            ),
+        ]
+        for expected_code, seed_ownership, target, overrides in cases:
+            with self.subTest(expected_code=expected_code):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    task_path, task_packet, approval_token = write_governed_execution_task(tmp, repo)
+                    seed_ownership(tmp, repo, task_packet)
+                    args = [
+                        "start-governed-execution",
+                        "--task-file",
+                        str(task_path),
+                        "--approval-token",
+                        approval_token,
+                        "--ownership-target",
+                        target,
+                        "--ownership-role",
+                        "implementer",
+                        "--ownership-claimer",
+                        "test-agent",
+                    ]
+                    for key, value in overrides.items():
+                        args.extend([key, value])
+
+                    result, output = run_cli(tmp, *args)
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertFalse(output["epoch_started"])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+                    self.assertEqual(audit_records(tmp), [])
+
+    def test_start_governed_execution_existing_blockers_precede_work_ownership_validation(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, _task_packet, _approval_token = write_governed_execution_task(tmp, repo)
+
+            result, output = run_cli(
+                tmp,
+                "start-governed-execution",
+                "--task-file",
+                str(task_path),
+                "--ownership-target",
+                "missing-ownership",
+                "--ownership-role",
+                "implementer",
+                "--ownership-claimer",
+                "test-agent",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["epoch_started"])
+            self.assertEqual(output["recommended_next_action"], "approve_executor_task")
+            codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertIn("operator_approval_missing", codes)
+            self.assertNotIn("ownership_record_missing", codes)
+
+    def test_start_governed_execution_rolls_back_ownership_binding_when_audit_append_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            task_path, task_packet, approval_token = write_governed_execution_task(tmp, repo)
+            ownership_path, ownership_before = write_work_ownership(
+                tmp,
+                "ownership-1",
+                task_id=task_packet["task"]["id"],
+                candidate_id=task_packet["task"]["id"],
+                branch=current_branch(repo),
+                head=current_head(repo),
+                epoch_id=None,
+                handoff_id=None,
+            )
+            emitted = []
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "task_file": str(task_path),
+                    "approval_token": approval_token,
+                    "cwd": None,
+                    "ownership_target": "ownership-1",
+                    "ownership_role": "implementer",
+                    "ownership_claimer": "test-agent",
+                    "ownership_max_age_minutes": 5,
+                },
+            )()
+
+            with mock.patch.object(cadence_cli, "append_audit_record", side_effect=OSError("disk full")):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.start_governed_execution_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertEqual(len(emitted), 1)
+            self.assertFalse(emitted[0]["valid"])
+            self.assertFalse(emitted[0]["epoch_started"])
+            self.assertIn("audit_append_failed", {blocker["code"] for blocker in emitted[0]["blockers"]})
+            self.assertIn("work_ownership_epoch_binding_rollback", emitted[0]["side_effects"])
+            self.assertEqual(json.loads(ownership_path.read_text(encoding="utf-8")), ownership_before)
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
     def test_start_governed_execution_blocks_missing_approval(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)

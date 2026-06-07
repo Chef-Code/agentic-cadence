@@ -64,7 +64,8 @@ runtime can do these things end-to-end:
 - consume a reviewed generic executor task packet with
   `start-governed-execution`, recheck repo path, branch, `HEAD`, dirty
   worktree, task-carried command and branch policy shape, approval token, active
-  brake, and active epoch state, then start exactly one active epoch while still reporting
+  brake, active epoch state, and supplied local ownership evidence, then start
+  exactly one active epoch and bind that ownership record while still reporting
   `executor_started: false`;
 - run an explicit test/example-only controlled executor fixture command that
   validates the task packet and command policy before launching a fake external
@@ -127,6 +128,9 @@ runtime can do these things end-to-end:
   `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership`
   after branch, `HEAD`, clean-worktree, duplicate/stale ownership, malformed
   registry, and path-safety rechecks, with replayable local audit evidence.
+- bind matching active ownership to governed execution start through
+  `start-governed-execution --ownership-target`, with rollback of both epoch
+  and ownership binding when audit append fails.
 
 These capabilities are still single-agent Phase 1 primitives, but they are not
 throwaway work. They are the same primitives a future orchestrator needs for
@@ -187,7 +191,7 @@ Agentic Cadence cannot currently:
 | Git/PR transition planning | Partial, dry-run plus approved materialization | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects; `git-pr-materialize` can create branch, push, and create/update PR only after exact target-bound operator approval and local rechecks |
 | Branch/commit/push/PR creation | Partial, operator-approved only | No autonomous branch/PR writes, no dirty-worktree commit path, no merge, release, or package publication |
 | Review response loop | Partial read-only planning | Saved review files, synced review threads, failed checks, and PR-body evidence can become response-plan items; no automatic response writes |
-| Local work ownership | Partial, local write evidence | `work-ownership-status` and `validate-work-ownership` validate local `work-ownership.v1` records; `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership` create/move local records with audit evidence; no distributed lock, role assignment, scheduler, or execution/resume enforcement |
+| Local work ownership | Partial, execution-start-bound local evidence | `work-ownership-status` and `validate-work-ownership` validate local `work-ownership.v1` records; `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership` create/move local records with audit evidence; `start-governed-execution --ownership-target` can bind matching active ownership to the started epoch; no distributed lock, role assignment, scheduler, or resume-continuation enforcement |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
 | New-session launch/resume | Partial read-only gates | `prepare-handoff`, clean-square evidence, `verify-resume`, and `resume-continuation.v1` packets exist; external orchestration still launches sessions and performs recommended actions |
 
@@ -212,10 +216,11 @@ evaluate saved PR evidence and fetch read-only live PR/check/review-thread
 evidence into saved files, then turn saved failed-check, review-thread, and
 PR-body evidence into read-only response-plan items. It can validate, claim,
 close, and fail local `work-ownership.v1` records, detect duplicate active
-ownership for the same repo, branch, and task, and replay accepted ownership
-mutations through the local audit log before future multi-worker coordination
-exists. It cannot perform the core build loop by itself, and it cannot yet
-coordinate a team of role-specific agents.
+ownership for the same repo, branch, and task, bind matching active ownership
+to a governed execution start, and replay accepted ownership mutations through
+the local audit log before future multi-worker coordination exists. It cannot
+perform the core build loop by itself, and it cannot yet coordinate a team of
+role-specific agents.
 
 The current loop stops after:
 

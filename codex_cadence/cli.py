@@ -9,6 +9,7 @@ import json
 import re
 import secrets
 import sys
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -57,7 +58,9 @@ from codex_cadence.ownership import (
     claim_work_ownership,
     closeout_work_ownership,
     find_work_ownership_record,
+    ownership_record_summary,
     validate_work_ownership,
+    validate_work_ownership_record,
     work_ownership_status,
 )
 from codex_cadence.policy_audit import (
@@ -385,6 +388,38 @@ def execution_start_recommendation(blockers: list[dict[str, Any]]) -> str:
     if not blockers:
         return "handoff_to_executor"
     codes = {blocker.get("code") for blocker in blockers}
+    if "ownership_record_missing" in codes:
+        return "claim_work_ownership"
+    if codes & {"ownership_closed", "ownership_stale", "duplicate_active_ownership"}:
+        return "close_or_fail_active_ownership"
+    if codes & {
+        "ownership_record_invalid",
+        "ownership_schema_unsupported",
+        "ownership_field_type_invalid",
+        "ownership_id_mismatch",
+        "ownership_status_invalid",
+        "ownership_state_mismatch",
+        "ownership_timestamp_invalid",
+        "ownership_required_field_missing",
+        "ownership_record_unreadable",
+        "ownership_record_path_invalid",
+        "ownership_record_outside_registry",
+        "ownership_record_ambiguous",
+        "ownership_registry_state_invalid",
+    }:
+        return "repair_ownership_record"
+    if codes & {
+        "ownership_repo_mismatch",
+        "ownership_branch_mismatch",
+        "ownership_task_mismatch",
+        "ownership_candidate_mismatch",
+        "ownership_role_mismatch",
+        "ownership_claimer_mismatch",
+        "ownership_head_mismatch",
+    }:
+        return "refresh_ownership_evidence"
+    if "ownership_record_write_failed" in codes or "ownership_rollback_failed" in codes:
+        return "inspect_runtime_state"
     if "executor_task_invalid" in codes or "task_file_unreadable" in codes:
         return "fix_executor_task_packet"
     if "operator_approval_missing" in codes or "operator_approval_mismatch" in codes:
@@ -406,6 +441,123 @@ def execution_start_reason(valid: bool, blockers: list[dict[str, Any]]) -> str:
     if blockers:
         return blockers[0]["message"]
     return "execution start blocked"
+
+
+def execution_start_ownership_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def validate_execution_start_ownership(
+    *,
+    root: Path,
+    target: str,
+    cwd: Path,
+    repo_packet: dict[str, Any],
+    task_packet: dict[str, Any],
+    role: str | None,
+    claimer: str | None,
+    max_age_minutes: int | None,
+) -> tuple[list[dict[str, Any]], dict[str, Any] | None, Path | None, dict[str, Any] | None]:
+    """Validate active ownership evidence for a governed execution start."""
+    task = task_packet["task"]
+    task_id = task["id"]
+    validation = validate_work_ownership(
+        root=root,
+        target=target,
+        cwd=cwd,
+        repo=repo_packet["name"],
+        branch=repo_packet["branch"],
+        task_id=task_id,
+        require_active=True,
+        max_age_minutes=max_age_minutes,
+    )
+    blockers = list(validation.get("blockers", []))
+    summary = validation.get("record") if isinstance(validation.get("record"), dict) else None
+    path = Path(summary["path"]) if isinstance(summary, dict) and isinstance(summary.get("path"), str) else None
+    record: dict[str, Any] | None = None
+    if path is not None and not blockers:
+        try:
+            loaded = read_json(path)
+            if isinstance(loaded, dict):
+                record = loaded
+            else:
+                blockers.append(
+                    execution_start_ownership_blocker(
+                        "ownership_record_invalid",
+                        "work ownership record must be a JSON object",
+                        path=str(path),
+                    )
+                )
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            blockers.append(
+                execution_start_ownership_blocker(
+                    "ownership_record_unreadable",
+                    f"work ownership record could not be read for execution start: {exc}",
+                    path=str(path),
+                )
+            )
+    if not role:
+        blockers.append(
+            execution_start_ownership_blocker(
+                "ownership_required_field_missing",
+                "ownership role is required when ownership evidence is supplied",
+                field="ownership_role",
+            )
+        )
+    if not claimer:
+        blockers.append(
+            execution_start_ownership_blocker(
+                "ownership_required_field_missing",
+                "ownership claimer is required when ownership evidence is supplied",
+                field="ownership_claimer",
+            )
+        )
+    if record is not None:
+        if record.get("candidate_id") != task_id:
+            blockers.append(
+                execution_start_ownership_blocker(
+                    "ownership_candidate_mismatch",
+                    "work ownership candidate_id does not match executor task id",
+                    expected_candidate_id=task_id,
+                    actual_candidate_id=record.get("candidate_id"),
+                    path=str(path) if path else None,
+                )
+            )
+        if role and record.get("role") != role:
+            blockers.append(
+                execution_start_ownership_blocker(
+                    "ownership_role_mismatch",
+                    "work ownership role does not match requested execution-start role",
+                    expected_role=role,
+                    actual_role=record.get("role"),
+                    path=str(path) if path else None,
+                )
+            )
+        if claimer and record.get("claimer") != claimer:
+            blockers.append(
+                execution_start_ownership_blocker(
+                    "ownership_claimer_mismatch",
+                    "work ownership claimer does not match requested execution-start claimer",
+                    expected_claimer=claimer,
+                    actual_claimer=record.get("claimer"),
+                    path=str(path) if path else None,
+                )
+            )
+        if record.get("head") != repo_packet.get("head"):
+            blockers.append(
+                execution_start_ownership_blocker(
+                    "ownership_head_mismatch",
+                    "work ownership head does not match executor task repo.head",
+                    expected_head=repo_packet.get("head"),
+                    actual_head=record.get("head"),
+                    path=str(path) if path else None,
+                )
+            )
+    if record is not None:
+        summary = ownership_record_summary(record, path, "active")
+    return blockers, summary, path, record
 
 
 def task_packet_to_epoch_task(task_packet: dict[str, Any]) -> dict[str, Any]:
@@ -446,6 +598,8 @@ def build_execution_start_packet(
     repo: dict[str, Any] | None = None,
     snapshot: dict[str, Any] | None = None,
     epoch: dict[str, Any] | None = None,
+    ownership: dict[str, Any] | None = None,
+    side_effects: list[str] | None = None,
 ) -> dict[str, Any]:
     valid = not blockers
     task = task_packet.get("task") if isinstance(task_packet, dict) and isinstance(task_packet.get("task"), dict) else {}
@@ -465,9 +619,11 @@ def build_execution_start_packet(
         "repo": repo or {},
         "snapshot": snapshot,
         "epoch_id": epoch.get("id") if isinstance(epoch, dict) else None,
+        "ownership": ownership,
         "blockers": blockers,
         "recommended_next_action": execution_start_recommendation(blockers),
         "reason": execution_start_reason(valid, blockers),
+        "side_effects": list(side_effects) if side_effects else None,
         "limitations": [
             "executor_not_started",
             "executor_invocation_out_of_scope",
@@ -490,6 +646,12 @@ def start_governed_execution_command(args: argparse.Namespace) -> int:
     current_snapshot: dict[str, Any] | None = None
     epoch: dict[str, Any] | None = None
     audit_record: dict[str, Any] | None = None
+    ownership_requested = bool(getattr(args, "ownership_target", None))
+    ownership_summary: dict[str, Any] | None = None
+    ownership_path: Path | None = None
+    ownership_record_before: dict[str, Any] | None = None
+    ownership_bound = False
+    side_effects: list[str] = []
 
     try:
         task_packet = read_json(task_file)
@@ -624,45 +786,78 @@ def start_governed_execution_command(args: argparse.Namespace) -> int:
                             "current repo confidence is low",
                         )
                     )
-            if not blockers:
-                try:
-                    epoch = start_epoch_record(
-                        root,
-                        repo_packet["name"],
-                        repo_packet["branch"],
-                        [task_packet_to_epoch_task(task_packet)],
-                        current_snapshot,
-                        policy={"max_tasks_per_epoch": 1},
+            ownership_lock = exclusive_lock(lock_path(root, "work-ownership")) if ownership_requested else nullcontext()
+            with ownership_lock:
+                if not blockers and ownership_requested:
+                    (
+                        ownership_blockers,
+                        ownership_summary,
+                        ownership_path,
+                        ownership_record_before,
+                    ) = validate_execution_start_ownership(
+                        root=root,
+                        target=getattr(args, "ownership_target"),
+                        cwd=repo_path,
+                        repo_packet=repo_packet,
+                        task_packet=task_packet,
+                        role=getattr(args, "ownership_role", None),
+                        claimer=getattr(args, "ownership_claimer", None),
+                        max_age_minutes=getattr(
+                            args,
+                            "ownership_max_age_minutes",
+                            DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+                        ),
                     )
-                except (RuntimeError, ValueError, FileExistsError) as exc:
-                    blockers.append(execution_start_blocker("epoch_start_failed", str(exc)))
-            if epoch is not None and not blockers:
-                provisional_packet = build_execution_start_packet(
-                    task_file=task_file,
-                    task_packet=task_packet,
-                    task_checksum=task_checksum,
-                    approval_state=approval_state,
-                    blockers=blockers,
-                    repo={
-                        "name": repo_packet.get("name"),
-                        "path": repo_packet.get("path"),
-                        "branch": current_snapshot.get("branch"),
-                        "head": current_snapshot.get("head"),
-                        "expected_branch": repo_packet.get("branch"),
-                        "expected_head": repo_packet.get("head"),
-                    },
-                    snapshot=current_snapshot,
-                    epoch=epoch,
-                )
-                try:
-                    audit_record = append_audit_record(root, execution_start_audit_record(provisional_packet))
-                except (OSError, RuntimeError, ValueError) as exc:
-                    blockers.append(
-                        execution_start_blocker(
-                            "audit_append_failed",
-                            f"execution-start audit record could not be written: {exc}",
+                    blockers.extend(ownership_blockers)
+
+                if not blockers:
+                    try:
+                        epoch = start_epoch_record(
+                            root,
+                            repo_packet["name"],
+                            repo_packet["branch"],
+                            [task_packet_to_epoch_task(task_packet)],
+                            current_snapshot,
+                            policy={"max_tasks_per_epoch": 1},
                         )
-                    )
+                    except (RuntimeError, ValueError, FileExistsError) as exc:
+                        blockers.append(execution_start_blocker("epoch_start_failed", str(exc)))
+
+                if epoch is not None and not blockers and ownership_requested:
+                    try:
+                        if ownership_path is None or ownership_record_before is None:
+                            raise ValueError("validated work ownership record is missing")
+                        updated_ownership = dict(ownership_record_before)
+                        updated_ownership["epoch_id"] = epoch["id"]
+                        updated_ownership["updated_at"] = utc_now()
+                        ownership_write_blockers = validate_work_ownership_record(
+                            updated_ownership,
+                            path=ownership_path,
+                            state="active",
+                            expected_id=ownership_path.stem,
+                            expected_repo=repo_packet["name"],
+                            expected_branch=repo_packet["branch"],
+                            expected_task_id=task_packet["task"]["id"],
+                            require_active=True,
+                            max_age_minutes=None,
+                        )
+                        if ownership_write_blockers:
+                            blockers.extend(ownership_write_blockers)
+                        else:
+                            atomic_write_json(ownership_path, updated_ownership)
+                            ownership_bound = True
+                            ownership_summary = ownership_record_summary(updated_ownership, ownership_path, "active")
+                            side_effects.append("work_ownership_epoch_bound")
+                    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+                        blockers.append(
+                            execution_start_blocker(
+                                "ownership_record_write_failed",
+                                f"work ownership record could not be bound to started epoch: {exc}",
+                                path=str(ownership_path) if ownership_path else None,
+                            )
+                        )
+
+                if epoch is not None and blockers:
                     try:
                         epoch_path(root, "active", epoch["id"]).unlink()
                         epoch = None
@@ -672,10 +867,71 @@ def start_governed_execution_command(args: argparse.Namespace) -> int:
                         blockers.append(
                             execution_start_blocker(
                                 "epoch_rollback_failed",
-                                f"active epoch could not be rolled back after audit failure: {rollback_exc}",
+                                f"active epoch could not be rolled back after execution-start failure: {rollback_exc}",
                                 epoch_id=epoch.get("id"),
                             )
                         )
+
+                if epoch is not None and not blockers:
+                    provisional_packet = build_execution_start_packet(
+                        task_file=task_file,
+                        task_packet=task_packet,
+                        task_checksum=task_checksum,
+                        approval_state=approval_state,
+                        blockers=blockers,
+                        repo={
+                            "name": repo_packet.get("name"),
+                            "path": repo_packet.get("path"),
+                            "branch": current_snapshot.get("branch"),
+                            "head": current_snapshot.get("head"),
+                            "expected_branch": repo_packet.get("branch"),
+                            "expected_head": repo_packet.get("head"),
+                        },
+                        snapshot=current_snapshot,
+                        epoch=epoch,
+                        ownership=ownership_summary,
+                        side_effects=side_effects,
+                    )
+                    try:
+                        audit_record = append_audit_record(root, execution_start_audit_record(provisional_packet))
+                    except (OSError, RuntimeError, ValueError) as exc:
+                        blockers.append(
+                            execution_start_blocker(
+                                "audit_append_failed",
+                                f"execution-start audit record could not be written: {exc}",
+                            )
+                        )
+                        try:
+                            epoch_path(root, "active", epoch["id"]).unlink()
+                            epoch = None
+                        except FileNotFoundError:
+                            epoch = None
+                        except OSError as rollback_exc:
+                            blockers.append(
+                                execution_start_blocker(
+                                    "epoch_rollback_failed",
+                                    f"active epoch could not be rolled back after audit failure: {rollback_exc}",
+                                    epoch_id=epoch.get("id"),
+                                )
+                            )
+                        if ownership_bound and ownership_path is not None and ownership_record_before is not None:
+                            try:
+                                atomic_write_json(ownership_path, ownership_record_before)
+                                ownership_summary = ownership_record_summary(
+                                    ownership_record_before,
+                                    ownership_path,
+                                    "active",
+                                )
+                                side_effects.append("work_ownership_epoch_binding_rollback")
+                                ownership_bound = False
+                            except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as rollback_exc:
+                                blockers.append(
+                                    execution_start_blocker(
+                                        "ownership_rollback_failed",
+                                        f"work ownership epoch binding could not be rolled back after audit failure: {rollback_exc}",
+                                        path=str(ownership_path),
+                                    )
+                                )
 
     repo = {
         "name": repo_packet.get("name"),
@@ -694,6 +950,8 @@ def start_governed_execution_command(args: argparse.Namespace) -> int:
         repo=repo,
         snapshot=current_snapshot,
         epoch=epoch,
+        ownership=ownership_summary,
+        side_effects=side_effects,
     )
     if audit_record is not None and packet["valid"]:
         packet["audit_record"] = audit_record
@@ -2307,6 +2565,14 @@ def build_parser() -> argparse.ArgumentParser:
     execution_start_parser.add_argument("--task-file", required=True)
     execution_start_parser.add_argument("--approval-token")
     execution_start_parser.add_argument("--cwd")
+    execution_start_parser.add_argument("--ownership-target")
+    execution_start_parser.add_argument("--ownership-role")
+    execution_start_parser.add_argument("--ownership-claimer")
+    execution_start_parser.add_argument(
+        "--ownership-max-age-minutes",
+        type=non_negative_int,
+        default=DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+    )
     execution_start_parser.set_defaults(
         func=start_governed_execution_command,
         requires_root=True,

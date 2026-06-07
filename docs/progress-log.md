@@ -33,6 +33,60 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-06 - Bind work ownership to governed execution start
+
+Summary:
+- Added ownership-aware `start-governed-execution` flags for a supplied active
+  `work-ownership.v1` record.
+- Execution-start now rechecks matching ownership evidence after existing
+  execution-start blockers and before epoch mutation, then binds the started
+  `epoch_id` back to the active ownership record.
+- Missing, mismatched, duplicate, stale, or malformed ownership blocks before
+  epoch mutation, while existing approval/repo/brake/active-epoch blockers keep
+  precedence.
+- Accepted ownership-bound starts append compact `execution_start_decision`
+  audit evidence with ownership id and ownership-record checksum. Audit append
+  failure restores both the active epoch and ownership binding.
+
+Completed slices:
+- Task 14 current-tree implementation: work-ownership-bound governed execution
+  start.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Execution-start can now consume and bind local ownership evidence,
+  but resume-continuation ownership enforcement, role policy, review
+  separation, real executor invocation, autonomous Git/PR writes, merge,
+  release, and package publication remain future work.
+
+Evidence:
+- `python -m py_compile codex_cadence/ownership.py codex_cadence/epochs.py codex_cadence/cli.py codex_cadence/policy_audit.py`
+- `python scripts/validate_protocol.py`
+- `git diff --check`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_start_governed_execution_binds_matching_work_ownership tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_missing_mismatched_and_duplicate_work_ownership tests.test_cadence.CadenceCliTests.test_start_governed_execution_existing_blockers_precede_work_ownership_validation tests.test_cadence.CadenceCliTests.test_start_governed_execution_rolls_back_ownership_binding_when_audit_append_fails -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_start_governed_execution_binds_matching_work_ownership tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_missing_mismatched_and_duplicate_work_ownership tests.test_cadence.CadenceCliTests.test_start_governed_execution_existing_blockers_precede_work_ownership_validation tests.test_cadence.CadenceCliTests.test_start_governed_execution_rolls_back_ownership_binding_when_audit_append_fails tests.test_cadence.CadenceCliTests.test_start_governed_execution_blocks_missing_approval tests.test_cadence.CadenceCliTests.test_start_governed_execution_rechecks_repo_inside_runtime_lock tests.test_cadence.CadenceCliTests.test_start_governed_execution_rolls_back_epoch_when_audit_append_fails -v`
+- `python -m unittest tests.test_audit_replay -v`
+- `python -m unittest tests.test_cadence tests.test_epochs tests.test_audit_replay -v` (329 tests, 2 expected Windows symlink skips)
+- `python scripts/ci_smoke.py`
+
+New risks or blockers:
+- Ownership is still local evidence, not a distributed lock or scheduler.
+- Resume-continuation ownership enforcement, role policy, review separation,
+  real executor readiness, distributed locks, agent pools, GitHub issue
+  assignment, merge, release, and package publication remain future work.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
+- `docs/cadence/business-memory.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
 ## 2026-06-06 - Add local work ownership claim and closeout
 
 Summary:

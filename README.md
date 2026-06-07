@@ -262,26 +262,41 @@ The task packet is nested under `executor_task` in the `loop-tick` packet. It mu
 `start-governed-execution` is the local write-side gate that consumes a reviewed
 `generic-executor-task.v1` packet and starts exactly one active epoch when the
 task packet shape, task-carried command and branch policy fields, current repo
-path, branch, `HEAD`, clean worktree, operator approval, brake, and
-active-epoch state still match. The approval token is the exact checksum token
-for the reviewed task packet:
+path, branch, `HEAD`, clean worktree, operator approval, brake, active-epoch
+state, and any supplied local work-ownership evidence still match. The approval
+token is the exact checksum token for the reviewed task packet:
 `approve-executor-task:<task-packet-checksum>`.
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime start-governed-execution --task-file executor-task.json --approval-token approve-executor-task:<task-packet-checksum>
+agentic-cadence --root examples/first-run/work/runtime start-governed-execution --task-file executor-task.json --approval-token approve-executor-task:<task-packet-checksum> --ownership-target ownership-1 --ownership-role implementer --ownership-claimer local-agent
 ```
 
 The command emits an `execution-start.v1` packet with `read_only: false`,
 `epoch_started`, `executor_started: false`, `blockers`, and
-`recommended_next_action`. Stable blocker codes include
+`recommended_next_action`. When `--ownership-target` is supplied, it rechecks
+the active `work-ownership.v1` record for task id, candidate id, role, claimer,
+repo, branch, `HEAD`, duplicate active ownership, freshness, malformed
+evidence, and registry path safety before epoch mutation. A valid ownership
+start binds the started epoch id back to the active ownership record and emits
+`work_ownership_epoch_bound`; if audit append fails after binding, it restores
+both the active epoch and the ownership record and emits
+`work_ownership_epoch_binding_rollback`. Stable blocker codes include
 `task_file_unreadable`, `executor_task_invalid`, `operator_approval_missing`,
 `operator_approval_mismatch`, `repo_path_mismatch`,
 `repo_inspection_failed`, `repo_branch_mismatch`, `repo_head_mismatch`,
 `dirty_worktree`, `repo_confidence_low`, `brake_state_invalid`,
 `brake_not_drive`, `active_epoch_exists`, `active_epoch_invalid`,
-`epoch_start_failed`, `audit_append_failed`, and `epoch_rollback_failed`.
-Successful starts append an `execution_start_decision` audit record, but the
-command does not invoke an executor, edit code, create branches, write pull
+`epoch_start_failed`, `audit_append_failed`, `epoch_rollback_failed`,
+`ownership_record_missing`, `duplicate_active_ownership`, `ownership_stale`,
+`ownership_record_invalid`, `ownership_repo_mismatch`,
+`ownership_branch_mismatch`, `ownership_task_mismatch`,
+`ownership_candidate_mismatch`, `ownership_role_mismatch`,
+`ownership_claimer_mismatch`, `ownership_head_mismatch`,
+`ownership_record_write_failed`, and `ownership_rollback_failed`.
+Successful starts append an `execution_start_decision` audit record, including
+`ownership_id` and `ownership_record_checksum` when ownership was supplied, but
+the command does not invoke an executor, edit code, create branches, write pull
 requests, merge, release, or publish packages.
 
 Executor result evidence can be checked without running an executor:
@@ -484,10 +499,11 @@ record to `closed` or `failed`, and append compact `work_ownership_mutation`
 audit evidence for accepted mutations.
 
 These commands do not assign roles, schedule agents, write GitHub issues,
-claim distributed locks, start epochs, invoke executors, create branches,
-commit, push, open or update PRs, merge, release, or publish packages.
-Execution-start and resume-continuation enforcement remains a later explicit
-integration point.
+claim distributed locks, invoke executors, create branches, commit, push, open
+or update PRs, merge, release, or publish packages. `start-governed-execution`
+can deliberately consume an active ownership record through
+`--ownership-target`; resume-continuation ownership enforcement remains a later
+explicit integration point.
 
 ## GitHub Evidence Sync
 
