@@ -108,8 +108,9 @@ command-policy and active-stop controls. It includes:
 - governed `start-governed-execution` epoch starts that consume an exactly
   approved `generic-executor-task.v1` packet, recheck repo path/branch/head,
   clean worktree, task-carried command and branch policy shape, active brake,
-  and active epoch state, append `execution_start_decision` audit evidence, and still report
-  `executor_started: false`;
+  active epoch state, and supplied local ownership evidence, bind matching
+  active ownership to the started epoch, append `execution_start_decision`
+  audit evidence, and still report `executor_started: false`;
 - initial local loop policy and audit controls for `loop-tick
   --emit-executor-task` and `validate-executor-result`, including
   path/command/check/runtime/stop-condition bounds, active brake stop handling,
@@ -403,7 +404,8 @@ for root-backed loop decisions. It sets `executor_started`, `epoch_started`,
 and `pr_action_started` to false. `start-governed-execution` can then consume
 an exactly approved `generic-executor-task.v1` packet, recheck current repo
 path, branch, `HEAD`, clean worktree, task-carried command and branch policy
-shape, brake state, and active epoch state, start one active epoch, emit
+shape, brake state, active epoch state, and supplied local ownership evidence,
+start one active epoch, bind matching active ownership to that epoch, emit
 `execution-start.v1`, and still report `executor_started: false`.
 `run-controlled-executor-fixture` can write a local `execution-run.v1` record,
 and `closeout-executor-result --run-record-file` can bind that record to local
@@ -421,8 +423,9 @@ approval-required, stop-brake blocked paths, policy-denied task emission,
 loop-decision audit records, approved execution-start success, stale branch or
 HEAD blockers, dirty worktree blockers, non-`DRIVE` brake blockers, active
 epoch blockers, malformed active-epoch state blockers, malformed task packets,
-missing or mismatched approval, missing repo paths, and replayable
-`execution_start_decision` audit evidence. Full slice completion still needs
+missing or mismatched approval, missing repo paths, missing/mismatched/duplicate
+work ownership blockers, ownership binding rollback on audit failure, and
+replayable `execution_start_decision` audit evidence. Full slice completion still needs
 real executor success/failure, validation collection, and one-command
 completion/failure paths.
 
@@ -610,6 +613,10 @@ claims, move active claims to `closed` or `failed`, block stale repo anchors,
 dirty worktrees, duplicate/stale ownership, invalid role or claimer labels,
 malformed records, and unsafe registry paths, and append replayable
 `work_ownership_mutation` audit records for accepted mutations.
+`start-governed-execution --ownership-target` can recheck matching active
+ownership before epoch mutation, bind the started epoch id back to the record,
+and append compact execution-start audit evidence with ownership id and
+ownership-record checksum.
 
 Likely files: `codex_cadence/ownership.py`, `codex_cadence/cli.py`,
 `codex_cadence/store.py`, tests, docs.
@@ -621,9 +628,9 @@ records, repo/branch/task mismatch fixtures, and audit replay of ownership
 mutation evidence.
 
 Follow-up: use `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the next
-bounded implementation sequence. Execution-start ownership enforcement,
-resume-continuation ownership enforcement, role-readiness evidence, and
-real-executor invocation readiness planning are sequenced there. Distributed
+bounded implementation sequence. Resume-continuation ownership enforcement,
+role-readiness evidence, and real-executor invocation readiness planning are
+sequenced there. Distributed
 locking, agent pools, GitHub issue assignment, real executor invocation,
 merge, release, and package publication remain future work.
 

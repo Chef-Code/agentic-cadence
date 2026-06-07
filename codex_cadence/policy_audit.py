@@ -290,6 +290,9 @@ def validate_execution_start_audit_record(record: dict[str, Any], line: int) -> 
     blockers.extend(required_checksum_present(record, "payload_checksum", line))
     if record.get("valid") is True:
         blockers.extend(required_string(record, "epoch_id", line))
+    if "ownership_id" in record or "ownership_record_checksum" in record:
+        blockers.extend(required_string(record, "ownership_id", line))
+        blockers.extend(required_checksum_present(record, "ownership_record_checksum", line))
     return blockers
 
 
@@ -670,6 +673,7 @@ def execution_run_record_audit_record(
 
 def execution_start_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
     repo = payload.get("repo") if isinstance(payload.get("repo"), dict) else {}
+    ownership = payload.get("ownership") if isinstance(payload.get("ownership"), dict) else {}
     record = {
         "event": "execution_start_decision",
         "action": payload.get("recommended_next_action"),
@@ -685,6 +689,8 @@ def execution_start_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
         "branch": repo.get("branch"),
         "head": repo.get("head"),
         "payload_checksum": checksum_json(payload),
+        "ownership_id": ownership.get("id"),
+        "ownership_record_checksum": checksum_json(ownership) if ownership else None,
     }
     return {key: value for key, value in record.items() if value is not None}
 

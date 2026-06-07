@@ -420,11 +420,12 @@ registry or record-file paths, id/path mismatches, future timestamp, or failed
 repo-inspection evidence still blocks with stable codes. Validation checks the
 selected target record for active status and repo/branch/task mismatch when
 requested. Duplicate active ownership is local evidence only. These records
-are not distributed locks, do not assign roles, do not schedule agents, do not
-write GitHub issues, and do not mutate execution-start or resume-continuation
-gates in this slice. The commands do not start epochs, invoke executors, create
-branches, commit, push, open or update PRs, merge, release, or publish
-packages.
+are not distributed locks, do not assign roles, do not schedule agents, and do
+not write GitHub issues. The ownership mutation commands do not start epochs,
+invoke executors, create branches, commit, push, open or update PRs, merge,
+release, or publish packages. `start-governed-execution` can deliberately
+consume a supplied active ownership record and bind its `epoch_id`; resume
+continuation remains a later ownership-enforcement slice.
 
 ## Handoff Signature
 
@@ -540,27 +541,48 @@ packet shape, including task-carried command and branch policy fields, requires
 an exact approval token shaped as
 `approve-executor-task:<task-packet-checksum>`, then rechecks the current repo
 path, branch, `HEAD`, dirty-worktree state, repo confidence, active brake, and
-active epoch state before mutating runtime state. A valid decision starts one
-active epoch with one task derived from the approved task packet and
-`max_tasks_per_epoch: 1`, emits `schema_version: execution-start.v1`, appends an
-`execution_start_decision` audit record, and reports `executor_started: false`
-plus `pr_action_started: false`. The approval token is checksum-bound review
+active epoch state before mutating runtime state. When `--ownership-target` is
+supplied, it then rechecks the active local `work-ownership.v1` record for task
+id, candidate id, role, claimer, repo, branch, `HEAD`, duplicate active
+ownership, freshness, malformed evidence, and registry path safety before
+epoch mutation. A valid decision starts one active epoch with one task derived
+from the approved task packet and `max_tasks_per_epoch: 1`, binds the started
+epoch id back to supplied ownership evidence when present, emits
+`schema_version: execution-start.v1`, appends an `execution_start_decision`
+audit record, and reports `executor_started: false` plus
+`pr_action_started: false`. The approval token is checksum-bound review
 evidence only; it is not an authenticated approver identity or permission to
 invoke a real executor.
 
 `execution-start.v1` packets include `read_only: false`, `valid`,
 `epoch_started`, `executor_started: false`, `approval_state`, `task_file`,
-`task_checksum`, repo and snapshot evidence, `blockers`,
-`recommended_next_action`, and `limitations`. Stable blocker codes include
+`task_checksum`, repo and snapshot evidence, optional `ownership` evidence,
+optional `side_effects`, `blockers`, `recommended_next_action`, and
+`limitations`. Ownership side effects are limited to
+`work_ownership_epoch_bound` and `work_ownership_epoch_binding_rollback`.
+Stable blocker codes include
 `task_file_unreadable`, `executor_task_invalid`, `operator_approval_missing`,
 `operator_approval_mismatch`, `repo_path_mismatch`,
 `repo_inspection_failed`, `repo_branch_mismatch`, `repo_head_mismatch`,
 `dirty_worktree`, `repo_confidence_low`, `brake_state_invalid`,
 `brake_not_drive`, `active_epoch_exists`, `active_epoch_invalid`,
-`epoch_start_failed`, `audit_append_failed`, and `epoch_rollback_failed`.
+`epoch_start_failed`, `audit_append_failed`, `epoch_rollback_failed`,
+`ownership_record_missing`, `ownership_closed`, `ownership_stale`,
+`duplicate_active_ownership`, `ownership_record_invalid`,
+`ownership_schema_unsupported`, `ownership_required_field_missing`,
+`ownership_field_type_invalid`, `ownership_record_unreadable`,
+`ownership_record_path_invalid`, `ownership_record_outside_registry`,
+`ownership_record_ambiguous`, `ownership_registry_state_invalid`,
+`ownership_repo_mismatch`, `ownership_branch_mismatch`,
+`ownership_task_mismatch`, `ownership_candidate_mismatch`,
+`ownership_role_mismatch`, `ownership_claimer_mismatch`,
+`ownership_head_mismatch`, `ownership_record_write_failed`, and
+`ownership_rollback_failed`.
 Recommendation values include `handoff_to_executor`,
 `fix_executor_task_packet`, `approve_executor_task`, `clear_brake`,
-`close_or_fail_active_epoch`, `inspect_runtime_state`, and
+`close_or_fail_active_epoch`, `claim_work_ownership`,
+`close_or_fail_active_ownership`, `repair_ownership_record`,
+`refresh_ownership_evidence`, `inspect_runtime_state`, and
 `recreate_executor_task`.
 
 The command must not launch a new session, invoke a real executor, modify code,
@@ -569,7 +591,12 @@ merge, release, or publish packages. Blocked packets must not intentionally
 leave an active epoch or append the success-only execution-start audit record.
 If audit append fails after epoch creation, the command must emit
 `audit_append_failed`; successful rollback reports `epoch_started: false`, and a
-failed rollback adds `epoch_rollback_failed` with active epoch evidence.
+failed rollback adds `epoch_rollback_failed` with active epoch evidence. If
+ownership was bound before the audit failure, successful rollback restores the
+active ownership record and emits `work_ownership_epoch_binding_rollback`;
+failed ownership rollback adds `ownership_rollback_failed`. Execution-start
+audit records include `ownership_id` and `ownership_record_checksum` when
+ownership evidence was supplied.
 
 Executor result evidence uses `schema_version: generic-executor-result.v1` and `packet: executor_result`. It must include executor id, start/end timestamps, status `succeeded`, `failed`, `blocked`, or `stopped`, files changed, commands run, validation results, summary, confidence, blockers, dirty-worktree status, and resulting head SHA for successful results. `validate-executor-result` reads a task packet and result evidence from local JSON files and emits an `executor_result_validation` packet. Successful evidence must include command and validation evidence, must show every task-packet `required_checks` entry in both `commands_run` with exit code `0` and `validation_results` with matching `command` and `status: passed`, and all validation results in successful evidence must pass. Result evidence must stay within the task packet's max runtime based on `started_at` and `ended_at`, and the supplied result file must match the task packet's absolute `expected_output.evidence_path`. Result evidence must respect disabled permissions: it rejects reported `git commit`, `git push`, `gh pr create`, `git merge`, `gh pr merge`, release, or package-publication invocations while those permissions are false, including absolute-path, common git/gh global-option, git shell-alias, compound-command, shell-grouping, command-substitution, and shell-wrapper forms, and it rejects head changes when commits are forbidden. Release and package-publication guards cover `gh release create`, `gh release upload`, mutating `git tag` forms such as tag creation or deletion while allowing read-only listing/verification, `twine upload`, Python launcher `-m twine upload` forms including `python`, `python3`, versioned `python3.x`, and `py`, plus `npm publish`, `pnpm publish`, `yarn publish`, `yarn npm publish`, option-bearing `poetry publish` and `uv publish`, `hatch publish`, and `flit publish`. Result evidence must also respect task `command_policy`: any effective command segment matching `denied_commands` is invalid, and when `allowed_commands` is non-empty every effective command segment from direct compound commands, shell grouping, command substitutions, and shell-wrapper payloads must match that allowlist. If otherwise-valid non-`stopped` evidence includes `brake_not_drive` in the task stop conditions, rootless validation is invalid with `recommended_next_action: provide_runtime_root` because the current brake cannot be checked. When a runtime root is supplied, `validate-executor-result` must apply the runtime-root safety guard for the command working directory, the runtime-root location itself, and the task repo when the task repo path is valid, then check the current brake before recording completion. If `brake_not_drive` is in the task stop conditions and the current brake is not `DRIVE`, non-`stopped` result evidence must be invalid with `recommended_next_action: stop_active_loop`; stopped result evidence remains the valid way to report that the executor honored the active stop. The command then appends a compact `executor_result_validation` audit record with the task id, repo, branch, head, validity, recommendation, reason, local evidence paths, payload checksum, task-packet checksum, and result-evidence checksum. Invalid evidence exits nonzero. It must not run an executor, modify files, commit, push, open PRs, spend review, merge, release, publish packages, or infer named-host support.
 

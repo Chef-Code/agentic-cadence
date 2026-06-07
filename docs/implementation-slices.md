@@ -49,7 +49,9 @@ emitted executor task packets, append decision/result-validation audit records,
 and replay local audit history with a read-only `audit-replay.v1` packet.
 Active execution controls are partial: `start-governed-execution` can consume
 an exactly approved generic executor task packet, recheck repo/policy/brake
-state, and start one active epoch while reporting `executor_started: false`;
+state and supplied local ownership evidence, bind matching active ownership to
+the started epoch, and start one active epoch while reporting
+`executor_started: false`;
 result validation enforces task-carried command policy and active brake stop
 evidence; `run-controlled-executor-fixture` can govern a fake external executor
 component in tests/examples and now writes local `execution-run.v1` records that
@@ -77,10 +79,12 @@ repo-mismatched target records. `claim-work-ownership`,
 `close-work-ownership`, and `fail-work-ownership` can create or move local
 ownership records after branch, `HEAD`, dirty-worktree, duplicate/stale
 ownership, malformed-record, and registry path-safety rechecks, then append
-replayable `work_ownership_mutation` audit evidence. Real
-executor invocation, autonomous branch/commit/push or PR creation, automatic
-session launch, distributed work ownership, role assignment, and continuous
-loop orchestration remain missing.
+replayable `work_ownership_mutation` audit evidence. Execution-start can bind
+matching active ownership records and append ownership checksums to
+`execution_start_decision` audit evidence. Real executor invocation,
+autonomous branch/commit/push or PR creation, automatic session launch,
+distributed work ownership, resume-continuation ownership enforcement, role
+assignment, and continuous loop orchestration remain missing.
 Current unattended-operation confidence remains 10%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
@@ -148,8 +152,9 @@ Current evidence:
 - `start-governed-execution` can consume a reviewed `generic-executor-task.v1`
   packet with an exact checksum approval token, recheck current repo path,
   branch, `HEAD`, dirty-worktree state, task-carried command and branch policy,
-  active brake, and active epoch state, then start one active epoch and emit
-  `execution-start.v1` with `executor_started: false`;
+  active brake, active epoch state, and supplied local ownership evidence, then
+  start one active epoch, bind matching active ownership to that epoch, and
+  emit `execution-start.v1` with `executor_started: false`;
 - `closeout-executor-result` can consume local task/result/snapshot-after
   packets, mark a successful task complete while the epoch remains active when
   other tasks remain, complete or fail terminal epochs, append closeout audit,
