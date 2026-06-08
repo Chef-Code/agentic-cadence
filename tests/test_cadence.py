@@ -9386,6 +9386,60 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertEqual(output["recommended_next_action"], "refresh_pr_evidence")
                     self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
 
+    def test_role_readiness_reports_readable_non_object_evidence_as_invalid(self):
+        cases = [
+            ("role-policy", "role_policy_invalid", "provide_role_policy"),
+            ("pr", "pr_evidence_invalid", "refresh_pr_evidence"),
+            ("review-threads", "review_thread_evidence_invalid", "refresh_pr_evidence"),
+        ]
+        for target, expected_code, expected_action in cases:
+            with self.subTest(target=target):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    branch = current_branch(repo)
+                    write_work_ownership(
+                        tmp,
+                        "ownership-builder",
+                        branch=branch,
+                        role="implementer",
+                        claimer="builder-agent",
+                        task_id="task-1",
+                    )
+                    policy_path, _policy = write_role_policy(Path(tmp) / "role-policy.json")
+                    pr_path, _pr = write_matching_role_pr_json(Path(tmp) / "pr.json", repo)
+                    review_threads_path, _threads = write_role_review_threads(
+                        Path(tmp) / "review-threads.json",
+                        role_review_threads(author="reviewer-agent"),
+                    )
+                    if target == "role-policy":
+                        policy_path.write_text("[]", encoding="utf-8")
+                    elif target == "pr":
+                        pr_path.write_text("[]", encoding="utf-8")
+                    else:
+                        review_threads_path.write_text("[]", encoding="utf-8")
+
+                    result, output = run_cli(
+                        tmp,
+                        "role-readiness",
+                        "--cwd",
+                        repo,
+                        "--repo",
+                        "local/test",
+                        "--task-id",
+                        "task-1",
+                        "--role-policy-file",
+                        str(policy_path),
+                        "--pr-json-file",
+                        str(pr_path),
+                        "--review-threads-file",
+                        str(review_threads_path),
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["recommended_next_action"], expected_action)
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+
     def test_role_readiness_blocks_mismatched_pr_repo_and_ownership_anchors(self):
         cases = [
             (

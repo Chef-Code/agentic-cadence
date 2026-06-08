@@ -27,7 +27,8 @@ def _read_json_object(path: Path, *, code: str, label: str) -> tuple[Any | None,
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         return None, [_issue(code, f"{label} could not be read: {exc}", path=str(path))]
     if not isinstance(payload, dict):
-        return None, [_issue(code, f"{label} must be a JSON object", path=str(path))]
+        invalid_code = code.replace("_unreadable", "_invalid") if code.endswith("_unreadable") else code
+        return None, [_issue(invalid_code, f"{label} must be a JSON object", path=str(path))]
     return payload, []
 
 
