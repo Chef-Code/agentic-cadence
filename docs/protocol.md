@@ -523,10 +523,13 @@ Recommended actions are limited to `use_role_readiness`,
 `inspect_role_readiness_blockers`.
 
 Resolved or outdated review-thread comments are ignored for reviewer evidence
-and cannot create same-claimer separation conflicts. `role-readiness` does not
-assign roles, schedule agents, invoke review agents or paid review, call
-GitHub, post comments, resolve review threads, update PRs, create branches,
-commit, push, merge, release, or publish packages.
+and cannot create same-claimer separation conflicts. Builder claimers that
+appear in otherwise actionable review-thread comments are reported under
+`ignored_builder_review_authors` and are not counted as reviewer evidence when
+an independent reviewer author is present. `role-readiness` does not assign
+roles, schedule agents, invoke review agents or paid review, call GitHub, post
+comments, resolve review threads, update PRs, create branches, commit, push,
+merge, release, or publish packages.
 
 ## Handoff Signature
 

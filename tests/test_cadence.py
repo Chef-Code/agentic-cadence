@@ -9137,6 +9137,62 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["review_evidence"]["actionable_review_authors"], ["reviewer-agent"])
             self.assertIn("does_not_call_github", output["limitations"])
 
+    def test_role_readiness_ignores_builder_replies_when_independent_reviewer_exists(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            branch = current_branch(repo)
+            write_work_ownership(
+                tmp,
+                "ownership-builder",
+                branch=branch,
+                role="implementer",
+                claimer="builder-agent",
+                task_id="task-1",
+            )
+            review_threads = role_review_threads(author="reviewer-agent", body="Please tighten this check.")
+            comments = review_threads["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"][0]["comments"][
+                "nodes"
+            ]
+            comments.append(
+                {
+                    "id": "comment-2",
+                    "path": "codex_cadence/roles.py",
+                    "line": 42,
+                    "outdated": False,
+                    "body": "Fixed in latest push.",
+                    "author": {"login": "builder-agent"},
+                }
+            )
+            policy_path, _policy = write_role_policy(Path(tmp) / "role-policy.json")
+            pr_path, _pr = write_matching_role_pr_json(Path(tmp) / "pr.json", repo)
+            review_threads_path, _threads = write_role_review_threads(
+                Path(tmp) / "review-threads.json",
+                review_threads,
+            )
+
+            result, output = run_cli(
+                tmp,
+                "role-readiness",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--task-id",
+                "task-1",
+                "--role-policy-file",
+                str(policy_path),
+                "--pr-json-file",
+                str(pr_path),
+                "--review-threads-file",
+                str(review_threads_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["review_evidence"]["actionable_review_authors"], ["reviewer-agent"])
+            self.assertEqual(output["review_evidence"]["ignored_builder_review_authors"], ["builder-agent"])
+            self.assertNotIn("review_separation_conflict", {blocker["code"] for blocker in output["blockers"]})
+
     def test_role_readiness_blocks_missing_policy_unknown_role_and_same_claimer_review(self):
         cases = [
             (

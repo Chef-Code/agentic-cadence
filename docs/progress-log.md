@@ -46,6 +46,8 @@ Summary:
   conflicts block with stable recommended next actions.
 - Resolved or outdated review-thread comments are ignored for separation
   conflicts.
+- Builder replies in otherwise actionable review threads are ignored as
+  reviewer evidence when independent reviewer evidence is present.
 
 Completed slices:
 - Task 16 current-branch implementation: role-policy and review-separation
@@ -61,8 +63,8 @@ Confidence change:
 
 Evidence:
 - `python -m py_compile codex_cadence/roles.py codex_cadence/ownership.py codex_cadence/pr_readiness.py codex_cadence/review_response.py codex_cadence/cli.py`
-- `python -m unittest tests.test_cadence.CadenceCliTests.test_role_readiness_accepts_separated_builder_and_review_evidence tests.test_cadence.CadenceCliTests.test_role_readiness_blocks_missing_policy_unknown_role_and_same_claimer_review tests.test_cadence.CadenceCliTests.test_role_readiness_blocks_stale_ownership_and_missing_builder_evidence tests.test_cadence.CadenceCliTests.test_role_readiness_forwards_duplicate_active_ownership tests.test_cadence.CadenceCliTests.test_role_readiness_blocks_pr_and_review_evidence_refresh_inputs tests.test_cadence.CadenceCliTests.test_role_readiness_reports_readable_non_object_evidence_as_invalid tests.test_cadence.CadenceCliTests.test_role_readiness_blocks_mismatched_pr_repo_and_ownership_anchors tests.test_cadence.CadenceCliTests.test_role_readiness_uses_default_ownership_freshness_window tests.test_cadence.CadenceCliTests.test_role_readiness_ignores_resolved_or_outdated_review_threads_for_separation_conflicts -v`
-- `python -m unittest tests.test_cadence tests.test_pr_readiness -v` (299 tests, 2 expected Windows symlink skips)
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_role_readiness_accepts_separated_builder_and_review_evidence tests.test_cadence.CadenceCliTests.test_role_readiness_ignores_builder_replies_when_independent_reviewer_exists tests.test_cadence.CadenceCliTests.test_role_readiness_blocks_missing_policy_unknown_role_and_same_claimer_review tests.test_cadence.CadenceCliTests.test_role_readiness_blocks_stale_ownership_and_missing_builder_evidence tests.test_cadence.CadenceCliTests.test_role_readiness_forwards_duplicate_active_ownership tests.test_cadence.CadenceCliTests.test_role_readiness_blocks_pr_and_review_evidence_refresh_inputs tests.test_cadence.CadenceCliTests.test_role_readiness_reports_readable_non_object_evidence_as_invalid tests.test_cadence.CadenceCliTests.test_role_readiness_blocks_mismatched_pr_repo_and_ownership_anchors tests.test_cadence.CadenceCliTests.test_role_readiness_uses_default_ownership_freshness_window tests.test_cadence.CadenceCliTests.test_role_readiness_ignores_resolved_or_outdated_review_threads_for_separation_conflicts -v`
+- `python -m unittest tests.test_cadence tests.test_pr_readiness -v` (300 tests, 2 expected Windows symlink skips)
 - `python scripts/validate_protocol.py`
 - `python scripts/ci_smoke.py`
 - `git diff --check`

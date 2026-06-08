@@ -538,15 +538,6 @@ def evaluate_role_readiness(
                 )
             )
 
-    review_findings, review_blockers = _current_actionable_review_findings(review_threads)
-    blockers.extend(review_blockers)
-    review_authors = sorted(
-        {
-            finding["author"]
-            for finding in review_findings
-            if isinstance(finding.get("author"), str) and finding.get("author")
-        }
-    )
     builder_records = [
         record
         for record in ownership_records
@@ -559,6 +550,17 @@ def evaluate_role_readiness(
             if isinstance(record.get("claimer"), str) and record.get("claimer")
         }
     )
+    review_findings, review_blockers = _current_actionable_review_findings(review_threads)
+    blockers.extend(review_blockers)
+    all_review_authors = sorted(
+        {
+            finding["author"]
+            for finding in review_findings
+            if isinstance(finding.get("author"), str) and finding.get("author")
+        }
+    )
+    builder_review_authors = sorted(set(builder_claimers) & set(all_review_authors))
+    review_authors = sorted(author for author in all_review_authors if author not in builder_claimers)
     if separation_required and policy is not None:
         if not builder_records:
             blockers.append(
@@ -569,20 +571,20 @@ def evaluate_role_readiness(
                 )
             )
         if not review_authors:
-            blockers.append(
-                _issue(
-                    "reviewer_evidence_missing",
-                    "current reviewer evidence is missing",
-                    reviewer_roles=sorted(reviewer_roles),
-                )
-            )
-        for claimer in builder_claimers:
-            if claimer in review_authors:
+            if builder_review_authors:
                 blockers.append(
                     _issue(
                         "review_separation_conflict",
                         "builder and reviewer evidence must come from different claimers",
-                        claimer=claimer,
+                        claimer=builder_review_authors[0],
+                    )
+                )
+            else:
+                blockers.append(
+                    _issue(
+                        "reviewer_evidence_missing",
+                        "current reviewer evidence is missing",
+                        reviewer_roles=sorted(reviewer_roles),
                     )
                 )
 
@@ -625,6 +627,7 @@ def evaluate_role_readiness(
             "checksum": checksum_json(review_threads) if review_threads is not None else None,
             "actionable_review_comments": len(review_findings),
             "actionable_review_authors": review_authors,
+            "ignored_builder_review_authors": builder_review_authors,
             "findings": [
                 {
                     "id": finding.get("id"),
