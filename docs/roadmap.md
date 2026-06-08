@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-08
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, and local work ownership claim/closeout evidence current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, and local work ownership claim/closeout evidence current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -75,7 +75,7 @@ local branch policy, read-only GitHub evidence sync, governed execution-start
 epoch gating, local execution-run evidence, operator-approved Git/PR
 materialization, read-only resume verification, ownership-aware read-only
 resume continuation, read-only review-response planning, local work ownership
-claim/closeout evidence, and read-only role-readiness evidence. It can
+claim/closeout evidence, read-only role-readiness evidence, and read-only executor-invocation-readiness evidence. It can
 materialize a reviewed Git/PR plan only through exact target-bound operator
 approval, and it can verify handoff pickup state before a fresh session
 continues, but it still cannot independently implement code, invoke a real
@@ -155,6 +155,11 @@ command-policy and active-stop controls. It includes:
   unresolved actionable review-thread comments, PR-body gaps, and optional
   candidate matches into bounded next-action recommendations without GitHub
   writes;
+- read-only `executor-invocation-readiness` packets that consume a reviewed
+  executor task packet, active epoch, active ownership evidence, task-carried
+  command and branch policy, required checks, expected result path, and optional
+  `role-readiness.v1` evidence to recommend `invoke_real_executor` without
+  starting an executor or reporting process metadata;
 - release dry-run checks that require operator confirmation before tag or
   release actions;
 - elected Codex Review GitHub workflow with preflight, dedupe, pinned action,

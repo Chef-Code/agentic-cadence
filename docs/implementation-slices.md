@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-08
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, and local work ownership claim/closeout evidence current tree
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, and local work ownership claim/closeout evidence current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -268,6 +268,13 @@ Current evidence:
 - disabled commit, push, PR-creation, merge, release, and package-publication
   permissions reject common absolute-path, git/gh global-option,
   shell-wrapper, release, and publish command forms;
+- `executor-invocation-readiness` emits read-only
+  `executor-invocation-readiness.v1` packets that recheck reviewed task,
+  active epoch id/status, active brake, repo path/branch/`HEAD`, clean
+  worktree, task checksum, active ownership binding, command and branch policy
+  shape, required checks, expected result path under
+  `<root>/executor-results`, and optional role-readiness evidence while
+  reporting `executor_started: false`;
 - no real executor or named host adapter exists.
 
 Why it matters: Cadence cannot implement work until execution is a formal,
@@ -303,6 +310,8 @@ Validation needed:
   snapshots;
 - done: disallowed changed path;
 - done: dirty successful result rejection;
+- done: read-only real executor invocation readiness preflight for matching
+  task, epoch, ownership, policy, result path, and optional role evidence;
 - remaining: real executor timeout behavior, real external executor invocation,
   branch/commit handling, and one-command loop integration.
 

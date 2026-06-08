@@ -531,6 +531,65 @@ roles, schedule agents, invoke review agents or paid review, call GitHub, post
 comments, resolve review threads, update PRs, create branches, commit, push,
 merge, release, or publish packages.
 
+## Executor Invocation Readiness
+
+`executor-invocation-readiness` is the read-only preflight packet before any
+future real executor invocation. It consumes a reviewed
+`generic-executor-task.v1` packet, active epoch evidence, active local
+ownership evidence, task-carried command and branch policy, required checks,
+an expected result path, and optional `role-readiness.v1` evidence:
+
+```bash
+agentic-cadence --root <runtime-root> executor-invocation-readiness --cwd . --task-file executor-task.json --epoch-id epoch-1 --ownership-target ownership-1 --expected-result-path <runtime-root>/executor-results/executor-result.json --role-readiness-file role-readiness.json
+```
+
+It emits an `executor-invocation-readiness.v1` packet shaped as:
+
+```json
+{
+  "protocol_version": "v1",
+  "schema_version": "executor-invocation-readiness.v1",
+  "packet": "executor_invocation_readiness",
+  "read_only": true,
+  "valid": false,
+  "executor_invocation_ready": false,
+  "executor_started": false,
+  "task": {"checksum": "sha256:...", "id": "candidate-1"},
+  "active_epoch": {"id": "epoch-1", "status": "ACTIVE"},
+  "ownership": {"id": "ownership-1", "epoch_id": "epoch-1"},
+  "role_readiness": {"present": true, "valid": true},
+  "blockers": [{"code": "task_checksum_mismatch", "message": "human readable"}],
+  "recommended_next_action": "refresh_task_evidence",
+  "side_effects": []
+}
+```
+
+Stable blocker codes include `task_file_unreadable`,
+`executor_task_invalid`, `repo_path_mismatch`, `repo_branch_mismatch`,
+`repo_head_mismatch`, `dirty_worktree`, `brake_state_invalid`,
+`brake_not_drive`, `active_epoch_missing`, `active_epoch_conflict`,
+`active_epoch_invalid`, `active_epoch_id_mismatch`,
+`active_epoch_status_invalid`, `active_epoch_repo_mismatch`,
+`active_epoch_branch_mismatch`, `active_epoch_task_missing`,
+`task_checksum_missing`, `task_checksum_mismatch`,
+`ownership_record_missing`, `ownership_record_unreadable`,
+`ownership_candidate_mismatch`, `ownership_epoch_mismatch`,
+`ownership_head_mismatch`, `duplicate_active_ownership`,
+`command_policy_invalid`, `branch_policy_invalid`,
+`required_checks_invalid`, `required_checks_missing`,
+`result_path_invalid`, `result_path_mismatch`,
+`result_path_outside_runtime`, `role_readiness_invalid`,
+`role_readiness_scope_mismatch`, and `role_readiness_blocked`.
+Ownership validation blockers from `validate-work-ownership` are forwarded.
+
+Recommended actions are limited to `invoke_real_executor`,
+`refresh_task_evidence`, `fix_ownership`, `close_or_fail_active_epoch`,
+`inspect_policy_blockers`, and `operator_review`. The success recommendation
+is only readiness evidence for a future orchestrator; this command does not
+start a real executor, emit executor process metadata, modify code, create
+branches, commit, push, open or update PRs, merge, release, publish packages,
+assign roles, schedule agents, or write GitHub state.
+
 ## Handoff Signature
 
 Draft marker:

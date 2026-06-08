@@ -301,6 +301,30 @@ def write_governed_execution_task(root, repo, task_packet=None):
     return task_path, packet, approval_token
 
 
+def write_executor_readiness_role_packet(path, task_packet, valid=True, **overrides):
+    data = {
+        "protocol_version": "v1",
+        "schema_version": "role-readiness.v1",
+        "packet": "role_readiness",
+        "read_only": True,
+        "side_effects": [],
+        "root": str(Path(path).parent),
+        "checked_at": "2999-05-22T00:00:00Z",
+        "valid": valid,
+        "role_ready": valid,
+        "recommended_next_action": "use_role_readiness" if valid else "provide_reviewer_evidence",
+        "blockers": [] if valid else [{"code": "reviewer_evidence_missing", "message": "reviewer missing"}],
+        "scope": {
+            "repo": task_packet["repo"]["name"],
+            "branch": task_packet["repo"]["branch"],
+            "task_id": task_packet["task"]["id"],
+        },
+    }
+    data.update(overrides)
+    Path(path).write_text(json.dumps(data), encoding="utf-8")
+    return Path(path), data
+
+
 def controlled_fixture_script() -> Path:
     return ROOT / "examples" / "controlled-executor-fixture" / "run.py"
 
@@ -3584,6 +3608,467 @@ class CadenceCliTests(unittest.TestCase):
             self.assertTrue(replay["valid"])
             self.assertEqual(replay["records_valid"], 0)
             self.assertEqual(replay["events_by_type"], {})
+
+    def test_executor_invocation_readiness_accepts_matching_epoch_ownership_and_role_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            status_result, _status = run_cli(tmp, "status")
+            self.assertEqual(status_result.returncode, 0, status_result.stderr)
+            task_path, task_packet, _approval_token = write_governed_execution_task(tmp, repo)
+            task_packet["expected_output"]["evidence_path"] = str(Path(tmp) / "executor-results" / "executor-result.json")
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+            task_checksum = checksum_json(task_packet)
+            epoch_path = write_active_epoch(
+                tmp,
+                "epoch-1",
+                valid_snapshot(
+                    repo="local/test",
+                    cwd=str(Path(repo).resolve()),
+                    branch=current_branch(repo),
+                    head=current_head(repo),
+                ),
+                tasks=[
+                    {
+                        "id": task_packet["task"]["id"],
+                        "task_type": "execution",
+                        "executor_task_checksum": task_checksum,
+                    }
+                ],
+            )
+            ownership_path, ownership_before = write_work_ownership(
+                tmp,
+                "ownership-1",
+                task_id=task_packet["task"]["id"],
+                candidate_id=task_packet["task"]["id"],
+                branch=current_branch(repo),
+                head=current_head(repo),
+                epoch_id="epoch-1",
+                handoff_id=None,
+            )
+            role_path, _role_packet = write_executor_readiness_role_packet(
+                Path(tmp) / "role-readiness.json",
+                task_packet,
+            )
+            epoch_before = json.loads(epoch_path.read_text(encoding="utf-8"))
+
+            result, output = run_cli(
+                tmp,
+                "executor-invocation-readiness",
+                "--cwd",
+                repo,
+                "--task-file",
+                str(task_path),
+                "--epoch-id",
+                "epoch-1",
+                "--ownership-target",
+                "ownership-1",
+                "--expected-result-path",
+                task_packet["expected_output"]["evidence_path"],
+                "--role-readiness-file",
+                str(role_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "executor-invocation-readiness.v1")
+            self.assertEqual(output["packet"], "executor_invocation_readiness")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"])
+            self.assertTrue(output["executor_invocation_ready"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(output["recommended_next_action"], "invoke_real_executor")
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(output["task"]["checksum"], task_checksum)
+            self.assertEqual(output["active_epoch"]["id"], "epoch-1")
+            self.assertEqual(output["ownership"]["id"], "ownership-1")
+            self.assertTrue(output["role_readiness"]["valid"])
+            self.assertNotIn("executor_pid", output)
+            self.assertEqual(json.loads(epoch_path.read_text(encoding="utf-8")), epoch_before)
+            self.assertEqual(json.loads(ownership_path.read_text(encoding="utf-8")), ownership_before)
+            self.assertEqual(audit_records(tmp), [])
+            self.assertEqual(current_head(repo), task_packet["repo"]["head"])
+
+    def test_executor_invocation_readiness_accepts_repo_subdirectory_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            status_result, _status = run_cli(tmp, "status")
+            self.assertEqual(status_result.returncode, 0, status_result.stderr)
+            subdir = Path(repo) / "src"
+            subdir.mkdir()
+            task_path, task_packet, _approval_token = write_governed_execution_task(tmp, repo)
+            task_packet["expected_output"]["evidence_path"] = str(Path(tmp) / "executor-results" / "executor-result.json")
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+            write_active_epoch(
+                tmp,
+                "epoch-1",
+                valid_snapshot(
+                    repo="local/test",
+                    cwd=str(Path(repo).resolve()),
+                    branch=current_branch(repo),
+                    head=current_head(repo),
+                ),
+                tasks=[
+                    {
+                        "id": task_packet["task"]["id"],
+                        "task_type": "execution",
+                        "executor_task_checksum": checksum_json(task_packet),
+                    }
+                ],
+            )
+            write_work_ownership(
+                tmp,
+                "ownership-1",
+                task_id=task_packet["task"]["id"],
+                candidate_id=task_packet["task"]["id"],
+                branch=current_branch(repo),
+                head=current_head(repo),
+                epoch_id="epoch-1",
+                handoff_id=None,
+            )
+
+            result, output = run_cli(
+                tmp,
+                "executor-invocation-readiness",
+                "--cwd",
+                str(subdir),
+                "--task-file",
+                str(task_path),
+                "--epoch-id",
+                "epoch-1",
+                "--ownership-target",
+                "ownership-1",
+                "--expected-result-path",
+                task_packet["expected_output"]["evidence_path"],
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "invoke_real_executor")
+            self.assertEqual(output["repository"]["requested_cwd"], str(subdir.resolve()))
+            self.assertEqual(output["repository"]["cwd"], str(Path(repo).resolve()))
+
+    def test_executor_invocation_readiness_blocks_unready_inputs_without_side_effects(self):
+        cases = [
+            (
+                "missing-ownership",
+                lambda tmp, repo, task_path, task_packet: {
+                    "args": ["--ownership-target", "missing-ownership"],
+                    "expected_code": "ownership_record_missing",
+                    "expected_action": "fix_ownership",
+                },
+            ),
+            (
+                "dirty-worktree",
+                lambda tmp, repo, task_path, task_packet: (
+                    (Path(repo) / "README.md").write_text("dirty before real executor readiness\n", encoding="utf-8"),
+                    {
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "dirty_worktree",
+                        "expected_action": "operator_review",
+                    },
+                )[1],
+            ),
+            (
+                "non-drive-brake",
+                lambda tmp, repo, task_path, task_packet: (
+                    run_cli(tmp, "set-brake", "PARK", "--reason", "operator stop"),
+                    {
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "brake_not_drive",
+                        "expected_action": "operator_review",
+                    },
+                )[1],
+            ),
+            (
+                "task-checksum-mismatch",
+                lambda tmp, repo, task_path, task_packet: (
+                    write_active_epoch(
+                        tmp,
+                        "epoch-1",
+                        valid_snapshot(
+                            repo="local/test",
+                            cwd=str(Path(repo).resolve()),
+                            branch=current_branch(repo),
+                            head=current_head(repo),
+                        ),
+                        tasks=[
+                            {
+                                "id": task_packet["task"]["id"],
+                                "task_type": "execution",
+                                "executor_task_checksum": "sha256:" + "0" * 64,
+                            }
+                        ],
+                    ),
+                    {
+                        "skip_epoch": True,
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "task_checksum_mismatch",
+                        "expected_action": "refresh_task_evidence",
+                    },
+                )[1],
+            ),
+            (
+                "missing-active-epoch",
+                lambda tmp, repo, task_path, task_packet: (
+                    (Path(tmp) / "epochs" / "active" / "epoch-1.json").unlink(),
+                    {
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "active_epoch_missing",
+                        "expected_action": "close_or_fail_active_epoch",
+                    },
+                )[1],
+            ),
+            (
+                "invalid-result-path",
+                lambda tmp, repo, task_path, task_packet: {
+                    "args": [
+                        "--ownership-target",
+                        "ownership-1",
+                        "--expected-result-path",
+                        str(Path(repo) / "executor-result.json"),
+                    ],
+                    "expected_code": "result_path_outside_runtime",
+                    "expected_action": "inspect_policy_blockers",
+                },
+            ),
+            (
+                "malformed-command-policy",
+                lambda tmp, repo, task_path, task_packet: (
+                    task_packet.update({"command_policy": []}),
+                    task_path.write_text(json.dumps(task_packet), encoding="utf-8"),
+                    {
+                        "rewrite_epoch_checksum": True,
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "command_policy_invalid",
+                        "expected_action": "inspect_policy_blockers",
+                    },
+                )[2],
+            ),
+            (
+                "missing-branch-policy",
+                lambda tmp, repo, task_path, task_packet: (
+                    task_packet.pop("branch_policy"),
+                    task_path.write_text(json.dumps(task_packet), encoding="utf-8"),
+                    {
+                        "rewrite_epoch_checksum": True,
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "branch_policy_invalid",
+                        "expected_action": "inspect_policy_blockers",
+                    },
+                )[2],
+            ),
+            (
+                "required-checks-missing",
+                lambda tmp, repo, task_path, task_packet: (
+                    task_packet.update({"required_checks": []}),
+                    task_path.write_text(json.dumps(task_packet), encoding="utf-8"),
+                    {
+                        "rewrite_epoch_checksum": True,
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "required_checks_missing",
+                        "expected_action": "inspect_policy_blockers",
+                    },
+                )[2],
+            ),
+            (
+                "non-object-task-json",
+                lambda tmp, repo, task_path, task_packet: (
+                    task_path.write_text(json.dumps(["not", "a", "packet"]), encoding="utf-8"),
+                    {
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "executor_task_invalid",
+                        "expected_action": "refresh_task_evidence",
+                    },
+                )[1],
+            ),
+            (
+                "failed-role-readiness",
+                lambda tmp, repo, task_path, task_packet: (
+                    write_executor_readiness_role_packet(
+                        Path(tmp) / "role-readiness.json",
+                        task_packet,
+                        valid=False,
+                    ),
+                    {
+                        "args": [
+                            "--ownership-target",
+                            "ownership-1",
+                            "--role-readiness-file",
+                            str(Path(tmp) / "role-readiness.json"),
+                        ],
+                        "expected_code": "role_readiness_blocked",
+                        "expected_action": "operator_review",
+                    },
+                )[1],
+            ),
+            (
+                "missing-role-scope",
+                lambda tmp, repo, task_path, task_packet: (
+                    write_executor_readiness_role_packet(
+                        Path(tmp) / "role-readiness.json",
+                        task_packet,
+                        scope={},
+                    ),
+                    {
+                        "args": [
+                            "--ownership-target",
+                            "ownership-1",
+                            "--role-readiness-file",
+                            str(Path(tmp) / "role-readiness.json"),
+                        ],
+                        "expected_code": "role_readiness_scope_mismatch",
+                        "expected_action": "operator_review",
+                    },
+                )[1],
+            ),
+        ]
+        for name, setup_case in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    status_result, _status = run_cli(tmp, "status")
+                    self.assertEqual(status_result.returncode, 0, status_result.stderr)
+                    task_path, task_packet, _approval_token = write_governed_execution_task(tmp, repo)
+                    task_packet["expected_output"]["evidence_path"] = str(Path(tmp) / "executor-results" / "executor-result.json")
+                    task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+                    if name != "task-checksum-mismatch":
+                        write_active_epoch(
+                            tmp,
+                            "epoch-1",
+                            valid_snapshot(
+                                repo="local/test",
+                                cwd=str(Path(repo).resolve()),
+                                branch=current_branch(repo),
+                                head=current_head(repo),
+                            ),
+                            tasks=[
+                                {
+                                    "id": task_packet["task"]["id"],
+                                    "task_type": "execution",
+                                    "executor_task_checksum": checksum_json(task_packet),
+                                }
+                            ],
+                        )
+                    write_work_ownership(
+                        tmp,
+                        "ownership-1",
+                        task_id=task_packet["task"]["id"],
+                        candidate_id=task_packet["task"]["id"],
+                        branch=current_branch(repo),
+                        head=current_head(repo),
+                        epoch_id="epoch-1",
+                        handoff_id=None,
+                    )
+                    case = setup_case(tmp, repo, task_path, task_packet)
+                    if case.get("rewrite_epoch_checksum"):
+                        epoch_file = Path(tmp) / "epochs" / "active" / "epoch-1.json"
+                        epoch = json.loads(epoch_file.read_text(encoding="utf-8"))
+                        epoch["tasks"][0]["executor_task_checksum"] = checksum_json(task_packet)
+                        epoch_file.write_text(json.dumps(epoch), encoding="utf-8")
+                    epoch_files_before = {
+                        path.name: path.read_text(encoding="utf-8")
+                        for path in (Path(tmp) / "epochs" / "active").glob("*.json")
+                    }
+                    ownership_files_before = {
+                        path.name: path.read_text(encoding="utf-8")
+                        for path in (Path(tmp) / "work-ownership" / "active").glob("*.json")
+                    }
+                    args = [
+                        "executor-invocation-readiness",
+                        "--cwd",
+                        repo,
+                        "--task-file",
+                        str(task_path),
+                        "--epoch-id",
+                        "epoch-1",
+                        "--expected-result-path",
+                        task_packet["expected_output"]["evidence_path"],
+                    ]
+                    args.extend(case["args"])
+
+                    result, output = run_cli(tmp, *args)
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertFalse(output["executor_invocation_ready"])
+                    self.assertFalse(output["executor_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertEqual(output["recommended_next_action"], case["expected_action"])
+                    self.assertIn(case["expected_code"], {blocker["code"] for blocker in output["blockers"]})
+                    epoch_files_after = {
+                        path.name: path.read_text(encoding="utf-8")
+                        for path in (Path(tmp) / "epochs" / "active").glob("*.json")
+                    }
+                    ownership_files_after = {
+                        path.name: path.read_text(encoding="utf-8")
+                        for path in (Path(tmp) / "work-ownership" / "active").glob("*.json")
+                    }
+                    self.assertEqual(epoch_files_after, epoch_files_before)
+                    self.assertEqual(ownership_files_after, ownership_files_before)
+                    self.assertEqual(audit_records(tmp), [])
+
+    def test_executor_invocation_readiness_blocks_symlinked_result_directory(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            status_result, _status = run_cli(tmp, "status")
+            self.assertEqual(status_result.returncode, 0, status_result.stderr)
+            outside_results = Path(tmp) / "outside-results"
+            outside_results.mkdir()
+            result_dir = Path(tmp) / "executor-results"
+            try:
+                os.symlink(outside_results, result_dir, target_is_directory=True)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"directory symlink unavailable: {exc}")
+            task_path, task_packet, _approval_token = write_governed_execution_task(tmp, repo)
+            task_packet["expected_output"]["evidence_path"] = str(result_dir / "executor-result.json")
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+            write_active_epoch(
+                tmp,
+                "epoch-1",
+                valid_snapshot(
+                    repo="local/test",
+                    cwd=str(Path(repo).resolve()),
+                    branch=current_branch(repo),
+                    head=current_head(repo),
+                ),
+                tasks=[
+                    {
+                        "id": task_packet["task"]["id"],
+                        "task_type": "execution",
+                        "executor_task_checksum": checksum_json(task_packet),
+                    }
+                ],
+            )
+            write_work_ownership(
+                tmp,
+                "ownership-1",
+                task_id=task_packet["task"]["id"],
+                candidate_id=task_packet["task"]["id"],
+                branch=current_branch(repo),
+                head=current_head(repo),
+                epoch_id="epoch-1",
+                handoff_id=None,
+            )
+
+            result, output = run_cli(
+                tmp,
+                "executor-invocation-readiness",
+                "--cwd",
+                repo,
+                "--task-file",
+                str(task_path),
+                "--epoch-id",
+                "epoch-1",
+                "--ownership-target",
+                "ownership-1",
+                "--expected-result-path",
+                task_packet["expected_output"]["evidence_path"],
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("result_path_outside_runtime", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(output["side_effects"], [])
 
     def test_loop_tick_policy_file_bounds_executor_task_packet(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

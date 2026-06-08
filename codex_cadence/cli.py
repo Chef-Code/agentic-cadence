@@ -25,6 +25,7 @@ from codex_cadence.executor_contract import (
     validate_executor_result_evidence,
     validate_executor_task_packet,
 )
+from codex_cadence.executor_readiness import evaluate_executor_invocation_readiness
 from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.git_pr_plan import (
     evaluate_git_pr_plan,
@@ -2315,6 +2316,21 @@ def role_readiness_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 2
 
 
+def executor_invocation_readiness_command(args: argparse.Namespace) -> int:
+    payload = evaluate_executor_invocation_readiness(
+        root=args.root,
+        cwd=Path(args.cwd),
+        task_file=Path(args.task_file),
+        epoch_id=args.epoch_id,
+        ownership_target=args.ownership_target,
+        expected_result_path=args.expected_result_path,
+        role_readiness_file=Path(args.role_readiness_file) if args.role_readiness_file else None,
+        max_ownership_age_minutes=args.max_ownership_age_minutes,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 2
+
+
 def github_evidence_out_dir_safety_issue(out_dir: Path) -> str | None:
     target = out_dir.expanduser().resolve(strict=False)
     cwd_repo_root = git_repo_root(Path.cwd())
@@ -2661,6 +2677,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
     )
     role_readiness_parser.set_defaults(func=role_readiness_command, requires_root=True)
+
+    executor_readiness_parser = subparsers.add_parser(
+        "executor-invocation-readiness",
+        help="Read-only preflight for future real executor invocation",
+    )
+    executor_readiness_parser.add_argument("--cwd", default=".")
+    executor_readiness_parser.add_argument("--task-file", required=True)
+    executor_readiness_parser.add_argument("--epoch-id", required=True)
+    executor_readiness_parser.add_argument("--ownership-target")
+    executor_readiness_parser.add_argument("--expected-result-path", required=True)
+    executor_readiness_parser.add_argument("--role-readiness-file")
+    executor_readiness_parser.add_argument(
+        "--max-ownership-age-minutes",
+        type=non_negative_int,
+        default=DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+    )
+    executor_readiness_parser.set_defaults(func=executor_invocation_readiness_command, requires_root=True)
 
     github_evidence_parser = subparsers.add_parser(
         "github-evidence-sync",
