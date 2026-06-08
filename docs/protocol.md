@@ -454,6 +454,83 @@ consume a supplied active ownership record and bind its `epoch_id`;
 `resume-continuation` can deliberately consume supplied active ownership
 evidence without mutating ownership or starting an epoch.
 
+## Role Policy And Readiness
+
+`role-policy.v1` is a local JSON policy packet that defines allowed ownership
+role labels, bounded role capabilities, and review-separation requirements
+before any future role assignment or agent-pool scheduler exists. A minimal
+policy is:
+
+```json
+{
+  "schema_version": "role-policy.v1",
+  "roles": [
+    {"role": "implementer", "capabilities": ["build", "modify_files"]},
+    {"role": "reviewer", "capabilities": ["review", "comment"]}
+  ],
+  "review_separation": {
+    "required": true,
+    "builder_roles": ["implementer"],
+    "reviewer_roles": ["reviewer"]
+  }
+}
+```
+
+The read-only role gate consumes local ownership records plus saved PR and
+review-thread evidence:
+
+```bash
+agentic-cadence --root <runtime-root> role-readiness --cwd . --repo owner/repo --task-id task-1 --role-policy-file role-policy.json --pr-json-file pr.json --review-threads-file review-threads.json
+```
+
+It emits a `role-readiness.v1` packet shaped as:
+
+```json
+{
+  "protocol_version": "v1",
+  "schema_version": "role-readiness.v1",
+  "packet": "role_readiness",
+  "read_only": true,
+  "valid": false,
+  "role_ready": false,
+  "role_policy": {"schema_version": "role-policy.v1", "allowed_roles": []},
+  "ownership": {"counts": {"active": 1}, "records": []},
+  "review_evidence": {"actionable_review_authors": []},
+  "role_summary": {"builder_claimers": [], "reviewer_claimers": []},
+  "blockers": [{"code": "reviewer_evidence_missing", "message": "human readable"}],
+  "recommended_next_action": "provide_reviewer_evidence",
+  "side_effects": []
+}
+```
+
+Stable role-readiness blocker codes include `role_policy_missing`,
+`role_policy_unreadable`, `role_policy_schema_unsupported`,
+`role_policy_invalid`, `pr_evidence_missing`, `pr_evidence_unreadable`,
+`pr_evidence_invalid`, `pr_branch_mismatch`, `pr_head_mismatch`,
+`pr_number_mismatch`, `review_thread_evidence_invalid`,
+`ownership_role_unknown`, `builder_ownership_missing`,
+`reviewer_evidence_missing`, and `review_separation_conflict`. Ownership and
+repo blockers from
+`work-ownership-status` are forwarded, including `ownership_stale`,
+`ownership_head_mismatch`, `duplicate_active_ownership`,
+`ownership_record_invalid`, `ownership_registry_state_invalid`,
+`repo_branch_mismatch`, and `repo_inspection_failed`.
+Recommended actions are limited to `use_role_readiness`,
+`provide_role_policy`, `fix_role_policy_or_ownership`,
+`refresh_ownership_evidence`, `claim_work_ownership`,
+`provide_reviewer_evidence`, `assign_independent_reviewer`,
+`refresh_pr_evidence`, `inspect_repo_state`, and
+`inspect_role_readiness_blockers`.
+
+Resolved or outdated review-thread comments are ignored for reviewer evidence
+and cannot create same-claimer separation conflicts. Builder claimers that
+appear in otherwise actionable review-thread comments are reported under
+`ignored_builder_review_authors` and are not counted as reviewer evidence when
+an independent reviewer author is present. `role-readiness` does not assign
+roles, schedule agents, invoke review agents or paid review, call GitHub, post
+comments, resolve review threads, update PRs, create branches, commit, push,
+merge, release, or publish packages.
+
 ## Handoff Signature
 
 Draft marker:

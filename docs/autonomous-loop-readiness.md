@@ -1,8 +1,8 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-06-06
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, and local work ownership claim/closeout evidence current tree
+Last updated: 2026-06-07
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, and local work ownership claim/closeout evidence current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -187,7 +187,7 @@ Agentic Cadence cannot currently:
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
 | Single loop tick | Partial, read-only | `loop-tick` emits next action and stops before execution |
 | Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, task-carried branch policy, active brake stop handling, governed execution-start audit, local `execution-run.v1` records, `<root>/audit/events.jsonl`, and read-only `audit-replay`; no hash chain or authenticated approval identity |
-| Agent-team orchestration | Not built | No agent pool, role registry, or GitHub-native assignment workflow |
+| Agent-team orchestration | Partial read-only evidence | `role-readiness` can verify local `role-policy.v1`, scoped ownership role labels, and saved review-thread separation evidence; no agent pool, role assignment, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
 | Executor adapter contract | Partial generic contract | Task/result packet validation, a fake controlled fixture runner, and supplied-run-record closeout binding exist, including snapshot trust-anchor checks, but no real executor or named host adapter |
 | Autonomous implementation | Not built | Requires real executor integration |
@@ -283,8 +283,9 @@ The next likely failures are:
    implements fixes, posts comments, resolves review threads, or writes PR
    updates;
 5. context pressure is only known when a host explicitly reports it;
-6. no agent-role identity or review-separation model exists, so Cadence cannot
-   prove that a Builder Agent and Reviewer Agent are distinct actors;
+6. `role-readiness` can prove local builder/reviewer separation from saved
+   evidence, but no authenticated role identity, assignment workflow, or
+   agent-pool scheduler exists;
 7. CLI root-using commands now block unignored repo-local runtime roots unless
    an operator explicitly allows them; residual risk remains for manual
    filesystem changes or future adapters that bypass the CLI guard.

@@ -1,8 +1,8 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-06-06
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, and local work ownership claim/closeout evidence current tree
+Last updated: 2026-06-07
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, and local work ownership claim/closeout evidence current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -83,7 +83,10 @@ replayable `work_ownership_mutation` audit evidence. Execution-start can bind
 matching active ownership records and append ownership checksums to
 `execution_start_decision` audit evidence. Resume-continuation can recheck
 supplied active ownership evidence for the resumed handoff/task, role, claimer,
-repo, branch, and `HEAD` before recommending governed execution start. Real executor invocation,
+repo, branch, and `HEAD` before recommending governed execution start.
+`role-readiness` can consume `role-policy.v1`, local ownership records, saved
+PR JSON, and saved review-thread evidence to verify allowed ownership roles and
+builder/reviewer separation without GitHub writes. Real executor invocation,
 autonomous branch/commit/push or PR creation, automatic session launch,
 distributed work ownership, role assignment, and continuous loop orchestration
 remain missing.
@@ -162,6 +165,10 @@ Current evidence:
   `start_governed_execution`, `claim_work_ownership`,
   `refresh_ownership_evidence`, `close_or_fail_active_ownership`, or
   `inspect_resume_blockers` without mutating runtime state;
+- `role-readiness` emits a read-only `role-readiness.v1` packet from local
+  role policy, ownership, saved PR JSON, and saved review-thread evidence,
+  blocking missing policy, unknown roles, stale ownership, missing builder or
+  reviewer evidence, and same-claimer review conflicts;
 - `closeout-executor-result` can consume local task/result/snapshot-after
   packets, mark a successful task complete while the epoch remains active when
   other tasks remain, complete or fail terminal epochs, append closeout audit,
@@ -416,6 +423,8 @@ Validation needed:
 - stop brake during active loop: complete for Phase 1;
 - resume verifier gate and blocker taxonomy: complete for Phase 1;
 - resume-continuation bridge and blocker taxonomy: complete for Phase 2;
+- role-readiness evidence and blocker taxonomy: complete for Phase 5
+  preparation;
 - audit append ordering;
 - audit replay summary and corrupted audit record handling: complete for Phase
   1 local JSONL records.

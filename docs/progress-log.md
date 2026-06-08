@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-06
+Last updated: 2026-06-07
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,59 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-07 - Add role-readiness evidence
+
+Summary:
+- Added a local `role-policy.v1` shape and read-only `role-readiness` command.
+- `role-readiness.v1` consumes local ownership status, saved PR JSON, and saved
+  review-thread evidence to verify allowed ownership role labels and
+  builder/reviewer separation.
+- Missing or malformed policy, missing or mismatched PR evidence, unknown
+  ownership roles, duplicate or stale ownership, stale ownership heads, missing
+  builder ownership, missing reviewer evidence, and same-claimer review
+  conflicts block with stable recommended next actions.
+- Resolved or outdated review-thread comments are ignored for separation
+  conflicts.
+- Builder replies in otherwise actionable review threads are ignored as
+  reviewer evidence when independent reviewer evidence is present.
+
+Completed slices:
+- Task 16 current-branch implementation: role-policy and review-separation
+  readiness evidence.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Role/readiness evidence closes one orchestration-preparation gap, but
+  real executor invocation, autonomous Git/PR writes, role assignment, agent
+  pools, distributed locks, merge, release, and package publication remain
+  future work.
+
+Evidence:
+- `python -m py_compile codex_cadence/roles.py codex_cadence/ownership.py codex_cadence/pr_readiness.py codex_cadence/review_response.py codex_cadence/cli.py`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_role_readiness_accepts_separated_builder_and_review_evidence tests.test_cadence.CadenceCliTests.test_role_readiness_ignores_builder_replies_when_independent_reviewer_exists tests.test_cadence.CadenceCliTests.test_role_readiness_blocks_missing_policy_unknown_role_and_same_claimer_review tests.test_cadence.CadenceCliTests.test_role_readiness_blocks_stale_ownership_and_missing_builder_evidence tests.test_cadence.CadenceCliTests.test_role_readiness_forwards_duplicate_active_ownership tests.test_cadence.CadenceCliTests.test_role_readiness_blocks_pr_and_review_evidence_refresh_inputs tests.test_cadence.CadenceCliTests.test_role_readiness_reports_readable_non_object_evidence_as_invalid tests.test_cadence.CadenceCliTests.test_role_readiness_blocks_mismatched_pr_repo_and_ownership_anchors tests.test_cadence.CadenceCliTests.test_role_readiness_uses_default_ownership_freshness_window tests.test_cadence.CadenceCliTests.test_role_readiness_ignores_resolved_or_outdated_review_threads_for_separation_conflicts -v`
+- `python -m unittest tests.test_cadence tests.test_pr_readiness -v` (300 tests, 2 expected Windows symlink skips)
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- Reviewer evidence currently comes from saved actionable review-thread
+  authors; explicit approval-review author evidence remains future work.
+- Role readiness is evidence only, not role assignment, authenticated identity,
+  agent-pool scheduling, or distributed locking.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/agent-team-orchestration.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
 
 ## 2026-06-06 - Bind work ownership to resume continuation
 

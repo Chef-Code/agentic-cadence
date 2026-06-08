@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-06-06
+Last updated: 2026-06-07
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption
@@ -27,6 +27,45 @@ Consequences:
 Open questions:
 - Remaining unknowns.
 ```
+
+## 2026-06-07 - Add local role-readiness evidence before role assignment
+
+Decision:
+- Add a local `role-policy.v1` shape and read-only `role-readiness` command
+  before any role assignment, agent-pool scheduling, or paid review workflow.
+- Treat saved review-thread evidence as reviewer evidence only when comments
+  are current, unresolved, and actionable; resolved or outdated comments cannot
+  create same-claimer separation conflicts.
+- Keep the command local and read-only: it emits `role-readiness.v1` packets
+  with stable blockers and `side_effects: []`, but does not call GitHub or
+  mutate PR, branch, ownership, role, merge, release, or package state.
+
+Why:
+- Ownership records already carry role labels, but those labels need a policy
+  packet before future orchestration can depend on them.
+- Real unattended operation needs proof that builder and reviewer evidence are
+  separated before Cadence considers real executor invocation readiness.
+
+Alternatives considered:
+- Assign roles or schedule reviewer agents immediately. Rejected because Task
+  16 is evidence-only and no role registry, agent pool, or identity authority
+  exists.
+- Treat any historical review thread as reviewer evidence. Rejected because
+  resolved or outdated comments should not block or falsely satisfy current
+  review separation.
+
+Consequences:
+- Future readiness gates can consume `role-readiness.v1` rather than inferring
+  role policy from raw ownership or review-thread data.
+- Role assignment, authenticated identities, distributed locks, GitHub issue
+  assignment, real executor invocation, autonomous Git/PR writes, merge,
+  release, and publication remain future work.
+
+Open questions:
+- Should future role readiness consume explicit approval-review evidence in
+  addition to actionable review-thread authors?
+- Should `role-readiness.v1` become a required input to future real executor
+  invocation readiness?
 
 ## 2026-06-06 - Bind resume continuation to supplied local ownership
 
