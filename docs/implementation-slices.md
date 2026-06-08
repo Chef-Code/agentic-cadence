@@ -1,7 +1,7 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-06-07
+Last updated: 2026-06-08
 Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, and local work ownership claim/closeout evidence current tree
 
 This document tracks the smallest implementation slices expected to move
@@ -15,7 +15,7 @@ Each slice should ship with tests, evidence, and updates to the living docs.
 ## Current Working Baseline
 
 The five 50% confidence slices below remain the framework for a controlled
-loop. Tasks 1-10 completed several local governance increments inside those
+loop. Tasks 1-16 completed several local governance increments inside those
 slices, but the controlled loop is still incomplete. Three smaller
 stabilization slices are now part of this baseline:
 
@@ -93,10 +93,10 @@ remain missing.
 Current unattended-operation confidence remains 10%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete, and Tasks 8-12 from
-`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete in the current
-tree. The next bounded roadmap is
-`docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`.
+complete, Tasks 8-12 from
+`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete, and Tasks
+13-16 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in
+the current tree. Task 17 from that roadmap is the next bounded slice.
 
 ## Vision Framing
 

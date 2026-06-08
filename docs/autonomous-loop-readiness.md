@@ -1,7 +1,7 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-06-07
+Last updated: 2026-06-08
 Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, and local work ownership claim/closeout evidence current tree
 Current unattended-operation confidence: 10%
 
@@ -135,6 +135,9 @@ runtime can do these things end-to-end:
 - bind supplied matching active ownership to read-only resume continuation
   through `resume-continuation --ownership-target` without mutating ownership,
   starting an epoch, or invoking an executor.
+- verify local role policy and builder/reviewer separation with read-only
+  `role-readiness.v1` packets from `role-policy.v1`, local ownership status,
+  saved PR JSON, and saved review-thread evidence.
 
 These capabilities are still single-agent Phase 1 primitives, but they are not
 throwaway work. They are the same primitives a future orchestrator needs for
@@ -160,7 +163,7 @@ Agentic Cadence cannot currently:
 - decompose work across an agent pool;
 - assign role-specific agents such as Planning, Architecture, Builder,
   Reviewer, QA, Documentation, Release, or Handoff agents;
-- enforce that the reviewer is separate from the builder;
+- assign or enforce authenticated reviewer identity separate from the builder;
 - autonomously create a branch;
 - commit dirty-worktree changes;
 - autonomously push to a remote;

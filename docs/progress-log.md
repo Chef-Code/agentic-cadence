@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-07
+Last updated: 2026-06-08
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -33,6 +33,51 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-08 - Refresh handoff after Task 16
+
+Summary:
+- Refreshed the current handoff and living roadmap docs after PR #82 merged
+  Task 16 into `main`.
+- Marked Tasks 13-16 from
+  `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` as complete in `main`.
+- Identified Task 17, read-only real executor invocation readiness planning,
+  as the next implementation slice.
+
+Completed slices:
+- Documentation and handoff preparation after Task 16.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Documentation now matches the merged role-readiness baseline, but
+  real executor invocation, autonomous implementation, role assignment, agent
+  pools, distributed locks, autonomous Git/PR writes, merge, release, and
+  package publication remain future work.
+
+Evidence:
+- PR #82 merged as `9dc8cb18f4acc093d11eda146767bf8963cb0509`.
+- `python -m py_compile scripts/validate_protocol.py`
+- `python -m unittest tests.test_ci_checks tests.test_candidates -v` (134 tests, 2 expected Windows symlink skips)
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- None beyond the existing Task 17 real-executor readiness gap and later
+  real executor invocation, autonomous implementation, GitHub write-side
+  orchestration, merge, release, and package publication gaps.
+
+Docs updated:
+- `docs/session-handoff.md`
+- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/agent-team-orchestration.md`
+- `docs/cadence/business-memory.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
 ## 2026-06-07 - Add role-readiness evidence
 
 Summary:
@@ -50,8 +95,8 @@ Summary:
   reviewer evidence when independent reviewer evidence is present.
 
 Completed slices:
-- Task 16 current-branch implementation: role-policy and review-separation
-  readiness evidence.
+- Task 16 merged in PR #82: role-policy and review-separation readiness
+  evidence.
 
 Confidence change:
 - Previous: 10%
@@ -100,8 +145,7 @@ Summary:
   invoke an executor, or write Git/PR state.
 
 Completed slices:
-- Task 15 current-branch implementation: work-ownership-bound resume
-  continuation.
+- Task 15 merged in PR #81: work-ownership-bound resume continuation.
 
 Confidence change:
 - Previous: 10%
@@ -157,8 +201,7 @@ Summary:
   failure restores both the active epoch and ownership binding.
 
 Completed slices:
-- Task 14 current-tree implementation: work-ownership-bound governed execution
-  start.
+- Task 14 merged in PR #80: work-ownership-bound governed execution start.
 
 Confidence change:
 - Previous: 10%
@@ -210,8 +253,7 @@ Summary:
   `work_ownership_mutation` audit records.
 
 Completed slices:
-- Task 13 current-tree implementation: local work ownership claim and
-  closeout.
+- Task 13 merged in PR #79: local work ownership claim and closeout.
 
 Confidence change:
 - Previous: 10%

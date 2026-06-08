@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-06-07
+Last updated: 2026-06-08
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption
@@ -27,6 +27,39 @@ Consequences:
 Open questions:
 - Remaining unknowns.
 ```
+
+## 2026-06-08 - Handoff to executor-readiness planning after Task 16
+
+Decision:
+- Treat PR #82 as the merged Task 16 baseline and make Task 17 from
+  `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` the next implementation
+  handoff.
+- Keep the handoff documentation-only: it records current evidence and next
+  scope without changing runtime behavior or granting executor authority.
+
+Why:
+- Tasks 13-16 now provide explicit local ownership mutation, ownership-bound
+  execution-start, ownership-bound resume continuation, and read-only
+  role/readiness evidence.
+- Real executor invocation remains the first hard stop, so the next bounded
+  slice should prove readiness before any command starts a real executor.
+
+Alternatives considered:
+- Start real executor invocation directly. Rejected because the roadmap calls
+  for a read-only preflight packet first.
+- Start role assignment or agent-pool scheduling. Rejected because
+  `role-readiness` is evidence-only and no role registry, identity authority,
+  or scheduler exists.
+
+Consequences:
+- The next branch should implement a read-only executor invocation readiness
+  packet and keep `executor_started: false`.
+- Real executor invocation, autonomous implementation, branch/PR writes, role
+  assignment, merge, release, and package publication remain future work.
+
+Open questions:
+- Which task, epoch, ownership, policy, result-path, and optional
+  role-readiness anchors should become required inputs to the Task 17 packet?
 
 ## 2026-06-07 - Add local role-readiness evidence before role assignment
 

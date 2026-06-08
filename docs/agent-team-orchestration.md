@@ -1,7 +1,7 @@
 # Agent-Team Orchestration Vision
 
 Status: living document
-Last updated: 2026-06-07
+Last updated: 2026-06-08
 Baseline: released 0.1.3 plus current local governance, Git/PR planning, resume, review-response, role-readiness, and local work ownership evidence
 
 Agentic Cadence began as a workflow system that helps one coding agent continue
@@ -157,13 +157,13 @@ team flow as the long-term direction. Future roadmap work should avoid assuming
 only one agent exists, even when the first implementation slice still runs one
 bounded agent at a time.
 
-The current local ownership registry is evidence, not assignment authority. The
-next roadmap, `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`, keeps that
-boundary explicit by sequencing local ownership claim/closeout, ownership-bound
-execution-start, ownership-bound resume-continuation, role/readiness evidence,
-and real-executor invocation readiness before any role assignment, agent-pool
-scheduling, GitHub issue assignment, distributed lock, merge, release, or
-package-publication behavior.
+The current local ownership registry is evidence, not assignment authority.
+Tasks 13-16 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` completed
+local ownership claim/closeout, ownership-bound execution-start,
+ownership-bound resume-continuation, and role/readiness evidence while keeping
+role assignment, agent-pool scheduling, GitHub issue assignment, distributed
+lock, merge, release, and package-publication behavior out of scope. Task 17 is
+the remaining pre-invocation slice for real-executor readiness evidence.
 
 The current `role-readiness` command keeps that same boundary: it can verify a
 local `role-policy.v1`, scoped ownership role labels, and saved review-thread
