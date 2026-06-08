@@ -238,7 +238,7 @@ Pain: Cadence can validate local work ownership records, but execution-start and
 Signals:
 - `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` names Task 13 as local ownership claim and closeout.
 - Task 12 is read-only status/validation evidence only.
-- Task 14 current-tree work lets `start-governed-execution` consume and bind canonical active ownership records, and Task 15 current-tree work lets `resume-continuation` recheck supplied active ownership before recommending governed execution start.
+- Task 14 / PR #80 lets `start-governed-execution` consume and bind canonical active ownership records, and Task 15 / PR #81 lets `resume-continuation` recheck supplied active ownership before recommending governed execution start.
 Do not:
 - Do not treat local ownership as a distributed lock.
 - Do not assign roles, schedule agents, write GitHub issues, invoke executors, create branches, commit, push, merge, release, or publish packages from this backlog entry.
@@ -255,7 +255,7 @@ Risk: high
 Pain: Ownership records carry role labels, but future orchestration cannot rely on those labels or reviewer separation until Cadence can verify local role policy and saved review-thread evidence without assigning roles.
 Signals:
 - `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` names Task 16 as role policy and review separation evidence.
-- Task 16 current-tree work adds read-only `role-readiness.v1` packets from `role-policy.v1`, local ownership status, saved PR JSON, and saved review-thread evidence.
+- Task 16 / PR #82 adds read-only `role-readiness.v1` packets from `role-policy.v1`, local ownership status, saved PR JSON, and saved review-thread evidence.
 - Builder replies in otherwise actionable review threads are ignored as reviewer evidence when independent reviewer evidence is present.
 Do not:
 - Do not assign roles, schedule agents, call GitHub, invoke paid review, resolve review threads, mutate PR state, invoke executors, create branches, commit, push, merge, release, or publish packages from role-readiness evidence.

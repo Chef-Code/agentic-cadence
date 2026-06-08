@@ -34,8 +34,9 @@ Decision:
 - Treat PR #82 as the merged Task 16 baseline and make Task 17 from
   `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` the next implementation
   handoff.
-- Keep the handoff documentation-only: it records current evidence and next
-  scope without changing runtime behavior or granting executor authority.
+- Keep the handoff limited to documentation refresh and protocol-validator token
+  maintenance: it records current evidence and next scope without changing
+  runtime behavior or granting executor authority.
 
 Why:
 - Tasks 13-16 now provide explicit local ownership mutation, ownership-bound

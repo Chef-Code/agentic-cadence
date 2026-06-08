@@ -10,7 +10,7 @@ Last updated: 2026-06-08
 - Working branch intent: refresh stale living documentation and handoff context after Task 16, then publish a docs-focused PR for the updated handoff.
 - Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence.
 - Completed roadmap marker: Tasks 13-16 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are merged, including `work-ownership-claim.v1`, `work-ownership-closeout.v1`, ownership-bound `execution-start.v1`, ownership-aware `resume-continuation.v1`, and read-only `role-readiness.v1` packet evidence.
-- Current branch scope: `codex/update-current-docs-task-17-handoff` is documentation-only. It records PR #82 as merged, marks Tasks 13-16 complete in the living docs, and prepares the next handoff for Task 17. It must not change runtime behavior, workflows, branch/PR materialization logic, merge behavior, release behavior, package publication, or real executor invocation.
+- Current branch scope: `codex/update-current-docs-task-17-handoff` is a documentation refresh plus protocol-validator token maintenance. It records PR #82 as merged, marks Tasks 13-16 complete in the living docs, and prepares the next handoff for Task 17. It must not change runtime behavior, workflows, branch/PR materialization logic, merge behavior, release behavior, package publication, or real executor invocation.
 
 ## Current Capability Baseline
 
@@ -124,12 +124,12 @@ For the next implementation branch, use the Task 17 validation block in
 
 ## Next Action
 
-Create a PR for the docs-only handoff refresh on
+Create a PR for the handoff refresh on
 `codex/update-current-docs-task-17-handoff`. After that PR merges, the next
 implementation slice should start from clean `main` and use
 Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`: add a read-only real
 executor invocation readiness plan. Real executor invocation, code
 modification, branch creation, dirty-worktree commit, push, PR writes, role
 assignment, agent pools, GitHub issue assignment, shared runtimes, distributed
-locks, merge, release, and package publication remain outside this docs
-handoff update.
+locks, merge, release, and package publication remain outside this handoff
+update.
