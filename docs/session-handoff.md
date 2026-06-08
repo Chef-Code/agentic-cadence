@@ -1,16 +1,16 @@
 # Current Session Handoff
 
-Last updated: 2026-06-05
+Last updated: 2026-06-08
 
 ## Current State
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `a62f8c867880867b2986e883e98ad2aa043c3e9b` after PR #77 merged.
-- Working branch intent: prepare the post-Task-12 handoff and publish docs-only updates, including `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`.
-- Recent merged PRs: PR #56 implemented the read-only `audit-replay` CLI path; PR #57 updated this handoff after PR #56 merged; PR #58 merged the command-policy and active-stop control slice; PR #59 hardened command-policy review findings; PR #60 added the dry-run Git/PR planning design; PR #61 implemented dry-run-only `git-pr-plan`; PR #62 added the next-five-tasks roadmap; PR #63 refreshed this handoff and seeded the active business-memory backlog; PR #64 added and hardened the controlled executor fixture; PR #66 wired local executor closeout and next-decision logic; PR #67 merged local `branch_policy` for loop policy, task packets, and dry-run Git/PR planning; PR #68 merged read-only GitHub evidence sync and feedback candidates; PR #69 merged operator-approved Git/PR materialization; PR #70 merged read-only resume verification and follow-up hardening; PR #71 merged the Tasks 8-12 roadmap and handoff refresh; PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation.
-- Completed roadmap marker: Task 12 from `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is merged, including `work-ownership-status.v1` and `work-ownership-validation.v1` packet evidence.
-- Current branch scope: `codex/task-12-handoff-docs` is docs-only. It records PR #77 as merged, creates the Tasks 13-17 roadmap, and refreshes living docs for the next handoff. It must not change code, tests, workflow automation, runtime behavior, branch/PR materialization logic, merge behavior, release behavior, or package publication.
+- Current base: `origin/main` at `9dc8cb18f4acc093d11eda146767bf8963cb0509` after PR #82 merged.
+- Working branch intent: refresh stale living documentation and handoff context after Task 16, then publish a docs-focused PR for the updated handoff.
+- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence.
+- Completed roadmap marker: Tasks 13-16 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are merged, including `work-ownership-claim.v1`, `work-ownership-closeout.v1`, ownership-bound `execution-start.v1`, ownership-aware `resume-continuation.v1`, and read-only `role-readiness.v1` packet evidence.
+- Current branch scope: `codex/update-current-docs-task-17-handoff` is a documentation refresh plus protocol-validator token maintenance. It records PR #82 as merged, marks Tasks 13-16 complete in the living docs, and prepares the next handoff for Task 17. It must not change runtime behavior, workflows, branch/PR materialization logic, merge behavior, release behavior, package publication, or real executor invocation.
 
 ## Current Capability Baseline
 
@@ -20,8 +20,9 @@ Last updated: 2026-06-05
 - `start-governed-execution` can consume a reviewed `generic-executor-task.v1`
   packet with exact checksum approval, recheck repo path, branch, `HEAD`,
   clean worktree, task-carried command and branch policy shape, active brake,
-  and active epoch state, start one active epoch, emit `execution-start.v1`,
-  and append `execution_start_decision` audit evidence while reporting
+  active epoch state, and supplied local ownership evidence, bind matching
+  active ownership to the started epoch, emit `execution-start.v1`, and append
+  `execution_start_decision` audit evidence while reporting
   `executor_started: false`.
 - `run-controlled-executor-fixture` writes a local `execution-run.v1` record
   under `<root>/execution-runs/` that binds task checksum, invocation id, result
@@ -35,16 +36,18 @@ Last updated: 2026-06-05
 - `verify-resume` can emit a read-only `resume-verification.v1` packet that checks handoff signature and claimed state, clean-square evidence, persisted resume snapshot binding, repo branch/head, dirty-worktree state, active brake, active epoch state, and pickup-policy evidence before a fresh session continues.
 - `resume-continuation` can consume a saved `resume-verification.v1` packet,
   recheck handoff id, claimer, repo branch/head, dirty-worktree state, active
-  brake, active epoch state, clean-square evidence, pickup-policy evidence, and
-  packet freshness, then emit a read-only `resume-continuation.v1` packet that
-  recommends `start_governed_execution` only when anchors still match.
+  brake, active epoch state, clean-square evidence, pickup-policy evidence,
+  packet freshness, and supplied active ownership evidence, then emit a
+  read-only `resume-continuation.v1` packet that recommends
+  `start_governed_execution` only when anchors still match.
 - `work-ownership-status` and `validate-work-ownership` can read local
   `work-ownership.v1` records under
   `<root>/work-ownership/{active,closed,failed}`, validate task/candidate/role,
   claimer, repo, branch, optional PR/epoch/handoff, status, and timestamp
-  fields, and emit stable blockers for duplicate active ownership, stale
-  active ownership, closed evidence, malformed records, and repo/branch/task
-  mismatches.
+  fields, emit `work-ownership-status.v1` and
+  `work-ownership-validation.v1` packets, and report stable blockers for
+  duplicate active ownership, stale active ownership, closed evidence,
+  malformed records, and repo/branch/task mismatches.
 - Candidate discovery can ingest saved PR JSON through `--pr-json-file` and convert failing checks into stable `pr_check_failure` execution candidates.
 - `pr-readiness --review-threads-file` can block unresolved actionable current review comments plus malformed or incomplete saved GraphQL `reviewThreads` JSON while ignoring resolved, outdated, and non-actionable feedback.
 - `review-response-plan` can emit read-only `review-response-plan.v1` packets
@@ -53,6 +56,10 @@ Last updated: 2026-06-05
   checks, unresolved actionable current review comments, missing PR body
   sections, and candidate matches into bounded read-only next-action
   recommendations.
+- `role-readiness` can emit read-only `role-readiness.v1` packets from
+  `role-policy.v1`, local ownership status, saved PR JSON, and saved
+  review-thread evidence, then verify allowed ownership role labels and
+  builder/reviewer separation without calling GitHub or mutating PR state.
 - `validate-executor-result` checks the current brake before recording completion evidence; when `brake_not_drive` is a task stop condition and the brake is not `DRIVE`, non-`stopped` result evidence is invalid and recommends `stop_active_loop`.
 - Command policy is hardened around shell grouping, Bash brace grouping, command substitutions, shell-wrapper payloads, Git aliases, and null top-level command-policy packets.
 - `audit-replay` emits a read-only local packet for `cadence-audit.v1` JSONL history and reports stable blockers for corrupt or unsupported records, including execution-run and materialization intent/result audit events.
@@ -61,7 +68,7 @@ Last updated: 2026-06-05
 - Dry-run-only `git-pr-plan` is merged. It turns validated executor evidence into proposed branch, commit, PR title, and PR body text without creating a branch, committing, pushing, calling GitHub, opening a pull request, merging, releasing, or publishing packages.
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
-- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is the next bounded planning artifact. It closes the `Next Roadmap Needs Tasks 13-17` backlog marker and sequences local ownership claim/closeout, ownership-bound execution-start, ownership-bound resume continuation, role/readiness evidence, and real-executor invocation readiness planning.
+- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete through Task 16 and remains the active planning artifact for Task 17, the real-executor invocation readiness plan.
 
 ## Important Boundaries
 
@@ -85,9 +92,14 @@ Last updated: 2026-06-05
 - `resume-continuation` is local read-only continuation planning only. It must
   not claim handoffs, launch sessions, start epochs, invoke executors, create
   branches, commit, push, merge, release, or publish packages.
-- Local work ownership is evidence only. It is not a distributed lock and does
-  not assign roles, schedule agents, write GitHub issues, or mutate
-  execution-start or resume-continuation gates in this slice.
+- Local work ownership is evidence only. Execution-start and
+  resume-continuation can consume supplied active ownership records, but those
+  records are not distributed locks and do not assign roles, schedule agents,
+  or write GitHub issues.
+- `role-readiness` is evidence only. It verifies local role policy and saved
+  review-thread separation evidence, but it does not assign roles, schedule
+  agents, call GitHub, invoke paid review, resolve review threads, or mutate
+  PR state.
 - The active business-memory backlog entry is discovery input only. It does not authorize executor invocation, code modification, branch creation, commits, pushes, PR creation, merges, releases, package publication, or paid review spending.
 - The controlled fake executor fixture is merged, but it is still only a tests/examples component. No real executor invocation, branch/PR automation, write-side GitHub sync, merge authority, release behavior, hash chain, authenticated approval identity, or package-publication authority is available from that fixture.
 - Real executor invocation remains blocked even though governed execution
@@ -107,16 +119,17 @@ python scripts/ci_smoke.py
 git diff --check
 ```
 
-For the next implementation branch, use the Task 13 validation block in
+For the next implementation branch, use the Task 17 validation block in
 `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`.
 
 ## Next Action
 
-Create a PR for the docs-only handoff updates on `codex/task-12-handoff-docs`.
-After that PR merges, the next implementation slice should start from clean
-`main` and use Task 13 from
-`docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`: add local work ownership
-claim and closeout. Role assignment, agent pools, GitHub issue assignment,
-shared runtimes, distributed locks, real executor invocation, branch/PR writes,
-merge, release, and package publication remain outside the docs-only handoff
+Create a PR for the handoff refresh on
+`codex/update-current-docs-task-17-handoff`. After that PR merges, the next
+implementation slice should start from clean `main` and use
+Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`: add a read-only real
+executor invocation readiness plan. Real executor invocation, code
+modification, branch creation, dirty-worktree commit, push, PR writes, role
+assignment, agent pools, GitHub issue assignment, shared runtimes, distributed
+locks, merge, release, and package publication remain outside this handoff
 update.

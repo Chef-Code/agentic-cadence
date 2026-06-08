@@ -208,7 +208,7 @@ Do not:
 - Do not add role assignment, agent pool scheduling, GitHub issue assignment, shared runtime, merge authority, release authority, or package-publication authority from this backlog entry.
 - Do not mutate execution-start or resume-continuation gates in the ownership registry slice.
 
-## Next Roadmap Needs Tasks 13-17
+## Tasks 13-17 Roadmap Created
 
 Status: fulfilled
 Fulfilled By: `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
@@ -229,7 +229,7 @@ Do not:
 ## Ownership Enforcement Needs Local Write Gates
 
 Status: fulfilled
-Fulfilled By: Task 13 current-tree `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership` implementation; Task 14 current-tree execution-start ownership binding; Task 15 current-branch resume-continuation ownership recheck
+Fulfilled By: Task 13 / PR #79 `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership` implementation; Task 14 / PR #80 execution-start ownership binding; Task 15 / PR #81 resume-continuation ownership recheck
 Kind: risk
 Workflow: Multi-worker coordination
 Time Saved: high
@@ -238,11 +238,28 @@ Pain: Cadence can validate local work ownership records, but execution-start and
 Signals:
 - `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` names Task 13 as local ownership claim and closeout.
 - Task 12 is read-only status/validation evidence only.
-- Task 14 current-tree work lets `start-governed-execution` consume and bind canonical active ownership records, and Task 15 current-branch work lets `resume-continuation` recheck supplied active ownership before recommending governed execution start.
+- Task 14 / PR #80 lets `start-governed-execution` consume and bind canonical active ownership records, and Task 15 / PR #81 lets `resume-continuation` recheck supplied active ownership before recommending governed execution start.
 Do not:
 - Do not treat local ownership as a distributed lock.
 - Do not assign roles, schedule agents, write GitHub issues, invoke executors, create branches, commit, push, merge, release, or publish packages from this backlog entry.
 - Do not skip local ownership write/closeout governance and jump directly to agent-pool orchestration.
+
+## Role Readiness Needs Local Review Separation Evidence
+
+Status: fulfilled
+Fulfilled By: Task 16 / PR #82 `role-readiness.v1` implementation
+Kind: risk
+Workflow: Agent-team orchestration preparation
+Time Saved: high
+Risk: high
+Pain: Ownership records carry role labels, but future orchestration cannot rely on those labels or reviewer separation until Cadence can verify local role policy and saved review-thread evidence without assigning roles.
+Signals:
+- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` names Task 16 as role policy and review separation evidence.
+- Task 16 / PR #82 adds read-only `role-readiness.v1` packets from `role-policy.v1`, local ownership status, saved PR JSON, and saved review-thread evidence.
+- Builder replies in otherwise actionable review threads are ignored as reviewer evidence when independent reviewer evidence is present.
+Do not:
+- Do not assign roles, schedule agents, call GitHub, invoke paid review, resolve review threads, mutate PR state, invoke executors, create branches, commit, push, merge, release, or publish packages from role-readiness evidence.
+- Do not treat saved review-thread authors as authenticated reviewer identity.
 
 ## Real Executor Readiness Needs A Preflight Packet
 
@@ -255,6 +272,7 @@ Pain: Real executor invocation remains the first hard stop in unattended operati
 Signals:
 - `docs/autonomous-loop-readiness.md` still identifies real executor invocation as the first hard stop.
 - `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` names Task 17 as executor invocation readiness planning.
+- Tasks 13-16 are complete in the current tree, so ownership and role-readiness evidence now exist before this preflight slice.
 - The controlled fixture path proves local evidence handling, but fixture success is not named-host or real-executor authority.
 Do not:
 - Do not invoke a real executor from readiness planning.

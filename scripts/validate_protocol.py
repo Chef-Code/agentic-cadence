@@ -442,7 +442,7 @@ REQUIRED_TOKENS = {
         "provide_runtime_root",
         "The controlled fake executor fixture is merged",
         "PR #74 merged read-only review response planning",
-        "Task 12 from `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`",
+        "Tasks 13-16 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`",
         "branch_policy",
         "github-evidence-sync",
         "git-pr-materialize",
@@ -461,7 +461,8 @@ REQUIRED_TOKENS = {
         "work-ownership.v1",
         "work-ownership-status.v1",
         "work-ownership-validation.v1",
-        "Next Roadmap Needs Tasks 13-17",
+        "role-readiness.v1",
+        "Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`",
     ),
     "codex_cadence/cli.py": (
         "create_parser.add_argument(\"--task-type\"",

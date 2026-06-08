@@ -1,7 +1,7 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-07
+Last updated: 2026-06-08
 Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, and local work ownership claim/closeout evidence current tree
 Current unattended-operation confidence: 10%
 
@@ -72,8 +72,11 @@ protocol substrate that can govern and document agentic work. The current
 development tree adds unreleased audit replay evidence, command-policy
 enforcement, active-stop result-validation controls, dry-run Git/PR planning,
 local branch policy, read-only GitHub evidence sync, governed execution-start
-epoch gating, and a controlled executor fixture runner for tests/examples. It
-can materialize a reviewed Git/PR plan only through exact target-bound operator
+epoch gating, local execution-run evidence, operator-approved Git/PR
+materialization, read-only resume verification, ownership-aware read-only
+resume continuation, read-only review-response planning, local work ownership
+claim/closeout evidence, and read-only role-readiness evidence. It can
+materialize a reviewed Git/PR plan only through exact target-bound operator
 approval, and it can verify handoff pickup state before a fresh session
 continues, but it still cannot independently implement code, invoke a real
 executor, autonomously push branches, autonomously open pull requests, assign
@@ -324,10 +327,11 @@ The smallest slices expected to move confidence toward 50% are tracked in
 5. CI/Review Feedback Back Into Candidate Discovery
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete, and Tasks 8-12 from
-`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete in the current
-tree. The next bounded public roadmap is
-`docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`.
+complete, Tasks 8-12 from
+`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete, and Tasks
+13-16 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in
+the current tree. Task 17 from that roadmap, real-executor invocation
+readiness planning, is the next bounded implementation slice.
 
 ## Roadmap
 
