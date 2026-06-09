@@ -75,8 +75,11 @@ Docs updated:
 - `docs/autonomous-loop-readiness.md`
 - `docs/implementation-slices.md`
 - `docs/roadmap.md`
+- `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`
 - `docs/progress-log.md`
 - `docs/decision-log.md`
+- `docs/session-handoff.md`
+- `docs/cadence/business-memory.md`
 
 ## 2026-06-09 - Prepare Tasks 18-22 roadmap after executor readiness
 

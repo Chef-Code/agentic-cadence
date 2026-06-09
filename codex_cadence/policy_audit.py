@@ -507,7 +507,7 @@ def audit_chain_blockers(
         ], None, True
 
     chain_index = record.get("chain_index")
-    if not isinstance(chain_index, int) or chain_index < 1:
+    if type(chain_index) is not int or chain_index < 1:
         blockers.append(audit_replay_blocker("audit_chain_missing", "chain_index must be a positive integer", line))
     elif chain_index in seen_chain_indexes:
         blockers.append(audit_replay_blocker("audit_chain_index_duplicate", "chain_index is duplicated", line))
@@ -664,6 +664,11 @@ def audit_append_chain_tip(target: Path) -> tuple[str, int]:
         return AUDIT_CHAIN_ROOT_HASH, 1
     if not target.is_file():
         raise OSError("audit path exists but is not a regular file")
+    if target.stat().st_size > 0:
+        with target.open("rb") as raw:
+            raw.seek(-1, 2)
+            if raw.read(1) != b"\n":
+                raise ValueError("cannot append after unterminated audit line")
 
     expected_previous_hash = AUDIT_CHAIN_ROOT_HASH
     seen_chain_indexes: set[int] = set()

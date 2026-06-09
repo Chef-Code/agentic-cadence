@@ -80,7 +80,9 @@ Last updated: 2026-06-09
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
 - Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete in `main` via PR #84.
-- This branch adds `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` as the next public planning artifact.
+- This branch implements Task 18 from
+  `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`; PR #86 is the
+  review/merge target for audit hash-chain integrity evidence.
 
 ## Important Boundaries
 
@@ -131,23 +133,25 @@ Last updated: 2026-06-09
 
 ```powershell
 git status -sb
-python -m py_compile scripts/validate_protocol.py tests/test_candidates.py
-python -m unittest tests.test_candidates tests.test_ci_checks -v
+python -m py_compile codex_cadence/policy_audit.py codex_cadence/cli.py
+python -m unittest tests.test_audit_replay -v
+python -m unittest tests.test_cadence -v
+python -m unittest tests.test_ci_checks -v
 python scripts/validate_protocol.py
 python scripts/ci_smoke.py
 git diff --check
 ```
 
-For this branch, use the docs-planning validation block above. The Task 17
-runtime validation block remains recorded in
+For this branch, use the Task 18 audit replay validation block above. The Task
+17 runtime validation block remains recorded in
 `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the merged
 `executor-invocation-readiness.v1` slice.
 
 ## Next Action
 
-Finish Task 18 validation on `codex/task-18-audit-hash-chain-integrity`, open a
-PR after the branch is pushed, and merge only after checks and review are
-clean. Task 19 from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`,
+Finish review on PR #86 for `codex/task-18-audit-hash-chain-integrity`, address
+any new findings, and merge only after checks and review are clean. Task 19
+from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`,
 authenticated operator approval identity evidence, is the next bounded slice
 after this branch. Real executor invocation, code modification by an executor,
 dirty-worktree commit, autonomous push, PR writes outside the approved PR for

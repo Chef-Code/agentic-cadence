@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from codex_cadence.policy_audit import append_audit_record, replay_audit_log
+from codex_cadence.policy_audit import append_audit_record, audit_event_hash, replay_audit_log
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -389,6 +389,19 @@ class AuditReplayCliTests(unittest.TestCase):
             self.assertEqual(replay["legacy_chain_roots"], 0)
             self.assertEqual(replay["recommended_next_action"], "use_audit_replay_evidence")
 
+    def test_append_rejects_unterminated_existing_audit_line_without_mutation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            audit_path = root / "audit" / "events.jsonl"
+            audit_path.parent.mkdir(parents=True)
+            audit_path.write_text(json.dumps(loop_tick_record(), sort_keys=True), encoding="utf-8")
+            before = audit_path.read_text(encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "unterminated audit line"):
+                append_audit_record(root, loop_tick_record(tick_id="loop-tick-2"))
+
+            self.assertEqual(audit_path.read_text(encoding="utf-8"), before)
+
     def test_legacy_audit_records_replay_as_explicit_chain_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -450,42 +463,86 @@ class AuditReplayCliTests(unittest.TestCase):
             self.assertEqual(blocker_codes(output), ["audit_chain_index_duplicate", "audit_event_hash_mismatch"])
             self.assertEqual(output["recommended_next_action"], "repair_audit_history")
 
-    def test_audit_replay_rejects_partial_or_unsupported_chain_metadata(self):
-        cases = [
-            (
-                "missing predecessor",
+    def test_audit_replay_rejects_bool_chain_index_as_missing_chain_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = loop_tick_record()
+            record.update(
+                {
+                    "audit_chain_version": EXPECTED_AUDIT_CHAIN_SCHEMA_VERSION,
+                    "chain_index": True,
+                    "previous_event_hash": EXPECTED_AUDIT_CHAIN_ROOT_HASH,
+                }
+            )
+            record["event_hash"] = audit_event_hash(record)
+            write_audit_records(root, record)
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(blocker_codes(output), ["audit_chain_missing"])
+            self.assertEqual(output["recommended_next_action"], "repair_audit_history")
+
+    def test_audit_replay_rejects_legacy_record_after_chain_start(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            append_audit_record(root, loop_tick_record(tick_id="loop-tick-1"))
+            records = audit_records(root)
+            records.append(loop_tick_record(tick_id="loop-tick-2"))
+            write_audit_records(root, *records)
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["records_valid"], 1)
+            self.assertEqual(output["records_invalid"], 1)
+            self.assertEqual(output["chain_records"], 1)
+            self.assertEqual(output["legacy_chain_roots"], 0)
+            self.assertEqual(blocker_codes(output), ["audit_chain_missing"])
+            self.assertEqual(output["recommended_next_action"], "repair_audit_history")
+
+    def test_audit_replay_rejects_partial_chain_metadata_as_repairable_history(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = loop_tick_record()
+            record.update(
                 {
                     "audit_chain_version": EXPECTED_AUDIT_CHAIN_SCHEMA_VERSION,
                     "chain_index": 1,
                     "event_hash": GOOD_CHECKSUM,
-                },
-                "audit_chain_missing",
-            ),
-            (
-                "unsupported version",
+                }
+            )
+            write_audit_records(root, record)
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(blocker_codes(output), ["audit_chain_missing"])
+            self.assertEqual(output["recommended_next_action"], "repair_audit_history")
+
+    def test_audit_replay_rejects_unsupported_chain_metadata_as_upgrade_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = loop_tick_record()
+            record.update(
                 {
                     "audit_chain_version": "cadence-audit-chain.v2",
                     "chain_index": 1,
                     "previous_event_hash": EXPECTED_AUDIT_CHAIN_ROOT_HASH,
                     "event_hash": GOOD_CHECKSUM,
-                },
-                "unsupported_audit_chain_record",
-            ),
-        ]
-        for name, chain_fields, expected_code in cases:
-            with self.subTest(name=name):
-                with tempfile.TemporaryDirectory() as tmp:
-                    root = Path(tmp)
-                    record = loop_tick_record()
-                    record.update(chain_fields)
-                    write_audit_records(root, record)
+                }
+            )
+            write_audit_records(root, record)
 
-                    result, output = run_cli(root, "audit-replay")
+            result, output = run_cli(root, "audit-replay")
 
-                    self.assertEqual(result.returncode, 1)
-                    self.assertFalse(output["valid"])
-                    self.assertIn(expected_code, blocker_codes(output))
-                    self.assertIn(output["recommended_next_action"], {"repair_audit_history", "upgrade_cadence"})
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(blocker_codes(output), ["unsupported_audit_chain_record"])
+            self.assertEqual(output["recommended_next_action"], "upgrade_cadence")
 
     def test_replays_loop_tick_audit_record_when_repo_argument_is_omitted(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
