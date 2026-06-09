@@ -36,6 +36,8 @@ Decision:
 - Make Task 18 audit hash-chain integrity evidence, followed by authenticated
   operator approval identity, read-only real executor invocation planning,
   controlled real executor process start, and real-run closeout binding.
+- Require rollback evidence to be part of the invocation planning and
+  process-start boundary before any real executor starts.
 - Keep real executor invocation out of the roadmap-refresh branch and out of
   Tasks 18-20.
 
@@ -46,8 +48,8 @@ Why:
   approval and audit evidence that lacks tamper-evident chain context or
   authenticated operator identity.
 - Exact invocation planning should bind readiness, approval, audit-chain,
-  adapter, timeout, command policy, and result-path evidence before any process
-  start command exists.
+  rollback, adapter, timeout, command policy, and result-path evidence before
+  any process start command exists.
 
 Alternatives considered:
 - Start a real executor immediately after Task 17. Rejected because readiness
@@ -63,7 +65,7 @@ Consequences:
   evidence.
 - Real executor process start is sequenced no earlier than Task 21 and remains
   constrained by exact approval, readiness, audit, policy, timeout, epoch,
-  ownership, and result-path rechecks.
+  ownership, rollback, and result-path rechecks.
 
 Open questions:
 - Which local approval identity mechanism should become the default before

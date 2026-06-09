@@ -146,12 +146,13 @@ runtime validation block remains recorded in
 
 ## Next Action
 
-Finish validation for `codex/tasks-18-22-roadmap-handoff`, then open a PR for
-the post-Task-17 roadmap refresh. After that PR merges, Task 18 from
+PR #85 is open for `codex/tasks-18-22-roadmap-handoff`. Re-run or inspect any
+requested reviews, keep validation green, and merge only after the PR thread is
+clean. After PR #85 merges, Task 18 from
 `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` is the next bounded
 implementation slice: add audit hash-chain integrity evidence before any real
 executor process start. Real executor invocation, code modification by an
-executor, dirty-worktree commit, autonomous push, PR writes outside the planned
-docs PR, role assignment, agent pools, GitHub issue assignment, shared
-runtimes, distributed locks, merge, release, and package publication remain
-outside this branch.
+executor, dirty-worktree commit, autonomous push, PR writes outside this docs
+PR, role assignment, agent pools, GitHub issue assignment, shared runtimes,
+distributed locks, release, and package publication remain outside this
+branch.
