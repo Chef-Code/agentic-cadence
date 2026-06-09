@@ -3748,6 +3748,12 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["repository"]["cwd"], str(Path(repo).resolve()))
 
     def test_executor_invocation_readiness_blocks_unready_inputs_without_side_effects(self):
+        def rewrite_ownership_epoch(root, ownership_id, epoch_id):
+            path = Path(root) / "work-ownership" / "active" / f"{ownership_id}.json"
+            packet = json.loads(path.read_text(encoding="utf-8"))
+            packet["epoch_id"] = epoch_id
+            path.write_text(json.dumps(packet), encoding="utf-8")
+
         cases = [
             (
                 "missing-ownership",
@@ -3778,6 +3784,48 @@ class CadenceCliTests(unittest.TestCase):
                         "expected_action": "operator_review",
                     },
                 )[1],
+            ),
+            (
+                "repo-path-mismatch",
+                lambda tmp, repo, task_path, task_packet: (
+                    task_packet["repo"].update({"path": str((Path(repo).parent / "different-repo").resolve())}),
+                    task_packet["snapshot"].update({"cwd": task_packet["repo"]["path"]}),
+                    task_path.write_text(json.dumps(task_packet), encoding="utf-8"),
+                    {
+                        "rewrite_epoch_checksum": True,
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "repo_path_mismatch",
+                        "expected_action": "refresh_task_evidence",
+                    },
+                )[3],
+            ),
+            (
+                "repo-branch-mismatch",
+                lambda tmp, repo, task_path, task_packet: (
+                    task_packet["repo"].update({"branch": "codex/not-current"}),
+                    task_packet["snapshot"].update({"branch": "codex/not-current"}),
+                    task_path.write_text(json.dumps(task_packet), encoding="utf-8"),
+                    {
+                        "rewrite_epoch_checksum": True,
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "repo_branch_mismatch",
+                        "expected_action": "refresh_task_evidence",
+                    },
+                )[3],
+            ),
+            (
+                "repo-head-mismatch",
+                lambda tmp, repo, task_path, task_packet: (
+                    task_packet["repo"].update({"head": "0" * 40}),
+                    task_packet["snapshot"].update({"head": "0" * 40}),
+                    task_path.write_text(json.dumps(task_packet), encoding="utf-8"),
+                    {
+                        "rewrite_epoch_checksum": True,
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "repo_head_mismatch",
+                        "expected_action": "refresh_task_evidence",
+                    },
+                )[3],
             ),
             (
                 "task-checksum-mismatch",
@@ -3815,6 +3863,28 @@ class CadenceCliTests(unittest.TestCase):
                         "args": ["--ownership-target", "ownership-1"],
                         "expected_code": "active_epoch_missing",
                         "expected_action": "close_or_fail_active_epoch",
+                    },
+                )[1],
+            ),
+            (
+                "active-epoch-id-mismatch",
+                lambda tmp, repo, task_path, task_packet: (
+                    rewrite_ownership_epoch(tmp, "ownership-1", "epoch-2"),
+                    {
+                        "args": ["--epoch-id", "epoch-2", "--ownership-target", "ownership-1"],
+                        "expected_code": "active_epoch_id_mismatch",
+                        "expected_action": "close_or_fail_active_epoch",
+                    },
+                )[1],
+            ),
+            (
+                "ownership-epoch-mismatch",
+                lambda tmp, repo, task_path, task_packet: (
+                    rewrite_ownership_epoch(tmp, "ownership-1", "epoch-2"),
+                    {
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "ownership_epoch_mismatch",
+                        "expected_action": "fix_ownership",
                     },
                 )[1],
             ),
@@ -3858,6 +3928,19 @@ class CadenceCliTests(unittest.TestCase):
                 )[2],
             ),
             (
+                "branch-policy-current-main-disallowed",
+                lambda tmp, repo, task_path, task_packet: (
+                    task_packet["branch_policy"].update({"allow_current_branch_main": False}),
+                    task_path.write_text(json.dumps(task_packet), encoding="utf-8"),
+                    {
+                        "rewrite_epoch_checksum": True,
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "branch_policy_current_branch_main_disallowed",
+                        "expected_action": "inspect_policy_blockers",
+                    },
+                )[2],
+            ),
+            (
                 "required-checks-missing",
                 lambda tmp, repo, task_path, task_packet: (
                     task_packet.update({"required_checks": []}),
@@ -3866,6 +3949,32 @@ class CadenceCliTests(unittest.TestCase):
                         "rewrite_epoch_checksum": True,
                         "args": ["--ownership-target", "ownership-1"],
                         "expected_code": "required_checks_missing",
+                        "expected_action": "inspect_policy_blockers",
+                    },
+                )[2],
+            ),
+            (
+                "required-check-denied-by-command-policy",
+                lambda tmp, repo, task_path, task_packet: (
+                    task_packet["command_policy"].update({"denied_commands": ["python -m unittest"]}),
+                    task_path.write_text(json.dumps(task_packet), encoding="utf-8"),
+                    {
+                        "rewrite_epoch_checksum": True,
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "required_checks_invalid",
+                        "expected_action": "inspect_policy_blockers",
+                    },
+                )[2],
+            ),
+            (
+                "required-check-outside-allowed-command-policy",
+                lambda tmp, repo, task_path, task_packet: (
+                    task_packet["command_policy"].update({"allowed_commands": ["python scripts/validate_protocol.py"]}),
+                    task_path.write_text(json.dumps(task_packet), encoding="utf-8"),
+                    {
+                        "rewrite_epoch_checksum": True,
+                        "args": ["--ownership-target", "ownership-1"],
+                        "expected_code": "required_checks_invalid",
                         "expected_action": "inspect_policy_blockers",
                     },
                 )[2],
@@ -3880,6 +3989,19 @@ class CadenceCliTests(unittest.TestCase):
                         "expected_action": "refresh_task_evidence",
                     },
                 )[1],
+            ),
+            (
+                "unreadable-role-readiness",
+                lambda tmp, repo, task_path, task_packet: {
+                    "args": [
+                        "--ownership-target",
+                        "ownership-1",
+                        "--role-readiness-file",
+                        str(Path(tmp) / "missing-role-readiness.json"),
+                    ],
+                    "expected_code": "role_readiness_unreadable",
+                    "expected_action": "operator_review",
+                },
             ),
             (
                 "failed-role-readiness",
@@ -3897,6 +4019,26 @@ class CadenceCliTests(unittest.TestCase):
                             str(Path(tmp) / "role-readiness.json"),
                         ],
                         "expected_code": "role_readiness_blocked",
+                        "expected_action": "operator_review",
+                    },
+                )[1],
+            ),
+            (
+                "wrong-role-protocol-version",
+                lambda tmp, repo, task_path, task_packet: (
+                    write_executor_readiness_role_packet(
+                        Path(tmp) / "role-readiness.json",
+                        task_packet,
+                        protocol_version="v0",
+                    ),
+                    {
+                        "args": [
+                            "--ownership-target",
+                            "ownership-1",
+                            "--role-readiness-file",
+                            str(Path(tmp) / "role-readiness.json"),
+                        ],
+                        "expected_code": "role_readiness_invalid",
                         "expected_action": "operator_review",
                     },
                 )[1],

@@ -6,7 +6,7 @@ from typing import Any
 
 from codex_cadence import PROTOCOL_VERSION
 from codex_cadence.branch_policy import normalize_branch_policy
-from codex_cadence.executor_contract import checksum_json, validate_executor_task_packet
+from codex_cadence.executor_contract import checksum_json, validate_executor_command, validate_executor_task_packet
 from codex_cadence.epochs import read_active_epoch_records
 from codex_cadence.ownership import (
     DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
@@ -73,16 +73,29 @@ def _command_policy_blockers(task_packet: dict[str, Any]) -> list[dict[str, Any]
     return blockers
 
 
-def _branch_policy_blockers(task_packet: dict[str, Any]) -> list[dict[str, Any]]:
+def _branch_policy_blockers(
+    task_packet: dict[str, Any],
+    *,
+    current_branch: str | None = None,
+) -> list[dict[str, Any]]:
     try:
-        normalize_branch_policy(
+        branch_policy = normalize_branch_policy(
             task_packet.get("branch_policy"),
             label="executor readiness branch_policy",
             require_object=True,
         )
     except ValueError as exc:
         return [readiness_blocker("branch_policy_invalid", str(exc))]
-    return []
+    blockers: list[dict[str, Any]] = []
+    if branch_policy.get("allow_current_branch_main") is False and current_branch == "main":
+        blockers.append(
+            readiness_blocker(
+                "branch_policy_current_branch_main_disallowed",
+                "current branch is main and branch_policy does not allow real executor invocation from main",
+                current_branch=current_branch,
+            )
+        )
+    return blockers
 
 
 def _required_check_blockers(task_packet: dict[str, Any]) -> list[dict[str, Any]]:
@@ -98,7 +111,21 @@ def _required_check_blockers(task_packet: dict[str, Any]) -> list[dict[str, Any]
                 "real executor invocation readiness requires at least one required check",
             )
         ]
-    return []
+    valid_task, _task_reason = validate_executor_task_packet(task_packet)
+    if not valid_task:
+        return []
+    blockers: list[dict[str, Any]] = []
+    for check in required_checks:
+        valid_check, check_reason = validate_executor_command(check, task_packet)
+        if not valid_check:
+            blockers.append(
+                readiness_blocker(
+                    "required_checks_invalid",
+                    f"executor task required check is not allowed by the task command policy: {check_reason}",
+                    check=check,
+                )
+            )
+    return blockers
 
 
 def _read_brake_packet(root: Path) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -490,11 +517,15 @@ def _role_readiness_blockers(
     if blockers:
         return _role_readiness_summary(packet, role_readiness_file), blockers
     role_blockers: list[dict[str, Any]] = []
-    if packet.get("schema_version") != ROLE_READINESS_SCHEMA_VERSION or packet.get("packet") != "role_readiness":
+    if (
+        packet.get("protocol_version") != PROTOCOL_VERSION
+        or packet.get("schema_version") != ROLE_READINESS_SCHEMA_VERSION
+        or packet.get("packet") != "role_readiness"
+    ):
         role_blockers.append(
             readiness_blocker(
                 "role_readiness_invalid",
-                "role readiness evidence must be a role-readiness.v1 packet",
+                "role readiness evidence must be a current role-readiness.v1 packet",
                 path=str(role_readiness_file),
             )
         )
@@ -600,6 +631,7 @@ def _recommendation(blockers: list[dict[str, Any]]) -> str:
         return "close_or_fail_active_epoch"
     if codes & {
         "branch_policy_invalid",
+        "branch_policy_current_branch_main_disallowed",
         "command_policy_invalid",
         "required_checks_invalid",
         "required_checks_missing",
@@ -662,7 +694,6 @@ def evaluate_executor_invocation_readiness(
         if not valid_task:
             blockers.append(_task_validation_blocker(task_reason))
         blockers.extend(_command_policy_blockers(task_packet))
-        blockers.extend(_branch_policy_blockers(task_packet))
         blockers.extend(_required_check_blockers(task_packet))
         blockers.extend(
             _result_path_blockers(
@@ -687,6 +718,8 @@ def evaluate_executor_invocation_readiness(
     if isinstance(task_packet, dict):
         repository, repo_blockers = _repo_blockers(cwd=cwd, task_packet=task_packet)
         blockers.extend(repo_blockers)
+        current_branch = repository.get("branch") if isinstance(repository.get("branch"), str) else None
+        blockers.extend(_branch_policy_blockers(task_packet, current_branch=current_branch))
         if task_checksum is not None:
             active_epoch, epoch_blockers = _epoch_blockers(
                 root=root,

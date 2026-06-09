@@ -565,21 +565,23 @@ It emits an `executor-invocation-readiness.v1` packet shaped as:
 ```
 
 Stable blocker codes include `task_file_unreadable`,
-`executor_task_invalid`, `repo_path_mismatch`, `repo_branch_mismatch`,
-`repo_head_mismatch`, `dirty_worktree`, `brake_state_invalid`,
-`brake_not_drive`, `active_epoch_missing`, `active_epoch_conflict`,
-`active_epoch_invalid`, `active_epoch_id_mismatch`,
-`active_epoch_status_invalid`, `active_epoch_repo_mismatch`,
-`active_epoch_branch_mismatch`, `active_epoch_task_missing`,
-`task_checksum_missing`, `task_checksum_mismatch`,
-`ownership_record_missing`, `ownership_record_unreadable`,
-`ownership_candidate_mismatch`, `ownership_epoch_mismatch`,
-`ownership_head_mismatch`, `duplicate_active_ownership`,
-`command_policy_invalid`, `branch_policy_invalid`,
+`executor_task_invalid`, `repo_inspection_failed`, `repo_path_invalid`,
+`repo_path_mismatch`, `repo_branch_mismatch`, `repo_head_mismatch`,
+`dirty_worktree`, `brake_state_invalid`, `brake_not_drive`,
+`active_epoch_missing`, `active_epoch_conflict`, `active_epoch_invalid`,
+`active_epoch_id_mismatch`, `active_epoch_status_invalid`,
+`active_epoch_repo_mismatch`, `active_epoch_branch_mismatch`,
+`active_epoch_task_missing`, `task_checksum_missing`,
+`task_checksum_mismatch`, `ownership_record_missing`,
+`ownership_record_unreadable`, `ownership_candidate_mismatch`,
+`ownership_epoch_mismatch`, `ownership_head_mismatch`,
+`duplicate_active_ownership`, `command_policy_invalid`,
+`branch_policy_invalid`, `branch_policy_current_branch_main_disallowed`,
 `required_checks_invalid`, `required_checks_missing`,
-`result_path_invalid`, `result_path_mismatch`,
-`result_path_outside_runtime`, `role_readiness_invalid`,
-`role_readiness_scope_mismatch`, and `role_readiness_blocked`.
+`result_path_missing`, `result_path_invalid`, `result_path_mismatch`,
+`result_path_outside_runtime`, `role_readiness_unreadable`,
+`role_readiness_invalid`, `role_readiness_scope_mismatch`, and
+`role_readiness_blocked`.
 Ownership validation blockers from `validate-work-ownership` are forwarded.
 
 Recommended actions are limited to `invoke_real_executor`,
