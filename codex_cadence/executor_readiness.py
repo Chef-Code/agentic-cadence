@@ -26,6 +26,20 @@ def readiness_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
     return blocker
 
 
+def _expand_input_path(value: str | Path, *, code: str, message: str) -> tuple[Path | None, dict[str, Any] | None]:
+    try:
+        return Path(value).expanduser(), None
+    except (OSError, RuntimeError, ValueError) as exc:
+        return None, readiness_blocker(code, f"{message}: {exc}", path=str(value))
+
+
+def _resolve_input_path(path: Path, *, code: str, message: str) -> tuple[Path | None, dict[str, Any] | None]:
+    try:
+        return path.resolve(strict=False), None
+    except (OSError, RuntimeError, ValueError) as exc:
+        return None, readiness_blocker(code, f"{message}: {exc}", path=str(path))
+
+
 def _read_json_object(
     path: Path,
     *,
@@ -176,12 +190,34 @@ def _repo_blockers(
         }, [readiness_blocker("repo_inspection_failed", f"current repo could not be inspected: {exc}", path=str(cwd))]
     repository["requested_cwd"] = str(requested_cwd)
 
+    expected_path: Path | None = None
     expected_path_value = repo_packet.get("path")
-    expected_path = Path(expected_path_value).expanduser().resolve(strict=False) if isinstance(expected_path_value, str) else None
-    actual_path = Path(repository.get("cwd")).expanduser().resolve(strict=False)
-    if expected_path is None:
+    if isinstance(expected_path_value, str):
+        expanded_expected_path, path_blocker = _expand_input_path(
+            expected_path_value,
+            code="repo_path_invalid",
+            message="executor task repo.path could not be parsed",
+        )
+        if path_blocker is not None:
+            blockers.append(path_blocker)
+        elif expanded_expected_path is not None:
+            expected_path, path_blocker = _resolve_input_path(
+                expanded_expected_path,
+                code="repo_path_invalid",
+                message="executor task repo.path could not be resolved",
+            )
+            if path_blocker is not None:
+                blockers.append(path_blocker)
+    if not isinstance(expected_path_value, str):
         blockers.append(readiness_blocker("repo_path_invalid", "executor task repo.path is required"))
-    elif actual_path != expected_path:
+    actual_path, actual_path_blocker = _resolve_input_path(
+        Path(repository.get("cwd")).expanduser(),
+        code="repo_inspection_failed",
+        message="current repo path could not be resolved",
+    )
+    if actual_path_blocker is not None:
+        blockers.append(actual_path_blocker)
+    elif expected_path is not None and actual_path != expected_path:
         blockers.append(
             readiness_blocker(
                 "repo_path_mismatch",
@@ -322,8 +358,8 @@ def _epoch_blockers(
                 readiness_blocker(
                     "task_checksum_mismatch",
                     "active epoch task checksum does not match reviewed executor task packet",
-                    expected=epoch_checksum,
-                    actual=task_checksum,
+                    expected=task_checksum,
+                    actual=epoch_checksum,
                     task_id=task_id,
                 )
             )
@@ -338,7 +374,15 @@ def _result_path_blockers(
 ) -> list[dict[str, Any]]:
     if expected_result_path is None:
         return [readiness_blocker("result_path_missing", "expected result path is required")]
-    supplied_path = Path(expected_result_path).expanduser()
+    supplied_path, path_blocker = _expand_input_path(
+        expected_result_path,
+        code="result_path_invalid",
+        message="expected result path could not be parsed",
+    )
+    if path_blocker is not None or supplied_path is None:
+        return [path_blocker] if path_blocker is not None else [
+            readiness_blocker("result_path_invalid", "expected result path is invalid")
+        ]
     if not supplied_path.is_absolute():
         return [
             readiness_blocker(
@@ -347,15 +391,39 @@ def _result_path_blockers(
                 path=str(expected_result_path),
             )
         ]
-    supplied_resolved = supplied_path.resolve(strict=False)
+    supplied_resolved, path_blocker = _resolve_input_path(
+        supplied_path,
+        code="result_path_invalid",
+        message="expected result path could not be resolved",
+    )
+    if path_blocker is not None or supplied_resolved is None:
+        return [path_blocker] if path_blocker is not None else [
+            readiness_blocker("result_path_invalid", "expected result path is invalid")
+        ]
     expected_output = task_packet.get("expected_output") if isinstance(task_packet.get("expected_output"), dict) else {}
     packet_path_value = expected_output.get("evidence_path")
     if not isinstance(packet_path_value, str) or not packet_path_value.strip():
         return [readiness_blocker("result_path_invalid", "executor task expected_output.evidence_path is required")]
-    packet_path = Path(packet_path_value).expanduser()
+    packet_path, path_blocker = _expand_input_path(
+        packet_path_value,
+        code="result_path_invalid",
+        message="executor task expected_output.evidence_path could not be parsed",
+    )
+    if path_blocker is not None or packet_path is None:
+        return [path_blocker] if path_blocker is not None else [
+            readiness_blocker("result_path_invalid", "executor task expected_output.evidence_path is invalid")
+        ]
     if not packet_path.is_absolute():
         return [readiness_blocker("result_path_invalid", "executor task expected_output.evidence_path must be absolute")]
-    packet_resolved = packet_path.resolve(strict=False)
+    packet_resolved, path_blocker = _resolve_input_path(
+        packet_path,
+        code="result_path_invalid",
+        message="executor task expected_output.evidence_path could not be resolved",
+    )
+    if path_blocker is not None or packet_resolved is None:
+        return [path_blocker] if path_blocker is not None else [
+            readiness_blocker("result_path_invalid", "executor task expected_output.evidence_path is invalid")
+        ]
     blockers: list[dict[str, Any]] = []
     if packet_resolved != supplied_resolved:
         blockers.append(
@@ -367,8 +435,8 @@ def _result_path_blockers(
             )
         )
     logical_result_dir = root / "executor-results"
-    runtime_result_dir = logical_result_dir.resolve(strict=False)
     try:
+        runtime_result_dir = logical_result_dir.resolve(strict=False)
         if logical_result_dir.is_symlink():
             blockers.append(
                 readiness_blocker(

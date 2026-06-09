@@ -78,7 +78,7 @@ Last updated: 2026-06-08
 - Dry-run-only `git-pr-plan` is merged. It turns validated executor evidence into proposed branch, commit, PR title, and PR body text without creating a branch, committing, pushing, calling GitHub, opening a pull request, merging, releasing, or publishing packages.
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
-- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete through Task 17 in this branch, including the real-executor invocation readiness plan.
+- This branch includes `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` complete through Task 17, including the real-executor invocation readiness plan.
 
 ## Important Boundaries
 

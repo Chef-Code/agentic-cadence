@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import codex_cadence.executor_readiness as executor_readiness
 import codex_cadence.github_evidence as github_evidence
 from codex_cadence.cli import build_executor_result_validation_payload
 from codex_cadence.executor_contract import (
@@ -3747,6 +3748,38 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["repository"]["requested_cwd"], str(subdir.resolve()))
             self.assertEqual(output["repository"]["cwd"], str(Path(repo).resolve()))
 
+    def test_executor_invocation_readiness_converts_path_resolution_errors_to_blockers(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_packet = governed_execution_task_packet(tmp, repo)
+            task_packet["repo"]["path"] = str(Path(repo) / "bad-repo-path")
+            original_resolve = Path.resolve
+
+            def guarded_resolve(path_self, *args, **kwargs):
+                if "bad-repo-path" in str(path_self) or "bad-result-path" in str(path_self):
+                    raise ValueError("synthetic path resolution failure")
+                return original_resolve(path_self, *args, **kwargs)
+
+            with mock.patch.object(Path, "resolve", guarded_resolve):
+                _repository, repo_blockers = executor_readiness._repo_blockers(
+                    cwd=Path(repo),
+                    task_packet=task_packet,
+                )
+
+            self.assertIn("repo_path_invalid", {blocker["code"] for blocker in repo_blockers})
+
+            task_packet = governed_execution_task_packet(tmp, repo)
+            supplied_path = Path(tmp) / "executor-results" / "executor-result.json"
+            task_packet["expected_output"]["evidence_path"] = str(Path(tmp) / "executor-results" / "bad-result-path.json")
+            with mock.patch.object(Path, "resolve", guarded_resolve):
+                result_blockers = executor_readiness._result_path_blockers(
+                    root=Path(tmp),
+                    task_packet=task_packet,
+                    expected_result_path=supplied_path,
+                )
+
+            self.assertIn("result_path_invalid", {blocker["code"] for blocker in result_blockers})
+
     def test_executor_invocation_readiness_blocks_unready_inputs_without_side_effects(self):
         def rewrite_ownership_epoch(root, ownership_id, epoch_id):
             path = Path(root) / "work-ownership" / "active" / f"{ownership_id}.json"
@@ -3852,6 +3885,10 @@ class CadenceCliTests(unittest.TestCase):
                         "args": ["--ownership-target", "ownership-1"],
                         "expected_code": "task_checksum_mismatch",
                         "expected_action": "refresh_task_evidence",
+                        "expected_blocker_fields": {
+                            "expected": checksum_json(task_packet),
+                            "actual": "sha256:" + "0" * 64,
+                        },
                     },
                 )[1],
             ),
@@ -4137,6 +4174,12 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertEqual(output["side_effects"], [])
                     self.assertEqual(output["recommended_next_action"], case["expected_action"])
                     self.assertIn(case["expected_code"], {blocker["code"] for blocker in output["blockers"]})
+                    if "expected_blocker_fields" in case:
+                        matching_blocker = next(
+                            blocker for blocker in output["blockers"] if blocker["code"] == case["expected_code"]
+                        )
+                        for field, value in case["expected_blocker_fields"].items():
+                            self.assertEqual(matching_blocker.get(field), value)
                     epoch_files_after = {
                         path.name: path.read_text(encoding="utf-8")
                         for path in (Path(tmp) / "epochs" / "active").glob("*.json")

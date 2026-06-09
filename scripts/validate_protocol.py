@@ -614,7 +614,10 @@ REQUIRED_TOKENS = {
         "role_readiness_invalid",
         "role_readiness_blocked",
         "role_readiness_scope_mismatch",
+        "read_only_preflight_only",
+        "executor_not_started",
         "executor_process_metadata_out_of_scope",
+        "executor_code_modification_out_of_scope",
         "branch_creation_commit_push_pr_merge_release_publish_out_of_scope",
     ),
     "codex_cadence/store.py": (
