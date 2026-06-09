@@ -2057,7 +2057,10 @@ Risk: medium
             ]
             self.assertEqual(len(business_memory_candidates), 1)
             candidate = business_memory_candidates[0]
-            self.assertEqual(candidate["evidence"]["heading"], "Real Executor Readiness Needs A Preflight Packet")
+            self.assertEqual(
+                candidate["evidence"]["heading"],
+                "Real Executor Invocation Needs Approval And Audit Hardening",
+            )
             self.assertEqual(candidate["classification"], "risk")
             self.assertEqual(candidate["classification_confidence"], "high")
             self.assertEqual(candidate["workflow"], "Controlled executor loop governance")

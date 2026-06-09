@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-06-08
+Last updated: 2026-06-09
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption
@@ -27,6 +27,49 @@ Consequences:
 Open questions:
 - Remaining unknowns.
 ```
+
+## 2026-06-09 - Harden audit and approval before real executor process start
+
+Decision:
+- Use `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` as the next bounded
+  planning artifact after Task 17.
+- Make Task 18 audit hash-chain integrity evidence, followed by authenticated
+  operator approval identity, read-only real executor invocation planning,
+  controlled real executor process start, and real-run closeout binding.
+- Keep real executor invocation out of the roadmap-refresh branch and out of
+  Tasks 18-20.
+
+Why:
+- PR #84 added a stable `executor-invocation-readiness.v1` gate, but a
+  successful readiness packet is not authority to start a process.
+- The next likely failure before real executor invocation is trusting local
+  approval and audit evidence that lacks tamper-evident chain context or
+  authenticated operator identity.
+- Exact invocation planning should bind readiness, approval, audit-chain,
+  adapter, timeout, command policy, and result-path evidence before any process
+  start command exists.
+
+Alternatives considered:
+- Start a real executor immediately after Task 17. Rejected because readiness
+  evidence still lacks audit-chain and approval-identity hardening.
+- Start role assignment or agent-pool scheduling first. Deferred because local
+  role-readiness is evidence-only and no scheduler, role registry, or identity
+  authority exists.
+- Build a continuous loop runner next. Deferred because a loop runner would
+  still stop at the missing real executor invocation and approval boundaries.
+
+Consequences:
+- The next implementation slice is Task 18: audit hash-chain integrity
+  evidence.
+- Real executor process start is sequenced no earlier than Task 21 and remains
+  constrained by exact approval, readiness, audit, policy, timeout, epoch,
+  ownership, and result-path rechecks.
+
+Open questions:
+- Which local approval identity mechanism should become the default before
+  external identity-provider integration exists?
+- Which executor side-effect mode should be the first default for Task 21:
+  `evidence_only` or explicitly approved `materialized_changes`?
 
 ## 2026-06-08 - Keep real executor invocation behind a read-only readiness gate
 

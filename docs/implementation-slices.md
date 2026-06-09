@@ -1,8 +1,8 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-06-08
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, and local work ownership claim/closeout evidence current tree
+Last updated: 2026-06-09
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -15,7 +15,7 @@ Each slice should ship with tests, evidence, and updates to the living docs.
 ## Current Working Baseline
 
 The five 50% confidence slices below remain the framework for a controlled
-loop. Tasks 1-16 completed several local governance increments inside those
+loop. Tasks 1-17 completed several local governance increments inside those
 slices, but the controlled loop is still incomplete. Three smaller
 stabilization slices are now part of this baseline:
 
@@ -95,8 +95,12 @@ Current unattended-operation confidence remains 10%.
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
 complete, Tasks 8-12 from
 `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete, and Tasks
-13-16 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in
-the current tree. Task 17 from that roadmap is the next bounded slice.
+13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in
+the current tree. Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
+added read-only real-executor invocation readiness. The next bounded
+implementation slice is Task 18 from
+`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`: add audit hash-chain
+integrity evidence before any real executor process start.
 
 ## Vision Framing
 

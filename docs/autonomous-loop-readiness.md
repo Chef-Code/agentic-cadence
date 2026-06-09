@@ -1,8 +1,8 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-06-08
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, and local work ownership claim/closeout evidence current tree
+Last updated: 2026-06-09
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -280,6 +280,9 @@ approved active epoch through `start-governed-execution`, prove read-only
 executor invocation readiness through `executor-invocation-readiness`, run a
 fake controlled fixture, and close local executor evidence into an epoch
 decision. It still does not invoke a real executor or apply code changes.
+The Tasks 18-22 roadmap starts with the first likely failure below by adding
+audit hash-chain integrity and authenticated approval identity before any real
+executor process-start command.
 
 The next likely failures are:
 

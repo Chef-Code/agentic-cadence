@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-08
+Last updated: 2026-06-09
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,52 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-09 - Prepare Tasks 18-22 roadmap after executor readiness
+
+Summary:
+- Refreshed the handoff after PR #84 merged read-only
+  `executor-invocation-readiness.v1` evidence.
+- Added `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` to sequence the
+  next bounded work after Task 17.
+- Marked the real-executor-readiness business-memory entry fulfilled and added
+  a new active risk entry for audit-chain, approval-identity, and invocation
+  planning before process start.
+
+Completed slices:
+- Documentation and handoff preparation after Task 17.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: The next roadmap is clearer, but Cadence still does not invoke a real
+  executor, implement code autonomously, write GitHub state without explicit
+  approval, merge, release, publish packages, assign roles, schedule agents, or
+  provide distributed locking.
+
+Evidence:
+- PR #84 merged as `a2736bc6ac3af843cc66391dc891d51a6f1c217b`.
+- `python -m py_compile scripts/validate_protocol.py tests/test_candidates.py`
+- `python -m unittest tests.test_candidates tests.test_ci_checks -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- The next implementation slice should harden audit-chain integrity before any
+  real executor process start.
+- Authenticated operator approval identity and exact invocation planning remain
+  future work after audit-chain integrity.
+
+Docs updated:
+- `docs/session-handoff.md`
+- `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/cadence/business-memory.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
 
 ## 2026-06-08 - Add executor invocation readiness preflight
 

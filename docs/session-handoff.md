@@ -1,19 +1,21 @@
 # Current Session Handoff
 
-Last updated: 2026-06-08
+Last updated: 2026-06-09
 
 ## Current State
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `01680bb81c4214875a7edbe6545e02572bd26568` after PR #83 merged.
-- Working branch intent: implement Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` by adding read-only real executor invocation readiness evidence.
-- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff.
-- Completed roadmap marker: Tasks 13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in the current branch, including `work-ownership-claim.v1`, `work-ownership-closeout.v1`, ownership-bound `execution-start.v1`, ownership-aware `resume-continuation.v1`, read-only `role-readiness.v1`, and read-only `executor-invocation-readiness.v1` packet evidence.
-- Current branch scope: `codex/task-17-executor-invocation-readiness` adds a
-  read-only executor invocation readiness preflight. It must not invoke a real
-  executor, modify code through an executor, create branches, commit, push,
-  write PRs, merge, release, or publish packages.
+- Current base: `origin/main` at `a2736bc6ac3af843cc66391dc891d51a6f1c217b` after PR #84 merged.
+- Working branch intent: prepare the Tasks 18-22 roadmap and post-Task-17 handoff context after read-only real executor invocation readiness merged.
+- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence.
+- Completed roadmap marker: Tasks 13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in `main`, including `work-ownership-claim.v1`, `work-ownership-closeout.v1`, ownership-bound `execution-start.v1`, ownership-aware `resume-continuation.v1`, read-only `role-readiness.v1`, and read-only `executor-invocation-readiness.v1` packet evidence.
+- Current branch scope: `codex/tasks-18-22-roadmap-handoff` adds the next
+  public roadmap and refreshes living handoff docs. It must not change runtime
+  behavior, invoke a real executor, modify code through an executor, create
+  branches outside this planned PR branch, write GitHub state beyond the
+  operator-approved PR for this docs slice, merge, release, or publish
+  packages.
 
 ## Current Capability Baseline
 
@@ -78,7 +80,8 @@ Last updated: 2026-06-08
 - Dry-run-only `git-pr-plan` is merged. It turns validated executor evidence into proposed branch, commit, PR title, and PR body text without creating a branch, committing, pushing, calling GitHub, opening a pull request, merging, releasing, or publishing packages.
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
-- This branch includes `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` complete through Task 17, including the real-executor invocation readiness plan.
+- Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete in `main` via PR #84.
+- This branch adds `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` as the next public planning artifact.
 
 ## Important Boundaries
 
@@ -129,20 +132,26 @@ Last updated: 2026-06-08
 
 ```powershell
 git status -sb
-python -m py_compile codex_cadence/executor_readiness.py codex_cadence/executor_contract.py codex_cadence/epochs.py codex_cadence/ownership.py codex_cadence/cli.py
-python -m unittest tests.test_cadence tests.test_executor_contract tests.test_epochs -v
+python -m py_compile scripts/validate_protocol.py tests/test_candidates.py
+python -m unittest tests.test_candidates tests.test_ci_checks -v
 python scripts/validate_protocol.py
 python scripts/ci_smoke.py
 git diff --check
 ```
 
-For this branch, use the Task 17 validation block in
-`docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`.
+For this branch, use the docs-planning validation block above. The Task 17
+runtime validation block remains recorded in
+`docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the merged
+`executor-invocation-readiness.v1` slice.
 
 ## Next Action
 
-Finish validation for `codex/task-17-executor-invocation-readiness`, then open
-a PR for Task 17. Real executor invocation, code modification by an executor,
-branch creation, dirty-worktree commit, push, PR writes, role assignment, agent
-pools, GitHub issue assignment, shared runtimes, distributed locks, merge,
-release, and package publication remain outside this branch.
+Finish validation for `codex/tasks-18-22-roadmap-handoff`, then open a PR for
+the post-Task-17 roadmap refresh. After that PR merges, Task 18 from
+`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` is the next bounded
+implementation slice: add audit hash-chain integrity evidence before any real
+executor process start. Real executor invocation, code modification by an
+executor, dirty-worktree commit, autonomous push, PR writes outside the planned
+docs PR, role assignment, agent pools, GitHub issue assignment, shared
+runtimes, distributed locks, merge, release, and package publication remain
+outside this branch.

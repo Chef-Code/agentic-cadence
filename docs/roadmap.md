@@ -1,8 +1,8 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-08
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, and local work ownership claim/closeout evidence current tree
+Last updated: 2026-06-09
+Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -334,9 +334,11 @@ The smallest slices expected to move confidence toward 50% are tracked in
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
 complete, Tasks 8-12 from
 `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete, and Tasks
-13-16 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in
-the current tree. Task 17 from that roadmap, real-executor invocation
-readiness planning, is the next bounded implementation slice.
+13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in
+the current tree. Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`,
+real-executor invocation readiness planning, is merged. Task 18 from
+`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, audit hash-chain integrity
+evidence, is the next bounded implementation slice.
 
 ## Roadmap
 
@@ -643,11 +645,12 @@ mismatch, invalid role/claimer, closed evidence, close/fail move, malformed
 records, repo/branch/task mismatch fixtures, and audit replay of ownership
 mutation evidence.
 
-Follow-up: use `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the next
-bounded implementation sequence. Resume-continuation ownership enforcement and
-role-readiness evidence are implemented in the current tree; real-executor
-invocation readiness planning remains sequenced there. Distributed
-locking, agent pools, GitHub issue assignment, real executor invocation,
+Follow-up: use `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` for the next
+bounded implementation sequence. Resume-continuation ownership enforcement,
+role-readiness evidence, and real-executor invocation readiness planning are
+implemented in the current tree. Audit hash-chain integrity, authenticated
+approval identity, exact real-executor invocation planning, controlled real
+executor invocation, distributed locking, agent pools, GitHub issue assignment,
 merge, release, and package publication remain future work.
 
 ## Long-Term Goals
