@@ -28,6 +28,44 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-08 - Keep real executor invocation behind a read-only readiness gate
+
+Decision:
+- Add `executor-invocation-readiness.v1` as a local read-only preflight before
+  any real executor invocation path exists.
+- Require the packet to consume reviewed task evidence, active epoch evidence,
+  active ownership evidence, expected result-path evidence, command and branch
+  policy shape, required checks, active brake state, and optional
+  `role-readiness.v1` evidence.
+- Report `executor_started: false`, omit executor process metadata, and keep
+  code modification, branch creation, commits, pushes, PR writes, merge,
+  release, and package publication out of scope.
+
+Why:
+- Tasks 13-16 supplied local ownership and role-readiness evidence, but the
+  first real unattended-operation boundary is still handing work to a real
+  executor.
+- A stable read-only packet lets future orchestration prove readiness and
+  diagnose blockers before any side-effectful executor integration exists.
+
+Alternatives considered:
+- Start a real executor directly after `start-governed-execution`. Rejected
+  because the roadmap deliberately calls for a pre-invocation readiness packet
+  first.
+- Treat `role-readiness.v1` as mandatory. Deferred because review separation
+  evidence is useful when available, but some local tasks may not yet have
+  role policy evidence during the transition.
+
+Consequences:
+- Future real executor invocation can depend on stable blockers and packet
+  checksums instead of re-inferring readiness from raw files.
+- A successful readiness packet recommends `invoke_real_executor`, but it is
+  not itself authority to start a process or write repository/GitHub state.
+
+Open questions:
+- What explicit approval token, process metadata, timeout handling, and
+  rollback evidence should a future real executor invocation command require?
+
 ## 2026-06-08 - Handoff to executor-readiness planning after Task 16
 
 Decision:

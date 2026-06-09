@@ -33,6 +33,52 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-08 - Add executor invocation readiness preflight
+
+Summary:
+- Added read-only `executor-invocation-readiness.v1` packets that consume a
+  reviewed executor task, active epoch, active ownership evidence, expected
+  result path, and optional role-readiness evidence before any future real
+  executor invocation.
+- Rechecked repo path, branch, `HEAD`, dirty worktree, active brake, active
+  epoch id/status, task checksum, ownership binding, command policy, branch
+  policy, required checks, and result-path boundaries.
+- Kept `executor_started: false`, `side_effects: []`, and executor process
+  metadata out of scope.
+
+Completed slices:
+- Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Cadence can now prove a future real executor invocation boundary is
+  locally ready, but it still does not invoke a real executor, implement code,
+  autonomously write Git/PR state, merge, release, or publish packages.
+
+Evidence:
+- `python -m py_compile codex_cadence/executor_readiness.py codex_cadence/executor_contract.py codex_cadence/epochs.py codex_cadence/ownership.py codex_cadence/cli.py`
+- `python -m unittest tests.test_cadence tests.test_executor_contract tests.test_epochs -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- Real executor invocation and named host adapters remain future work.
+- A successful readiness packet is not authority to start a process or modify
+  code; an external orchestrator still needs an explicitly approved invocation
+  path.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+
 ## 2026-06-08 - Refresh handoff after Task 16
 
 Summary:

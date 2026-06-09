@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, read-only `role-readiness`, operator-approved `git-pr-materialize`, read-only `verify-resume`, ownership-aware read-only `resume-continuation`, local `work-ownership-status` / `validate-work-ownership` / `claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, and a fixture-only controlled executor runner for tests and examples.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, read-only `role-readiness`, read-only `executor-invocation-readiness`, operator-approved `git-pr-materialize`, read-only `verify-resume`, ownership-aware read-only `resume-continuation`, local `work-ownership-status` / `validate-work-ownership` / `claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, and a fixture-only controlled executor runner for tests and examples.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -548,6 +548,39 @@ and `inspect_role_readiness_blockers`.
 The command does not assign roles, schedule agents, invoke review agents or
 paid review, call GitHub, post comments, resolve review threads, update PRs,
 create branches, commit, push, merge, release, or publish packages.
+
+## Executor Invocation Readiness
+
+`executor-invocation-readiness` is a read-only preflight for a future real
+executor invocation. It consumes a reviewed `generic-executor-task.v1` packet,
+the active epoch id, matching local ownership evidence, the expected result
+path, and optional `role-readiness.v1` evidence:
+
+```bash
+agentic-cadence --root <runtime-root> executor-invocation-readiness --cwd . --task-file executor-task.json --epoch-id epoch-1 --ownership-target ownership-1 --expected-result-path <runtime-root>/executor-results/executor-result.json --role-readiness-file role-readiness.json
+```
+
+The command emits `executor-invocation-readiness.v1` with
+`executor_started: false`, `side_effects: []`, no executor process metadata,
+and `recommended_next_action: invoke_real_executor` only when repo path,
+branch, `HEAD`, clean worktree, active brake, active epoch id/status, task
+checksum, ownership binding, command policy, branch policy, required checks,
+runtime result-path boundary, and optional role readiness all pass.
+
+Stable blockers include `repo_path_mismatch`, `repo_branch_mismatch`,
+`repo_head_mismatch`, `dirty_worktree`, `brake_not_drive`,
+`active_epoch_missing`, `active_epoch_id_mismatch`,
+`task_checksum_mismatch`, `ownership_record_missing`,
+`ownership_epoch_mismatch`, `command_policy_invalid`,
+`branch_policy_invalid`, `required_checks_missing`,
+`result_path_outside_runtime`, and `role_readiness_blocked`.
+Recommended actions include `refresh_task_evidence`, `fix_ownership`,
+`close_or_fail_active_epoch`, `inspect_policy_blockers`, and
+`operator_review`.
+
+This is not real executor invocation. It does not edit code, start a process,
+create branches, commit, push, open or update PRs, merge, release, publish
+packages, assign roles, or write GitHub state.
 
 ## GitHub Evidence Sync
 
