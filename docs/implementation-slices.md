@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-09
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -46,7 +46,9 @@ orchestration, agent-role assignment, agent-pool coordination, distributed
 ownership locks, or enforced review separation.
 The first local policy/audit controls can bound
 emitted executor task packets, append decision/result-validation audit records,
-and replay local audit history with a read-only `audit-replay.v1` packet.
+append hash-chain metadata to new audit records, and replay local audit history
+with a read-only `audit-replay.v1` packet that reports chain head, chained
+record count, and explicit legacy roots.
 Active execution controls are partial: `start-governed-execution` can consume
 an exactly approved generic executor task packet, recheck repo/policy/brake
 state and supplied local ownership evidence, bind matching active ownership to
@@ -97,10 +99,11 @@ complete, Tasks 8-12 from
 `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete, and Tasks
 13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in
 the current tree. Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
-added read-only real-executor invocation readiness. The next bounded
-implementation slice is Task 18 from
-`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`: add audit hash-chain
-integrity evidence before any real executor process start.
+added read-only real-executor invocation readiness. Task 18 from
+`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` adds local audit hash-chain
+integrity evidence before any real executor process start. The next bounded
+implementation slice is Task 19: authenticated operator approval identity
+evidence.
 
 ## Vision Framing
 

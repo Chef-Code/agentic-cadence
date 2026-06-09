@@ -28,6 +28,45 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-09 - Add local audit hash-chain integrity evidence
+
+Decision:
+- Extend `cadence-audit.v1` append records with local
+  `cadence-audit-chain.v1` metadata instead of creating a second audit log.
+- Store `chain_index`, `previous_event_hash`, and `event_hash` on new audit
+  records. Compute `event_hash` from the canonical JSON record excluding the
+  `event_hash` field itself.
+- Keep `audit-replay` read-only and extend its `audit-replay.v1` packet with
+  chain head/count evidence while treating older unchained records as explicit
+  legacy roots.
+
+Why:
+- Future real executor invocation gates need tamper-evident local decision
+  history before process start evidence can be trusted.
+- Extending compact records keeps every existing append path on one local JSONL
+  stream and preserves audit rollback behavior.
+- Legacy-root replay avoids invalidating existing local audit histories while
+  making the transition visible through `legacy_chain_roots` and
+  `continue_with_legacy_chain_root`.
+
+Alternatives considered:
+- Add a separate `cadence-audit-chain.v1` sidecar log. Rejected because two
+  logs would create synchronization and rollback ambiguity for each append.
+- Rewrite legacy records with chain fields. Rejected because `audit-replay`
+  must remain read-only and should not mutate existing history.
+
+Consequences:
+- New audit records are chained deterministically and replay reports the final
+  chain head.
+- Missing predecessor hashes, tampered chained payloads, duplicate chain
+  indexes, and unsupported chain records now block replay with stable codes.
+- Authenticated operator approval identity remains the next hardening gap
+  before real executor invocation planning.
+
+Open questions:
+- Which local approval identity mechanism should become the default before
+  external identity-provider integration exists?
+
 ## 2026-06-09 - Harden audit and approval before real executor process start
 
 Decision:

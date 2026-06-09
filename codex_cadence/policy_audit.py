@@ -12,11 +12,26 @@ from codex_cadence.store import read_json, utc_now
 
 AUDIT_SCHEMA_VERSION = "cadence-audit.v1"
 AUDIT_REPLAY_SCHEMA_VERSION = "audit-replay.v1"
+AUDIT_CHAIN_SCHEMA_VERSION = "cadence-audit-chain.v1"
+AUDIT_CHAIN_ROOT_HASH = "sha256:" + "0" * 64
 LOOP_POLICY_SCHEMA_VERSION = "cadence-loop-policy.v1"
 CHECKSUM_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 AUDIT_REPLAY_UPGRADE_BLOCKERS = {
     "audit_schema_version_unsupported",
     "audit_event_unsupported",
+    "unsupported_audit_chain_record",
+}
+AUDIT_CHAIN_FIELDS = {
+    "audit_chain_version",
+    "chain_index",
+    "previous_event_hash",
+    "event_hash",
+}
+AUDIT_CHAIN_REPAIR_BLOCKERS = {
+    "audit_chain_missing",
+    "audit_chain_broken",
+    "audit_event_hash_mismatch",
+    "audit_chain_index_duplicate",
 }
 EXECUTION_RUN_AUDIT_ACTIONS = {"record_execution_run", "update_execution_run_closeout"}
 
@@ -24,6 +39,12 @@ EXECUTION_RUN_AUDIT_ACTIONS = {"record_execution_run", "update_execution_run_clo
 def checksum_json(data: Any) -> str:
     payload = json.dumps(data, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def audit_event_hash(record: dict[str, Any]) -> str:
+    """Return the deterministic hash for an audit record without its own hash field."""
+    event_payload = {key: value for key, value in record.items() if key != "event_hash"}
+    return checksum_json(event_payload)
 
 
 def audit_events_path(root: Path) -> Path:
@@ -38,13 +59,25 @@ def audit_replay_blocker(code: str, message: str, line: int | None = None) -> di
     return blocker
 
 
-def audit_replay_recommendation(blockers: list[dict[str, Any]]) -> str:
+def audit_replay_recommendation(
+    blockers: list[dict[str, Any]],
+    *,
+    records_seen: int,
+    chain_records: int,
+    legacy_chain_roots: int,
+) -> str:
     """Choose the command-local recommendation for replay blockers."""
     if not blockers:
+        if records_seen == 0:
+            return "start_new_audit_chain"
+        if legacy_chain_roots:
+            return "continue_with_legacy_chain_root"
         return "use_audit_replay_evidence"
     codes = {blocker.get("code") for blocker in blockers}
     if codes and codes <= AUDIT_REPLAY_UPGRADE_BLOCKERS:
         return "upgrade_cadence"
+    if any(code in AUDIT_CHAIN_REPAIR_BLOCKERS for code in codes):
+        return "repair_audit_history"
     return "inspect_audit_log"
 
 
@@ -57,6 +90,9 @@ def audit_replay_packet(
     records_invalid: int,
     events_by_type: dict[str, int],
     blockers: list[dict[str, Any]],
+    chain_head: str | None = None,
+    chain_records: int = 0,
+    legacy_chain_roots: int = 0,
 ) -> dict[str, Any]:
     """Build the top-level audit-replay.v1 packet."""
     target = audit_events_path(root).expanduser().resolve(strict=False)
@@ -73,8 +109,17 @@ def audit_replay_packet(
         "records_valid": records_valid,
         "records_invalid": records_invalid,
         "events_by_type": events_by_type,
+        "audit_chain_version": AUDIT_CHAIN_SCHEMA_VERSION,
+        "chain_head": chain_head,
+        "chain_records": chain_records,
+        "legacy_chain_roots": legacy_chain_roots,
         "blockers": blockers,
-        "recommended_next_action": audit_replay_recommendation(blockers),
+        "recommended_next_action": audit_replay_recommendation(
+            blockers,
+            records_seen=records_seen,
+            chain_records=chain_records,
+            legacy_chain_roots=legacy_chain_roots,
+        ),
     }
 
 
@@ -424,6 +469,71 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
     return event if not blockers else None, blockers
 
 
+def audit_chain_blockers(
+    record: dict[str, Any],
+    line: int,
+    *,
+    expected_previous_hash: str,
+    seen_chain_indexes: set[int],
+    chain_started: bool,
+) -> tuple[list[dict[str, Any]], str | None, bool]:
+    """Validate hash-chain metadata and return this record's chain head."""
+    present_fields = {field for field in AUDIT_CHAIN_FIELDS if field in record and record[field] not in (None, "")}
+    if not present_fields:
+        if chain_started:
+            return [
+                audit_replay_blocker(
+                    "audit_chain_missing",
+                    "chained audit history cannot continue with a legacy record",
+                    line,
+                )
+            ], None, False
+        return [], audit_event_hash(record), False
+
+    blockers: list[dict[str, Any]] = []
+    missing_fields = sorted(AUDIT_CHAIN_FIELDS - present_fields)
+    for field in missing_fields:
+        blockers.append(audit_replay_blocker("audit_chain_missing", f"{field} is required", line))
+    if blockers:
+        return blockers, None, True
+
+    if record.get("audit_chain_version") != AUDIT_CHAIN_SCHEMA_VERSION:
+        return [
+            audit_replay_blocker(
+                "unsupported_audit_chain_record",
+                f"unsupported audit_chain_version: {record.get('audit_chain_version')}",
+                line,
+            )
+        ], None, True
+
+    chain_index = record.get("chain_index")
+    if not isinstance(chain_index, int) or chain_index < 1:
+        blockers.append(audit_replay_blocker("audit_chain_missing", "chain_index must be a positive integer", line))
+    elif chain_index in seen_chain_indexes:
+        blockers.append(audit_replay_blocker("audit_chain_index_duplicate", "chain_index is duplicated", line))
+    elif chain_index != line:
+        blockers.append(audit_replay_blocker("audit_chain_broken", "chain_index must match the audit line", line))
+
+    previous_hash = record.get("previous_event_hash")
+    if not isinstance(previous_hash, str) or CHECKSUM_PATTERN.fullmatch(previous_hash) is None:
+        blockers.append(
+            audit_replay_blocker("audit_chain_missing", "previous_event_hash must be a sha256 checksum", line)
+        )
+    elif previous_hash != expected_previous_hash:
+        blockers.append(audit_replay_blocker("audit_chain_broken", "previous_event_hash does not match chain head", line))
+
+    event_hash = record.get("event_hash")
+    computed_event_hash = audit_event_hash(record)
+    if not isinstance(event_hash, str) or CHECKSUM_PATTERN.fullmatch(event_hash) is None:
+        blockers.append(audit_replay_blocker("audit_event_hash_mismatch", "event_hash must be a sha256 checksum", line))
+    elif event_hash != computed_event_hash:
+        blockers.append(audit_replay_blocker("audit_event_hash_mismatch", "event_hash does not match record payload", line))
+
+    if blockers:
+        return blockers, None, True
+    return [], computed_event_hash, True
+
+
 def reject_json_constant(value: str) -> None:
     """Reject non-standard JSON constants accepted by Python's parser."""
     raise ValueError(f"non-standard JSON constant is not allowed: {value}")
@@ -463,6 +573,12 @@ def replay_audit_log(root: Path) -> dict[str, Any]:
     records_invalid = 0
     events_by_type: dict[str, int] = {}
     blockers: list[dict[str, Any]] = []
+    chain_head: str | None = None
+    chain_records = 0
+    legacy_chain_roots = 0
+    seen_chain_indexes: set[int] = set()
+    chain_started = False
+    expected_previous_hash = AUDIT_CHAIN_ROOT_HASH
     try:
         with target.open("r", encoding="utf-8") as handle:
             for lines_seen, line in enumerate(handle, start=1):
@@ -484,7 +600,27 @@ def replay_audit_log(root: Path) -> dict[str, Any]:
                     records_invalid += 1
                     blockers.extend(record_blockers)
                     continue
+                chain_blockers, record_chain_head, chained = audit_chain_blockers(
+                    record,
+                    lines_seen,
+                    expected_previous_hash=expected_previous_hash,
+                    seen_chain_indexes=seen_chain_indexes,
+                    chain_started=chain_started,
+                )
+                if chain_blockers:
+                    records_invalid += 1
+                    blockers.extend(chain_blockers)
+                    continue
                 records_valid += 1
+                if record_chain_head is not None:
+                    chain_head = record_chain_head
+                    expected_previous_hash = record_chain_head
+                if chained:
+                    chain_started = True
+                    chain_records += 1
+                    seen_chain_indexes.add(record["chain_index"])
+                else:
+                    legacy_chain_roots += 1
                 if event is not None:
                     events_by_type[event] = events_by_type.get(event, 0) + 1
     except UnicodeDecodeError:
@@ -516,7 +652,47 @@ def replay_audit_log(root: Path) -> dict[str, Any]:
         records_invalid=records_invalid,
         events_by_type=events_by_type,
         blockers=blockers,
+        chain_head=chain_head,
+        chain_records=chain_records,
+        legacy_chain_roots=legacy_chain_roots,
     )
+
+
+def audit_append_chain_tip(target: Path) -> tuple[str, int]:
+    """Return the previous event hash and next chain index for a new append."""
+    if not target.exists():
+        return AUDIT_CHAIN_ROOT_HASH, 1
+    if not target.is_file():
+        raise OSError("audit path exists but is not a regular file")
+
+    expected_previous_hash = AUDIT_CHAIN_ROOT_HASH
+    seen_chain_indexes: set[int] = set()
+    chain_started = False
+    last_line = 0
+    with target.open("r", encoding="utf-8") as handle:
+        for last_line, line in enumerate(handle, start=1):
+            text = line.rstrip("\r\n")
+            if not text.strip():
+                raise ValueError("cannot append after blank audit line")
+            record = json.loads(text, parse_constant=reject_json_constant)
+            event, record_blockers = validate_audit_record(record, last_line)
+            if event is None or record_blockers:
+                raise ValueError("cannot append after invalid audit record")
+            chain_blockers, record_chain_head, chained = audit_chain_blockers(
+                record,
+                last_line,
+                expected_previous_hash=expected_previous_hash,
+                seen_chain_indexes=seen_chain_indexes,
+                chain_started=chain_started,
+            )
+            if chain_blockers or record_chain_head is None:
+                raise ValueError("cannot append after invalid audit chain")
+            expected_previous_hash = record_chain_head
+            if chained:
+                chain_started = True
+                seen_chain_indexes.add(record["chain_index"])
+
+    return expected_previous_hash, last_line + 1
 
 
 def append_audit_record(root: Path, record: dict[str, Any]) -> dict[str, Any]:
@@ -525,12 +701,21 @@ def append_audit_record(root: Path, record: dict[str, Any]) -> dict[str, Any]:
     line = dict(record)
     line.setdefault("schema_version", AUDIT_SCHEMA_VERSION)
     line.setdefault("recorded_at", utc_now())
+    previous_event_hash, chain_index = audit_append_chain_tip(target)
+    line["audit_chain_version"] = AUDIT_CHAIN_SCHEMA_VERSION
+    line["chain_index"] = chain_index
+    line["previous_event_hash"] = previous_event_hash
+    line["event_hash"] = audit_event_hash(line)
     with target.open("a", encoding="utf-8", newline="\n") as handle:
         handle.write(json.dumps(line, sort_keys=True, separators=(",", ":")) + "\n")
     return {
         "event": line.get("event"),
         "path": str(target),
         "recorded_at": line.get("recorded_at"),
+        "audit_chain_version": line.get("audit_chain_version"),
+        "chain_index": line.get("chain_index"),
+        "previous_event_hash": line.get("previous_event_hash"),
+        "event_hash": line.get("event_hash"),
     }
 
 

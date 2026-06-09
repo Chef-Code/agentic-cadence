@@ -654,25 +654,30 @@ The packet must include the brake and Cadence state, the persisted snapshot, the
 
 When `--policy-file` is supplied, it must be local JSON with `schema_version: cadence-loop-policy.v1`. The initial policy shape supports `allowed_paths`, `denied_paths`, `allowed_commands`, `denied_commands`, `required_checks`, `max_executor_time_minutes`, `stop_conditions`, and an optional `branch_policy` object. Policy paths are repo-relative. Policy `allowed_paths` and max runtime provide defaults and caps for emitted executor task packets. Policy `allowed_commands` and `denied_commands` are copied into the emitted task packet `command_policy` so later result validation can reject commands outside the allowlist or matching the denylist. Policy `branch_policy` is copied into emitted executor task packets so later Git/PR planning checks the approved branch bounds instead of trusting a mutable policy file. The branch policy supports only `allowed_base_branches`, `denied_target_branches`, `required_branch_prefixes`, and `allow_current_branch_main`; unknown branch-policy fields are rejected. When no branch policy is supplied, existing no-policy behavior remains permissive for dry-run planning; when a `branch_policy` object is supplied, omitted list fields default to empty lists and omitted `allow_current_branch_main` preserves that permissive default. Built-in safety stops `brake_not_drive`, `operator_stop`, `context_pressure`, and `timeout` must always be retained. Policy `required_checks` and `stop_conditions` must always be retained, and requested CLI checks or stop conditions are additive after de-duplication. Requested executor allowed paths must stay inside policy `allowed_paths` and must not overlap `denied_paths`; requested runtime must not exceed `max_executor_time_minutes`; malformed requested allowed paths or malformed branch policy fail closed before a task packet is emitted. A policy denial must emit a `policy_denied` loop packet, require operator attention, and avoid emitting an executor task.
 
-Each root-backed `loop-tick` must append a compact `cadence-audit.v1` record to `<root>/audit/events.jsonl` and include an `audit_record` reference in the returned packet. The audit record binds the decision to the tick id, recommended action, reason, repo, branch, head, snapshot id, optional executor task id, operator-confirmation flag, and a checksum of the emitted packet before the audit reference is added.
+Each root-backed `loop-tick` must append a compact `cadence-audit.v1` record to `<root>/audit/events.jsonl` and include an `audit_record` reference in the returned packet. The audit record binds the decision to the tick id, recommended action, reason, repo, branch, head, snapshot id, optional executor task id, operator-confirmation flag, and a checksum of the emitted packet before the audit reference is added. New audit appends also add `audit_chain_version: cadence-audit-chain.v1`, a physical-line `chain_index`, the `previous_event_hash`, and the record `event_hash`; the returned `audit_record` reference includes the same chain metadata.
 When the operator omits `--repo`, the loop-decision audit record uses the
 resolved snapshot `cwd` as the local repo anchor so replay can still validate
 the compact record.
 
 `audit-replay` is the read-only local audit verification command. It reads
 `<root>/audit/events.jsonl`, emits an `audit-replay.v1` packet, and exits
-nonzero when the audit log contains malformed, corrupt, or unsupported records.
-Missing or empty audit logs are valid zero-record packets for a fresh runtime
-root; they are not evidence that older audit history was preserved.
+nonzero when the audit log contains malformed, corrupt, unsupported, or
+hash-chain-invalid records. Missing or empty audit logs are valid zero-record
+packets for a fresh runtime root; they are not evidence that older audit
+history was preserved and recommend `start_new_audit_chain`.
 
 Replay validates only the compact `cadence-audit.v1` record shape, supported
 event names, event-specific required fields, physical JSONL line counts, and
-`sha256:` checksum syntax. Supported events are `loop_tick_decision`,
-`executor_fixture_invocation`, `execution_run_record`,
-`executor_result_validation`, `executor_epoch_closeout`,
-`execution_start_decision`, `git_pr_materialization_intent`,
-`git_pr_materialization_result`, and `work_ownership_mutation`. It does not
-recompute `payload_checksum`,
+`sha256:` checksum syntax for compact packet checksums. Replay also validates
+`cadence-audit-chain.v1` metadata when present: `event_hash` is the canonical
+`sha256:` checksum of the JSON audit record excluding the `event_hash` field
+itself, `previous_event_hash` must match the prior valid record's computed
+chain head, and `chain_index` must be unique and match the physical JSONL line.
+Supported events are `loop_tick_decision`, `executor_fixture_invocation`,
+`execution_run_record`, `executor_result_validation`,
+`executor_epoch_closeout`, `execution_start_decision`,
+`git_pr_materialization_intent`, `git_pr_materialization_result`, and
+`work_ownership_mutation`. It does not recompute `payload_checksum`,
 `run_record_checksum`,
 `task_packet_checksum`, `result_evidence_checksum`,
 `validation_packet_checksum`, `plan_checksum`, `snapshot_after_checksum`, or
@@ -680,14 +685,24 @@ recompute `payload_checksum`,
 from original packet bodies because those bodies are not stored in the compact
 audit log.
 
+Legacy records without chain metadata are valid only before chained records and
+replay as explicit chain roots. The `audit-replay.v1` packet reports
+`audit_chain_version`, `chain_head`, `chain_records`, and
+`legacy_chain_roots`. Clean fully chained history recommends
+`use_audit_replay_evidence`; clean legacy-root history recommends
+`continue_with_legacy_chain_root`.
+
 Invalid packets include stable blocker codes such as
 `audit_line_invalid_json`, `audit_record_not_object`,
 `audit_schema_version_unsupported`, `audit_event_unsupported`,
-`audit_required_field_missing`, and `audit_checksum_invalid`. The command uses
-`recommended_next_action: "upgrade_cadence"` only when every blocker is an
-unsupported schema or event; corruption, malformed records, unreadable files,
-decode failures, or mixed unsupported/corrupt history recommend
-`inspect_audit_log`.
+`audit_required_field_missing`, `audit_checksum_invalid`,
+`audit_chain_missing`, `audit_chain_broken`, `audit_event_hash_mismatch`,
+`audit_chain_index_duplicate`, and `unsupported_audit_chain_record`. The
+command uses `recommended_next_action: "upgrade_cadence"` only when every
+blocker is an unsupported schema, event, or chain record; chain integrity
+blockers recommend `repair_audit_history`; corruption, malformed records,
+unreadable files, decode failures, or mixed unsupported/corrupt history
+recommend `inspect_audit_log`.
 
 `audit-replay` has no target repository `cwd`, so the dispatcher resolves the
 runtime root and applies the runtime-root location safety guard without running

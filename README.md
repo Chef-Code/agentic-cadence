@@ -23,7 +23,7 @@ agents without changing the core governance model.
 
 ## Current Status
 
-Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, read-only `role-readiness`, read-only `executor-invocation-readiness`, operator-approved `git-pr-materialize`, read-only `verify-resume`, ownership-aware read-only `resume-continuation`, local `work-ownership-status` / `validate-work-ownership` / `claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, and a fixture-only controlled executor runner for tests and examples.
+Agentic Cadence is an early public protocol and tooling release. The released `0.1.3` baseline is ready for local clone-based use with `pip install .`, protocol validation, first-run examples, the adapter smoke contract, generic host-signal and shell host-binding examples, the composite generic adapter contract runner with reviewer-verifiable compact evidence, release dry-run verification, and public-release history auditing. The current development tree additionally includes unreleased read-only audit replay with local hash-chain integrity evidence, command-policy enforcement, and active-stop result-validation controls, plus governed execution-start epoch gating for approved generic executor task packets, local execution-run evidence records, local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for local generic executor task and result evidence, read-only `github-evidence-sync`, read-only `review-response-plan`, read-only `role-readiness`, read-only `executor-invocation-readiness`, operator-approved `git-pr-materialize`, read-only `verify-resume`, ownership-aware read-only `resume-continuation`, local `work-ownership-status` / `validate-work-ownership` / `claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, and a fixture-only controlled executor runner for tests and examples.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -369,11 +369,21 @@ non-`stopped` completion evidence requires a runtime root so the current brake
 can be checked; rootless validation fails closed with `provide_runtime_root`.
 `audit-replay` validates that
 local audit history is readable, uses supported record shapes, has valid
-checksum syntax, and reports stable blockers without modifying the log:
+checksum syntax, preserves local hash-chain continuity for chained records,
+and reports stable blockers without modifying the log:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime audit-replay > audit-replay.json
 ```
+
+Newly appended audit records include `audit_chain_version:
+cadence-audit-chain.v1`, `chain_index`, `previous_event_hash`, and
+`event_hash`. Replay reports `chain_head`, `chain_records`, and
+`legacy_chain_roots`; older compact audit records remain valid as explicit
+legacy roots. Missing predecessor hashes, tampered event payloads, duplicate
+chain indexes, and unsupported chain versions fail with stable blockers such as
+`audit_chain_missing`, `audit_chain_broken`, `audit_event_hash_mismatch`,
+`audit_chain_index_duplicate`, and `unsupported_audit_chain_record`.
 
 The replay command does not repair audit files, recompute compact record
 checksums from original packet bodies, run executors, create branches, commit,

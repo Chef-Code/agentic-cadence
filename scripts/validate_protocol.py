@@ -122,7 +122,7 @@ REQUIRED_TOKENS = {
         "command substitutions",
     ),
     "README.md": (
-        "unreleased read-only audit replay, command-policy enforcement, and active-stop result-validation controls",
+        "unreleased read-only audit replay with local hash-chain integrity evidence",
         "--root examples/first-run/work/runtime validate-executor-result",
         "compound commands",
         "shell grouping",
@@ -354,7 +354,7 @@ REQUIRED_TOKENS = {
         "flit publish",
     ),
     "docs/roadmap.md": (
-        "audit replay evidence, command-policy",
+        "audit-replay with local hash-chain integrity evidence",
         "active-stop result-validation controls",
         "local branch policy for dry-run Git/PR planning",
         "read-only GitHub evidence sync",
@@ -374,13 +374,13 @@ REQUIRED_TOKENS = {
         "work-ownership-status",
         "work-ownership-validation.v1",
         "continuous GitHub reconciliation and write-side PR/review actions",
-        "still no hash chain or",
+        "local audit hash-chain",
     ),
     "docs/autonomous-loop-readiness.md": (
         "Local policy/audit controls",
         "task-carried branch policy",
         "Partial, read-only evidence capture",
-        "no hash chain or authenticated approval identity",
+        "no authenticated approval identity",
         "dry-run `git-pr-plan`",
         "git-pr-materialize",
         "operator-approved only",
