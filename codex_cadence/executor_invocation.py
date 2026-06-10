@@ -7,7 +7,8 @@ from typing import Any
 
 from codex_cadence import PROTOCOL_VERSION
 from codex_cadence.approvals import build_operator_approval_verification_packet, parse_approval_timestamp
-from codex_cadence.executor_contract import checksum_json
+from codex_cadence.epochs import read_active_epoch_records
+from codex_cadence.executor_contract import checksum_json, validate_executor_command, validate_executor_task_packet
 from codex_cadence.ownership import validate_work_ownership
 from codex_cadence.policy_audit import replay_audit_log
 from codex_cadence.repo_state import current_repo_evidence, git_repo_root, path_is_relative_to
@@ -18,6 +19,28 @@ EXECUTOR_INVOCATION_TARGET_SCHEMA_VERSION = "executor-invocation-target.v1"
 EXECUTOR_ADAPTER_SCHEMA_VERSION = "executor-adapter.v1"
 EXECUTOR_ROLLBACK_SCHEMA_VERSION = "executor-rollback.v1"
 MAX_READINESS_AGE_SECONDS = 15 * 60
+FORWARDED_OWNERSHIP_BLOCKER_CODES = (
+    "ownership_record_missing",
+    "ownership_record_unreadable",
+    "ownership_record_path_invalid",
+    "ownership_record_outside_registry",
+    "ownership_record_ambiguous",
+    "ownership_record_invalid",
+    "ownership_schema_unsupported",
+    "ownership_required_field_missing",
+    "ownership_field_type_invalid",
+    "ownership_id_invalid",
+    "ownership_id_mismatch",
+    "ownership_status_invalid",
+    "ownership_state_mismatch",
+    "ownership_timestamp_invalid",
+    "ownership_stale",
+    "ownership_closed",
+    "ownership_repo_mismatch",
+    "ownership_branch_mismatch",
+    "ownership_task_mismatch",
+    "duplicate_active_ownership",
+)
 
 
 def plan_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
@@ -122,6 +145,69 @@ def _adapter_blockers(adapter: dict[str, Any], *, command: str, timeout_seconds:
     return blockers
 
 
+def _readiness_task_packet(
+    readiness: dict[str, Any],
+    readiness_file: Path,
+) -> tuple[dict[str, Any] | None, str | None, list[dict[str, Any]]]:
+    task_summary = readiness.get("task") if isinstance(readiness.get("task"), dict) else {}
+    task_file = task_summary.get("file")
+    if not _non_empty_string(task_file):
+        return None, None, [plan_blocker("task_file_unreadable", "readiness task file is required")]
+    task_path = Path(task_file).expanduser()
+    if not task_path.is_absolute():
+        task_path = readiness_file.parent / task_path
+    task_packet, blockers = _read_json_object(task_path, code="task_file_unreadable", label="executor task packet")
+    if blockers or task_packet is None:
+        return None, None, blockers
+
+    task_checksum = checksum_json(task_packet)
+    valid_task, task_reason = validate_executor_task_packet(task_packet)
+    if not valid_task:
+        blockers.append(plan_blocker("executor_task_invalid", task_reason))
+    if task_checksum != task_summary.get("checksum"):
+        blockers.append(
+            plan_blocker(
+                "task_checksum_mismatch",
+                "current executor task packet checksum does not match readiness",
+                expected=task_summary.get("checksum"),
+                actual=task_checksum,
+            )
+        )
+    task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
+    repo = task_packet.get("repo") if isinstance(task_packet.get("repo"), dict) else {}
+    readiness_repo = task_summary.get("repo") if isinstance(task_summary.get("repo"), dict) else {}
+    if task.get("id") != task_summary.get("id"):
+        blockers.append(
+            plan_blocker(
+                "task_checksum_mismatch",
+                "current executor task id does not match readiness",
+                expected=task_summary.get("id"),
+                actual=task.get("id"),
+            )
+        )
+    for field in ("name", "path", "branch", "head"):
+        if repo.get(field) != readiness_repo.get(field):
+            blockers.append(
+                plan_blocker(
+                    "task_checksum_mismatch",
+                    f"current executor task repo {field} does not match readiness",
+                    expected=readiness_repo.get(field),
+                    actual=repo.get(field),
+                )
+            )
+    expected_output = task_packet.get("expected_output") if isinstance(task_packet.get("expected_output"), dict) else {}
+    if _normal_path(expected_output.get("evidence_path", "")) != _normal_path(task_summary.get("expected_result_path", "")):
+        blockers.append(
+            plan_blocker(
+                "task_checksum_mismatch",
+                "current executor task result path does not match readiness",
+                expected=task_summary.get("expected_result_path"),
+                actual=expected_output.get("evidence_path"),
+            )
+        )
+    return task_packet, task_checksum, blockers
+
+
 def _rollback_blockers(rollback: dict[str, Any], *, readiness: dict[str, Any]) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
     task = readiness.get("task") if isinstance(readiness.get("task"), dict) else {}
@@ -151,35 +237,10 @@ def _rollback_blockers(rollback: dict[str, Any], *, readiness: dict[str, Any]) -
     return blockers
 
 
-def _command_blockers(command: str, readiness: dict[str, Any]) -> list[dict[str, Any]]:
-    task = readiness.get("task") if isinstance(readiness.get("task"), dict) else {}
-    command_policy = task.get("command_policy") if isinstance(task.get("command_policy"), dict) else {}
-    allowed = command_policy.get("allowed_commands", []) if isinstance(command_policy, dict) else []
-    denied = command_policy.get("denied_commands", []) if isinstance(command_policy, dict) else []
-    command_text = command.lower()
-    if not _non_empty_string(command):
-        return [plan_blocker("executor_command_denied", "executor command is required")]
-    if any(denied_command.lower() in command_text for denied_command in denied if isinstance(denied_command, str)):
-        return [plan_blocker("executor_command_denied", "executor command is denied by command_policy")]
-    if allowed and not any(command_text.startswith(str(allowed_command).lower()) for allowed_command in allowed):
-        return [plan_blocker("executor_command_denied", "executor command is outside allowed command_policy")]
-    disabled_fragments = (
-        "git push",
-        "git commit",
-        "gh pr create",
-        "gh pr merge",
-        "gh release create",
-        "twine upload",
-        "npm publish",
-        "pnpm publish",
-        "yarn publish",
-        "poetry publish",
-        "uv publish",
-        "hatch publish",
-        "flit publish",
-    )
-    if any(fragment in command_text for fragment in disabled_fragments):
-        return [plan_blocker("executor_command_denied", "executor command violates disabled permissions")]
+def _command_blockers(command: str, task_packet: dict[str, Any]) -> list[dict[str, Any]]:
+    valid_command, reason = validate_executor_command(command, task_packet)
+    if not valid_command:
+        return [plan_blocker("executor_command_denied", reason)]
     return []
 
 
@@ -218,38 +279,169 @@ def _brake_blockers(root: Path) -> list[dict[str, Any]]:
     return []
 
 
-def _result_path_blockers(root: Path, expected_result_path: str | Path, readiness: dict[str, Any]) -> list[dict[str, Any]]:
+def _result_path_blockers(root: Path, expected_result_path: str | Path | None, task_packet: dict[str, Any]) -> list[dict[str, Any]]:
+    if expected_result_path is None:
+        return [plan_blocker("result_path_missing", "expected result path is required")]
     blockers: list[dict[str, Any]] = []
-    result_path = Path(expected_result_path).expanduser().resolve(strict=False)
-    root_path = root.expanduser().resolve(strict=False)
-    if not path_is_relative_to(result_path, root_path):
-        blockers.append(plan_blocker("result_path_invalid", "expected result path must stay inside the runtime root"))
-    task = readiness.get("task") if isinstance(readiness.get("task"), dict) else {}
-    if _normal_path(result_path) != _normal_path(task.get("expected_result_path", "")):
-        blockers.append(plan_blocker("result_path_invalid", "expected result path does not match readiness"))
+    supplied_path = Path(expected_result_path).expanduser()
+    if not supplied_path.is_absolute():
+        return [plan_blocker("result_path_invalid", "expected result path must be absolute", path=str(expected_result_path))]
+    try:
+        supplied_resolved = supplied_path.resolve(strict=False)
+    except OSError as exc:
+        return [plan_blocker("result_path_invalid", f"expected result path could not be resolved: {exc}", path=str(expected_result_path))]
+
+    expected_output = task_packet.get("expected_output") if isinstance(task_packet.get("expected_output"), dict) else {}
+    packet_path_value = expected_output.get("evidence_path")
+    if not _non_empty_string(packet_path_value):
+        return [plan_blocker("result_path_invalid", "executor task expected_output.evidence_path is required")]
+    packet_path = Path(packet_path_value).expanduser()
+    if not packet_path.is_absolute():
+        return [plan_blocker("result_path_invalid", "executor task expected_output.evidence_path must be absolute")]
+    try:
+        packet_resolved = packet_path.resolve(strict=False)
+    except OSError as exc:
+        return [plan_blocker("result_path_invalid", f"executor task expected_output.evidence_path could not be resolved: {exc}")]
+
+    if packet_resolved != supplied_resolved:
+        blockers.append(
+            plan_blocker(
+                "result_path_mismatch",
+                "supplied expected result path does not match executor task expected_output.evidence_path",
+                expected=str(packet_resolved),
+                actual=str(supplied_resolved),
+            )
+        )
+    logical_result_dir = root / "executor-results"
+    try:
+        runtime_result_dir = logical_result_dir.resolve(strict=False)
+        if logical_result_dir.is_symlink():
+            blockers.append(
+                plan_blocker(
+                    "result_path_outside_runtime",
+                    "runtime executor-results directory must not be a symlink",
+                    path=str(logical_result_dir),
+                )
+            )
+    except OSError as exc:
+        blockers.append(
+            plan_blocker(
+                "result_path_invalid",
+                f"runtime executor-results directory could not be inspected: {exc}",
+                path=str(logical_result_dir),
+            )
+        )
+        runtime_result_dir = logical_result_dir
+    if not path_is_relative_to(packet_resolved, runtime_result_dir):
+        blockers.append(
+            plan_blocker(
+                "result_path_outside_runtime",
+                "executor result path must stay under the runtime executor-results directory",
+                expected_directory=str(runtime_result_dir),
+                actual=str(packet_resolved),
+            )
+        )
+    if not path_is_relative_to(supplied_resolved, runtime_result_dir):
+        blockers.append(
+            plan_blocker(
+                "result_path_outside_runtime",
+                "supplied expected result path must stay under the runtime executor-results directory",
+                expected_directory=str(runtime_result_dir),
+                actual=str(supplied_resolved),
+            )
+        )
+    try:
+        if packet_resolved.exists() and not packet_resolved.is_file():
+            blockers.append(plan_blocker("result_path_invalid", "executor result path must be a file"))
+    except OSError as exc:
+        blockers.append(plan_blocker("result_path_invalid", f"executor result path could not be inspected: {exc}"))
     return blockers
 
 
-def _active_epoch_blockers(root: Path, readiness: dict[str, Any]) -> list[dict[str, Any]]:
+def _active_epoch_blockers(
+    root: Path,
+    readiness: dict[str, Any],
+    task_packet: dict[str, Any],
+    task_checksum: str,
+) -> list[dict[str, Any]]:
+    try:
+        active_epochs = read_active_epoch_records(root)
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+        return [plan_blocker("active_epoch_invalid", str(exc))]
+    if not active_epochs:
+        return [plan_blocker("active_epoch_missing", "one active epoch is required before executor invocation planning")]
+    if len(active_epochs) > 1:
+        return [
+            plan_blocker(
+                "active_epoch_conflict",
+                "expected exactly one active epoch before executor invocation planning",
+                active_epoch_count=len(active_epochs),
+            )
+        ]
+
+    path, epoch = active_epochs[0]
+    blockers: list[dict[str, Any]] = []
     active_epoch = readiness.get("active_epoch") if isinstance(readiness.get("active_epoch"), dict) else {}
     epoch_id = active_epoch.get("id")
     if not _non_empty_string(epoch_id):
-        return [plan_blocker("active_epoch_mismatch", "readiness active_epoch id is required")]
-    active_dir = root / "epochs" / "active"
-    epoch_path = active_dir / f"{epoch_id}.json"
-    if not epoch_path.exists():
-        return [plan_blocker("active_epoch_mismatch", "readiness active epoch is no longer active", epoch_id=epoch_id)]
-    epoch, blockers = _read_json_object(epoch_path, code="active_epoch_mismatch", label="active epoch")
-    if blockers:
-        return blockers
+        blockers.append(plan_blocker("active_epoch_mismatch", "readiness active_epoch id is required"))
+    elif epoch.get("id") != epoch_id:
+        blockers.append(
+            plan_blocker(
+                "active_epoch_mismatch",
+                "active epoch id does not match readiness",
+                expected=epoch_id,
+                actual=epoch.get("id"),
+                path=str(path),
+            )
+        )
     if epoch.get("status") != "ACTIVE":
-        return [plan_blocker("active_epoch_mismatch", "active epoch status must be ACTIVE")]
-    return []
+        blockers.append(plan_blocker("active_epoch_mismatch", "active epoch status must be ACTIVE", actual_status=epoch.get("status"), path=str(path)))
+    repo = task_packet.get("repo") if isinstance(task_packet.get("repo"), dict) else {}
+    if epoch.get("repo") != repo.get("name"):
+        blockers.append(
+            plan_blocker(
+                "active_epoch_repo_mismatch",
+                "active epoch repo does not match executor task repo.name",
+                expected=repo.get("name"),
+                actual=epoch.get("repo"),
+            )
+        )
+    if epoch.get("branch") != repo.get("branch"):
+        blockers.append(
+            plan_blocker(
+                "active_epoch_branch_mismatch",
+                "active epoch branch does not match executor task repo.branch",
+                expected=repo.get("branch"),
+                actual=epoch.get("branch"),
+            )
+        )
+    task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
+    task_id = task.get("id")
+    epoch_tasks = epoch.get("tasks") if isinstance(epoch.get("tasks"), list) else []
+    matching_task = next((candidate for candidate in epoch_tasks if isinstance(candidate, dict) and candidate.get("id") == task_id), None)
+    if matching_task is None:
+        blockers.append(plan_blocker("active_epoch_task_missing", "active epoch does not include the executor task id", task_id=task_id))
+    else:
+        epoch_checksum = matching_task.get("executor_task_checksum")
+        if not _non_empty_string(epoch_checksum):
+            blockers.append(plan_blocker("task_checksum_missing", "active epoch task is missing executor_task_checksum", task_id=task_id))
+        elif epoch_checksum != task_checksum:
+            blockers.append(
+                plan_blocker(
+                    "task_checksum_mismatch",
+                    "active epoch task checksum does not match current executor task packet",
+                    expected=task_checksum,
+                    actual=epoch_checksum,
+                    task_id=task_id,
+                )
+            )
+    return blockers
 
 
-def _ownership_blockers(root: Path, cwd: Path, readiness: dict[str, Any]) -> list[dict[str, Any]]:
-    task = readiness.get("task") if isinstance(readiness.get("task"), dict) else {}
-    repo = task.get("repo") if isinstance(task.get("repo"), dict) else {}
+def _ownership_blockers(root: Path, cwd: Path, readiness: dict[str, Any], task_packet: dict[str, Any]) -> list[dict[str, Any]]:
+    task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
+    repo = task_packet.get("repo") if isinstance(task_packet.get("repo"), dict) else {}
     active_epoch = readiness.get("active_epoch") if isinstance(readiness.get("active_epoch"), dict) else {}
     ownership = readiness.get("ownership") if isinstance(readiness.get("ownership"), dict) else {}
     target = ownership.get("id") or ownership.get("path")
@@ -342,18 +534,23 @@ def build_executor_invocation_plan(
 
     repository: dict[str, Any] = {"cwd": _normal_path(cwd), "branch": None, "head": None, "dirty_worktree": None}
     target: dict[str, Any] | None = None
+    task_packet: dict[str, Any] | None = None
+    task_checksum: str | None = None
     approval_packet: Any | None = None
     approval_result: dict[str, Any] | None = None
 
     if readiness is not None:
         blockers.extend(_readiness_blockers(readiness, now=checked_at))
+        task_packet, task_checksum, task_blockers = _readiness_task_packet(readiness, Path(readiness_file))
+        blockers.extend(task_blockers)
         repository, repo_blockers = _repo_recheck_blockers(cwd=Path(cwd), readiness=readiness)
         blockers.extend(repo_blockers)
         blockers.extend(_brake_blockers(root))
-        blockers.extend(_active_epoch_blockers(root, readiness))
-        blockers.extend(_ownership_blockers(root, Path(cwd), readiness))
-        blockers.extend(_result_path_blockers(root, expected_result_path, readiness))
-        blockers.extend(_command_blockers(command, readiness))
+        if task_packet is not None and task_checksum is not None:
+            blockers.extend(_active_epoch_blockers(root, readiness, task_packet, task_checksum))
+            blockers.extend(_ownership_blockers(root, Path(cwd), readiness, task_packet))
+            blockers.extend(_result_path_blockers(root, expected_result_path, task_packet))
+            blockers.extend(_command_blockers(command, task_packet))
 
     if adapter is not None:
         blockers.extend(
@@ -397,16 +594,22 @@ def build_executor_invocation_plan(
             )
             for approval_blocker in approval_result["blockers"]:
                 code = approval_blocker["code"]
-                if code == "operator_approval_target_mismatch":
-                    code = "approval_target_mismatch"
-                elif code == "operator_approval_expired":
-                    code = "approval_expired"
-                elif code == "operator_approval_purpose_mismatch":
-                    code = "approval_purpose_mismatch"
-                elif code == "operator_approval_secret_missing":
-                    code = "approval_missing"
-                elif code == "operator_approval_signature_invalid":
-                    code = "approval_signature_invalid"
+                code = {
+                    "operator_approval_invalid": "approval_invalid",
+                    "operator_approval_schema_invalid": "approval_schema_invalid",
+                    "operator_approval_target_invalid": "approval_target_invalid",
+                    "operator_approval_target_mismatch": "approval_target_mismatch",
+                    "operator_approval_purpose_missing": "approval_purpose_missing",
+                    "operator_approval_purpose_mismatch": "approval_purpose_mismatch",
+                    "operator_approval_operator_missing": "approval_identity_invalid",
+                    "operator_approval_key_id_weak": "approval_identity_invalid",
+                    "operator_approval_timestamp_invalid": "approval_timestamp_invalid",
+                    "operator_approval_window_too_long": "approval_window_too_long",
+                    "operator_approval_expired": "approval_expired",
+                    "operator_approval_issued_in_future": "approval_issued_in_future",
+                    "operator_approval_secret_missing": "approval_missing",
+                    "operator_approval_signature_invalid": "approval_signature_invalid",
+                }.get(code, code)
                 blockers.append(plan_blocker(code, approval_blocker["message"]))
 
     readiness_checksum = checksum_json(readiness) if isinstance(readiness, dict) else None

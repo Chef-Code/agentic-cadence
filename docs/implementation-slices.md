@@ -293,6 +293,11 @@ Current evidence:
   shape, required checks, expected result path under
   `<root>/executor-results`, and optional role-readiness evidence while
   reporting `executor_started: false`;
+- `executor-invocation-plan` emits read-only `executor-invocation-plan.v1`
+  packets that bind readiness to operator approval identity, clean audit
+  replay, adapter metadata, rollback evidence, command, environment allowlist,
+  timeout, active epoch, active ownership, and result-path rechecks before any
+  future process start;
 - no real executor or named host adapter exists.
 
 Why it matters: Cadence cannot implement work until execution is a formal,

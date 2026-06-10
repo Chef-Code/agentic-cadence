@@ -4016,11 +4016,20 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(replay["records_valid"], 0)
             self.assertEqual(replay["events_by_type"], {})
 
-    def write_valid_executor_invocation_plan_inputs(self, tmp, repo, *, command="python -m unittest tests.test_cadence"):
+    def write_valid_executor_invocation_plan_inputs(
+        self,
+        tmp,
+        repo,
+        *,
+        command="python -m unittest tests.test_cadence",
+        task_mutator=None,
+    ):
         status_result, _status = run_cli(tmp, "status")
         self.assertEqual(status_result.returncode, 0, status_result.stderr)
         task_path, task_packet, _approval_token = write_governed_execution_task(tmp, repo)
         task_packet["expected_output"]["evidence_path"] = str(Path(tmp) / "executor-results" / "executor-result.json")
+        if task_mutator is not None:
+            task_mutator(task_packet)
         task_path.write_text(json.dumps(task_packet), encoding="utf-8")
         task_checksum = checksum_json(task_packet)
         write_active_epoch(
@@ -4223,6 +4232,13 @@ class CadenceCliTests(unittest.TestCase):
                 "executor_command_denied",
             ),
             (
+                "package-publication-command",
+                "python -m twine upload dist/*",
+                lambda tmp, repo, inputs: None,
+                [],
+                "executor_command_denied",
+            ),
+            (
                 "missing-rollback",
                 "python -m unittest tests.test_cadence",
                 lambda tmp, repo, inputs: None,
@@ -4247,7 +4263,15 @@ class CadenceCliTests(unittest.TestCase):
             with self.subTest(name=name):
                 with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
                     init_committed_repo(repo)
-                    inputs = self.write_valid_executor_invocation_plan_inputs(tmp, repo, command=command)
+                    task_mutator = None
+                    if name == "package-publication-command":
+                        task_mutator = lambda task_packet: task_packet["command_policy"].update({"allowed_commands": ["python"]})
+                    inputs = self.write_valid_executor_invocation_plan_inputs(
+                        tmp,
+                        repo,
+                        command=command,
+                        task_mutator=task_mutator,
+                    )
                     mutate(tmp, repo, inputs)
                     rollback_args = arg_overrides or ["--rollback-file", str(inputs["rollback_path"])]
                     audit_before = audit_records(tmp)
@@ -4295,6 +4319,13 @@ class CadenceCliTests(unittest.TestCase):
             ownership_path.write_text(json.dumps(ownership_record), encoding="utf-8")
             return {}
 
+        def mutate_active_epoch_checksum(tmp, repo, inputs):
+            epoch_path = Path(tmp) / "epochs" / "active" / "epoch-1.json"
+            epoch_record = json.loads(epoch_path.read_text(encoding="utf-8"))
+            epoch_record["tasks"][0]["executor_task_checksum"] = "sha256:" + "0" * 64
+            epoch_path.write_text(json.dumps(epoch_record), encoding="utf-8")
+            return {}
+
         cases = [
             (
                 "stale-readiness",
@@ -4319,6 +4350,11 @@ class CadenceCliTests(unittest.TestCase):
                 "ownership-epoch-mismatch",
                 mutate_ownership_epoch,
                 "ownership_epoch_mismatch",
+            ),
+            (
+                "active-epoch-task-checksum-mismatch",
+                mutate_active_epoch_checksum,
+                "task_checksum_mismatch",
             ),
             (
                 "wrong-approval-purpose",
@@ -4362,7 +4398,7 @@ class CadenceCliTests(unittest.TestCase):
                 lambda tmp, repo, inputs: {
                     "expected_result_path": str(Path(repo) / "executor-result-outside-runtime.json")
                 },
-                "result_path_invalid",
+                "result_path_outside_runtime",
             ),
             (
                 "invalid-cwd",

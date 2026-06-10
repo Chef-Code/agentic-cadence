@@ -76,8 +76,8 @@ epoch gating, local execution-run evidence, operator-approved Git/PR
 materialization, read-only resume verification, ownership-aware read-only
 resume continuation, read-only review-response planning, local work ownership
 claim/closeout evidence, read-only role-readiness evidence, read-only
-executor-invocation-readiness evidence, and local audit hash-chain integrity
-evidence. It can
+executor-invocation-readiness and invocation-plan evidence, and local audit
+hash-chain integrity evidence. It can
 materialize a reviewed Git/PR plan only through exact target-bound operator
 approval, and it can verify handoff pickup state before a fresh session
 continues, but it still cannot independently implement code, invoke a real
@@ -162,6 +162,10 @@ command-policy and active-stop controls. It includes:
   command and branch policy, required checks, expected result path, and optional
   `role-readiness.v1` evidence to recommend `invoke_real_executor` without
   starting an executor or reporting process metadata;
+- read-only `executor-invocation-plan` packets that bind fresh readiness,
+  operator approval identity, clean audit replay, adapter metadata, rollback evidence,
+  command, environment allowlist, timeout, active epoch, active
+  ownership, and result-path anchors before any future process start;
 - release dry-run checks that require operator confirmation before tag or
   release actions;
 - elected Codex Review GitHub workflow with preflight, dedupe, pinned action,

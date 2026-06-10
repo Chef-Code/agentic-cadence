@@ -654,12 +654,22 @@ The command emits `executor-invocation-plan.v1` with `read_only: true`,
 `executor_started: false`, `side_effects: []`, and
 `recommended_next_action: invoke_real_executor` only when all anchors still
 match. Stable blockers include `readiness_packet_stale`,
-`readiness_not_invocable`, `approval_missing`, `approval_target_mismatch`,
-`approval_expired`, `approval_purpose_mismatch`, `approval_signature_invalid`,
+`readiness_not_invocable`, `task_file_unreadable`,
+`executor_task_invalid`, `task_checksum_mismatch`, `approval_missing`,
+`approval_invalid`, `approval_schema_invalid`, `approval_target_invalid`,
+`approval_target_mismatch`, `approval_expired`, `approval_purpose_missing`,
+`approval_purpose_mismatch`, `approval_identity_invalid`,
+`approval_timestamp_invalid`, `approval_window_too_long`,
+`approval_issued_in_future`, `approval_signature_invalid`,
 `audit_chain_not_clean`, `rollback_evidence_missing`,
 `rollback_policy_invalid`, `adapter_contract_invalid`,
 `executor_command_denied`, `executor_timeout_invalid`,
-`repo_head_mismatch`, `ownership_epoch_mismatch`, `brake_not_drive`, and
+`repo_head_mismatch`, `active_epoch_missing`, `active_epoch_conflict`,
+`active_epoch_invalid`, `active_epoch_mismatch`, `active_epoch_task_missing`,
+`task_checksum_missing`, ownership validation blockers such as
+`ownership_record_missing`, `ownership_stale`, `duplicate_active_ownership`,
+`ownership_epoch_mismatch`, `ownership_head_mismatch`, `brake_not_drive`,
+`result_path_mismatch`, `result_path_outside_runtime`, and
 `result_path_invalid`.
 
 This is still not process start. It does not invoke an executor, modify code,
