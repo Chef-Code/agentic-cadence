@@ -643,7 +643,9 @@ def _embedded_shell_commands(tokens: list[str]) -> list[str]:
     if command in _POWERSHELL_COMMANDS:
         for option_index in range(index + 1, len(tokens) - 1):
             if tokens[option_index] in {"-command", "-c"}:
-                embedded.append(tokens[option_index + 1])
+                embedded_command = " ".join(tokens[option_index + 1 :]).strip()
+                if embedded_command:
+                    embedded.append(embedded_command)
                 break
     return embedded
 

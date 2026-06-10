@@ -4215,6 +4215,11 @@ class CadenceCliTests(unittest.TestCase):
         def mutate_package_publication_command(task_packet):
             task_packet["command_policy"].update({"allowed_commands": ["python"]})
 
+        def mutate_powershell_wrapper_command(task_packet):
+            task_packet["command_policy"].update(
+                {"allowed_commands": ["python -m unittest tests.test_cadence", "powershell"]}
+            )
+
         cases = [
             (
                 "wrong-approval-target",
@@ -4237,6 +4242,13 @@ class CadenceCliTests(unittest.TestCase):
             (
                 "package-publication-command",
                 "python -m twine upload dist/*",
+                lambda tmp, repo, inputs: None,
+                [],
+                "executor_command_denied",
+            ),
+            (
+                "powershell-wrapper-push-command",
+                "powershell -Command git push origin HEAD",
                 lambda tmp, repo, inputs: None,
                 [],
                 "executor_command_denied",
@@ -4269,6 +4281,8 @@ class CadenceCliTests(unittest.TestCase):
                     task_mutator = None
                     if name == "package-publication-command":
                         task_mutator = mutate_package_publication_command
+                    if name == "powershell-wrapper-push-command":
+                        task_mutator = mutate_powershell_wrapper_command
                     inputs = self.write_valid_executor_invocation_plan_inputs(
                         tmp,
                         repo,
@@ -4338,6 +4352,18 @@ class CadenceCliTests(unittest.TestCase):
             epoch_path.write_text(json.dumps(epoch_record), encoding="utf-8")
             return {}
 
+        def mutate_duplicate_other_active_epoch_task(tmp, repo, inputs):
+            epoch_path = Path(tmp) / "epochs" / "active" / "epoch-1.json"
+            epoch_record = json.loads(epoch_path.read_text(encoding="utf-8"))
+            other_task = {
+                "id": "other-task",
+                "task_type": "execution",
+                "executor_task_checksum": "sha256:" + "1" * 64,
+            }
+            epoch_record["tasks"].extend([other_task, dict(other_task)])
+            epoch_path.write_text(json.dumps(epoch_record), encoding="utf-8")
+            return {}
+
         cases = [
             (
                 "stale-readiness",
@@ -4371,6 +4397,11 @@ class CadenceCliTests(unittest.TestCase):
             (
                 "active-epoch-duplicate-task-id",
                 mutate_duplicate_active_epoch_task,
+                "active_epoch_task_duplicate",
+            ),
+            (
+                "active-epoch-duplicate-other-task-id",
+                mutate_duplicate_other_active_epoch_task,
                 "active_epoch_task_duplicate",
             ),
             (
