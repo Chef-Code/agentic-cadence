@@ -1,8 +1,8 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-09
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Last updated: 2026-06-10
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -425,6 +425,10 @@ path, branch, `HEAD`, clean worktree, task-carried command and branch policy
 shape, brake state, active epoch state, and supplied local ownership evidence,
 start one active epoch, bind matching active ownership to that epoch, emit
 `execution-start.v1`, and still report `executor_started: false`.
+`verify-operator-approval` can verify local `operator-approval.v1` identity
+evidence for a target checksum and purpose, append
+`operator_approval_verification` audit evidence, and still report no executor,
+epoch, PR, merge, release, or package side effects.
 `run-controlled-executor-fixture` can write a local `execution-run.v1` record,
 and `closeout-executor-result --run-record-file` can bind that record to local
 closeout evidence. Cadence does not yet hand work to a real executor, run
@@ -504,7 +508,8 @@ chain-invalid records. Executor task packets now carry command allow/deny policy
 into result validation, and `validate-executor-result` prevents non-`stopped`
 completion evidence from being recorded after an active brake stop. There is
 now local branch policy for dry-run Git/PR planning and local audit hash-chain
-evidence, but still no authenticated approval identity.
+evidence plus local authenticated approval identity verification, but still no
+real executor start authority consuming those gates.
 
 Likely files: `codex_cadence/model.py`, `codex_cadence/store.py`,
 `codex_cadence/cli.py`, tests, docs.

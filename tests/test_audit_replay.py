@@ -267,6 +267,29 @@ def git_pr_materialization_result_record(valid: bool = True, **overrides):
     return record
 
 
+def operator_approval_verification_record(**overrides):
+    record = {
+        "schema_version": "cadence-audit.v1",
+        "recorded_at": "2999-05-22T00:00:00Z",
+        "event": "operator_approval_verification",
+        "action": "verify_operator_approval",
+        "reason": "operator approval identity evidence accepted",
+        "valid": True,
+        "approval_status": "accepted",
+        "approval_schema_version": "operator-approval.v1",
+        "target_checksum": GOOD_CHECKSUM,
+        "approval_checksum": GOOD_CHECKSUM,
+        "purpose": "start_governed_execution",
+        "operator_id": "operator@example.test",
+        "key_id": "local-key-1",
+        "issued_at": "2999-05-22T00:00:00Z",
+        "expires_at": "2999-05-22T00:10:00Z",
+        "payload_checksum": GOOD_CHECKSUM,
+    }
+    record.update(overrides)
+    return record
+
+
 def work_ownership_mutation_record(action: str = "claim_work_ownership", **overrides):
     status_by_action = {
         "claim_work_ownership": "ACTIVE",
@@ -609,6 +632,7 @@ class AuditReplayCliTests(unittest.TestCase):
                 executor_epoch_closeout_record(),
                 git_pr_materialization_intent_record(),
                 git_pr_materialization_result_record(),
+                operator_approval_verification_record(),
                 work_ownership_mutation_record(),
             )
 
@@ -616,13 +640,13 @@ class AuditReplayCliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(output["valid"])
-            self.assertEqual(output["lines_seen"], 8)
-            self.assertEqual(output["records_seen"], 8)
-            self.assertEqual(output["records_valid"], 8)
+            self.assertEqual(output["lines_seen"], 9)
+            self.assertEqual(output["records_seen"], 9)
+            self.assertEqual(output["records_valid"], 9)
             self.assertEqual(output["records_invalid"], 0)
             self.assertRegex(output["chain_head"], r"^sha256:[0-9a-f]{64}$")
             self.assertEqual(output["chain_records"], 0)
-            self.assertEqual(output["legacy_chain_roots"], 8)
+            self.assertEqual(output["legacy_chain_roots"], 9)
             self.assertEqual(
                 output["events_by_type"],
                 {
@@ -633,6 +657,7 @@ class AuditReplayCliTests(unittest.TestCase):
                     "git_pr_materialization_intent": 1,
                     "git_pr_materialization_result": 1,
                     "loop_tick_decision": 1,
+                    "operator_approval_verification": 1,
                     "work_ownership_mutation": 1,
                 },
             )
@@ -789,6 +814,33 @@ class AuditReplayCliTests(unittest.TestCase):
             (
                 git_pr_materialization_result_record(valid=False, materialization_status="completed"),
                 "audit_materialization_status_invalid",
+            ),
+        ]
+        for record, expected_code in cases:
+            with self.subTest(expected_code=expected_code):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    write_audit_records(root, record)
+
+                    result, output = run_cli(root, "audit-replay")
+
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertIn(expected_code, blocker_codes(output))
+
+    def test_operator_approval_audit_record_requires_verified_action_and_status(self):
+        cases = [
+            (
+                operator_approval_verification_record(action="other"),
+                "audit_operator_approval_action_invalid",
+            ),
+            (
+                operator_approval_verification_record(approval_status="blocked"),
+                "audit_operator_approval_status_invalid",
+            ),
+            (
+                operator_approval_verification_record(valid=False),
+                "audit_operator_approval_valid_invalid",
             ),
         ]
         for record, expected_code in cases:

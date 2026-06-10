@@ -36,11 +36,11 @@ local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for
 local generic executor task and result evidence, read-only
 `github-evidence-sync`, read-only `review-response-plan`, read-only
 `role-readiness`, read-only `executor-invocation-readiness`,
-operator-approved `git-pr-materialize`, read-only `verify-resume`,
-ownership-aware read-only `resume-continuation`, local `work-ownership-status`
-/ `validate-work-ownership` / `claim-work-ownership` / `close-work-ownership`
-/ `fail-work-ownership`, and a fixture-only controlled executor runner for
-tests and examples.
+operator-approved `git-pr-materialize`, reusable `verify-operator-approval`,
+read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
+local `work-ownership-status` / `validate-work-ownership` /
+`claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, and a
+fixture-only controlled executor runner for tests and examples.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -315,6 +315,31 @@ Successful starts append an `execution_start_decision` audit record, including
 `ownership_id` and `ownership_record_checksum` when ownership was supplied, but
 the command does not invoke an executor, edit code, create branches, write pull
 requests, merge, release, or publish packages.
+
+`verify-operator-approval` verifies reusable `operator-approval.v1` identity
+evidence for a target checksum and purpose before later gates consume it. The
+packet includes `target_checksum`, `purpose`, `operator_id`, `key_id`,
+`issued_at`, `expires_at`, and an `hmac-sha256:` signature over the approval
+fields. By default the verifier reads its local HMAC secret from
+`CADENCE_OPERATOR_APPROVAL_SECRET`; `--approval-secret` exists for explicit
+local checks and tests. Accepted verification emits
+`operator-approval-verification.v1` and appends an
+`operator_approval_verification` audit record, but it does not start epochs,
+invoke executors, create branches, push, open PRs, merge, release, or publish
+packages:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime verify-operator-approval --approval-file operator-approval.json --target-checksum sha256:<target-packet-checksum> --purpose start_governed_execution --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET
+```
+
+Stable blocker codes include `operator_approval_file_unreadable`,
+`operator_approval_invalid`, `operator_approval_schema_invalid`,
+`operator_approval_operator_missing`, `operator_approval_key_id_weak`,
+`operator_approval_timestamp_invalid`, `operator_approval_expired`,
+`operator_approval_issued_in_future`, `operator_approval_purpose_mismatch`,
+`operator_approval_target_mismatch`, `operator_approval_signature_invalid`,
+`operator_approval_secret_missing`, and
+`operator_approval_audit_append_failed`.
 
 Executor result evidence can be checked without running an executor:
 

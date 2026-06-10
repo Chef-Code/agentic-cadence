@@ -1,7 +1,7 @@
 # Decision Log
 
 Status: living document
-Last updated: 2026-06-09
+Last updated: 2026-06-10
 
 This document records major architecture and governance decisions. Update it
 when a meaningful implementation or policy choice is made, when an assumption
@@ -27,6 +27,46 @@ Consequences:
 Open questions:
 - Remaining unknowns.
 ```
+
+## 2026-06-10 - Verify operator approval identity separately from action authority
+
+Decision:
+- Add `operator-approval.v1` as reusable local approval identity evidence and
+  expose it through `verify-operator-approval`.
+- Require target checksum, purpose, operator id, key id, issued/expiration
+  timestamps, and an `hmac-sha256:` signature before accepting the approval.
+- Append `operator_approval_verification` audit evidence only for accepted
+  verification.
+- Keep the verifier separate from `start-governed-execution`,
+  `git-pr-materialize`, executor invocation, merge, release, and package
+  publication authority.
+
+Why:
+- Existing target-bound approval tokens prove that an operator had the right
+  secret for a target, but they do not identify the approver or provide reusable
+  evidence for future real executor invocation planning.
+- Purpose scoping prevents an approval for execution start from being reused as
+  Git/PR materialization, real executor invocation, release, or package
+  publication approval.
+- Auditing accepted verification gives later process-start gates replayable
+  evidence without granting side effects in the verifier itself.
+
+Alternatives considered:
+- Replace existing execution-start and Git/PR materialization tokens
+  immediately. Deferred to preserve backward compatibility and avoid changing
+  write-side gates in the identity-evidence slice.
+- Integrate an external identity provider now. Deferred because this slice only
+  needs stable local packet semantics and HMAC verification.
+
+Consequences:
+- Future real executor invocation planning can bind to an approval identity
+  packet instead of an anonymous approval token.
+- Operators must manage local approval secrets and key ids until a later
+  identity-provider or key-management slice exists.
+
+Open questions:
+- Which later gate should first consume `operator-approval.v1`: invocation
+  planning, real executor start, or migration of existing write-side gates?
 
 ## 2026-06-09 - Add local audit hash-chain integrity evidence
 

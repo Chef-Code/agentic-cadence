@@ -1,8 +1,8 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-06-09
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Last updated: 2026-06-10
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -48,7 +48,11 @@ The first local policy/audit controls can bound
 emitted executor task packets, append decision/result-validation audit records,
 append hash-chain metadata to new audit records, and replay local audit history
 with a read-only `audit-replay.v1` packet that reports chain head, chained
-record count, and explicit legacy roots.
+record count, and explicit legacy roots. `verify-operator-approval` can verify
+local `operator-approval.v1` identity evidence for a target checksum, purpose,
+operator id, key id, expiration, and HMAC signature, then append
+`operator_approval_verification` audit evidence without granting executor,
+GitHub, merge, release, or package authority.
 Active execution controls are partial: `start-governed-execution` can consume
 an exactly approved generic executor task packet, recheck repo/policy/brake
 state and supplied local ownership evidence, bind matching active ownership to
@@ -161,6 +165,11 @@ Current evidence:
   `policy_denied`;
 - root-backed `loop-tick` packets append compact `cadence-audit.v1` decision
   records;
+- `verify-operator-approval` verifies `operator-approval.v1` packets for
+  target checksum, purpose, operator id, key id, expiration, and HMAC signature,
+  emits `operator-approval-verification.v1`, appends
+  `operator_approval_verification`, and reports no executor, epoch, PR, merge,
+  release, or package side effects;
 - `start-governed-execution` can consume a reviewed `generic-executor-task.v1`
   packet with an exact checksum approval token, recheck current repo path,
   branch, `HEAD`, dirty-worktree state, task-carried command and branch policy,

@@ -1,20 +1,20 @@
 # Current Session Handoff
 
-Last updated: 2026-06-09
+Last updated: 2026-06-10
 
 ## Current State
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `2988790046c3c95ff89bc96bf2647197d15c8887` after PR #85 merged.
-- Working branch intent: implement Task 18 audit hash-chain integrity evidence before any real executor process-start path exists.
-- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap.
+- Current base: `origin/main` at `b154fe6fefd95bd1c62879089433ad36a0d083c3` after PR #86 merged.
+- Working branch intent: implement Task 19 authenticated operator approval identity evidence before any real executor process-start path exists.
+- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence.
 - Completed roadmap marker: Tasks 13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in `main`, including `work-ownership-claim.v1`, `work-ownership-closeout.v1`, ownership-bound `execution-start.v1`, ownership-aware `resume-continuation.v1`, read-only `role-readiness.v1`, and read-only `executor-invocation-readiness.v1` packet evidence.
-- Current branch scope: `codex/task-18-audit-hash-chain-integrity` extends
-  local audit append and replay evidence with deterministic hash-chain
-  metadata. It must not invoke a real executor, modify code through an
-  executor, create branches outside this task branch, write GitHub state beyond
-  the operator-approved PR for this slice, merge, release, or publish packages.
+- Current branch scope: `codex/task-19-operator-approval-identity` adds local
+  authenticated operator approval identity evidence. It must not invoke a real
+  executor, modify code through an executor, create branches outside this task
+  branch, write GitHub state beyond the operator-approved PR for this slice,
+  merge, release, or publish packages.
 
 ## Current Capability Baseline
 
@@ -74,15 +74,20 @@ Last updated: 2026-06-09
 - `validate-executor-result` checks the current brake before recording completion evidence; when `brake_not_drive` is a task stop condition and the brake is not `DRIVE`, non-`stopped` result evidence is invalid and recommends `stop_active_loop`.
 - Command policy is hardened around shell grouping, Bash brace grouping, command substitutions, shell-wrapper payloads, Git aliases, and null top-level command-policy packets.
 - `audit-replay` emits a read-only local packet for `cadence-audit.v1` JSONL history, reports chain head/count evidence for `cadence-audit-chain.v1` records, treats older unchained records as explicit legacy roots, and reports stable blockers for corrupt, unsupported, or hash-chain-invalid records, including execution-run and materialization intent/result audit events.
+- `verify-operator-approval` verifies local `operator-approval.v1` packets for
+  target checksum, purpose, operator id, key id, timestamps, and HMAC signature,
+  emits `operator-approval-verification.v1`, appends
+  `operator_approval_verification` audit evidence when accepted, and reports
+  `executor_started: false`.
 - `run-controlled-executor-fixture` can launch the bundled fake external executor fixture from an explicit current-Python, absolute-script command template in tests/examples, validate its task packet and command before start, require expected result evidence under the runtime root, reject stale result files, and append `executor_fixture_invocation` plus `executor_result_validation` audit records.
 - Disabled executor permissions now also reject merge, release, and package-publication command forms, including `gh pr merge`, `gh release create`, `gh release upload`, mutating `git tag` forms while allowing read-only tag listing/verification, `twine upload`, Python launcher `-m twine upload` forms including versioned `python3.x`, `npm publish`, `pnpm publish`, `yarn publish`, `yarn npm publish`, `poetry publish`, `uv publish`, `hatch publish`, and `flit publish`.
 - Dry-run-only `git-pr-plan` is merged. It turns validated executor evidence into proposed branch, commit, PR title, and PR body text without creating a branch, committing, pushing, calling GitHub, opening a pull request, merging, releasing, or publishing packages.
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
 - Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete in `main` via PR #84.
-- This branch implements Task 18 from
-  `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`; PR #86 is the
-  review/merge target for audit hash-chain integrity evidence.
+- This branch implements Task 19 from
+  `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`; the PR for this branch
+  should review authenticated operator approval identity evidence.
 
 ## Important Boundaries
 
@@ -91,8 +96,11 @@ Last updated: 2026-06-09
 - The governed execution-start gate validates task-carried command and branch
   policy fields from the reviewed packet and carries them into the epoch; it
   does not reread a mutable policy file. Its approval token is checksum review
-  evidence only; it is not authenticated approver identity, hash-chain evidence,
-  executor authority, or Git/PR authority.
+  evidence only; it remains backward compatible until a later migration consumes
+  `operator-approval.v1` evidence.
+- `verify-operator-approval` is identity evidence only. Accepted approval
+  verification is not executor authority, Git/PR materialization authority,
+  merge authority, release authority, or package-publication authority.
 - Active stop handling rejects completion evidence after the brake changes, but it still allows `status: stopped` evidence to report that the executor honored the stop.
 - Non-`stopped` evidence for tasks with `brake_not_drive` needs a runtime root to check the current brake; without one, validation recommends `provide_runtime_root`.
 - `git-pr-plan` remains dry-run only: suggested commands are never executed by Cadence, and the executor that produced result evidence is not the final authority for Git/PR approval.
