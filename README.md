@@ -35,7 +35,8 @@ execution-start epoch gating for approved generic executor task packets. It also
 local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for
 local generic executor task and result evidence, read-only
 `github-evidence-sync`, read-only `review-response-plan`, read-only
-`role-readiness`, read-only `executor-invocation-readiness`,
+`role-readiness`, read-only `executor-invocation-readiness`, read-only
+`executor-invocation-plan`,
 operator-approved `git-pr-materialize`, reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -635,6 +636,35 @@ Recommended actions include `refresh_task_evidence`, `fix_ownership`,
 This is not real executor invocation. It does not edit code, start a process,
 create branches, commit, push, open or update PRs, merge, release, publish
 packages, assign roles, or write GitHub state.
+
+## Executor Invocation Plan
+
+`executor-invocation-plan` is the next read-only gate after readiness. It binds
+a fresh successful `executor-invocation-readiness.v1` packet to a concrete
+adapter contract, command, environment allowlist, timeout, expected result path,
+rollback evidence, current audit-chain head, active epoch and ownership
+anchors, and `operator-approval.v1` evidence with purpose
+`real_executor_invocation`:
+
+```bash
+agentic-cadence --root <runtime-root> executor-invocation-plan --cwd . --readiness-file executor-invocation-readiness.json --approval-file operator-approval.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --adapter-file executor-adapter.json --rollback-file executor-rollback.json --command "python -m unittest tests.test_cadence" --env-allow PATH --timeout-seconds 300 --expected-result-path <runtime-root>/executor-results/executor-result.json
+```
+
+The command emits `executor-invocation-plan.v1` with `read_only: true`,
+`executor_started: false`, `side_effects: []`, and
+`recommended_next_action: invoke_real_executor` only when all anchors still
+match. Stable blockers include `readiness_packet_stale`,
+`readiness_not_invocable`, `approval_missing`, `approval_target_mismatch`,
+`approval_expired`, `approval_purpose_mismatch`, `approval_signature_invalid`,
+`audit_chain_not_clean`, `rollback_evidence_missing`,
+`rollback_policy_invalid`, `adapter_contract_invalid`,
+`executor_command_denied`, `executor_timeout_invalid`,
+`repo_head_mismatch`, `ownership_epoch_mismatch`, `brake_not_drive`, and
+`result_path_invalid`.
+
+This is still not process start. It does not invoke an executor, modify code,
+create branches, commit, push, open or update PRs, merge, release, publish
+packages, assign roles, append audit records, or write GitHub state.
 
 ## GitHub Evidence Sync
 

@@ -33,6 +33,44 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-10 - Add real executor invocation plan evidence
+
+Summary:
+- Added read-only `executor-invocation-plan` evidence that binds successful
+  invocation readiness to operator approval, adapter metadata, rollback
+  evidence, current audit-chain head, command, environment allowlist, timeout,
+  cwd, active epoch, active ownership, and expected result path.
+- Kept the plan command read-only with `executor_started: false` and no audit,
+  Git, GitHub, merge, release, or package-publication side effects.
+
+Completed slices:
+- Task 20: Add Real Executor Invocation Plan And Approval Binding.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Cadence can now build exact invocation plans, but it still lacks the
+  controlled real executor process-start runner and real-run evidence capture.
+
+Evidence:
+- `python -m py_compile codex_cadence/executor_invocation.py codex_cadence/executor_readiness.py codex_cadence/approvals.py codex_cadence/policy_audit.py codex_cadence/cli.py tests/test_cadence.py`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_executor_invocation_plan_accepts_matching_evidence_without_side_effects tests.test_cadence.CadenceCliTests.test_executor_invocation_plan_blocks_unready_inputs_without_side_effects tests.test_cadence.CadenceCliTests.test_executor_invocation_plan_blocks_stale_and_mismatched_anchors -v`
+- `python -m unittest tests.test_cadence -v`
+- `python -m unittest tests.test_executor_contract tests.test_epochs tests.test_ci_checks -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- `executor-invocation-plan.v1` is not process-start authority; Task 21 still
+  needs to recheck the plan immediately before launching a controlled real
+  executor process.
+
+Docs updated:
+- `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`,
+  `docs/implementation-slices.md`, `docs/roadmap.md`,
+  `docs/progress-log.md`, `docs/decision-log.md`.
+
 ## 2026-06-10 - Add authenticated operator approval identity evidence
 
 Summary:

@@ -343,6 +343,68 @@ def write_operator_approval(path, **overrides):
     return Path(path), packet
 
 
+def write_executor_invocation_adapter(path, **overrides):
+    packet = {
+        "schema_version": "executor-adapter.v1",
+        "packet": "executor_adapter",
+        "adapter_id": "local-python",
+        "adapter_kind": "local_process",
+        "command_template": "python -m unittest tests.test_cadence",
+        "environment_allowlist": ["PATH", "PYTHONPATH"],
+        "max_timeout_seconds": 900,
+        "process_start_allowed": False,
+    }
+    packet.update(overrides)
+    Path(path).write_text(json.dumps(packet), encoding="utf-8")
+    return Path(path), packet
+
+
+def write_executor_invocation_rollback(path, task_packet, **overrides):
+    packet = {
+        "schema_version": "executor-rollback.v1",
+        "packet": "executor_rollback_evidence",
+        "read_only": True,
+        "task_checksum": checksum_json(task_packet),
+        "repo": {
+            "path": task_packet["repo"]["path"],
+            "branch": task_packet["repo"]["branch"],
+            "head": task_packet["repo"]["head"],
+        },
+        "strategy": "restore_clean_checkout",
+        "rollback_commands": ["git status --short"],
+        "side_effects": [],
+    }
+    packet.update(overrides)
+    Path(path).write_text(json.dumps(packet), encoding="utf-8")
+    return Path(path), packet
+
+
+def executor_invocation_target_descriptor(
+    *,
+    readiness_packet,
+    adapter_packet,
+    rollback_packet,
+    command,
+    cwd,
+    expected_result_path,
+    environment_allowlist,
+    timeout_seconds,
+    audit_chain_head,
+):
+    return {
+        "schema_version": "executor-invocation-target.v1",
+        "readiness_checksum": checksum_json(readiness_packet),
+        "adapter_checksum": checksum_json(adapter_packet),
+        "rollback_checksum": checksum_json(rollback_packet),
+        "command": command,
+        "cwd": str(Path(cwd).expanduser().resolve(strict=False)),
+        "expected_result_path": str(Path(expected_result_path).expanduser().resolve(strict=False)),
+        "environment_allowlist": list(environment_allowlist),
+        "timeout_seconds": timeout_seconds,
+        "audit_chain_head": audit_chain_head,
+    }
+
+
 def write_executor_readiness_role_packet(path, task_packet, valid=True, **overrides):
     data = {
         "protocol_version": "v1",
@@ -3953,6 +4015,377 @@ class CadenceCliTests(unittest.TestCase):
             self.assertTrue(replay["valid"])
             self.assertEqual(replay["records_valid"], 0)
             self.assertEqual(replay["events_by_type"], {})
+
+    def write_valid_executor_invocation_plan_inputs(self, tmp, repo, *, command="python -m unittest tests.test_cadence"):
+        status_result, _status = run_cli(tmp, "status")
+        self.assertEqual(status_result.returncode, 0, status_result.stderr)
+        task_path, task_packet, _approval_token = write_governed_execution_task(tmp, repo)
+        task_packet["expected_output"]["evidence_path"] = str(Path(tmp) / "executor-results" / "executor-result.json")
+        task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+        task_checksum = checksum_json(task_packet)
+        write_active_epoch(
+            tmp,
+            "epoch-1",
+            valid_snapshot(
+                repo="local/test",
+                cwd=str(Path(repo).resolve()),
+                branch=current_branch(repo),
+                head=current_head(repo),
+            ),
+            tasks=[
+                {
+                    "id": task_packet["task"]["id"],
+                    "task_type": "execution",
+                    "executor_task_checksum": task_checksum,
+                }
+            ],
+        )
+        write_work_ownership(
+            tmp,
+            "ownership-1",
+            task_id=task_packet["task"]["id"],
+            candidate_id=task_packet["task"]["id"],
+            branch=current_branch(repo),
+            head=current_head(repo),
+            epoch_id="epoch-1",
+            handoff_id=None,
+        )
+
+        readiness_result, readiness_packet = run_cli(
+            tmp,
+            "executor-invocation-readiness",
+            "--cwd",
+            repo,
+            "--task-file",
+            str(task_path),
+            "--epoch-id",
+            "epoch-1",
+            "--ownership-target",
+            "ownership-1",
+            "--expected-result-path",
+            task_packet["expected_output"]["evidence_path"],
+        )
+        self.assertEqual(readiness_result.returncode, 0, readiness_result.stderr)
+        readiness_path = Path(tmp) / "executor-invocation-readiness.json"
+        readiness_path.write_text(json.dumps(readiness_packet), encoding="utf-8")
+
+        audit_seed = build_operator_approval_verification_packet(
+            approval=operator_approval_packet(),
+            approval_file=Path(tmp) / "seed-operator-approval.json",
+            expected_target_checksum=OPERATOR_APPROVAL_TARGET,
+            expected_purpose="start_governed_execution",
+            approval_secret=OPERATOR_APPROVAL_SECRET,
+        )
+        append_audit_record(Path(tmp), operator_approval_verification_audit_record(audit_seed))
+        audit_result, audit_replay = run_cli(tmp, "audit-replay")
+        self.assertEqual(audit_result.returncode, 0, audit_result.stderr)
+        self.assertTrue(audit_replay["valid"])
+
+        adapter_path, adapter_packet = write_executor_invocation_adapter(Path(tmp) / "executor-adapter.json")
+        rollback_path, rollback_packet = write_executor_invocation_rollback(
+            Path(tmp) / "executor-rollback.json",
+            task_packet,
+        )
+        environment_allowlist = ["PATH", "PYTHONPATH"]
+        timeout_seconds = 300
+        target = executor_invocation_target_descriptor(
+            readiness_packet=readiness_packet,
+            adapter_packet=adapter_packet,
+            rollback_packet=rollback_packet,
+            command=command,
+            cwd=repo,
+            expected_result_path=task_packet["expected_output"]["evidence_path"],
+            environment_allowlist=environment_allowlist,
+            timeout_seconds=timeout_seconds,
+            audit_chain_head=audit_replay["chain_head"],
+        )
+        approval_path, approval_packet = write_operator_approval(
+            Path(tmp) / "executor-invocation-approval.json",
+            target_checksum=checksum_json(target),
+            purpose="real_executor_invocation",
+        )
+        return {
+            "task_packet": task_packet,
+            "readiness_path": readiness_path,
+            "readiness_packet": readiness_packet,
+            "adapter_path": adapter_path,
+            "adapter_packet": adapter_packet,
+            "rollback_path": rollback_path,
+            "rollback_packet": rollback_packet,
+            "approval_path": approval_path,
+            "approval_packet": approval_packet,
+            "command": command,
+            "environment_allowlist": environment_allowlist,
+            "timeout_seconds": timeout_seconds,
+            "target": target,
+            "target_checksum": checksum_json(target),
+            "audit_replay": audit_replay,
+        }
+
+    def run_executor_invocation_plan_cli(self, tmp, repo, inputs, **overrides):
+        return run_cli(
+            tmp,
+            "executor-invocation-plan",
+            "--cwd",
+            str(overrides.get("cwd", repo)),
+            "--readiness-file",
+            str(inputs["readiness_path"]),
+            "--approval-file",
+            str(inputs["approval_path"]),
+            "--approval-secret",
+            OPERATOR_APPROVAL_SECRET,
+            "--adapter-file",
+            str(inputs["adapter_path"]),
+            "--rollback-file",
+            str(overrides.get("rollback_file", inputs["rollback_path"])),
+            "--command",
+            overrides.get("command", inputs["command"]),
+            "--env-allow",
+            "PATH",
+            "--env-allow",
+            "PYTHONPATH",
+            "--timeout-seconds",
+            str(overrides.get("timeout_seconds", inputs["timeout_seconds"])),
+            "--expected-result-path",
+            str(overrides.get("expected_result_path", inputs["task_packet"]["expected_output"]["evidence_path"])),
+        )
+
+    def test_executor_invocation_plan_accepts_matching_evidence_without_side_effects(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_valid_executor_invocation_plan_inputs(tmp, repo)
+            audit_before = audit_records(tmp)
+
+            result, output = run_cli(
+                tmp,
+                "executor-invocation-plan",
+                "--cwd",
+                repo,
+                "--readiness-file",
+                str(inputs["readiness_path"]),
+                "--approval-file",
+                str(inputs["approval_path"]),
+                "--approval-secret",
+                OPERATOR_APPROVAL_SECRET,
+                "--adapter-file",
+                str(inputs["adapter_path"]),
+                "--rollback-file",
+                str(inputs["rollback_path"]),
+                "--command",
+                inputs["command"],
+                "--env-allow",
+                "PATH",
+                "--env-allow",
+                "PYTHONPATH",
+                "--timeout-seconds",
+                str(inputs["timeout_seconds"]),
+                "--expected-result-path",
+                inputs["task_packet"]["expected_output"]["evidence_path"],
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "executor-invocation-plan.v1")
+            self.assertEqual(output["packet"], "executor_invocation_plan")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"])
+            self.assertTrue(output["executor_invocation_planned"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(output["recommended_next_action"], "invoke_real_executor")
+            self.assertEqual(output["target_checksum"], inputs["target_checksum"])
+            self.assertEqual(output["readiness"]["checksum"], checksum_json(inputs["readiness_packet"]))
+            self.assertEqual(output["approval"]["purpose"], "real_executor_invocation")
+            self.assertEqual(output["adapter"]["id"], "local-python")
+            self.assertEqual(output["rollback"]["checksum"], checksum_json(inputs["rollback_packet"]))
+            self.assertEqual(output["command"]["command"], inputs["command"])
+            self.assertEqual(output["audit_chain"]["chain_head"], inputs["audit_replay"]["chain_head"])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(current_head(repo), inputs["task_packet"]["repo"]["head"])
+
+    def test_executor_invocation_plan_blocks_unready_inputs_without_side_effects(self):
+        cases = [
+            (
+                "wrong-approval-target",
+                "python -m unittest tests.test_cadence",
+                lambda tmp, repo, inputs: write_operator_approval(
+                    inputs["approval_path"],
+                    target_checksum="sha256:" + "0" * 64,
+                    purpose="real_executor_invocation",
+                ),
+                [],
+                "approval_target_mismatch",
+            ),
+            (
+                "denied-command",
+                "git push origin HEAD",
+                lambda tmp, repo, inputs: None,
+                [],
+                "executor_command_denied",
+            ),
+            (
+                "missing-rollback",
+                "python -m unittest tests.test_cadence",
+                lambda tmp, repo, inputs: None,
+                ["--rollback-file", str(Path("missing-rollback.json"))],
+                "rollback_evidence_missing",
+            ),
+            (
+                "broken-audit-chain",
+                "python -m unittest tests.test_cadence",
+                lambda tmp, repo, inputs: (Path(tmp) / "audit" / "events.jsonl").write_text(
+                    (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").replace(
+                        "operator approval identity evidence accepted",
+                        "tampered accepted approval",
+                    ),
+                    encoding="utf-8",
+                ),
+                [],
+                "audit_chain_not_clean",
+            ),
+        ]
+        for name, command, mutate, arg_overrides, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    inputs = self.write_valid_executor_invocation_plan_inputs(tmp, repo, command=command)
+                    mutate(tmp, repo, inputs)
+                    rollback_args = arg_overrides or ["--rollback-file", str(inputs["rollback_path"])]
+                    audit_before = audit_records(tmp)
+
+                    result, output = run_cli(
+                        tmp,
+                        "executor-invocation-plan",
+                        "--cwd",
+                        repo,
+                        "--readiness-file",
+                        str(inputs["readiness_path"]),
+                        "--approval-file",
+                        str(inputs["approval_path"]),
+                        "--approval-secret",
+                        OPERATOR_APPROVAL_SECRET,
+                        "--adapter-file",
+                        str(inputs["adapter_path"]),
+                        *rollback_args,
+                        "--command",
+                        command,
+                        "--env-allow",
+                        "PATH",
+                        "--env-allow",
+                        "PYTHONPATH",
+                        "--timeout-seconds",
+                        str(inputs["timeout_seconds"]),
+                        "--expected-result-path",
+                        inputs["task_packet"]["expected_output"]["evidence_path"],
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertFalse(output["executor_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_executor_invocation_plan_blocks_stale_and_mismatched_anchors(self):
+        now = datetime.now(timezone.utc)
+
+        def mutate_ownership_epoch(tmp, repo, inputs):
+            ownership_path = Path(inputs["readiness_packet"]["ownership"]["path"])
+            ownership_record = json.loads(ownership_path.read_text(encoding="utf-8"))
+            ownership_record["epoch_id"] = "epoch-other"
+            ownership_path.write_text(json.dumps(ownership_record), encoding="utf-8")
+            return {}
+
+        cases = [
+            (
+                "stale-readiness",
+                lambda tmp, repo, inputs: (
+                    inputs["readiness_packet"].update({"checked_at": iso_z(now - timedelta(hours=1))}),
+                    inputs["readiness_path"].write_text(json.dumps(inputs["readiness_packet"]), encoding="utf-8"),
+                    {},
+                )[2],
+                "readiness_packet_stale",
+            ),
+            (
+                "changed-head",
+                lambda tmp, repo, inputs: (
+                    (Path(repo) / "README.md").write_text("changed after readiness\n", encoding="utf-8"),
+                    git(repo, "add", "README.md"),
+                    git(repo, "commit", "-m", "change after readiness"),
+                    {},
+                )[3],
+                "repo_head_mismatch",
+            ),
+            (
+                "ownership-epoch-mismatch",
+                mutate_ownership_epoch,
+                "ownership_epoch_mismatch",
+            ),
+            (
+                "wrong-approval-purpose",
+                lambda tmp, repo, inputs: (
+                    write_operator_approval(
+                        inputs["approval_path"],
+                        target_checksum=inputs["target_checksum"],
+                        purpose="start_governed_execution",
+                    ),
+                    {},
+                )[1],
+                "approval_purpose_mismatch",
+            ),
+            (
+                "expired-approval",
+                lambda tmp, repo, inputs: (
+                    write_operator_approval(
+                        inputs["approval_path"],
+                        target_checksum=inputs["target_checksum"],
+                        purpose="real_executor_invocation",
+                        issued_at=iso_z(now - timedelta(hours=2)),
+                        expires_at=iso_z(now - timedelta(hours=1)),
+                    ),
+                    {},
+                )[1],
+                "approval_expired",
+            ),
+            (
+                "invalid-adapter",
+                lambda tmp, repo, inputs: (
+                    inputs["adapter_path"].write_text(
+                        json.dumps({**inputs["adapter_packet"], "schema_version": "executor-adapter.v2"}),
+                        encoding="utf-8",
+                    ),
+                    {},
+                )[1],
+                "adapter_contract_invalid",
+            ),
+            (
+                "invalid-result-path",
+                lambda tmp, repo, inputs: {
+                    "expected_result_path": str(Path(repo) / "executor-result-outside-runtime.json")
+                },
+                "result_path_invalid",
+            ),
+            (
+                "invalid-cwd",
+                lambda tmp, repo, inputs: {"cwd": str(Path(tmp) / "not-a-git-repo")},
+                "repo_inspection_failed",
+            ),
+        ]
+        for name, mutate, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    inputs = self.write_valid_executor_invocation_plan_inputs(tmp, repo)
+                    overrides = mutate(tmp, repo, inputs)
+                    audit_before = audit_records(tmp)
+
+                    result, output = self.run_executor_invocation_plan_cli(tmp, repo, inputs, **overrides)
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertFalse(output["executor_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertEqual(audit_records(tmp), audit_before)
 
     def test_executor_invocation_readiness_accepts_matching_epoch_ownership_and_role_evidence(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

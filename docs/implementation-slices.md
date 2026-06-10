@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-10
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -106,9 +106,10 @@ the current tree. Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
 added read-only real-executor invocation readiness. Task 18 from
 `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` adds local audit hash-chain
 integrity evidence before any real executor process start. Task 19 adds
-authenticated operator approval identity evidence in the current branch. The
-next bounded implementation slice is Task 20: real executor invocation plan and
-approval binding.
+authenticated operator approval identity evidence. Task 20 adds read-only real
+executor invocation plan and approval binding in the current branch. The next
+bounded implementation slice is Task 21: controlled real executor invocation
+runner.
 
 ## Vision Framing
 
