@@ -8,7 +8,7 @@ from typing import Any
 
 from codex_cadence.branch_policy import normalize_branch_policy
 from codex_cadence.executor_contract import EXECUTION_RUN_CLOSEOUT_STATUSES
-from codex_cadence.store import read_json, utc_now
+from codex_cadence.store import exclusive_lock, lock_path, read_json, utc_now
 
 AUDIT_SCHEMA_VERSION = "cadence-audit.v1"
 AUDIT_REPLAY_SCHEMA_VERSION = "audit-replay.v1"
@@ -706,13 +706,14 @@ def append_audit_record(root: Path, record: dict[str, Any]) -> dict[str, Any]:
     line = dict(record)
     line.setdefault("schema_version", AUDIT_SCHEMA_VERSION)
     line.setdefault("recorded_at", utc_now())
-    previous_event_hash, chain_index = audit_append_chain_tip(target)
-    line["audit_chain_version"] = AUDIT_CHAIN_SCHEMA_VERSION
-    line["chain_index"] = chain_index
-    line["previous_event_hash"] = previous_event_hash
-    line["event_hash"] = audit_event_hash(line)
-    with target.open("a", encoding="utf-8", newline="\n") as handle:
-        handle.write(json.dumps(line, sort_keys=True, separators=(",", ":")) + "\n")
+    with exclusive_lock(lock_path(root, "audit-events")):
+        previous_event_hash, chain_index = audit_append_chain_tip(target)
+        line["audit_chain_version"] = AUDIT_CHAIN_SCHEMA_VERSION
+        line["chain_index"] = chain_index
+        line["previous_event_hash"] = previous_event_hash
+        line["event_hash"] = audit_event_hash(line)
+        with target.open("a", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(line, sort_keys=True, separators=(",", ":")) + "\n")
     return {
         "event": line.get("event"),
         "path": str(target),

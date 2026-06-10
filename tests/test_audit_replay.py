@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from codex_cadence import policy_audit
 from codex_cadence.policy_audit import append_audit_record, audit_event_hash, replay_audit_log
 
 
@@ -401,6 +402,34 @@ class AuditReplayCliTests(unittest.TestCase):
                 append_audit_record(root, loop_tick_record(tick_id="loop-tick-2"))
 
             self.assertEqual(audit_path.read_text(encoding="utf-8"), before)
+
+    def test_append_serializes_chain_tip_and_write_under_audit_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            original_tip = policy_audit.audit_append_chain_tip
+            original_append = policy_audit.append_audit_record
+            blocked_reentrant_appends: list[str] = []
+
+            def racing_tip(target: Path) -> tuple[str, int]:
+                tip = original_tip(target)
+                try:
+                    with mock.patch("codex_cadence.policy_audit.audit_append_chain_tip", original_tip):
+                        original_append(root, loop_tick_record(tick_id="interloper"))
+                except RuntimeError as exc:
+                    blocked_reentrant_appends.append(str(exc))
+                return tip
+
+            with mock.patch("codex_cadence.policy_audit.audit_append_chain_tip", side_effect=racing_tip):
+                append_audit_record(root, loop_tick_record(tick_id="loop-tick-1"))
+
+            records = audit_records(root)
+            replay = replay_audit_log(root)
+
+            self.assertEqual(len(blocked_reentrant_appends), 1)
+            self.assertIn("lock already held", blocked_reentrant_appends[0])
+            self.assertEqual([record["tick_id"] for record in records], ["loop-tick-1"])
+            self.assertTrue(replay["valid"], replay)
+            self.assertEqual(replay["chain_records"], 1)
 
     def test_legacy_audit_records_replay_as_explicit_chain_roots(self):
         with tempfile.TemporaryDirectory() as tmp:
