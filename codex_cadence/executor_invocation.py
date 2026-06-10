@@ -419,10 +419,20 @@ def _active_epoch_blockers(
     task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
     task_id = task.get("id")
     epoch_tasks = epoch.get("tasks") if isinstance(epoch.get("tasks"), list) else []
-    matching_task = next((candidate for candidate in epoch_tasks if isinstance(candidate, dict) and candidate.get("id") == task_id), None)
-    if matching_task is None:
+    matching_tasks = [candidate for candidate in epoch_tasks if isinstance(candidate, dict) and candidate.get("id") == task_id]
+    if not matching_tasks:
         blockers.append(plan_blocker("active_epoch_task_missing", "active epoch does not include the executor task id", task_id=task_id))
+    elif len(matching_tasks) > 1:
+        blockers.append(
+            plan_blocker(
+                "active_epoch_task_duplicate",
+                "active epoch includes duplicate executor task ids",
+                task_id=task_id,
+                match_count=len(matching_tasks),
+            )
+        )
     else:
+        matching_task = matching_tasks[0]
         epoch_checksum = matching_task.get("executor_task_checksum")
         if not _non_empty_string(epoch_checksum):
             blockers.append(plan_blocker("task_checksum_missing", "active epoch task is missing executor_task_checksum", task_id=task_id))

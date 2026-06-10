@@ -4326,6 +4326,15 @@ class CadenceCliTests(unittest.TestCase):
             epoch_path.write_text(json.dumps(epoch_record), encoding="utf-8")
             return {}
 
+        def mutate_duplicate_active_epoch_task(tmp, repo, inputs):
+            epoch_path = Path(tmp) / "epochs" / "active" / "epoch-1.json"
+            epoch_record = json.loads(epoch_path.read_text(encoding="utf-8"))
+            duplicate_task = dict(epoch_record["tasks"][0])
+            duplicate_task["executor_task_checksum"] = "sha256:" + "0" * 64
+            epoch_record["tasks"].append(duplicate_task)
+            epoch_path.write_text(json.dumps(epoch_record), encoding="utf-8")
+            return {}
+
         cases = [
             (
                 "stale-readiness",
@@ -4355,6 +4364,11 @@ class CadenceCliTests(unittest.TestCase):
                 "active-epoch-task-checksum-mismatch",
                 mutate_active_epoch_checksum,
                 "task_checksum_mismatch",
+            ),
+            (
+                "active-epoch-duplicate-task-id",
+                mutate_duplicate_active_epoch_task,
+                "active_epoch_task_duplicate",
             ),
             (
                 "wrong-approval-purpose",
