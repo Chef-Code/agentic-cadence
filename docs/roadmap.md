@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-10
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -76,8 +76,8 @@ epoch gating, local execution-run evidence, operator-approved Git/PR
 materialization, read-only resume verification, ownership-aware read-only
 resume continuation, read-only review-response planning, local work ownership
 claim/closeout evidence, read-only role-readiness evidence, read-only
-executor-invocation-readiness evidence, and local audit hash-chain integrity
-evidence. It can
+executor-invocation-readiness and invocation-plan evidence, and local audit
+hash-chain integrity evidence. It can
 materialize a reviewed Git/PR plan only through exact target-bound operator
 approval, and it can verify handoff pickup state before a fresh session
 continues, but it still cannot independently implement code, invoke a real
@@ -162,6 +162,10 @@ command-policy and active-stop controls. It includes:
   command and branch policy, required checks, expected result path, and optional
   `role-readiness.v1` evidence to recommend `invoke_real_executor` without
   starting an executor or reporting process metadata;
+- read-only `executor-invocation-plan` packets that bind fresh readiness,
+  operator approval identity, clean audit replay, adapter metadata, rollback evidence,
+  command, environment allowlist, timeout, active epoch, active
+  ownership, and result-path anchors before any future process start;
 - release dry-run checks that require operator confirmation before tag or
   release actions;
 - elected Codex Review GitHub workflow with preflight, dedupe, pinned action,
@@ -341,9 +345,10 @@ the current tree. Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
 real-executor invocation readiness planning, is merged. Task 18 from
 `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, audit hash-chain integrity
 evidence, is implemented in the current tree. Task 19, authenticated operator
-approval identity evidence, is implemented in the current branch. Task 20,
-real executor invocation plan and approval binding, is the next bounded
-implementation slice.
+approval identity evidence, is implemented in the current tree. Task 20,
+`executor-invocation-plan` real executor invocation plan and approval binding,
+is implemented in the current branch. Task 21, controlled real executor
+invocation runner, is the next bounded implementation slice.
 
 ## Roadmap
 

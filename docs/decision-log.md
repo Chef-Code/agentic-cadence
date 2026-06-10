@@ -28,6 +28,43 @@ Open questions:
 - Remaining unknowns.
 ```
 
+## 2026-06-10 - Bind real executor invocation plans before process start
+
+Decision:
+- Add `executor-invocation-plan.v1` as a read-only plan packet between
+  readiness and any future real executor process start.
+- Bind the plan target checksum to readiness, adapter, rollback, command, cwd,
+  result path, environment allowlist, timeout, active epoch, active ownership,
+  and audit-chain head evidence.
+- Require `operator-approval.v1` evidence for purpose
+  `real_executor_invocation` before recommending `invoke_real_executor`.
+- Keep process start, audit append, code modification, branch creation,
+  commits, pushes, PR writes, merge, release, and package publication out of
+  scope for the plan command.
+
+Why:
+- `executor-invocation-readiness.v1` proves local anchors are ready, but it
+  does not bind a concrete command and adapter contract to approval and rollback
+  evidence.
+- The next process-start slice needs a stable, replayable plan target to recheck
+  immediately before launch.
+
+Alternatives considered:
+- Start the real executor directly from readiness. Rejected because readiness
+  alone lacks command/environment/rollback/audit-chain/approval binding.
+- Append an audit record from planning. Deferred because the plan command is a
+  read-only preflight and Task 21 should audit the actual invocation attempt.
+
+Consequences:
+- A later runner can consume one exact plan packet and fail closed if any anchor
+  changes before process start.
+- Operators must create approval against the plan target checksum, not just the
+  readiness checksum.
+
+Open questions:
+- Which adapter contract fields become mandatory once Task 21 starts a real
+  process and captures output logs?
+
 ## 2026-06-10 - Verify operator approval identity separately from action authority
 
 Decision:

@@ -6,15 +6,17 @@ Last updated: 2026-06-10
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `b154fe6fefd95bd1c62879089433ad36a0d083c3` after PR #86 merged.
-- Working branch intent: implement Task 19 authenticated operator approval identity evidence before any real executor process-start path exists.
-- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence.
+- Current base: `origin/main` at `2de6cdcc1729a5c088ce14fbe447d09607b52c56` after PR #87 merged.
+- Working branch intent: implement Task 20 read-only real executor invocation plan and approval binding before any real executor process-start path exists.
+- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence.
 - Completed roadmap marker: Tasks 13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in `main`, including `work-ownership-claim.v1`, `work-ownership-closeout.v1`, ownership-bound `execution-start.v1`, ownership-aware `resume-continuation.v1`, read-only `role-readiness.v1`, and read-only `executor-invocation-readiness.v1` packet evidence.
-- Current branch scope: `codex/task-19-operator-approval-identity` adds local
-  authenticated operator approval identity evidence. It must not invoke a real
-  executor, modify code through an executor, create branches outside this task
-  branch, write GitHub state beyond the operator-approved PR for this slice,
-  merge, release, or publish packages.
+- Current branch scope: `codex/task-20-real-executor-invocation-plan` adds
+  read-only `executor-invocation-plan.v1` evidence that binds readiness,
+  approval identity, audit-chain, adapter, rollback, command, environment,
+  timeout, cwd, active epoch, active ownership, and result-path anchors. It
+  must not invoke a real executor, modify code through an executor, create
+  branches outside this task branch, write GitHub state beyond the
+  operator-approved PR for this slice, merge, release, or publish packages.
 
 ## Current Capability Baseline
 
@@ -79,15 +81,23 @@ Last updated: 2026-06-10
   emits `operator-approval-verification.v1`, appends
   `operator_approval_verification` audit evidence when accepted, and reports
   `executor_started: false`.
+- `executor-invocation-plan` emits read-only
+  `executor-invocation-plan.v1` packets that consume fresh successful
+  `executor-invocation-readiness.v1`, purpose-scoped `operator-approval.v1`,
+  clean audit replay, adapter metadata, rollback evidence, command,
+  environment allowlist, timeout, cwd, active epoch, active ownership, and
+  expected result path evidence, then recommend `invoke_real_executor` only
+  when all anchors still match while reporting `executor_started: false`.
 - `run-controlled-executor-fixture` can launch the bundled fake external executor fixture from an explicit current-Python, absolute-script command template in tests/examples, validate its task packet and command before start, require expected result evidence under the runtime root, reject stale result files, and append `executor_fixture_invocation` plus `executor_result_validation` audit records.
 - Disabled executor permissions now also reject merge, release, and package-publication command forms, including `gh pr merge`, `gh release create`, `gh release upload`, mutating `git tag` forms while allowing read-only tag listing/verification, `twine upload`, Python launcher `-m twine upload` forms including versioned `python3.x`, `npm publish`, `pnpm publish`, `yarn publish`, `yarn npm publish`, `poetry publish`, `uv publish`, `hatch publish`, and `flit publish`.
 - Dry-run-only `git-pr-plan` is merged. It turns validated executor evidence into proposed branch, commit, PR title, and PR body text without creating a branch, committing, pushing, calling GitHub, opening a pull request, merging, releasing, or publishing packages.
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
 - Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete in `main` via PR #84.
-- This branch implements Task 19 from
+- This branch implements Task 20 from
   `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`; the PR for this branch
-  should review authenticated operator approval identity evidence.
+  should review read-only real executor invocation planning and approval
+  binding evidence.
 
 ## Important Boundaries
 
@@ -127,6 +137,12 @@ Last updated: 2026-06-10
   metadata, modify code, create branches, commit, push, write PRs, merge,
   release, publish packages, assign roles, schedule agents, or write GitHub
   state.
+- `executor-invocation-plan` is evidence only. It can recommend
+  `invoke_real_executor` after binding fresh readiness, approval, audit,
+  adapter, rollback, command, timeout, epoch, ownership, and result-path
+  evidence, but it does not start a process, append audit records, modify code,
+  create branches, commit, push, write PRs, merge, release, publish packages,
+  assign roles, schedule agents, or write GitHub state.
 - The active business-memory backlog entry is discovery input only. It does not authorize executor invocation, code modification, branch creation, commits, pushes, PR creation, merges, releases, package publication, or paid review spending.
 - The controlled fake executor fixture is merged, but it is still only a tests/examples component. No real executor invocation, branch/PR automation, write-side GitHub sync, merge authority, release behavior, hash chain, authenticated approval identity, or package-publication authority is available from that fixture.
 - Real executor invocation remains blocked even though governed execution
@@ -141,28 +157,27 @@ Last updated: 2026-06-10
 
 ```powershell
 git status -sb
-python -m py_compile codex_cadence/approvals.py codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py tests/test_audit_replay.py
-python -m unittest tests.test_audit_replay -v
+python -m py_compile codex_cadence/executor_invocation.py codex_cadence/executor_readiness.py codex_cadence/approvals.py codex_cadence/policy_audit.py codex_cadence/cli.py tests/test_cadence.py
 python -m unittest tests.test_cadence -v
-python -m unittest tests.test_ci_checks -v
+python -m unittest tests.test_executor_contract tests.test_epochs tests.test_ci_checks -v
 python scripts/validate_protocol.py
 python scripts/ci_smoke.py
 git diff --check
 ```
 
-For this branch, use the Task 19 operator approval validation block above. The
+For this branch, use the Task 20 invocation-plan validation block above. The
 Task 17 runtime validation block remains recorded in
 `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the merged
 `executor-invocation-readiness.v1` slice.
 
 ## Next Action
 
-Finish review on PR #87 for `codex/task-19-operator-approval-identity`,
-address any new findings, and merge only after checks and review are clean.
-Task 20 from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, real executor
-invocation plan and approval binding, is the next bounded slice after this
-branch. Real executor invocation, code modification by an executor,
-dirty-worktree commit, autonomous push, PR writes outside the approved PR for
-this task, role assignment, agent pools, GitHub issue assignment, shared
-runtimes, distributed locks, release, and package publication remain outside
-this branch.
+Finish review on the Task 20 PR for
+`codex/task-20-real-executor-invocation-plan`, address any new findings, and
+merge only after checks and review are clean. Task 21 from
+`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, controlled real executor
+invocation runner, is the next bounded slice after this branch. Code
+modification by an executor, dirty-worktree commit, autonomous push, PR writes
+outside the approved PR for this task, role assignment, agent pools, GitHub
+issue assignment, shared runtimes, distributed locks, release, and package
+publication remain outside this branch.

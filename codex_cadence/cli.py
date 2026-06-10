@@ -27,6 +27,7 @@ from codex_cadence.executor_contract import (
     validate_executor_result_evidence,
     validate_executor_task_packet,
 )
+from codex_cadence.executor_invocation import build_executor_invocation_plan
 from codex_cadence.executor_readiness import evaluate_executor_invocation_readiness
 from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.git_pr_plan import (
@@ -2334,6 +2335,24 @@ def executor_invocation_readiness_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 2
 
 
+def executor_invocation_plan_command(args: argparse.Namespace) -> int:
+    payload = build_executor_invocation_plan(
+        root=args.root,
+        cwd=Path(args.cwd),
+        readiness_file=Path(args.readiness_file),
+        approval_file=Path(args.approval_file),
+        approval_secret=operator_approval_secret_from_args(args),
+        adapter_file=Path(args.adapter_file),
+        rollback_file=Path(args.rollback_file),
+        command=args.command,
+        environment_allowlist=list(args.env_allow or []),
+        timeout_seconds=args.timeout_seconds,
+        expected_result_path=args.expected_result_path,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 2
+
+
 def github_evidence_out_dir_safety_issue(out_dir: Path) -> str | None:
     target = out_dir.expanduser().resolve(strict=False)
     cwd_repo_root = git_repo_root(Path.cwd())
@@ -2764,6 +2783,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
     )
     executor_readiness_parser.set_defaults(func=executor_invocation_readiness_command, requires_root=True)
+
+    executor_plan_parser = subparsers.add_parser(
+        "executor-invocation-plan",
+        help="Read-only real executor invocation plan with approval binding",
+    )
+    executor_plan_parser.add_argument("--cwd", default=".")
+    executor_plan_parser.add_argument("--readiness-file", required=True)
+    executor_plan_parser.add_argument("--approval-file", required=True)
+    executor_plan_parser.add_argument("--approval-secret")
+    executor_plan_parser.add_argument("--approval-secret-env", default=OPERATOR_APPROVAL_SECRET_ENV)
+    executor_plan_parser.add_argument("--adapter-file", required=True)
+    executor_plan_parser.add_argument("--rollback-file", required=True)
+    executor_plan_parser.add_argument("--command", required=True)
+    executor_plan_parser.add_argument("--env-allow", action="append", default=[])
+    executor_plan_parser.add_argument("--timeout-seconds", type=positive_int, required=True)
+    executor_plan_parser.add_argument("--expected-result-path", required=True)
+    executor_plan_parser.set_defaults(func=executor_invocation_plan_command, requires_root=True)
 
     github_evidence_parser = subparsers.add_parser(
         "github-evidence-sync",

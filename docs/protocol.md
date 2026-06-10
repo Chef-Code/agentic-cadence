@@ -592,6 +592,87 @@ start a real executor, emit executor process metadata, modify code, create
 branches, commit, push, open or update PRs, merge, release, publish packages,
 assign roles, schedule agents, or write GitHub state.
 
+## Executor Invocation Plan
+
+`executor-invocation-plan` is a read-only plan packet before any real executor
+process start. It consumes a fresh successful
+`executor-invocation-readiness.v1` packet, a local `operator-approval.v1`
+approval for purpose `real_executor_invocation`, clean `audit-replay`
+hash-chain evidence, `executor-adapter.v1` metadata, `executor-rollback.v1`
+rollback evidence, an exact command string, environment allowlist, timeout,
+cwd, active epoch and ownership anchors, and expected result path:
+
+```bash
+agentic-cadence --root <runtime-root> executor-invocation-plan --cwd . --readiness-file executor-invocation-readiness.json --approval-file operator-approval.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --adapter-file executor-adapter.json --rollback-file executor-rollback.json --command "python -m unittest tests.test_cadence" --env-allow PATH --timeout-seconds 300 --expected-result-path <runtime-root>/executor-results/executor-result.json
+```
+
+It emits an `executor-invocation-plan.v1` packet shaped as:
+
+```json
+{
+  "protocol_version": "v1",
+  "schema_version": "executor-invocation-plan.v1",
+  "packet": "executor_invocation_plan",
+  "read_only": true,
+  "valid": false,
+  "executor_invocation_planned": false,
+  "executor_started": false,
+  "target_checksum": "sha256:...",
+  "readiness": {"checksum": "sha256:..."},
+  "approval": {"purpose": "real_executor_invocation"},
+  "adapter": {"id": "local-python"},
+  "rollback": {"checksum": "sha256:..."},
+  "audit_chain": {"chain_head": "sha256:..."},
+  "command": {"command": "python -m unittest tests.test_cadence"},
+  "blockers": [{"code": "readiness_packet_stale", "message": "human readable"}],
+  "recommended_next_action": "operator_review",
+  "side_effects": []
+}
+```
+
+The approval target checksum is computed from an
+`executor-invocation-target.v1` descriptor that binds the readiness checksum,
+adapter checksum, rollback checksum, command, cwd, expected result path,
+environment allowlist, timeout, and current audit-chain head.
+
+Stable blocker codes include `readiness_unreadable`,
+`readiness_packet_stale`, `readiness_not_invocable`, `task_file_unreadable`,
+`executor_task_invalid`, `task_checksum_mismatch`, `approval_missing`,
+`approval_invalid`, `approval_schema_invalid`, `approval_target_invalid`,
+`approval_target_mismatch`, `approval_expired`, `approval_purpose_missing`,
+`approval_purpose_mismatch`, `approval_identity_invalid`,
+`approval_timestamp_invalid`, `approval_window_too_long`,
+`approval_issued_in_future`, `approval_signature_invalid`,
+`audit_chain_not_clean`, `rollback_evidence_missing`,
+`rollback_policy_invalid`, `adapter_contract_invalid`,
+`executor_command_denied`, `executor_timeout_invalid`,
+`repo_inspection_failed`, `repo_path_mismatch`, `repo_branch_mismatch`,
+`repo_head_mismatch`, `dirty_worktree`, `brake_state_invalid`,
+`brake_not_drive`, `active_epoch_missing`, `active_epoch_conflict`,
+`active_epoch_invalid`, `active_epoch_mismatch`,
+`active_epoch_repo_mismatch`, `active_epoch_branch_mismatch`,
+`active_epoch_task_missing`, `active_epoch_task_duplicate`,
+`active_epoch_task_completed`, `task_checksum_missing`,
+`ownership_record_missing`, `ownership_record_unreadable`,
+`ownership_record_path_invalid`, `ownership_record_outside_registry`,
+`ownership_record_ambiguous`, `ownership_record_invalid`,
+`ownership_schema_unsupported`, `ownership_required_field_missing`,
+`ownership_field_type_invalid`, `ownership_id_invalid`,
+`ownership_id_mismatch`, `ownership_status_invalid`,
+`ownership_state_mismatch`, `ownership_timestamp_invalid`,
+`ownership_stale`, `ownership_closed`, `ownership_repo_mismatch`,
+`ownership_branch_mismatch`, `ownership_task_mismatch`,
+`ownership_candidate_mismatch`, `ownership_epoch_mismatch`,
+`ownership_head_mismatch`, `duplicate_active_ownership`,
+`result_path_missing`, `result_path_mismatch`,
+`result_path_outside_runtime`, and `result_path_invalid`.
+
+Recommended actions are limited to `invoke_real_executor` and
+`operator_review`. This command is read-only: it does not start a real executor,
+append audit records, emit process metadata, modify code, create branches,
+commit, push, open or update PRs, merge, release, publish packages, assign
+roles, schedule agents, or write GitHub state.
+
 ## Handoff Signature
 
 Draft marker:
