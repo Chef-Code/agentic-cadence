@@ -726,18 +726,25 @@ the approval fields and emits `operator-approval-verification.v1`. Supported pur
 
 An `operator-approval.v1` packet must include `target_checksum`, `purpose`,
 `operator_id`, `key_id`, `issued_at`, `expires_at`, and `signature`. The
-verifier rejects missing operator identity, weak key ids, malformed or reversed
-timestamps, expired approvals, future-issued approvals, wrong purpose, wrong
-target checksum, missing verification secret, and invalid signatures with stable
-blockers: `operator_approval_operator_missing`,
-`operator_approval_key_id_weak`, `operator_approval_timestamp_invalid`,
+verifier rejects unreadable or non-object approval packets, wrong schema,
+malformed or mismatched target checksums, missing or unsupported purposes,
+missing operator identity, weak key ids, malformed or reversed timestamps,
+validity windows longer than 60 minutes, expired approvals, future-issued
+approvals, missing verification secret, invalid signatures, and audit append
+failures with stable blockers: `operator_approval_file_unreadable`,
+`operator_approval_invalid`, `operator_approval_schema_invalid`,
+`operator_approval_target_invalid`, `operator_approval_target_mismatch`,
+`operator_approval_purpose_missing`, `operator_approval_purpose_mismatch`,
+`operator_approval_operator_missing`, `operator_approval_key_id_weak`,
+`operator_approval_timestamp_invalid`, `operator_approval_window_too_long`,
 `operator_approval_expired`, `operator_approval_issued_in_future`,
-`operator_approval_purpose_mismatch`, `operator_approval_target_mismatch`,
-`operator_approval_secret_missing`, and `operator_approval_signature_invalid`.
+`operator_approval_secret_missing`, `operator_approval_signature_invalid`, and
+`operator_approval_audit_append_failed`.
 
 Accepted verification appends an `operator_approval_verification` audit record
 with `operator_id`, `key_id`, `purpose`, `target_checksum`,
-`approval_checksum`, `issued_at`, `expires_at`, and
+`approval_checksum`, `issued_at`, `expires_at`, `checked_at`,
+`signature_verified: true`, and
 `approval_schema_version: operator-approval.v1`. The command returns
 `executor_started: false`, `epoch_started: false`, and
 `pr_action_started: false`; accepted approval evidence is not executor,

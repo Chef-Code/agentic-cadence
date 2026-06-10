@@ -141,7 +141,7 @@ Last updated: 2026-06-10
 
 ```powershell
 git status -sb
-python -m py_compile codex_cadence/policy_audit.py codex_cadence/cli.py
+python -m py_compile codex_cadence/approvals.py codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py tests/test_audit_replay.py
 python -m unittest tests.test_audit_replay -v
 python -m unittest tests.test_cadence -v
 python -m unittest tests.test_ci_checks -v
@@ -150,18 +150,18 @@ python scripts/ci_smoke.py
 git diff --check
 ```
 
-For this branch, use the Task 18 audit replay validation block above. The Task
-17 runtime validation block remains recorded in
+For this branch, use the Task 19 operator approval validation block above. The
+Task 17 runtime validation block remains recorded in
 `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the merged
 `executor-invocation-readiness.v1` slice.
 
 ## Next Action
 
-Finish review on PR #86 for `codex/task-18-audit-hash-chain-integrity`, address
-any new findings, and merge only after checks and review are clean. Task 19
-from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`,
-authenticated operator approval identity evidence, is the next bounded slice
-after this branch. Real executor invocation, code modification by an executor,
+Finish review on PR #87 for `codex/task-19-operator-approval-identity`,
+address any new findings, and merge only after checks and review are clean.
+Task 20 from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, real executor
+invocation plan and approval binding, is the next bounded slice after this
+branch. Real executor invocation, code modification by an executor,
 dirty-worktree commit, autonomous push, PR writes outside the approved PR for
 this task, role assignment, agent pools, GitHub issue assignment, shared
 runtimes, distributed locks, release, and package publication remain outside

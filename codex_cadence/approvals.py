@@ -4,7 +4,7 @@ import hashlib
 import hmac
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +19,7 @@ OPERATOR_APPROVAL_PURPOSES = {
     "release",
     "package_publication",
 }
+MAX_OPERATOR_APPROVAL_WINDOW = timedelta(minutes=60)
 HMAC_SIGNATURE_PREFIX = "hmac-sha256:"
 CHECKSUM_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 SAFE_APPROVAL_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@+-]{2,127}$")
@@ -93,6 +94,7 @@ def build_operator_approval_verification_packet(
 ) -> dict[str, Any]:
     checked_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
     blockers: list[dict[str, Any]] = []
+    signature_verified = False
     approval_checksum = checksum_json(approval) if isinstance(approval, dict) else None
     approval_fields = approval if isinstance(approval, dict) else {}
 
@@ -150,11 +152,16 @@ def build_operator_approval_verification_packet(
                     "operator approval purpose is required",
                 )
             )
-        elif purpose != expected_purpose:
+        elif (
+            not isinstance(expected_purpose, str)
+            or expected_purpose not in OPERATOR_APPROVAL_PURPOSES
+            or purpose not in OPERATOR_APPROVAL_PURPOSES
+            or purpose != expected_purpose
+        ):
             blockers.append(
                 approval_blocker(
                     "operator_approval_purpose_mismatch",
-                    "operator approval purpose does not match requested purpose",
+                    "operator approval purpose does not match a supported requested purpose",
                     expected_purpose=expected_purpose,
                     actual_purpose=purpose,
                 )
@@ -195,6 +202,14 @@ def build_operator_approval_verification_packet(
                 )
             )
         else:
+            if expires_at - issued_at > MAX_OPERATOR_APPROVAL_WINDOW:
+                blockers.append(
+                    approval_blocker(
+                        "operator_approval_window_too_long",
+                        "operator approval validity window must not exceed 60 minutes",
+                        max_window_seconds=int(MAX_OPERATOR_APPROVAL_WINDOW.total_seconds()),
+                    )
+                )
             if expires_at <= checked_at:
                 blockers.append(
                     approval_blocker(
@@ -229,7 +244,8 @@ def build_operator_approval_verification_packet(
             )
         else:
             expected_signature = operator_approval_signature(approval, approval_secret)
-            if not hmac.compare_digest(signature, expected_signature):
+            signature_verified = hmac.compare_digest(signature, expected_signature)
+            if not signature_verified:
                 blockers.append(
                     approval_blocker(
                         "operator_approval_signature_invalid",
@@ -256,8 +272,8 @@ def build_operator_approval_verification_packet(
         "key_id": approval_fields.get("key_id"),
         "issued_at": approval_fields.get("issued_at"),
         "expires_at": approval_fields.get("expires_at"),
-        "signature_verified": valid,
-        "checked_at": checked_at.replace(microsecond=0).isoformat().replace("+00:00", "Z"),
+        "signature_verified": signature_verified,
+        "checked_at": checked_at.isoformat().replace("+00:00", "Z"),
         "epoch_started": False,
         "executor_started": False,
         "pr_action_started": False,

@@ -12,6 +12,7 @@ from unittest import mock
 
 import codex_cadence.executor_readiness as executor_readiness
 import codex_cadence.github_evidence as github_evidence
+from codex_cadence.approvals import build_operator_approval_verification_packet
 from codex_cadence.cli import build_executor_result_validation_payload
 from codex_cadence.executor_contract import (
     DEFAULT_EXECUTOR_STOP_CONDITIONS,
@@ -20,7 +21,7 @@ from codex_cadence.executor_contract import (
 )
 from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.model import estimate_task
-from codex_cadence.policy_audit import checksum_json
+from codex_cadence.policy_audit import append_audit_record, checksum_json, operator_approval_verification_audit_record
 from codex_cadence.store import default_root, exclusive_lock, lock_path, snapshot_path as persisted_snapshot_path, utc_now
 
 
@@ -2955,6 +2956,7 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["approval_schema_version"], "operator-approval.v1")
             self.assertEqual(output["packet"], "operator_approval_verification")
             self.assertTrue(output["valid"])
+            self.assertTrue(output["signature_verified"])
             self.assertEqual(output["approval_state"], "approved")
             self.assertEqual(output["blockers"], [])
             self.assertEqual(output["recommended_next_action"], "use_operator_approval_evidence")
@@ -2976,6 +2978,8 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(records[0]["operator_id"], "operator@example.test")
             self.assertEqual(records[0]["key_id"], "local-key-1")
             self.assertEqual(records[0]["approval_checksum"], checksum_json(packet))
+            self.assertTrue(records[0]["signature_verified"])
+            self.assertIn("checked_at", records[0])
             replay_result, replay = run_cli(tmp, "audit-replay")
             self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
             self.assertTrue(replay["valid"])
@@ -2985,7 +2989,8 @@ class CadenceCliTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             approval_path, _packet = write_operator_approval(Path(tmp) / "operator-approval.json")
             env = os.environ.copy()
-            env["CADENCE_OPERATOR_APPROVAL_SECRET"] = OPERATOR_APPROVAL_SECRET
+            env.pop("CADENCE_OPERATOR_APPROVAL_SECRET", None)
+            env["TEST_OPERATOR_APPROVAL_SECRET"] = OPERATOR_APPROVAL_SECRET
 
             result = subprocess.run(
                 [
@@ -3000,6 +3005,8 @@ class CadenceCliTests(unittest.TestCase):
                     OPERATOR_APPROVAL_TARGET,
                     "--purpose",
                     "start_governed_execution",
+                    "--approval-secret-env",
+                    "TEST_OPERATOR_APPROVAL_SECRET",
                 ],
                 text=True,
                 capture_output=True,
@@ -3040,6 +3047,7 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(len(emitted), 1)
             self.assertFalse(emitted[0]["valid"])
             self.assertEqual(emitted[0]["approval_state"], "blocked")
+            self.assertTrue(emitted[0]["signature_verified"])
             self.assertEqual(emitted[0]["side_effects"], [])
             self.assertIn("operator_approval_audit_append_failed", {blocker["code"] for blocker in emitted[0]["blockers"]})
             self.assertEqual(audit_records(tmp), [])
@@ -3080,6 +3088,16 @@ class CadenceCliTests(unittest.TestCase):
                 OPERATOR_APPROVAL_TARGET,
                 "start_governed_execution",
                 "operator_approval_issued_in_future",
+            ),
+            (
+                "too_long_window",
+                {
+                    "issued_at": iso_z(now - timedelta(minutes=1)),
+                    "expires_at": iso_z(now + timedelta(hours=2)),
+                },
+                OPERATOR_APPROVAL_TARGET,
+                "start_governed_execution",
+                "operator_approval_window_too_long",
             ),
             (
                 "wrong_purpose",
@@ -3128,9 +3146,54 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertFalse(output["executor_started"])
                     self.assertFalse(output["epoch_started"])
                     self.assertFalse(output["pr_action_started"])
+                    if expected_code == "operator_approval_signature_invalid":
+                        self.assertFalse(output["signature_verified"])
+                    else:
+                        self.assertTrue(output["signature_verified"])
                     self.assertEqual(output["side_effects"], [])
                     self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
                     self.assertEqual(audit_records(tmp), [])
+
+    def test_operator_approval_core_verifier_rejects_unsupported_purpose(self):
+        packet = operator_approval_packet(purpose="custom_out_of_protocol_action")
+
+        output = build_operator_approval_verification_packet(
+            approval=packet,
+            approval_file=Path("operator-approval.json"),
+            expected_target_checksum=OPERATOR_APPROVAL_TARGET,
+            expected_purpose="custom_out_of_protocol_action",
+            approval_secret=OPERATOR_APPROVAL_SECRET,
+        )
+
+        self.assertFalse(output["valid"])
+        self.assertTrue(output["signature_verified"])
+        self.assertIn("operator_approval_purpose_mismatch", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_operator_approval_fractional_checked_at_audit_replays(self):
+        now = datetime(2999, 5, 22, 0, 0, 0, 750000, tzinfo=timezone.utc)
+        packet = operator_approval_packet(
+            issued_at="2999-05-22T00:00:00.500000Z",
+            expires_at="2999-05-22T00:10:00.500000Z",
+        )
+        output = build_operator_approval_verification_packet(
+            approval=packet,
+            approval_file=Path("operator-approval.json"),
+            expected_target_checksum=OPERATOR_APPROVAL_TARGET,
+            expected_purpose="start_governed_execution",
+            approval_secret=OPERATOR_APPROVAL_SECRET,
+            now=now,
+        )
+
+        self.assertTrue(output["valid"], output["blockers"])
+        self.assertEqual(output["checked_at"], "2999-05-22T00:00:00.750000Z")
+        with tempfile.TemporaryDirectory() as tmp:
+            append_audit_record(Path(tmp), operator_approval_verification_audit_record(output))
+
+            result, replay = run_cli(tmp, "audit-replay")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["events_by_type"]["operator_approval_verification"], 1)
 
     def test_verify_operator_approval_rejects_unverifiable_secret_and_malformed_timestamps(self):
         now = datetime.now(timezone.utc)

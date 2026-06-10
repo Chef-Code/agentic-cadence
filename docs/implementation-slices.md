@@ -105,9 +105,10 @@ complete, Tasks 8-12 from
 the current tree. Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
 added read-only real-executor invocation readiness. Task 18 from
 `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` adds local audit hash-chain
-integrity evidence before any real executor process start. The next bounded
-implementation slice is Task 19: authenticated operator approval identity
-evidence.
+integrity evidence before any real executor process start. Task 19 adds
+authenticated operator approval identity evidence in the current branch. The
+next bounded implementation slice is Task 20: real executor invocation plan and
+approval binding.
 
 ## Vision Framing
 

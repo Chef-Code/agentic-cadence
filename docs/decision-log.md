@@ -35,8 +35,10 @@ Decision:
   expose it through `verify-operator-approval`.
 - Require target checksum, purpose, operator id, key id, issued/expiration
   timestamps, and an `hmac-sha256:` signature before accepting the approval.
+- Require approval validity windows to be no longer than 60 minutes.
 - Append `operator_approval_verification` audit evidence only for accepted
-  verification.
+  verification and include `checked_at` plus `signature_verified: true` so
+  audit replay can reject semantically forged accepted records.
 - Keep the verifier separate from `start-governed-execution`,
   `git-pr-materialize`, executor invocation, merge, release, and package
   publication authority.
@@ -48,6 +50,7 @@ Why:
 - Purpose scoping prevents an approval for execution start from being reused as
   Git/PR materialization, real executor invocation, release, or package
   publication approval.
+- A bounded validity window limits replay risk for target-bound approvals.
 - Auditing accepted verification gives later process-start gates replayable
   evidence without granting side effects in the verifier itself.
 
@@ -63,6 +66,9 @@ Consequences:
   packet instead of an anonymous approval token.
 - Operators must manage local approval secrets and key ids until a later
   identity-provider or key-management slice exists.
+- Audit replay can validate the accepted approval record's identity, purpose,
+  timestamp, and signature-verification claims, but it does not recompute HMACs
+  without secret/key-management evidence.
 
 Open questions:
 - Which later gate should first consume `operator-approval.v1`: invocation

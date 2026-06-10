@@ -334,12 +334,14 @@ agentic-cadence --root examples/first-run/work/runtime verify-operator-approval 
 
 Stable blocker codes include `operator_approval_file_unreadable`,
 `operator_approval_invalid`, `operator_approval_schema_invalid`,
+`operator_approval_target_invalid`, `operator_approval_target_mismatch`,
+`operator_approval_purpose_missing`, `operator_approval_purpose_mismatch`,
 `operator_approval_operator_missing`, `operator_approval_key_id_weak`,
-`operator_approval_timestamp_invalid`, `operator_approval_expired`,
-`operator_approval_issued_in_future`, `operator_approval_purpose_mismatch`,
-`operator_approval_target_mismatch`, `operator_approval_signature_invalid`,
-`operator_approval_secret_missing`, and
-`operator_approval_audit_append_failed`.
+`operator_approval_timestamp_invalid`, `operator_approval_window_too_long`,
+`operator_approval_expired`, `operator_approval_issued_in_future`,
+`operator_approval_signature_invalid`, `operator_approval_secret_missing`, and
+`operator_approval_audit_append_failed`. Approval validity windows must not
+exceed 60 minutes.
 
 Executor result evidence can be checked without running an executor:
 

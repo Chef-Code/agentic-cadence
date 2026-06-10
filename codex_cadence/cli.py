@@ -2481,7 +2481,6 @@ def verify_operator_approval_command(args: argparse.Namespace) -> int:
         except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
             payload["valid"] = False
             payload["approval_state"] = "blocked"
-            payload["signature_verified"] = False
             payload["side_effects"] = []
             payload["blockers"].append(
                 {

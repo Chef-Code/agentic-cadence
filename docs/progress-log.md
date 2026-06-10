@@ -41,6 +41,9 @@ Summary:
 - Added accepted verification audit evidence through
   `operator-approval-verification.v1` packets and
   `operator_approval_verification`.
+- Bounded approval validity windows to 60 minutes and tightened audit replay so
+  accepted approval records must carry verified signatures, supported purposes,
+  valid identity fields, and coherent checked-at timestamps.
 - Kept approval verification separate from executor, epoch, GitHub, merge,
   release, and package-publication authority.
 
@@ -65,6 +68,8 @@ Evidence:
 New risks or blockers:
 - `operator-approval.v1` is local packet/HMAC evidence only; external identity
   providers and key lifecycle remain future work.
+- Audit replay validates the accepted approval record semantics, but it still
+  cannot recompute HMAC signatures without a future key-management model.
 - Existing execution-start and Git/PR materialization approval tokens remain
   backward compatible until a later slice deliberately migrates those gates to
   consume the reusable approval evidence.

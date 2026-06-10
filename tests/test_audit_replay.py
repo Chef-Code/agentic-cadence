@@ -284,6 +284,8 @@ def operator_approval_verification_record(**overrides):
         "key_id": "local-key-1",
         "issued_at": "2999-05-22T00:00:00Z",
         "expires_at": "2999-05-22T00:10:00Z",
+        "checked_at": "2999-05-22T00:01:00Z",
+        "signature_verified": True,
         "payload_checksum": GOOD_CHECKSUM,
     }
     record.update(overrides)
@@ -842,6 +844,42 @@ class AuditReplayCliTests(unittest.TestCase):
                 operator_approval_verification_record(valid=False),
                 "audit_operator_approval_valid_invalid",
             ),
+            (
+                operator_approval_verification_record(signature_verified=False),
+                "audit_operator_approval_signature_unverified",
+            ),
+            (
+                operator_approval_verification_record(purpose="custom_out_of_protocol_action"),
+                "audit_operator_approval_purpose_invalid",
+            ),
+            (
+                operator_approval_verification_record(operator_id="   "),
+                "audit_operator_approval_operator_invalid",
+            ),
+            (
+                operator_approval_verification_record(key_id="x"),
+                "audit_operator_approval_key_id_invalid",
+            ),
+            (
+                operator_approval_verification_record(issued_at="not-a-timestamp"),
+                "audit_operator_approval_timestamp_invalid",
+            ),
+            (
+                operator_approval_verification_record(
+                    issued_at="2999-05-22T00:10:00Z",
+                    checked_at="2999-05-22T00:09:00Z",
+                    expires_at="2999-05-22T00:05:00Z",
+                ),
+                "audit_operator_approval_timestamp_invalid",
+            ),
+            (
+                operator_approval_verification_record(checked_at="2999-05-22T00:11:00Z"),
+                "audit_operator_approval_timestamp_invalid",
+            ),
+            (
+                operator_approval_verification_record(expires_at="2999-05-22T02:00:00Z"),
+                "audit_operator_approval_window_too_long",
+            ),
         ]
         for record, expected_code in cases:
             with self.subTest(expected_code=expected_code):
@@ -854,6 +892,27 @@ class AuditReplayCliTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 1, result.stderr)
                     self.assertFalse(output["valid"])
                     self.assertIn(expected_code, blocker_codes(output))
+
+    def test_operator_approval_audit_builder_rejects_blocked_or_unverified_payloads(self):
+        payload = {
+            "valid": True,
+            "signature_verified": True,
+            "reason": "operator approval identity evidence accepted",
+            "approval_schema_version": "operator-approval.v1",
+            "target_checksum": GOOD_CHECKSUM,
+            "approval_checksum": GOOD_CHECKSUM,
+            "purpose": "start_governed_execution",
+            "operator_id": "operator@example.test",
+            "key_id": "local-key-1",
+            "issued_at": "2999-05-22T00:00:00Z",
+            "expires_at": "2999-05-22T00:10:00Z",
+            "checked_at": "2999-05-22T00:01:00Z",
+        }
+
+        with self.assertRaises(ValueError):
+            policy_audit.operator_approval_verification_audit_record({**payload, "valid": False})
+        with self.assertRaises(ValueError):
+            policy_audit.operator_approval_verification_audit_record({**payload, "signature_verified": False})
 
     def test_executor_epoch_closeout_audit_requires_snapshot_after_anchor(self):
         with tempfile.TemporaryDirectory() as tmp:

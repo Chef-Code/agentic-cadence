@@ -341,7 +341,9 @@ the current tree. Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
 real-executor invocation readiness planning, is merged. Task 18 from
 `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, audit hash-chain integrity
 evidence, is implemented in the current tree. Task 19, authenticated operator
-approval identity evidence, is the next bounded implementation slice.
+approval identity evidence, is implemented in the current branch. Task 20,
+real executor invocation plan and approval binding, is the next bounded
+implementation slice.
 
 ## Roadmap
 
