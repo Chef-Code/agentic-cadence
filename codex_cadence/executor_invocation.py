@@ -921,6 +921,14 @@ def _write_text(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _process_output_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return ""
+
+
 def _result_evidence(
     result_file: Path,
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -1255,8 +1263,8 @@ def invoke_real_executor(
         process_started = True
         timed_out = True
         exit_code = 124
-        stdout = exc.stdout if isinstance(exc.stdout, str) else ""
-        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        stdout = _process_output_text(exc.stdout)
+        stderr = _process_output_text(exc.stderr)
         process_blockers.append(
             invocation_blocker(
                 "executor_process_timeout",

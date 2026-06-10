@@ -488,6 +488,12 @@ def now():
 
 config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
 repo_path = Path(config["repo_path"])
+if config.get("stdout_text"):
+    sys.stdout.write(config["stdout_text"])
+    sys.stdout.flush()
+if config.get("stderr_text"):
+    sys.stderr.write(config["stderr_text"])
+    sys.stderr.flush()
 if config.get("sleep_seconds"):
     time.sleep(config["sleep_seconds"])
 if config.get("touch_repo"):
@@ -4260,6 +4266,8 @@ class CadenceCliTests(unittest.TestCase):
         sleep_seconds=None,
         delete_git=False,
         resulting_head=None,
+        stdout_text=None,
+        stderr_text=None,
     ):
         script_path = real_executor_script(Path(tmp) / "real-executor.py")
         config_path = Path(tmp) / "real-executor-config.json"
@@ -4281,6 +4289,8 @@ class CadenceCliTests(unittest.TestCase):
             "resulting_head": resulting_head,
             "sleep_seconds": sleep_seconds,
             "status": "succeeded",
+            "stderr_text": stderr_text,
+            "stdout_text": stdout_text,
             "task_id": inputs["task_packet"]["task"]["id"],
             "touch_repo": touch_repo,
             "write_result": write_result,
@@ -4684,13 +4694,23 @@ class CadenceCliTests(unittest.TestCase):
                 "evidence_only",
                 "executor_result_missing",
                 False,
+                None,
             ),
             (
                 "timeout",
-                {"timeout_seconds": 1, "sleep_seconds": 2},
+                {
+                    "timeout_seconds": 1,
+                    "sleep_seconds": 2,
+                    "stdout_text": "stdout before timeout\n",
+                    "stderr_text": "stderr before timeout\n",
+                },
                 "evidence_only",
                 "executor_process_timeout",
                 False,
+                {
+                    "stdout": "stdout before timeout\n",
+                    "stderr": "stderr before timeout\n",
+                },
             ),
             (
                 "evidence-only-dirty",
@@ -4698,6 +4718,7 @@ class CadenceCliTests(unittest.TestCase):
                 "evidence_only",
                 "unexpected_repo_modification",
                 True,
+                None,
             ),
             (
                 "materialized-missing-evidence",
@@ -4705,6 +4726,7 @@ class CadenceCliTests(unittest.TestCase):
                 "materialized_changes",
                 "materialized_change_evidence_missing",
                 True,
+                None,
             ),
             (
                 "materialized-bogus-evidence",
@@ -4712,6 +4734,7 @@ class CadenceCliTests(unittest.TestCase):
                 "materialized_changes",
                 "materialized_change_evidence_missing",
                 True,
+                None,
             ),
             (
                 "materialized-self-consistent-false-head",
@@ -4723,6 +4746,7 @@ class CadenceCliTests(unittest.TestCase):
                 "materialized_changes",
                 "materialized_change_evidence_missing",
                 True,
+                None,
             ),
             (
                 "materialized-evidence",
@@ -4730,6 +4754,7 @@ class CadenceCliTests(unittest.TestCase):
                 "materialized_changes",
                 None,
                 True,
+                None,
             ),
             (
                 "post-process-repo-missing",
@@ -4737,9 +4762,10 @@ class CadenceCliTests(unittest.TestCase):
                 "evidence_only",
                 "unexpected_repo_modification",
                 None,
+                None,
             ),
         ]
-        for name, plan_options, side_effect_mode, expected_code, expect_dirty in cases:
+        for name, plan_options, side_effect_mode, expected_code, expect_dirty, expected_logs in cases:
             with self.subTest(name=name):
                 with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
                     init_committed_repo(repo)
@@ -4756,6 +4782,9 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertTrue(output["executor_started"])
                     self.assertEqual(output["repository_after"]["dirty_worktree"], expect_dirty)
                     self.assertTrue(Path(output["record_file"]).exists())
+                    if expected_logs is not None:
+                        self.assertEqual(Path(output["stdout_log"]).read_text(encoding="utf-8"), expected_logs["stdout"])
+                        self.assertEqual(Path(output["stderr_log"]).read_text(encoding="utf-8"), expected_logs["stderr"])
                     if expected_code is None:
                         self.assertTrue(output["valid"])
                         self.assertEqual(output["blockers"], [])
