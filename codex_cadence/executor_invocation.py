@@ -425,6 +425,9 @@ def _active_epoch_blockers(
     task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
     task_id = task.get("id")
     epoch_tasks = epoch.get("tasks") if isinstance(epoch.get("tasks"), list) else []
+    completed_tasks = epoch.get("completed_tasks") if isinstance(epoch.get("completed_tasks"), list) else []
+    if task_id in completed_tasks:
+        blockers.append(plan_blocker("active_epoch_task_completed", "active epoch task is already completed", task_id=task_id))
     task_ids = [
         candidate.get("id")
         for candidate in epoch_tasks

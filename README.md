@@ -666,11 +666,12 @@ match. Stable blockers include `readiness_packet_stale`,
 `executor_command_denied`, `executor_timeout_invalid`,
 `repo_head_mismatch`, `active_epoch_missing`, `active_epoch_conflict`,
 `active_epoch_invalid`, `active_epoch_mismatch`, `active_epoch_task_missing`,
-`active_epoch_task_duplicate`, `task_checksum_missing`, ownership validation
-blockers such as `ownership_record_missing`, `ownership_stale`,
-`duplicate_active_ownership`, `ownership_epoch_mismatch`,
-`ownership_head_mismatch`, `brake_not_drive`, `result_path_mismatch`,
-`result_path_outside_runtime`, and `result_path_invalid`.
+`active_epoch_task_duplicate`, `active_epoch_task_completed`,
+`task_checksum_missing`, ownership validation blockers such as
+`ownership_record_missing`, `ownership_stale`, `duplicate_active_ownership`,
+`ownership_epoch_mismatch`, `ownership_head_mismatch`, `brake_not_drive`,
+`result_path_mismatch`, `result_path_outside_runtime`, and
+`result_path_invalid`.
 
 This is still not process start. It does not invoke an executor, modify code,
 create branches, commit, push, open or update PRs, merge, release, publish

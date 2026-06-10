@@ -4364,6 +4364,13 @@ class CadenceCliTests(unittest.TestCase):
             epoch_path.write_text(json.dumps(epoch_record), encoding="utf-8")
             return {}
 
+        def mutate_completed_active_epoch_task(tmp, repo, inputs):
+            epoch_path = Path(tmp) / "epochs" / "active" / "epoch-1.json"
+            epoch_record = json.loads(epoch_path.read_text(encoding="utf-8"))
+            epoch_record["completed_tasks"] = [inputs["task_packet"]["task"]["id"]]
+            epoch_path.write_text(json.dumps(epoch_record), encoding="utf-8")
+            return {}
+
         cases = [
             (
                 "stale-readiness",
@@ -4403,6 +4410,11 @@ class CadenceCliTests(unittest.TestCase):
                 "active-epoch-duplicate-other-task-id",
                 mutate_duplicate_other_active_epoch_task,
                 "active_epoch_task_duplicate",
+            ),
+            (
+                "active-epoch-task-already-completed",
+                mutate_completed_active_epoch_task,
+                "active_epoch_task_completed",
             ),
             (
                 "wrong-approval-purpose",
