@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-09
-Baseline: released 0.1.3 plus unreleased audit-replay, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
 Current unattended-operation confidence: 10%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -75,7 +75,9 @@ local branch policy, read-only GitHub evidence sync, governed execution-start
 epoch gating, local execution-run evidence, operator-approved Git/PR
 materialization, read-only resume verification, ownership-aware read-only
 resume continuation, read-only review-response planning, local work ownership
-claim/closeout evidence, read-only role-readiness evidence, and read-only executor-invocation-readiness evidence. It can
+claim/closeout evidence, read-only role-readiness evidence, read-only
+executor-invocation-readiness evidence, and local audit hash-chain integrity
+evidence. It can
 materialize a reviewed Git/PR plan only through exact target-bound operator
 approval, and it can verify handoff pickup state before a fresh session
 continues, but it still cannot independently implement code, invoke a real
@@ -338,7 +340,8 @@ complete, Tasks 8-12 from
 the current tree. Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`,
 real-executor invocation readiness planning, is merged. Task 18 from
 `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, audit hash-chain integrity
-evidence, is the next bounded implementation slice.
+evidence, is implemented in the current tree. Task 19, authenticated operator
+approval identity evidence, is the next bounded implementation slice.
 
 ## Roadmap
 
@@ -495,12 +498,13 @@ checksum and repo branch/head anchors, execution-run audit records include run
 record, task, result, and validation checksums, while result-validation audit
 records include task and result evidence checksums. `audit-replay`
 validates that local JSONL history is readable, uses supported record shapes,
-and has valid checksum syntax while reporting stable blockers for corrupt or
-unsupported records. Executor task packets now carry command allow/deny policy
+has valid checksum syntax, and verifies local hash-chain metadata for new
+audit records while reporting stable blockers for corrupt, unsupported, or
+chain-invalid records. Executor task packets now carry command allow/deny policy
 into result validation, and `validate-executor-result` prevents non-`stopped`
 completion evidence from being recorded after an active brake stop. There is
-now local branch policy for dry-run Git/PR planning, but still no hash chain or
-authenticated approval identity.
+now local branch policy for dry-run Git/PR planning and local audit hash-chain
+evidence, but still no authenticated approval identity.
 
 Likely files: `codex_cadence/model.py`, `codex_cadence/store.py`,
 `codex_cadence/cli.py`, tests, docs.
@@ -647,8 +651,8 @@ mutation evidence.
 
 Follow-up: use `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` for the next
 bounded implementation sequence. Resume-continuation ownership enforcement,
-role-readiness evidence, and real-executor invocation readiness planning are
-implemented in the current tree. Audit hash-chain integrity, authenticated
+role-readiness evidence, real-executor invocation readiness planning, and audit
+hash-chain integrity are implemented in the current tree. Authenticated
 approval identity, exact real-executor invocation planning, controlled real
 executor invocation, distributed locking, agent pools, GitHub issue assignment,
 merge, release, and package publication remain future work.

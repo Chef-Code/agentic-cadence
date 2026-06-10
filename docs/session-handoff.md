@@ -6,16 +6,15 @@ Last updated: 2026-06-09
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `a2736bc6ac3af843cc66391dc891d51a6f1c217b` after PR #84 merged.
-- Working branch intent: prepare the Tasks 18-22 roadmap and post-Task-17 handoff context after read-only real executor invocation readiness merged.
-- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence.
+- Current base: `origin/main` at `2988790046c3c95ff89bc96bf2647197d15c8887` after PR #85 merged.
+- Working branch intent: implement Task 18 audit hash-chain integrity evidence before any real executor process-start path exists.
+- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap.
 - Completed roadmap marker: Tasks 13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in `main`, including `work-ownership-claim.v1`, `work-ownership-closeout.v1`, ownership-bound `execution-start.v1`, ownership-aware `resume-continuation.v1`, read-only `role-readiness.v1`, and read-only `executor-invocation-readiness.v1` packet evidence.
-- Current branch scope: `codex/tasks-18-22-roadmap-handoff` adds the next
-  public roadmap and refreshes living handoff docs. It must not change runtime
-  behavior, invoke a real executor, modify code through an executor, create
-  branches outside this planned PR branch, write GitHub state beyond the
-  operator-approved PR for this docs slice, merge, release, or publish
-  packages.
+- Current branch scope: `codex/task-18-audit-hash-chain-integrity` extends
+  local audit append and replay evidence with deterministic hash-chain
+  metadata. It must not invoke a real executor, modify code through an
+  executor, create branches outside this task branch, write GitHub state beyond
+  the operator-approved PR for this slice, merge, release, or publish packages.
 
 ## Current Capability Baseline
 
@@ -74,14 +73,16 @@ Last updated: 2026-06-09
   `executor_started: false`.
 - `validate-executor-result` checks the current brake before recording completion evidence; when `brake_not_drive` is a task stop condition and the brake is not `DRIVE`, non-`stopped` result evidence is invalid and recommends `stop_active_loop`.
 - Command policy is hardened around shell grouping, Bash brace grouping, command substitutions, shell-wrapper payloads, Git aliases, and null top-level command-policy packets.
-- `audit-replay` emits a read-only local packet for `cadence-audit.v1` JSONL history and reports stable blockers for corrupt or unsupported records, including execution-run and materialization intent/result audit events.
+- `audit-replay` emits a read-only local packet for `cadence-audit.v1` JSONL history, reports chain head/count evidence for `cadence-audit-chain.v1` records, treats older unchained records as explicit legacy roots, and reports stable blockers for corrupt, unsupported, or hash-chain-invalid records, including execution-run and materialization intent/result audit events.
 - `run-controlled-executor-fixture` can launch the bundled fake external executor fixture from an explicit current-Python, absolute-script command template in tests/examples, validate its task packet and command before start, require expected result evidence under the runtime root, reject stale result files, and append `executor_fixture_invocation` plus `executor_result_validation` audit records.
 - Disabled executor permissions now also reject merge, release, and package-publication command forms, including `gh pr merge`, `gh release create`, `gh release upload`, mutating `git tag` forms while allowing read-only tag listing/verification, `twine upload`, Python launcher `-m twine upload` forms including versioned `python3.x`, `npm publish`, `pnpm publish`, `yarn publish`, `yarn npm publish`, `poetry publish`, `uv publish`, `hatch publish`, and `flit publish`.
 - Dry-run-only `git-pr-plan` is merged. It turns validated executor evidence into proposed branch, commit, PR title, and PR body text without creating a branch, committing, pushing, calling GitHub, opening a pull request, merging, releasing, or publishing packages.
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
 - Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete in `main` via PR #84.
-- This branch adds `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` as the next public planning artifact.
+- This branch implements Task 18 from
+  `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`; PR #86 is the
+  review/merge target for audit hash-chain integrity evidence.
 
 ## Important Boundaries
 
@@ -132,27 +133,28 @@ Last updated: 2026-06-09
 
 ```powershell
 git status -sb
-python -m py_compile scripts/validate_protocol.py tests/test_candidates.py
-python -m unittest tests.test_candidates tests.test_ci_checks -v
+python -m py_compile codex_cadence/policy_audit.py codex_cadence/cli.py
+python -m unittest tests.test_audit_replay -v
+python -m unittest tests.test_cadence -v
+python -m unittest tests.test_ci_checks -v
 python scripts/validate_protocol.py
 python scripts/ci_smoke.py
 git diff --check
 ```
 
-For this branch, use the docs-planning validation block above. The Task 17
-runtime validation block remains recorded in
+For this branch, use the Task 18 audit replay validation block above. The Task
+17 runtime validation block remains recorded in
 `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the merged
 `executor-invocation-readiness.v1` slice.
 
 ## Next Action
 
-PR #85 is open for `codex/tasks-18-22-roadmap-handoff`. Re-run or inspect any
-requested reviews, keep validation green, and merge only after the PR thread is
-clean. After PR #85 merges, Task 18 from
-`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` is the next bounded
-implementation slice: add audit hash-chain integrity evidence before any real
-executor process start. Real executor invocation, code modification by an
-executor, dirty-worktree commit, autonomous push, PR writes outside this docs
-PR, role assignment, agent pools, GitHub issue assignment, shared runtimes,
-distributed locks, release, and package publication remain outside this
-branch.
+Finish review on PR #86 for `codex/task-18-audit-hash-chain-integrity`, address
+any new findings, and merge only after checks and review are clean. Task 19
+from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`,
+authenticated operator approval identity evidence, is the next bounded slice
+after this branch. Real executor invocation, code modification by an executor,
+dirty-worktree commit, autonomous push, PR writes outside the approved PR for
+this task, role assignment, agent pools, GitHub issue assignment, shared
+runtimes, distributed locks, release, and package publication remain outside
+this branch.

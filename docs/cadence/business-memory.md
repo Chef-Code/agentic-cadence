@@ -290,7 +290,8 @@ Risk: high
 Pain: `executor-invocation-readiness.v1` can prove local readiness, but starting a real executor still needs tamper-evident audit context, authenticated operator approval evidence, and an exact invocation plan before any process launch.
 Signals:
 - PR #84 added read-only `executor-invocation-readiness.v1` evidence with `executor_started: false`.
-- `docs/autonomous-loop-readiness.md` still calls out missing real executor invocation and missing hash-chain or authenticated approval identity.
+- Task 18 adds local audit hash-chain integrity evidence for new audit appends and read-only replay.
+- `docs/autonomous-loop-readiness.md` still calls out missing real executor invocation and missing authenticated approval identity.
 - `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` sequences audit hash-chain evidence, operator approval identity, invocation planning, controlled real executor invocation, and real-run closeout binding.
 Do not:
 - Do not start a real executor before approval, audit-chain, readiness, ownership, epoch, policy, result-path, timeout, and rollback evidence are defined.

@@ -33,6 +33,54 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-09 - Implement audit hash-chain integrity evidence
+
+Summary:
+- Added `cadence-audit-chain.v1` metadata to newly appended local audit
+  records.
+- Extended read-only `audit-replay.v1` packets with chain head/count evidence
+  and legacy-root reporting.
+- Added stable replay blockers for missing chain metadata, broken predecessor
+  hashes, event-hash mismatches, duplicate chain indexes, and unsupported chain
+  versions.
+
+Completed slices:
+- Task 18: Add Audit Hash-Chain Integrity Evidence.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Local audit history is now tamper-evident for new records, but
+  Cadence still lacks authenticated approval identity, exact real-executor
+  invocation planning, a controlled real executor start, agent assignment,
+  continuous orchestration, merge, release, and package publication.
+
+Evidence:
+- `python -m py_compile codex_cadence/policy_audit.py codex_cadence/cli.py`
+- `python -m unittest tests.test_audit_replay -v`
+- `python -m unittest tests.test_cadence -v`
+- `python -m unittest tests.test_ci_checks -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- Authenticated operator approval identity remains the next hardening gap.
+- Legacy audit histories remain valid as explicit roots, but old records do
+  not gain retroactive chain metadata.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
+- `docs/session-handoff.md`
+- `docs/cadence/business-memory.md`
+
 ## 2026-06-09 - Prepare Tasks 18-22 roadmap after executor readiness
 
 Summary:
