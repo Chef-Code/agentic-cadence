@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-09
+Last updated: 2026-06-10
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,57 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-10 - Add authenticated operator approval identity evidence
+
+Summary:
+- Added `operator-approval.v1` packets and `verify-operator-approval` for local
+  HMAC-backed operator identity evidence.
+- Added accepted verification audit evidence through
+  `operator-approval-verification.v1` packets and
+  `operator_approval_verification`.
+- Bounded approval validity windows to 60 minutes and tightened audit replay so
+  accepted approval records must carry verified signatures, supported purposes,
+  valid identity fields, and coherent checked-at timestamps.
+- Kept approval verification separate from executor, epoch, GitHub, merge,
+  release, and package-publication authority.
+
+Completed slices:
+- Task 19: Add Authenticated Operator Approval Identity Evidence.
+
+Confidence change:
+- Previous: 10%
+- New: 10%
+- Reason: Cadence now has target-bound local approver identity evidence, but it
+  still lacks real executor invocation planning, controlled real executor
+  start, autonomous branch/PR workflow, merge, release, and package
+  publication.
+
+Evidence:
+- `python -m py_compile codex_cadence/approvals.py codex_cadence/cli.py codex_cadence/policy_audit.py`
+- `python -m unittest tests.test_cadence tests.test_audit_replay -v`
+- `python scripts/validate_protocol.py`
+- `python scripts/ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- `operator-approval.v1` is local packet/HMAC evidence only; external identity
+  providers and key lifecycle remain future work.
+- Audit replay validates the accepted approval record semantics, but it still
+  cannot recompute HMAC signatures without a future key-management model.
+- Existing execution-start and Git/PR materialization approval tokens remain
+  backward compatible until a later slice deliberately migrates those gates to
+  consume the reusable approval evidence.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`
+- `docs/progress-log.md`
+- `docs/decision-log.md`
 
 ## 2026-06-09 - Implement audit hash-chain integrity evidence
 

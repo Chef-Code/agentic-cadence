@@ -1,14 +1,18 @@
+import hashlib
+import hmac
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest import mock
 
 import codex_cadence.executor_readiness as executor_readiness
 import codex_cadence.github_evidence as github_evidence
+from codex_cadence.approvals import build_operator_approval_verification_packet
 from codex_cadence.cli import build_executor_result_validation_payload
 from codex_cadence.executor_contract import (
     DEFAULT_EXECUTOR_STOP_CONDITIONS,
@@ -17,7 +21,7 @@ from codex_cadence.executor_contract import (
 )
 from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.model import estimate_task
-from codex_cadence.policy_audit import checksum_json
+from codex_cadence.policy_audit import append_audit_record, checksum_json, operator_approval_verification_audit_record
 from codex_cadence.store import default_root, exclusive_lock, lock_path, snapshot_path as persisted_snapshot_path, utc_now
 
 
@@ -300,6 +304,43 @@ def write_governed_execution_task(root, repo, task_packet=None):
     task_path.write_text(json.dumps(packet), encoding="utf-8")
     approval_token = f"approve-executor-task:{checksum_json(packet)}"
     return task_path, packet, approval_token
+
+
+OPERATOR_APPROVAL_SECRET = "unit-test-operator-approval-secret"
+OPERATOR_APPROVAL_TARGET = "sha256:" + "b" * 64
+
+
+def iso_z(value):
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def sign_operator_approval(packet, secret=OPERATOR_APPROVAL_SECRET):
+    signed_payload = {key: value for key, value in packet.items() if key != "signature"}
+    body = json.dumps(signed_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return "hmac-sha256:" + hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
+
+
+def operator_approval_packet(**overrides):
+    now = datetime.now(timezone.utc)
+    signature_override = overrides.pop("signature", None)
+    packet = {
+        "schema_version": "operator-approval.v1",
+        "target_checksum": OPERATOR_APPROVAL_TARGET,
+        "purpose": "start_governed_execution",
+        "operator_id": "operator@example.test",
+        "key_id": "local-key-1",
+        "issued_at": iso_z(now - timedelta(minutes=1)),
+        "expires_at": iso_z(now + timedelta(minutes=10)),
+    }
+    packet.update(overrides)
+    packet["signature"] = signature_override if signature_override is not None else sign_operator_approval(packet)
+    return packet
+
+
+def write_operator_approval(path, **overrides):
+    packet = operator_approval_packet(**overrides)
+    Path(path).write_text(json.dumps(packet), encoding="utf-8")
+    return Path(path), packet
 
 
 def write_executor_readiness_role_packet(path, task_packet, valid=True, **overrides):
@@ -2892,6 +2933,309 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(epoch["tasks"][0]["task_type"], task_packet["task"]["task_type"])
             self.assertEqual(epoch["snapshot_before"]["head"], current_head(repo))
             self.assertIn("executor_not_started", output["limitations"])
+
+    def test_verify_operator_approval_accepts_fresh_matching_hmac_and_audits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            approval_path, packet = write_operator_approval(Path(tmp) / "operator-approval.json")
+
+            result, output = run_cli(
+                tmp,
+                "verify-operator-approval",
+                "--approval-file",
+                str(approval_path),
+                "--target-checksum",
+                OPERATOR_APPROVAL_TARGET,
+                "--purpose",
+                "start_governed_execution",
+                "--approval-secret",
+                OPERATOR_APPROVAL_SECRET,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "operator-approval-verification.v1")
+            self.assertEqual(output["approval_schema_version"], "operator-approval.v1")
+            self.assertEqual(output["packet"], "operator_approval_verification")
+            self.assertTrue(output["valid"])
+            self.assertTrue(output["signature_verified"])
+            self.assertEqual(output["approval_state"], "approved")
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(output["recommended_next_action"], "use_operator_approval_evidence")
+            self.assertEqual(output["target_checksum"], OPERATOR_APPROVAL_TARGET)
+            self.assertEqual(output["approval_checksum"], checksum_json(packet))
+            self.assertEqual(output["purpose"], "start_governed_execution")
+            self.assertEqual(output["operator_id"], "operator@example.test")
+            self.assertEqual(output["key_id"], "local-key-1")
+            self.assertEqual(output["side_effects"], ["operator_approval_audit_appended"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["pr_action_started"])
+            self.assertIn("approval_not_execution_authority", output["limitations"])
+            self.assertIn("audit_record", output)
+
+            records = audit_records(tmp)
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["event"], "operator_approval_verification")
+            self.assertEqual(records[0]["operator_id"], "operator@example.test")
+            self.assertEqual(records[0]["key_id"], "local-key-1")
+            self.assertEqual(records[0]["approval_checksum"], checksum_json(packet))
+            self.assertTrue(records[0]["signature_verified"])
+            self.assertIn("checked_at", records[0])
+            replay_result, replay = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["events_by_type"]["operator_approval_verification"], 1)
+
+    def test_verify_operator_approval_can_read_secret_from_named_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            approval_path, _packet = write_operator_approval(Path(tmp) / "operator-approval.json")
+            env = os.environ.copy()
+            env.pop("CADENCE_OPERATOR_APPROVAL_SECRET", None)
+            env["TEST_OPERATOR_APPROVAL_SECRET"] = OPERATOR_APPROVAL_SECRET
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    tmp,
+                    "verify-operator-approval",
+                    "--approval-file",
+                    str(approval_path),
+                    "--target-checksum",
+                    OPERATOR_APPROVAL_TARGET,
+                    "--purpose",
+                    "start_governed_execution",
+                    "--approval-secret-env",
+                    "TEST_OPERATOR_APPROVAL_SECRET",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+            output = json.loads(result.stdout)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertNotIn(OPERATOR_APPROVAL_SECRET, result.stdout)
+            self.assertNotIn("approval_secret", output)
+
+    def test_verify_operator_approval_blocks_when_audit_append_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            import codex_cadence.cli as cadence_cli
+
+            approval_path, _packet = write_operator_approval(Path(tmp) / "operator-approval.json")
+            emitted = []
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "approval_file": str(approval_path),
+                    "target_checksum": OPERATOR_APPROVAL_TARGET,
+                    "purpose": "start_governed_execution",
+                    "approval_secret": OPERATOR_APPROVAL_SECRET,
+                    "approval_secret_env": "CADENCE_OPERATOR_APPROVAL_SECRET",
+                },
+            )()
+
+            with mock.patch.object(cadence_cli, "append_audit_record", side_effect=OSError("disk full")):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.verify_operator_approval_command(args)
+
+            self.assertEqual(code, 1)
+            self.assertEqual(len(emitted), 1)
+            self.assertFalse(emitted[0]["valid"])
+            self.assertEqual(emitted[0]["approval_state"], "blocked")
+            self.assertTrue(emitted[0]["signature_verified"])
+            self.assertEqual(emitted[0]["side_effects"], [])
+            self.assertIn("operator_approval_audit_append_failed", {blocker["code"] for blocker in emitted[0]["blockers"]})
+            self.assertEqual(audit_records(tmp), [])
+
+    def test_verify_operator_approval_blocks_bad_identity_target_time_and_signature(self):
+        now = datetime.now(timezone.utc)
+        cases = [
+            (
+                "missing_operator",
+                {"operator_id": ""},
+                OPERATOR_APPROVAL_TARGET,
+                "start_governed_execution",
+                "operator_approval_operator_missing",
+            ),
+            (
+                "weak_key",
+                {"key_id": "x"},
+                OPERATOR_APPROVAL_TARGET,
+                "start_governed_execution",
+                "operator_approval_key_id_weak",
+            ),
+            (
+                "expired",
+                {
+                    "issued_at": iso_z(now - timedelta(hours=2)),
+                    "expires_at": iso_z(now - timedelta(hours=1)),
+                },
+                OPERATOR_APPROVAL_TARGET,
+                "start_governed_execution",
+                "operator_approval_expired",
+            ),
+            (
+                "future_issued",
+                {
+                    "issued_at": iso_z(now + timedelta(hours=1)),
+                    "expires_at": iso_z(now + timedelta(hours=2)),
+                },
+                OPERATOR_APPROVAL_TARGET,
+                "start_governed_execution",
+                "operator_approval_issued_in_future",
+            ),
+            (
+                "too_long_window",
+                {
+                    "issued_at": iso_z(now - timedelta(minutes=1)),
+                    "expires_at": iso_z(now + timedelta(hours=2)),
+                },
+                OPERATOR_APPROVAL_TARGET,
+                "start_governed_execution",
+                "operator_approval_window_too_long",
+            ),
+            (
+                "wrong_purpose",
+                {},
+                OPERATOR_APPROVAL_TARGET,
+                "real_executor_invocation",
+                "operator_approval_purpose_mismatch",
+            ),
+            (
+                "wrong_target",
+                {},
+                "sha256:" + "c" * 64,
+                "start_governed_execution",
+                "operator_approval_target_mismatch",
+            ),
+            (
+                "bad_signature",
+                {"signature": "hmac-sha256:" + "0" * 64},
+                OPERATOR_APPROVAL_TARGET,
+                "start_governed_execution",
+                "operator_approval_signature_invalid",
+            ),
+        ]
+        for name, overrides, target_checksum, purpose, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    approval_path, _packet = write_operator_approval(Path(tmp) / "operator-approval.json", **overrides)
+
+                    result, output = run_cli(
+                        tmp,
+                        "verify-operator-approval",
+                        "--approval-file",
+                        str(approval_path),
+                        "--target-checksum",
+                        target_checksum,
+                        "--purpose",
+                        purpose,
+                        "--approval-secret",
+                        OPERATOR_APPROVAL_SECRET,
+                    )
+
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertEqual(output["schema_version"], "operator-approval-verification.v1")
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["approval_state"], "blocked")
+                    self.assertFalse(output["executor_started"])
+                    self.assertFalse(output["epoch_started"])
+                    self.assertFalse(output["pr_action_started"])
+                    if expected_code == "operator_approval_signature_invalid":
+                        self.assertFalse(output["signature_verified"])
+                    else:
+                        self.assertTrue(output["signature_verified"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertEqual(audit_records(tmp), [])
+
+    def test_operator_approval_core_verifier_rejects_unsupported_purpose(self):
+        packet = operator_approval_packet(purpose="custom_out_of_protocol_action")
+
+        output = build_operator_approval_verification_packet(
+            approval=packet,
+            approval_file=Path("operator-approval.json"),
+            expected_target_checksum=OPERATOR_APPROVAL_TARGET,
+            expected_purpose="custom_out_of_protocol_action",
+            approval_secret=OPERATOR_APPROVAL_SECRET,
+        )
+
+        self.assertFalse(output["valid"])
+        self.assertTrue(output["signature_verified"])
+        self.assertIn("operator_approval_purpose_mismatch", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_operator_approval_fractional_checked_at_audit_replays(self):
+        now = datetime(2999, 5, 22, 0, 0, 0, 750000, tzinfo=timezone.utc)
+        packet = operator_approval_packet(
+            issued_at="2999-05-22T00:00:00.500000Z",
+            expires_at="2999-05-22T00:10:00.500000Z",
+        )
+        output = build_operator_approval_verification_packet(
+            approval=packet,
+            approval_file=Path("operator-approval.json"),
+            expected_target_checksum=OPERATOR_APPROVAL_TARGET,
+            expected_purpose="start_governed_execution",
+            approval_secret=OPERATOR_APPROVAL_SECRET,
+            now=now,
+        )
+
+        self.assertTrue(output["valid"], output["blockers"])
+        self.assertEqual(output["checked_at"], "2999-05-22T00:00:00.750000Z")
+        with tempfile.TemporaryDirectory() as tmp:
+            append_audit_record(Path(tmp), operator_approval_verification_audit_record(output))
+
+            result, replay = run_cli(tmp, "audit-replay")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["events_by_type"]["operator_approval_verification"], 1)
+
+    def test_verify_operator_approval_rejects_unverifiable_secret_and_malformed_timestamps(self):
+        now = datetime.now(timezone.utc)
+        cases = [
+            (
+                {},
+                [],
+                "operator_approval_secret_missing",
+            ),
+            (
+                {"issued_at": "not-a-timestamp", "expires_at": iso_z(now + timedelta(minutes=10))},
+                ["--approval-secret", OPERATOR_APPROVAL_SECRET],
+                "operator_approval_timestamp_invalid",
+            ),
+            (
+                {"issued_at": iso_z(now - timedelta(minutes=1)), "expires_at": iso_z(now - timedelta(minutes=2))},
+                ["--approval-secret", OPERATOR_APPROVAL_SECRET],
+                "operator_approval_timestamp_invalid",
+            ),
+        ]
+        for overrides, secret_args, expected_code in cases:
+            with self.subTest(expected_code=expected_code):
+                with tempfile.TemporaryDirectory() as tmp:
+                    approval_path, _packet = write_operator_approval(Path(tmp) / "operator-approval.json", **overrides)
+
+                    result, output = run_cli(
+                        tmp,
+                        "verify-operator-approval",
+                        "--approval-file",
+                        str(approval_path),
+                        "--target-checksum",
+                        OPERATOR_APPROVAL_TARGET,
+                        "--purpose",
+                        "start_governed_execution",
+                        *secret_args,
+                    )
+
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertEqual(output["recommended_next_action"], "fix_operator_approval")
+                    self.assertEqual(audit_records(tmp), [])
 
     def test_start_governed_execution_preserves_agent_proposal_allowance_metadata(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

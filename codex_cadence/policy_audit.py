@@ -6,6 +6,13 @@ import re
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from codex_cadence.approvals import (
+    MAX_OPERATOR_APPROVAL_WINDOW,
+    OPERATOR_APPROVAL_PURPOSES,
+    OPERATOR_APPROVAL_SCHEMA_VERSION,
+    SAFE_APPROVAL_ID_PATTERN,
+    parse_approval_timestamp,
+)
 from codex_cadence.branch_policy import normalize_branch_policy
 from codex_cadence.executor_contract import EXECUTION_RUN_CLOSEOUT_STATUSES
 from codex_cadence.store import exclusive_lock, lock_path, read_json, utc_now
@@ -325,6 +332,120 @@ def validate_git_pr_materialization_result_audit_record(record: dict[str, Any], 
     return blockers
 
 
+def validate_operator_approval_verification_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate accepted operator approval identity verification audit fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in (
+        "action",
+        "reason",
+        "approval_status",
+        "approval_schema_version",
+        "purpose",
+        "operator_id",
+        "key_id",
+        "issued_at",
+        "expires_at",
+        "checked_at",
+    ):
+        blockers.extend(required_string(record, field, line))
+    blockers.extend(required_bool(record, "valid", line))
+    blockers.extend(required_bool(record, "signature_verified", line))
+    for field in ("payload_checksum", "target_checksum", "approval_checksum"):
+        blockers.extend(required_checksum_present(record, field, line))
+    if record.get("action") != "verify_operator_approval":
+        blockers.append(
+            audit_replay_blocker(
+                "audit_operator_approval_action_invalid",
+                "operator_approval_verification action must be verify_operator_approval",
+                line,
+            )
+        )
+    if record.get("approval_status") != "accepted":
+        blockers.append(
+            audit_replay_blocker(
+                "audit_operator_approval_status_invalid",
+                "operator_approval_verification approval_status must be accepted",
+                line,
+            )
+        )
+    if record.get("valid") is not True:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_operator_approval_valid_invalid",
+                "operator_approval_verification audit records must describe accepted valid approvals",
+                line,
+            )
+        )
+    if record.get("signature_verified") is not True:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_operator_approval_signature_unverified",
+                "operator_approval_verification signature_verified must be true",
+                line,
+            )
+        )
+    if record.get("approval_schema_version") != OPERATOR_APPROVAL_SCHEMA_VERSION:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_operator_approval_schema_invalid",
+                "operator_approval_verification approval_schema_version must be operator-approval.v1",
+                line,
+            )
+        )
+    if record.get("purpose") not in OPERATOR_APPROVAL_PURPOSES:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_operator_approval_purpose_invalid",
+                "operator_approval_verification purpose must be a supported operator approval purpose",
+                line,
+            )
+        )
+    if not isinstance(record.get("operator_id"), str) or not record.get("operator_id", "").strip():
+        blockers.append(
+            audit_replay_blocker(
+                "audit_operator_approval_operator_invalid",
+                "operator_approval_verification operator_id must be non-empty",
+                line,
+            )
+        )
+    if not isinstance(record.get("key_id"), str) or SAFE_APPROVAL_ID_PATTERN.fullmatch(record.get("key_id", "")) is None:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_operator_approval_key_id_invalid",
+                "operator_approval_verification key_id must be a stable local key identifier",
+                line,
+            )
+        )
+    issued_at = parse_approval_timestamp(record.get("issued_at"))
+    expires_at = parse_approval_timestamp(record.get("expires_at"))
+    checked_at = parse_approval_timestamp(record.get("checked_at"))
+    if issued_at is None or expires_at is None or checked_at is None:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_operator_approval_timestamp_invalid",
+                "operator_approval_verification timestamps must be timezone-aware ISO-8601 strings",
+                line,
+            )
+        )
+    elif expires_at <= issued_at or checked_at < issued_at or checked_at >= expires_at:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_operator_approval_timestamp_invalid",
+                "operator_approval_verification timestamps must show checked_at within the approval window",
+                line,
+            )
+        )
+    elif expires_at - issued_at > MAX_OPERATOR_APPROVAL_WINDOW:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_operator_approval_window_too_long",
+                "operator_approval_verification approval window must not exceed 60 minutes",
+                line,
+            )
+        )
+    return blockers
+
+
 def validate_execution_start_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
     """Validate governed execution-start audit fields."""
     blockers: list[dict[str, Any]] = []
@@ -458,6 +579,8 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
         blockers.extend(validate_git_pr_materialization_intent_audit_record(record, line))
     elif event == "git_pr_materialization_result":
         blockers.extend(validate_git_pr_materialization_result_audit_record(record, line))
+    elif event == "operator_approval_verification":
+        blockers.extend(validate_operator_approval_verification_audit_record(record, line))
     elif event == "execution_start_decision":
         blockers.extend(validate_execution_start_audit_record(record, line))
     elif event == "work_ownership_mutation":
@@ -882,6 +1005,32 @@ def execution_start_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
         "payload_checksum": checksum_json(payload),
         "ownership_id": ownership.get("id"),
         "ownership_record_checksum": checksum_json(ownership) if ownership else None,
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def operator_approval_verification_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
+    if payload.get("valid") is not True:
+        raise ValueError("operator approval audit records are only allowed for accepted verifications")
+    if payload.get("signature_verified") is not True:
+        raise ValueError("operator approval audit records require verified signatures")
+    record = {
+        "event": "operator_approval_verification",
+        "action": "verify_operator_approval",
+        "reason": payload.get("reason"),
+        "valid": True,
+        "approval_status": "accepted",
+        "approval_schema_version": payload.get("approval_schema_version"),
+        "target_checksum": payload.get("target_checksum"),
+        "approval_checksum": payload.get("approval_checksum"),
+        "purpose": payload.get("purpose"),
+        "operator_id": payload.get("operator_id"),
+        "key_id": payload.get("key_id"),
+        "issued_at": payload.get("issued_at"),
+        "expires_at": payload.get("expires_at"),
+        "checked_at": payload.get("checked_at"),
+        "signature_verified": payload.get("signature_verified"),
+        "payload_checksum": checksum_json(payload),
     }
     return {key: value for key, value in record.items() if value is not None}
 

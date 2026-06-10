@@ -1,8 +1,8 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-06-09
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Last updated: 2026-06-10
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
 Current unattended-operation confidence: 10%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -77,9 +77,15 @@ runtime can do these things end-to-end:
   executor fixture invocation, and executor result validation, including
   task/result checksums for result validation;
 - replay local audit history with a read-only `audit-replay` command that
-  validates `cadence-audit.v1` JSONL shape, supported events, line counts, and
-  checksum syntax, reports local chain head/counts, treats older records as
-  explicit legacy roots, and blocks tampered chained records;
+  validates `cadence-audit.v1` JSONL shape, supported events, line counts,
+  checksum syntax, and hash-chain metadata, reports local chain head/counts,
+  treats older records as explicit legacy roots, and blocks tampered chained
+  records;
+- verify reusable `operator-approval.v1` identity evidence with
+  `verify-operator-approval`, including target checksum, purpose, operator id,
+  key id, expiration, and HMAC signature, while still starting no executor,
+  epoch, PR, merge, release, or package action, and append accepted
+  `operator_approval_verification` audit evidence;
 - validate that executor task packets are anchored to the embedded local repo
   snapshot by requiring matching repo name, absolute cwd/path, branch, head,
   clean worktree, built-in safety stops, absolute expected evidence path, and
@@ -197,7 +203,7 @@ Agentic Cadence cannot currently:
 | PR body/readiness checks | Implemented from saved inputs | `codex_cadence/pr_readiness.py` |
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
 | Single loop tick | Partial, read-only | `loop-tick` emits next action and stops before execution |
-| Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, task-carried branch policy, active brake stop handling, governed execution-start audit, local `execution-run.v1` records, `<root>/audit/events.jsonl`, hash-chained new audit appends, and read-only `audit-replay`; no authenticated approval identity |
+| Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, task-carried branch policy, active brake stop handling, governed execution-start audit, local `execution-run.v1` records, `<root>/audit/events.jsonl`, hash-chained new audit appends, read-only `audit-replay`, and audited `operator-approval.v1` verification through `verify-operator-approval`; no external identity provider or real executor authority |
 | Agent-team orchestration | Partial read-only evidence | `role-readiness` can verify local `role-policy.v1`, scoped ownership role labels, and saved review-thread separation evidence; no agent pool, role assignment, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
 | Executor adapter contract | Partial generic contract | Task/result packet validation, a fake controlled fixture runner, supplied-run-record closeout binding, and read-only `executor-invocation-readiness` preflight exist, including snapshot trust-anchor checks, but no real executor or named host adapter |
@@ -266,11 +272,12 @@ approval token. Real code changes, autonomous Git/PR materialization,
 dirty-worktree commits, review feedback response writes, and new-session launch
 remain external or future-approved slices. Resume verification and
 resume-continuation can block stale or mismatched pickup state, but they do not
-claim handoffs, start epochs, invoke executors, or launch sessions. At
+claim handoffs, start epochs, invoke executors, or launch sessions. Local
+`operator-approval.v1` evidence can now identify an approver for a target and
+purpose, but it is not process-start authority by itself. At
 `policy_denied`, an operator must adjust the task bounds or policy before
 execution can be considered. Audit history is now locally inspectable through
-`audit-replay`, but clean replay evidence is not approval to execute work and
-does not provide authenticated approver identity.
+`audit-replay`, but clean replay evidence is not approval to execute work.
 
 ## What Would Break First
 
@@ -280,15 +287,15 @@ low-confidence, relative-path, or mismatched snapshot anchors, start one
 approved active epoch through `start-governed-execution`, prove read-only
 executor invocation readiness through `executor-invocation-readiness`, run a
 fake controlled fixture, and close local executor evidence into an epoch
-decision. It still does not invoke a real executor or apply code changes.
-Task 18 adds audit hash-chain integrity for local audit evidence. The next
-hardening slice is authenticated approval identity before any real executor
-process-start command.
+decision. It can also verify local authenticated operator approval identity
+evidence for a target checksum and purpose. It still does not invoke a real
+executor or apply code changes. The next hardening slice is an exact real
+executor invocation plan before any process-start command.
 
 The next likely failures are:
 
-1. operator approval is HMAC-backed by a local secret but still lacks
-   authenticated approver identity binding;
+1. real executor invocation has no exact adapter/command/environment plan bound
+   to readiness, audit-chain head, and approval identity evidence;
 2. no autonomous branch/commit/push/PR workflow exists; the current Git/PR
    increment requires explicit operator approval and only creates a branch from
    an already-materialized clean commit;

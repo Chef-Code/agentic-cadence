@@ -676,8 +676,9 @@ chain head, and `chain_index` must be unique and match the physical JSONL line.
 Supported events are `loop_tick_decision`, `executor_fixture_invocation`,
 `execution_run_record`, `executor_result_validation`,
 `executor_epoch_closeout`, `execution_start_decision`,
-`git_pr_materialization_intent`, `git_pr_materialization_result`, and
-`work_ownership_mutation`. It does not recompute `payload_checksum`,
+`git_pr_materialization_intent`, `git_pr_materialization_result`,
+`operator_approval_verification`, and `work_ownership_mutation`. It does not
+recompute `payload_checksum`,
 `run_record_checksum`,
 `task_packet_checksum`, `result_evidence_checksum`,
 `validation_packet_checksum`, `plan_checksum`, `snapshot_after_checksum`, or
@@ -710,6 +711,44 @@ repo-cwd safety checks. The command must not append audit records, repair files,
 run an executor, start or complete epochs, create branches, commit, push, open a
 pull request, spend review, merge, or treat clean replay evidence as approval to
 execute work.
+
+## Operator Approval Identity Evidence
+
+`verify-operator-approval` is the local verifier for reusable
+`operator-approval.v1` evidence. It consumes `--approval-file`,
+`--target-checksum`, `--purpose`, and a local HMAC secret from
+`CADENCE_OPERATOR_APPROVAL_SECRET` by default, or from the named
+`--approval-secret-env` variable. `--approval-secret` is reserved for explicit
+local checks and tests. The command verifies an `hmac-sha256:` signature over
+the approval fields and emits `operator-approval-verification.v1`. Supported purposes are
+`start_governed_execution`, `git_pr_materialization`,
+`real_executor_invocation`, `release`, and `package_publication`.
+
+An `operator-approval.v1` packet must include `target_checksum`, `purpose`,
+`operator_id`, `key_id`, `issued_at`, `expires_at`, and `signature`. The
+verifier rejects unreadable or non-object approval packets, wrong schema,
+malformed or mismatched target checksums, missing or unsupported purposes,
+missing operator identity, weak key ids, malformed or reversed timestamps,
+validity windows longer than 60 minutes, expired approvals, future-issued
+approvals, missing verification secret, invalid signatures, and audit append
+failures with stable blockers: `operator_approval_file_unreadable`,
+`operator_approval_invalid`, `operator_approval_schema_invalid`,
+`operator_approval_target_invalid`, `operator_approval_target_mismatch`,
+`operator_approval_purpose_missing`, `operator_approval_purpose_mismatch`,
+`operator_approval_operator_missing`, `operator_approval_key_id_weak`,
+`operator_approval_timestamp_invalid`, `operator_approval_window_too_long`,
+`operator_approval_expired`, `operator_approval_issued_in_future`,
+`operator_approval_secret_missing`, `operator_approval_signature_invalid`, and
+`operator_approval_audit_append_failed`.
+
+Accepted verification appends an `operator_approval_verification` audit record
+with `operator_id`, `key_id`, `purpose`, `target_checksum`,
+`approval_checksum`, `issued_at`, `expires_at`, `checked_at`,
+`signature_verified: true`, and
+`approval_schema_version: operator-approval.v1`. The command returns
+`executor_started: false`, `epoch_started: false`, and
+`pr_action_started: false`; accepted approval evidence is not executor,
+GitHub, merge, release, or package-publication authority.
 
 ## Generic Executor Contract
 

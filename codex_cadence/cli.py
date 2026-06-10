@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import secrets
 import sys
@@ -15,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from codex_cadence import PROTOCOL_VERSION
+from codex_cadence.approvals import OPERATOR_APPROVAL_PURPOSES, build_operator_approval_verification_packet
 from codex_cadence.candidates import DISCOVERY_INTENTS, DISCOVERY_MODES, PROPOSAL_ALLOWANCES, CandidateBudget
 from codex_cadence.candidates import discover_candidates
 from codex_cadence.executor_contract import (
@@ -72,6 +74,7 @@ from codex_cadence.policy_audit import (
     executor_result_validation_audit_record,
     load_loop_policy,
     loop_tick_audit_record,
+    operator_approval_verification_audit_record,
     replay_audit_log,
     resolve_executor_policy,
     work_ownership_mutation_audit_record,
@@ -2426,6 +2429,73 @@ def git_pr_materialize_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 1
 
 
+OPERATOR_APPROVAL_SECRET_ENV = "CADENCE_OPERATOR_APPROVAL_SECRET"
+
+
+def operator_approval_secret_from_args(args: argparse.Namespace) -> str | None:
+    if args.approval_secret is not None:
+        return args.approval_secret
+    return os.environ.get(args.approval_secret_env)
+
+
+def verify_operator_approval_command(args: argparse.Namespace) -> int:
+    approval_file = Path(args.approval_file)
+    approval_secret = operator_approval_secret_from_args(args)
+    try:
+        approval_packet = read_json(approval_file)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        approval_packet = None
+        payload = build_operator_approval_verification_packet(
+            approval=approval_packet,
+            approval_file=approval_file,
+            expected_target_checksum=args.target_checksum,
+            expected_purpose=args.purpose,
+            approval_secret=approval_secret,
+        )
+        payload["blockers"].insert(
+            0,
+            {
+                "code": "operator_approval_file_unreadable",
+                "message": f"operator approval file could not be read: {exc}",
+            },
+        )
+        payload["valid"] = False
+        payload["approval_state"] = "blocked"
+        payload["signature_verified"] = False
+        payload["recommended_next_action"] = "fix_operator_approval"
+        payload["reason"] = payload["blockers"][0]["message"]
+        emit(payload)
+        return 1
+
+    payload = build_operator_approval_verification_packet(
+        approval=approval_packet,
+        approval_file=approval_file,
+        expected_target_checksum=args.target_checksum,
+        expected_purpose=args.purpose,
+        approval_secret=approval_secret,
+    )
+    if payload["valid"]:
+        payload["side_effects"] = ["operator_approval_audit_appended"]
+        try:
+            audit_record = append_audit_record(args.root, operator_approval_verification_audit_record(payload))
+        except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+            payload["valid"] = False
+            payload["approval_state"] = "blocked"
+            payload["side_effects"] = []
+            payload["blockers"].append(
+                {
+                    "code": "operator_approval_audit_append_failed",
+                    "message": f"operator approval verification audit could not be appended: {exc}",
+                }
+            )
+            payload["recommended_next_action"] = "inspect_runtime_state"
+            payload["reason"] = payload["blockers"][-1]["message"]
+        else:
+            payload["audit_record"] = audit_record
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def release_dry_run_command(args: argparse.Namespace) -> int:
     payload = evaluate_release_dry_run(
         cwd=Path(args.cwd),
@@ -2738,6 +2808,17 @@ def build_parser() -> argparse.ArgumentParser:
     git_pr_materialize_parser.add_argument("--remote", default="origin")
     git_pr_materialize_parser.add_argument("--pr-number", type=positive_int)
     git_pr_materialize_parser.set_defaults(func=git_pr_materialize_command, requires_root=True)
+
+    operator_approval_parser = subparsers.add_parser(
+        "verify-operator-approval",
+        help="Verify reusable operator approval identity evidence without starting governed actions",
+    )
+    operator_approval_parser.add_argument("--approval-file", required=True)
+    operator_approval_parser.add_argument("--target-checksum", required=True)
+    operator_approval_parser.add_argument("--purpose", choices=sorted(OPERATOR_APPROVAL_PURPOSES), required=True)
+    operator_approval_parser.add_argument("--approval-secret")
+    operator_approval_parser.add_argument("--approval-secret-env", default=OPERATOR_APPROVAL_SECRET_ENV)
+    operator_approval_parser.set_defaults(func=verify_operator_approval_command, requires_root=True)
 
     release_parser = subparsers.add_parser(
         "release-dry-run",
