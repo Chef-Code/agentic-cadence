@@ -4212,6 +4212,9 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(current_head(repo), inputs["task_packet"]["repo"]["head"])
 
     def test_executor_invocation_plan_blocks_unready_inputs_without_side_effects(self):
+        def mutate_package_publication_command(task_packet):
+            task_packet["command_policy"].update({"allowed_commands": ["python"]})
+
         cases = [
             (
                 "wrong-approval-target",
@@ -4265,7 +4268,7 @@ class CadenceCliTests(unittest.TestCase):
                     init_committed_repo(repo)
                     task_mutator = None
                     if name == "package-publication-command":
-                        task_mutator = lambda task_packet: task_packet["command_policy"].update({"allowed_commands": ["python"]})
+                        task_mutator = mutate_package_publication_command
                     inputs = self.write_valid_executor_invocation_plan_inputs(
                         tmp,
                         repo,
@@ -4413,6 +4416,18 @@ class CadenceCliTests(unittest.TestCase):
                     "expected_result_path": str(Path(repo) / "executor-result-outside-runtime.json")
                 },
                 "result_path_outside_runtime",
+            ),
+            (
+                "malformed-rebound-task-result-path",
+                lambda tmp, repo, inputs: (
+                    inputs["task_packet"]["expected_output"].update({"evidence_path": None}),
+                    Path(inputs["readiness_packet"]["task"]["file"]).write_text(
+                        json.dumps(inputs["task_packet"]),
+                        encoding="utf-8",
+                    ),
+                    {},
+                )[2],
+                "executor_task_invalid",
             ),
             (
                 "invalid-cwd",

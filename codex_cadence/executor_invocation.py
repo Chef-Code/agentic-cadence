@@ -12,7 +12,7 @@ from codex_cadence.executor_contract import checksum_json, validate_executor_com
 from codex_cadence.ownership import validate_work_ownership
 from codex_cadence.policy_audit import replay_audit_log
 from codex_cadence.repo_state import current_repo_evidence, git_repo_root, path_is_relative_to
-from codex_cadence.store import brake_path, read_json, utc_now
+from codex_cadence.store import brake_path, read_json
 
 EXECUTOR_INVOCATION_PLAN_SCHEMA_VERSION = "executor-invocation-plan.v1"
 EXECUTOR_INVOCATION_TARGET_SCHEMA_VERSION = "executor-invocation-target.v1"
@@ -196,13 +196,19 @@ def _readiness_task_packet(
                 )
             )
     expected_output = task_packet.get("expected_output") if isinstance(task_packet.get("expected_output"), dict) else {}
-    if _normal_path(expected_output.get("evidence_path", "")) != _normal_path(task_summary.get("expected_result_path", "")):
+    actual_result_path = expected_output.get("evidence_path")
+    expected_result_path = task_summary.get("expected_result_path")
+    if _non_empty_string(actual_result_path) and _non_empty_string(expected_result_path):
+        result_path_matches_readiness = _normal_path(actual_result_path) == _normal_path(expected_result_path)
+    else:
+        result_path_matches_readiness = actual_result_path == expected_result_path
+    if not result_path_matches_readiness:
         blockers.append(
             plan_blocker(
                 "task_checksum_mismatch",
                 "current executor task result path does not match readiness",
-                expected=task_summary.get("expected_result_path"),
-                actual=expected_output.get("evidence_path"),
+                expected=expected_result_path,
+                actual=actual_result_path,
             )
         )
     return task_packet, task_checksum, blockers
