@@ -33,6 +33,40 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-10 - Add controlled real executor invocation runner
+
+Summary:
+- Added `invoke-real-executor`, which consumes a fresh
+  `executor-invocation-plan.v1`, re-runs the plan gates immediately before
+  process start, launches one approved command with `shell=False`, captures
+  stdout/stderr, and writes `real-executor-invocation.v1` records.
+- Added `evidence_only` and `materialized_changes` side-effect modes so
+  clean-evidence runs and dirty-worktree materialization are recorded
+  differently without committing, pushing, opening PRs, merging, releasing, or
+  publishing packages.
+
+Completed slices:
+- Task 21: Add Controlled Real Executor Invocation Runner.
+
+Confidence change:
+- Previous: 10%
+- New: 15%
+- Reason: Cadence can now start one approved local executor process and record
+  invocation evidence, but closeout binding and named host adapters remain
+  future work.
+
+Evidence:
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_invoke_real_executor_runs_approved_plan_and_writes_invocation_record tests.test_cadence.CadenceCliTests.test_invoke_real_executor_blocks_stale_or_uninvocable_plan_before_start tests.test_cadence.CadenceCliTests.test_invoke_real_executor_enforces_result_and_side_effect_modes -v`
+
+New risks or blockers:
+- `real-executor-invocation.v1` is invocation evidence only until Task 22 binds
+  it to result validation, epoch closeout, ownership closeout, and Git/PR
+  planning gates.
+
+Docs updated:
+- `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`,
+  `docs/implementation-slices.md`, `docs/progress-log.md`.
+
 ## 2026-06-10 - Add real executor invocation plan evidence
 
 Summary:

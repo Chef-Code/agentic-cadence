@@ -471,6 +471,91 @@ def controlled_fixture_command(
     return " ".join(parts)
 
 
+def real_executor_script(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        """
+import json
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+def now():
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+config = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+repo_path = Path(config["repo_path"])
+if config.get("sleep_seconds"):
+    time.sleep(config["sleep_seconds"])
+if config.get("touch_repo"):
+    readme = repo_path / "README.md"
+    readme.write_text(readme.read_text(encoding="utf-8") + "real executor change\\n", encoding="utf-8")
+if config.get("delete_git"):
+    import shutil
+
+    shutil.rmtree(repo_path / ".git", ignore_errors=True)
+
+if config.get("write_result", True):
+    started_at = now()
+    ended_at = now()
+    files_changed = ["README.md"] if config.get("touch_repo") else []
+    result = {
+        "schema_version": "generic-executor-result.v1",
+        "packet": "executor_result",
+        "task_id": config["task_id"],
+        "executor_id": "unit-real-executor",
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "status": config.get("status", "succeeded"),
+        "files_changed": files_changed,
+        "commands_run": [
+            {
+                "command": config["command"],
+                "exit_code": config.get("exit_code", 0),
+            }
+        ],
+        "validation_results": [
+            {
+                "name": "real-executor-script",
+                "status": "passed",
+                "command": config["command"],
+            }
+        ],
+        "summary": "Real executor invocation test result.",
+        "confidence": "high",
+        "blockers": [],
+        "dirty_worktree": bool(config.get("touch_repo")),
+        "resulting_head": config.get("resulting_head") or config["repo_head"],
+    }
+    if isinstance(config.get("materialized_change_evidence"), dict):
+        result["materialized_change_evidence"] = config["materialized_change_evidence"]
+    elif config.get("include_materialized_change_evidence"):
+        result["materialized_change_evidence"] = {
+            "status": "verified",
+            "source": "real_executor_invocation.local_diff",
+            "task_id": config["task_id"],
+            "resulting_head": config["repo_head"],
+            "files": files_changed,
+            "limitations": ["verified_against_local_worktree_status"],
+        }
+    result_path = Path(config["result_path"])
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(json.dumps(result, sort_keys=True), encoding="utf-8")
+
+raise SystemExit(config.get("exit_code", 0))
+""".lstrip(),
+        encoding="utf-8",
+    )
+    return path
+
+
+def command_quote(value) -> str:
+    return '"' + str(value).replace('"', '\\"') + '"'
+
+
 def write_fake_gh(bin_dir: Path, script: Path) -> Path:
     """Create a fake gh executable that delegates to a Python script."""
     if os.name == "nt":
@@ -4022,6 +4107,7 @@ class CadenceCliTests(unittest.TestCase):
         repo,
         *,
         command="python -m unittest tests.test_cadence",
+        timeout_seconds=300,
         task_mutator=None,
     ):
         status_result, _status = run_cli(tmp, "status")
@@ -4090,13 +4176,15 @@ class CadenceCliTests(unittest.TestCase):
         self.assertEqual(audit_result.returncode, 0, audit_result.stderr)
         self.assertTrue(audit_replay["valid"])
 
-        adapter_path, adapter_packet = write_executor_invocation_adapter(Path(tmp) / "executor-adapter.json")
+        adapter_path, adapter_packet = write_executor_invocation_adapter(
+            Path(tmp) / "executor-adapter.json",
+            command_template=command,
+        )
         rollback_path, rollback_packet = write_executor_invocation_rollback(
             Path(tmp) / "executor-rollback.json",
             task_packet,
         )
         environment_allowlist = ["PATH", "PYTHONPATH"]
-        timeout_seconds = 300
         target = executor_invocation_target_descriptor(
             readiness_packet=readiness_packet,
             adapter_packet=adapter_packet,
@@ -4158,6 +4246,66 @@ class CadenceCliTests(unittest.TestCase):
             "--expected-result-path",
             str(overrides.get("expected_result_path", inputs["task_packet"]["expected_output"]["evidence_path"])),
         )
+
+    def write_real_executor_invocation_plan(
+        self,
+        tmp,
+        repo,
+        *,
+        timeout_seconds=300,
+        touch_repo=False,
+        write_result=True,
+        include_materialized_change_evidence=False,
+        materialized_change_evidence=None,
+        sleep_seconds=None,
+        delete_git=False,
+        resulting_head=None,
+    ):
+        script_path = real_executor_script(Path(tmp) / "real-executor.py")
+        config_path = Path(tmp) / "real-executor-config.json"
+        command = f"{command_quote(sys.executable)} {command_quote(script_path)} {command_quote(config_path)}"
+        inputs = self.write_valid_executor_invocation_plan_inputs(
+            tmp,
+            repo,
+            command=command,
+            timeout_seconds=timeout_seconds,
+        )
+        config = {
+            "command": command,
+            "exit_code": 0,
+            "include_materialized_change_evidence": include_materialized_change_evidence,
+            "materialized_change_evidence": materialized_change_evidence,
+            "repo_head": current_head(repo),
+            "repo_path": str(Path(repo).resolve()),
+            "result_path": inputs["task_packet"]["expected_output"]["evidence_path"],
+            "resulting_head": resulting_head,
+            "sleep_seconds": sleep_seconds,
+            "status": "succeeded",
+            "task_id": inputs["task_packet"]["task"]["id"],
+            "touch_repo": touch_repo,
+            "write_result": write_result,
+            "delete_git": delete_git,
+        }
+        config_path.write_text(json.dumps(config), encoding="utf-8")
+        plan_result, plan = self.run_executor_invocation_plan_cli(tmp, repo, inputs)
+        self.assertEqual(plan_result.returncode, 0, plan_result.stderr)
+        plan_path = Path(tmp) / "executor-invocation-plan.json"
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+        return inputs, plan_path, plan
+
+    def run_invoke_real_executor_cli(self, tmp, plan_path, **overrides):
+        args = [
+            "invoke-real-executor",
+            "--plan-file",
+            str(plan_path),
+            "--approval-secret",
+            OPERATOR_APPROVAL_SECRET,
+            "--side-effect-mode",
+            overrides.get("side_effect_mode", "evidence_only"),
+        ]
+        if "max_plan_age_minutes" in overrides:
+            args.extend(["--max-plan-age-minutes", str(overrides["max_plan_age_minutes"])])
+        return run_cli(tmp, *args)
 
     def test_executor_invocation_plan_accepts_matching_evidence_without_side_effects(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
@@ -4325,6 +4473,296 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertEqual(output["side_effects"], [])
                     self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
                     self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_invoke_real_executor_runs_approved_plan_and_writes_invocation_record(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs, plan_path, plan = self.write_real_executor_invocation_plan(tmp, repo)
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_invoke_real_executor_cli(tmp, plan_path)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "real-executor-invocation.v1")
+            self.assertEqual(output["packet"], "real_executor_invocation")
+            self.assertTrue(output["valid"])
+            self.assertTrue(output["executor_started"])
+            self.assertFalse(output["timed_out"])
+            self.assertEqual(output["side_effect_mode"], "evidence_only")
+            self.assertEqual(output["plan_checksum"], checksum_json(plan))
+            self.assertEqual(output["command"]["command"], inputs["command"])
+            self.assertEqual(output["process"]["exit_code"], 0)
+            self.assertEqual(output["blockers"], [])
+            self.assertIn("real_executor_process_started", output["side_effects"])
+            self.assertIn("real_executor_invocation_record_written", output["side_effects"])
+            self.assertEqual(output["repository_before"]["head"], current_head(repo))
+            self.assertFalse(output["repository_before"]["dirty_worktree"])
+            self.assertFalse(output["repository_after"]["dirty_worktree"])
+            self.assertEqual(output["rollback"]["checksum"], checksum_json(inputs["rollback_packet"]))
+            self.assertEqual(output["audit_chain"]["chain_head"], plan["audit_chain"]["chain_head"])
+            self.assertTrue(Path(output["result_file"]).exists())
+            self.assertTrue(Path(output["stdout_log"]).exists())
+            self.assertTrue(Path(output["stderr_log"]).exists())
+            record_path = Path(output["record_file"])
+            self.assertTrue(record_path.exists())
+            self.assertEqual(record_path.parent, Path(tmp) / "real-executor-invocations")
+            self.assertEqual(json.loads(record_path.read_text(encoding="utf-8")), output)
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_invoke_real_executor_blocks_stale_or_uninvocable_plan_before_start(self):
+        cases = [
+            (
+                "stale-plan",
+                lambda plan: plan.update({"checked_at": iso_z(datetime.now(timezone.utc) - timedelta(hours=1))}),
+                "plan_packet_stale",
+            ),
+            (
+                "not-invocable-plan",
+                lambda plan: plan.update({"valid": False, "executor_invocation_planned": False}),
+                "plan_not_invocable",
+            ),
+        ]
+        for name, mutate, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    inputs, plan_path, plan = self.write_real_executor_invocation_plan(tmp, repo)
+                    mutate(plan)
+                    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+                    result, output = self.run_invoke_real_executor_cli(tmp, plan_path)
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertFalse(output["executor_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertFalse(Path(inputs["task_packet"]["expected_output"]["evidence_path"]).exists())
+                    invocation_dir = Path(tmp) / "real-executor-invocations"
+                    self.assertEqual(list(invocation_dir.glob("*.json")) if invocation_dir.exists() else [], [])
+
+    def test_invoke_real_executor_blocks_stale_result_before_start(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo, write_result=False)
+            result_path = Path(inputs["task_packet"]["expected_output"]["evidence_path"])
+            result_path.parent.mkdir(parents=True, exist_ok=True)
+            result_path.write_text(json.dumps({"stale": True}), encoding="utf-8")
+
+            result, output = self.run_invoke_real_executor_cli(tmp, plan_path)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertIn("executor_result_stale", {blocker["code"] for blocker in output["blockers"]})
+            invocation_dir = Path(tmp) / "real-executor-invocations"
+            self.assertEqual(list(invocation_dir.glob("*.json")) if invocation_dir.exists() else [], [])
+
+    def test_invoke_real_executor_rechecks_drift_before_start(self):
+        now = datetime.now(timezone.utc)
+
+        def mutate_changed_head(tmp, repo, inputs):
+            (Path(repo) / "README.md").write_text("changed before invoke\n", encoding="utf-8")
+            git(repo, "add", "README.md")
+            git(repo, "commit", "-m", "change before invoke")
+
+        def mutate_brake(tmp, repo, inputs):
+            (Path(tmp) / "brake.json").write_text(
+                json.dumps(
+                    {
+                        "status": "NEUTRAL",
+                        "reason": "operator pause",
+                        "scope": "global",
+                        "resume_requires": None,
+                        "updated_at": utc_now(),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+        def mutate_missing_epoch(tmp, repo, inputs):
+            (Path(tmp) / "epochs" / "active" / "epoch-1.json").unlink()
+
+        def mutate_expired_approval(tmp, repo, inputs):
+            write_operator_approval(
+                inputs["approval_path"],
+                target_checksum=inputs["target_checksum"],
+                purpose="real_executor_invocation",
+                issued_at=iso_z(now - timedelta(hours=2)),
+                expires_at=iso_z(now - timedelta(hours=1)),
+            )
+
+        def mutate_rollback_mismatch(tmp, repo, inputs):
+            inputs["rollback_path"].write_text(
+                json.dumps({**inputs["rollback_packet"], "task_checksum": "sha256:" + "0" * 64}),
+                encoding="utf-8",
+            )
+
+        def mutate_denied_command(tmp, repo, inputs):
+            task_path = Path(inputs["readiness_packet"]["task"]["file"])
+            task_packet = json.loads(task_path.read_text(encoding="utf-8"))
+            task_packet["command_policy"]["allowed_commands"] = ["git status"]
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+        cases = [
+            ("changed-head", mutate_changed_head, "repo_head_mismatch"),
+            ("non-drive-brake", mutate_brake, "brake_not_drive"),
+            ("missing-epoch", mutate_missing_epoch, "active_epoch_missing"),
+            ("expired-approval", mutate_expired_approval, "approval_recheck_failed"),
+            ("rollback-mismatch", mutate_rollback_mismatch, "rollback_recheck_failed"),
+            ("denied-command", mutate_denied_command, "executor_command_denied"),
+        ]
+        for name, mutate, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo)
+                    mutate(tmp, repo, inputs)
+
+                    result, output = self.run_invoke_real_executor_cli(tmp, plan_path)
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertFalse(output["executor_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertFalse(Path(inputs["task_packet"]["expected_output"]["evidence_path"]).exists())
+
+    def test_invoke_real_executor_rejects_unignored_repo_local_runtime_root_from_plan_cwd(self):
+        with tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            runtime_root = Path(repo) / ".cadence-runtime"
+            (Path(repo) / ".gitignore").write_text(".cadence-runtime/\n", encoding="utf-8")
+            git(repo, "add", ".gitignore")
+            git(repo, "commit", "-m", "ignore runtime root")
+            _inputs, plan_path, _plan = self.write_real_executor_invocation_plan(runtime_root, repo)
+            (Path(repo) / ".gitignore").write_text("", encoding="utf-8")
+            git(repo, "add", ".gitignore")
+            git(repo, "commit", "-m", "unignore runtime root")
+
+            result, output = run_cli_from(
+                repo,
+                runtime_root,
+                "invoke-real-executor",
+                "--plan-file",
+                str(plan_path),
+                "--approval-secret",
+                OPERATOR_APPROVAL_SECRET,
+                "--side-effect-mode",
+                "evidence_only",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertIn("runtime_root_unsafe", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_invoke_real_executor_enforces_result_and_side_effect_modes(self):
+        bogus_head = "0" * 40
+        bogus_materialized_evidence = {
+            "status": "verified",
+            "source": "real_executor_invocation.local_diff",
+            "task_id": "wrong-task",
+            "resulting_head": "0" * 40,
+            "files": ["bogus.txt"],
+            "limitations": [],
+        }
+        self_consistent_false_head_evidence = {
+            "status": "verified",
+            "source": "real_executor_invocation.local_diff",
+            "task_id": "candidate-1",
+            "resulting_head": bogus_head,
+            "files": ["README.md"],
+            "limitations": [],
+        }
+        cases = [
+            (
+                "missing-result",
+                {"write_result": False},
+                "evidence_only",
+                "executor_result_missing",
+                False,
+            ),
+            (
+                "timeout",
+                {"timeout_seconds": 1, "sleep_seconds": 2},
+                "evidence_only",
+                "executor_process_timeout",
+                False,
+            ),
+            (
+                "evidence-only-dirty",
+                {"touch_repo": True, "include_materialized_change_evidence": True},
+                "evidence_only",
+                "unexpected_repo_modification",
+                True,
+            ),
+            (
+                "materialized-missing-evidence",
+                {"touch_repo": True},
+                "materialized_changes",
+                "materialized_change_evidence_missing",
+                True,
+            ),
+            (
+                "materialized-bogus-evidence",
+                {"touch_repo": True, "materialized_change_evidence": bogus_materialized_evidence},
+                "materialized_changes",
+                "materialized_change_evidence_missing",
+                True,
+            ),
+            (
+                "materialized-self-consistent-false-head",
+                {
+                    "touch_repo": True,
+                    "materialized_change_evidence": self_consistent_false_head_evidence,
+                    "resulting_head": bogus_head,
+                },
+                "materialized_changes",
+                "materialized_change_evidence_missing",
+                True,
+            ),
+            (
+                "materialized-evidence",
+                {"touch_repo": True, "include_materialized_change_evidence": True},
+                "materialized_changes",
+                None,
+                True,
+            ),
+            (
+                "post-process-repo-missing",
+                {"delete_git": True},
+                "evidence_only",
+                "unexpected_repo_modification",
+                None,
+            ),
+        ]
+        for name, plan_options, side_effect_mode, expected_code, expect_dirty in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    _inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo, **plan_options)
+
+                    result, output = self.run_invoke_real_executor_cli(
+                        tmp,
+                        plan_path,
+                        side_effect_mode=side_effect_mode,
+                    )
+
+                    self.assertEqual(result.returncode, 0 if expected_code is None else 2, result.stderr)
+                    self.assertEqual(output["side_effect_mode"], side_effect_mode)
+                    self.assertTrue(output["executor_started"])
+                    self.assertEqual(output["repository_after"]["dirty_worktree"], expect_dirty)
+                    self.assertTrue(Path(output["record_file"]).exists())
+                    if expected_code is None:
+                        self.assertTrue(output["valid"])
+                        self.assertEqual(output["blockers"], [])
+                        self.assertEqual(output["materialized_change_evidence"]["status"], "verified")
+                    else:
+                        self.assertFalse(output["valid"])
+                        self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
 
     def test_executor_invocation_plan_blocks_stale_and_mismatched_anchors(self):
         now = datetime.now(timezone.utc)

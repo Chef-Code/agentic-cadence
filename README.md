@@ -677,6 +677,43 @@ This is still not process start. It does not invoke an executor, modify code,
 create branches, commit, push, open or update PRs, merge, release, publish
 packages, assign roles, append audit records, or write GitHub state.
 
+## Real Executor Invocation
+
+`invoke-real-executor` consumes a fresh successful
+`executor-invocation-plan.v1` packet and re-runs the repository, brake, epoch,
+ownership, approval, audit-chain, rollback, timeout, command-policy, and
+result-path gates immediately before process start:
+
+```bash
+agentic-cadence --root <runtime-root> invoke-real-executor --plan-file executor-invocation-plan.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --side-effect-mode evidence_only
+```
+
+The command starts exactly one approved command with `shell=False`, explicit
+cwd, bounded environment allowlist, timeout, and stdout/stderr logs. It writes a
+`real-executor-invocation.v1` record under
+`<runtime-root>/real-executor-invocations/` with the invocation id, plan
+checksum, process exit and timeout status, before/after repository snapshots,
+rollback evidence checksum, expected result path, output log paths, and
+audit-chain head.
+
+`--side-effect-mode evidence_only` requires the target repository to remain
+clean after invocation. `--side-effect-mode materialized_changes` allows a
+dirty worktree only when the executor result includes verified
+`materialized_change_evidence`; Cadence records the evidence but does not
+commit, push, open or update PRs, resolve review threads, merge, release,
+publish packages, assign roles, schedule agents, claim distributed locks, or
+write GitHub state.
+
+Stable blockers include `plan_packet_stale`, `plan_not_invocable`,
+`approval_recheck_failed`, `rollback_evidence_missing`,
+`rollback_recheck_failed`, `brake_not_drive`, `active_epoch_mismatch`,
+`runtime_root_unsafe`, `executor_process_timeout`, `executor_result_stale`,
+`executor_result_missing`, `unexpected_repo_modification`, and
+`materialized_change_evidence_missing`.
+Immediate pre-start rechecks can also forward `executor-invocation-plan`
+blockers such as `repo_head_mismatch`, `active_epoch_missing`, and
+`executor_command_denied`.
+
 ## GitHub Evidence Sync
 
 `github-evidence-sync` is an explicit read-only live fetch for PR evidence. It

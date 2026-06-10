@@ -347,8 +347,9 @@ real-executor invocation readiness planning, is merged. Task 18 from
 evidence, is implemented in the current tree. Task 19, authenticated operator
 approval identity evidence, is implemented in the current tree. Task 20,
 `executor-invocation-plan` real executor invocation plan and approval binding,
-is implemented in the current branch. Task 21, controlled real executor
-invocation runner, is the next bounded implementation slice.
+is implemented in the current tree. Task 21, controlled real executor
+invocation runner, is implemented in the current branch. Task 22, real
+executor run closeout binding, is the next bounded implementation slice.
 
 ## Roadmap
 

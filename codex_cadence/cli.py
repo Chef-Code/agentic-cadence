@@ -27,7 +27,11 @@ from codex_cadence.executor_contract import (
     validate_executor_result_evidence,
     validate_executor_task_packet,
 )
-from codex_cadence.executor_invocation import build_executor_invocation_plan
+from codex_cadence.executor_invocation import (
+    REAL_EXECUTOR_SIDE_EFFECT_MODES,
+    build_executor_invocation_plan,
+    invoke_real_executor,
+)
 from codex_cadence.executor_readiness import evaluate_executor_invocation_readiness
 from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.git_pr_plan import (
@@ -99,7 +103,6 @@ from codex_cadence.repo_state import (
     validate_repo_snapshot,
 )
 from codex_cadence.store import (
-    BRAKE_STATUSES,
     HANDOFF_STATES,
     approval_path,
     atomic_write_json,
@@ -2353,6 +2356,18 @@ def executor_invocation_plan_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 2
 
 
+def invoke_real_executor_command(args: argparse.Namespace) -> int:
+    payload = invoke_real_executor(
+        root=args.root,
+        plan_file=Path(args.plan_file),
+        approval_secret=operator_approval_secret_from_args(args),
+        side_effect_mode=args.side_effect_mode,
+        max_plan_age_seconds=args.max_plan_age_minutes * 60,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 2
+
+
 def github_evidence_out_dir_safety_issue(out_dir: Path) -> str | None:
     target = out_dir.expanduser().resolve(strict=False)
     cwd_repo_root = git_repo_root(Path.cwd())
@@ -2801,6 +2816,21 @@ def build_parser() -> argparse.ArgumentParser:
     executor_plan_parser.add_argument("--expected-result-path", required=True)
     executor_plan_parser.set_defaults(func=executor_invocation_plan_command, requires_root=True)
 
+    invoke_executor_parser = subparsers.add_parser(
+        "invoke-real-executor",
+        help="Start one approved real executor command from a fresh invocation plan",
+    )
+    invoke_executor_parser.add_argument("--plan-file", required=True)
+    invoke_executor_parser.add_argument("--approval-secret")
+    invoke_executor_parser.add_argument("--approval-secret-env", default=OPERATOR_APPROVAL_SECRET_ENV)
+    invoke_executor_parser.add_argument("--side-effect-mode", choices=REAL_EXECUTOR_SIDE_EFFECT_MODES, required=True)
+    invoke_executor_parser.add_argument("--max-plan-age-minutes", type=positive_int, default=15)
+    invoke_executor_parser.set_defaults(
+        func=invoke_real_executor_command,
+        requires_root=True,
+        skip_runtime_root_safety=True,
+    )
+
     github_evidence_parser = subparsers.add_parser(
         "github-evidence-sync",
         help="Fetch read-only GitHub PR evidence into local JSON files",
@@ -3058,7 +3088,7 @@ def main(argv: list[str] | None = None) -> int:
                 requires_root
                 or guards_runtime_root_only
                 or getattr(args, "guards_optional_root", False)
-            ) and not args.allow_repo_local_root:
+            ) and not args.allow_repo_local_root and not getattr(args, "skip_runtime_root_safety", False):
                 if requires_root and not guards_runtime_root_only:
                     target_cwd = Path(getattr(args, "cwd", Path.cwd()))
                     issue = runtime_root_safety_issue(args.root, target_cwd)

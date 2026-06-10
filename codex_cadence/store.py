@@ -10,8 +10,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator
 
-from . import PROTOCOL_VERSION
-
 HANDOFF_STATES = ("ready", "claimed", "completed", "failed")
 BRAKE_STATUSES = ("DRIVE", "NEUTRAL", "PARK")
 EPOCH_STATES = ("active", "completed", "failed")
@@ -121,6 +119,14 @@ def execution_run_path(root: Path, run_id: str) -> Path:
     return execution_run_dir(root) / f"{validate_record_id(run_id, 'execution run')}.json"
 
 
+def real_executor_invocation_dir(root: Path) -> Path:
+    return root / "real-executor-invocations"
+
+
+def real_executor_invocation_path(root: Path, invocation_id: str) -> Path:
+    return real_executor_invocation_dir(root) / f"{validate_record_id(invocation_id, 'real executor invocation')}.json"
+
+
 def work_ownership_state_dir(root: Path, state: str) -> Path:
     if state not in WORK_OWNERSHIP_STATES:
         raise ValueError(f"unsupported work ownership state: {state}")
@@ -171,6 +177,7 @@ def ensure_layout(root: Path) -> None:
     (root / "snapshots").mkdir(parents=True, exist_ok=True)
     (root / "plans").mkdir(parents=True, exist_ok=True)
     execution_run_dir(root).mkdir(parents=True, exist_ok=True)
+    real_executor_invocation_dir(root).mkdir(parents=True, exist_ok=True)
     for state in WORK_OWNERSHIP_STATES:
         work_ownership_state_dir(root, state).mkdir(parents=True, exist_ok=True)
     if not brake_path(root).exists():

@@ -298,7 +298,10 @@ Current evidence:
   replay, adapter metadata, rollback evidence, command, environment allowlist,
   timeout, active epoch, active ownership, and result-path rechecks before any
   future process start;
-- no real executor or named host adapter exists.
+- `invoke-real-executor` starts one approved local process from a fresh plan,
+  captures stdout/stderr, writes `real-executor-invocation.v1` records, and
+  enforces `evidence_only` versus `materialized_changes` side-effect modes;
+- no named host adapter exists.
 
 Why it matters: Cadence cannot implement work until execution is a formal,
 bounded, inspectable boundary.
@@ -335,8 +338,9 @@ Validation needed:
 - done: dirty successful result rejection;
 - done: read-only real executor invocation readiness preflight for matching
   task, epoch, ownership, policy, result path, and optional role evidence;
-- remaining: real executor timeout behavior, real external executor invocation,
-  branch/commit handling, and one-command loop integration.
+- done: controlled real executor timeout, missing-result, evidence-only clean
+  repo, and materialized dirty-worktree evidence paths;
+- remaining: branch/commit handling and one-command loop integration.
 
 Codex implementation rule: Codex can implement the generic contract directly.
 Named host adapters require explicit operator approval.
