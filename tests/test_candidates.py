@@ -2291,7 +2291,7 @@ Risk: medium
             candidate = business_memory_candidates[0]
             self.assertEqual(
                 candidate["evidence"]["heading"],
-                "Approved Write-Side Bridges Remain Plan-Only",
+                "Review Response Writes Need Approval And Refresh",
             )
             self.assertEqual(candidate["classification"], "risk")
             self.assertEqual(candidate["classification_confidence"], "high")

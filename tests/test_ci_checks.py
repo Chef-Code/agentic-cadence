@@ -271,7 +271,6 @@ class CiChecksTests(unittest.TestCase):
 
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         adapters = adapters_path.read_text(encoding="utf-8")
-        roadmap = (ROOT / "docs" / "roadmap.md").read_text(encoding="utf-8")
 
         for token in (
             "## Future Agent Adapters",

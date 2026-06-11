@@ -299,20 +299,20 @@ Do not:
 - Do not treat a real executor as authority to commit, push, open PRs, merge, release, publish packages, assign roles, or schedule agents.
 - Do not skip exact invocation planning and jump from readiness evidence directly to process start.
 
-## Approved Write-Side Bridges Remain Plan-Only
+## Review Response Writes Need Approval And Refresh
 
 Status: active
 Kind: risk
 Workflow: Controlled executor loop governance
 Time Saved: high
 Risk: high
-Pain: Cadence can close out real executor evidence, plan dirty-worktree materialization, preserve saved PR freshness, and turn saved review feedback into candidates, but dirty commits, PR updates, and review-response writes still need exact operator-approved bridges before a controlled loop can progress after closeout.
+Pain: Cadence can close out real executor evidence, perform exact approved dirty commits and dirty PR materialization, preserve saved PR freshness, turn saved review feedback into candidates, and create an exact review-response write plan, but it still cannot perform approved PR body/comment writes or refresh PR/check/review evidence after those writes before recommending follow-up work.
 Signals:
-- Tasks 23-27 from `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` are complete in `main` via PRs #92-#96.
-- `git-pr-dirty-materialization-plan.v1` is still a reviewed plan and does not stage, commit, push, or create a PR.
-- `review-response-plan.v1` and review-follow-up candidates remain read-only and do not update PR bodies, post comments, or resolve threads.
-- `docs/autonomous-loop-readiness.md` identifies autonomous Git/PR materialization and review-response writes as the first hard stop after real-run closeout.
+- Tasks 28-30 from `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md` are complete in `main` via PRs #98-#100.
+- `git-pr-dirty-commit-materialization.v1` and dirty PR materialization are exact approval-bound bridges, not autonomous GitHub write authority.
+- `review-response-materialization-plan.v1` is read-only and does not update PR bodies, post review comments, or resolve threads.
+- Task 31 should add the smallest exact approval-bound review-response write execution path, and Task 32 should refresh PR/check/review evidence before any next recommendation.
 Do not:
-- Do not make dirty-worktree commits, PR writes, or review-response writes without exact target-bound operator approval and audit evidence.
-- Do not merge dirty-worktree materialization, PR updates, review-thread resolution, paid review, merge, release, or package publication into one slice.
-- Do not treat refreshed PR or review evidence as permission to keep looping continuously.
+- Do not make review-response writes without exact target-bound operator approval and audit evidence.
+- Do not merge review-response writes, review-thread resolution, paid review, merge, release, or package publication into one slice.
+- Do not treat post-write refreshed PR or review evidence as permission to keep looping continuously.
