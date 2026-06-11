@@ -6,17 +6,16 @@ Last updated: 2026-06-11
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `cff2b5c0369a02089e26b6d5350981aaefc2e5ce` after PR #89 merged.
-- Working branch intent: implement Task 22 real executor run closeout binding.
-- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence; PR #88 merged read-only real executor invocation plan evidence; PR #89 merged controlled real executor invocation evidence.
-- Completed roadmap marker: Tasks 13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in `main`, including `work-ownership-claim.v1`, `work-ownership-closeout.v1`, ownership-bound `execution-start.v1`, ownership-aware `resume-continuation.v1`, read-only `role-readiness.v1`, and read-only `executor-invocation-readiness.v1` packet evidence.
-- Current branch scope: `codex/task-22-real-executor-run-closeout-binding`
-  adds `closeout-executor-result --real-invocation-file` so accepted
-  `real-executor-invocation.v1` records can bind to result validation, active
-  ownership revalidation, epoch closeout, and dry-run Git/PR planning. It must
-  not commit dirty worktree changes, create branches, push, open or update PRs,
-  merge, release, publish packages, assign roles, schedule agents, or claim
-  distributed locks.
+- Current base: `origin/main` at `4079cc033023ac7026c585a14b25b77f38452733` after PR #90 merged.
+- Working branch intent: prepare the Tasks 23-27 roadmap and post-Task-22 handoff docs.
+- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence; PR #88 merged read-only real executor invocation plan evidence; PR #89 merged controlled real executor invocation evidence; PR #90 merged real executor invocation closeout binding.
+- Completed roadmap marker: Tasks 18-22 from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` are complete in `main`, including local audit hash-chain integrity, authenticated operator approval identity evidence, real executor invocation planning, controlled real executor invocation, and real executor invocation closeout binding.
+- Current branch scope: `codex/tasks-23-27-roadmap-handoff` adds
+  `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` and refreshes the living
+  docs after PR #90. It is documentation and planning only; it must not add a
+  continuous loop, dirty-worktree commit path, GitHub PR/review writes, merge,
+  release, package publication, role assignment, agent scheduling, shared
+  runtime, or distributed lock authority.
 
 ## Current Capability Baseline
 
@@ -105,10 +104,10 @@ Last updated: 2026-06-11
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
 - Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete in `main` via PR #84.
-- This branch implements Task 22 from
-  `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`; the PR for this branch
-  should review real invocation closeout binding, active ownership revalidation,
-  materialized-change evidence handling, and dry-run Git/PR planning.
+- Tasks 18-22 from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` are complete in `main` via PRs #86-#90.
+- This branch prepares `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`; the
+  PR for this branch should review task ordering, boundaries, validation
+  commands, and consistency with the living roadmap docs.
 
 ## Important Boundaries
 
@@ -178,25 +177,19 @@ Last updated: 2026-06-11
 
 ```powershell
 git status -sb
-python -m py_compile codex_cadence/executor_invocation.py codex_cadence/executor_readiness.py codex_cadence/approvals.py codex_cadence/policy_audit.py codex_cadence/executor_contract.py codex_cadence/cli.py tests/test_cadence.py
-python -m unittest tests.test_cadence -v
-python -m unittest tests.test_executor_contract tests.test_epochs tests.test_ci_checks -v
+python -m py_compile scripts/validate_protocol.py tests/test_ci_checks.py
+python -m unittest tests.test_ci_checks -v
 python scripts/validate_protocol.py
-python scripts/ci_smoke.py
 git diff --check
 ```
 
-For this branch, include the Task 22 real-invocation closeout focused
-validation block in addition to the broader validation commands above. The Task
-17 runtime validation block remains recorded in
-`docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the merged
-`executor-invocation-readiness.v1` slice.
+The Task 22 real-invocation closeout validation block remains recorded in
+`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` for the merged PR #90 slice.
 
 ## Next Action
 
-Finish review on the Task 22 PR for
-`codex/task-22-real-executor-run-closeout-binding`, address any new findings,
-and merge only after checks and review are clean. Dirty-worktree commit,
-autonomous push, PR/review writes outside the approved PR for this task, role
-assignment, agent pools, GitHub issue assignment, shared runtimes, distributed
-locks, release, and package publication remain outside this branch.
+Open and review the Tasks 23-27 roadmap PR for
+`codex/tasks-23-27-roadmap-handoff`, address any new findings, and merge only
+after checks and review are clean. The next implementation branch should start
+with Task 23, controlled single-tick run packet, from
+`docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`.
