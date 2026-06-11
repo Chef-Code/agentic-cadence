@@ -308,6 +308,24 @@ def write_ready_plan(root, repo, tmp):
     return plan_path, packet
 
 
+def write_materialization_pr_json(path, plan, **overrides):
+    """Write a minimal saved PR JSON object for materialization freshness tests."""
+    pr = {
+        "number": 42,
+        "title": plan["proposed_pr_title"],
+        "state": "OPEN",
+        "isDraft": False,
+        "headRefName": plan["proposed_branch"],
+        "baseRefName": plan["repository"]["base_branch"],
+        "headRefOid": plan["repository"]["current_head"],
+        "body": plan["proposed_pr_body"],
+        "statusCheckRollup": [],
+    }
+    pr.update(overrides)
+    Path(path).write_text(json.dumps(pr), encoding="utf-8")
+    return pr
+
+
 def write_dirty_materialization_inputs(tmp, repo):
     """Write task/result/invocation inputs for a closeout-approved dirty worktree."""
     git(repo, "switch", "-c", "feature/dirty-materialization")
@@ -1733,6 +1751,67 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertEqual(packet["side_effects"], [])
             self.assertIn("git_pr_plan_unreadable", {blocker["code"] for blocker in packet["blockers"]})
 
+    def test_git_pr_materialize_malformed_pr_json_returns_stable_blocker_packet(self):
+        """Malformed optional PR evidence still returns a materialization blocker packet."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            add_origin_remote(Path(tmp), repo)
+            plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
+            pr_json = Path(tmp) / "bad-pr.json"
+            pr_json.write_text("{not-json", encoding="utf-8")
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_materializer(fake_bin, gh_log, "https://github.example/local/test/pull/42")
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = "https://github.example/local/test/pull/42"
+            refs_before = git(repo, "show-ref", "--heads").stdout
+            status_before = git(repo, "status", "--porcelain").stdout
+            head_before = current_head(repo)
+            remote_heads_before = git(repo, "ls-remote", "--heads", "origin").stdout
+            token = git_pr_materialization_approval_token(
+                plan,
+                remote_url=remote_push_url(repo),
+                pr_number=42,
+            )
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(plan_path),
+                "--approval-token",
+                token,
+                "--pr-number",
+                "42",
+                "--pr-json-file",
+                str(pr_json),
+                "--max-pr-json-age-minutes",
+                "30",
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(packet["schema_version"], "git-pr-materialization.v1")
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["decision"], "blocked")
+            self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
+            self.assertEqual(packet["side_effects"], [])
+            self.assertIn("pr_evidence_unreadable", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertEqual(git(repo, "show-ref", "--heads").stdout, refs_before)
+            self.assertEqual(git(repo, "status", "--porcelain").stdout, status_before)
+            self.assertEqual(current_head(repo), head_before)
+            self.assertEqual(git(repo, "ls-remote", "--heads", "origin").stdout, remote_heads_before)
+            self.assertFalse(gh_log.exists())
+            self.assertFalse((runtime_root / "audit" / "events.jsonl").exists())
+
     def test_git_pr_materialization_approval_token_requires_secret_and_uses_hmac(self):
         """Approval tokens are HMACs over the target-bound approval payload."""
         plan = {"packet": "git_pr_plan", "ready_to_review": True}
@@ -1962,6 +2041,158 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
             self.assertTrue(replay["valid"])
             self.assertEqual(replay["events_by_type"]["git_pr_materialization_result"], 1)
+
+    def test_git_pr_materialize_records_fresh_saved_pr_evidence_for_update(self):
+        """Fresh saved PR evidence remains labeled in the write-side packet."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            add_origin_remote(Path(tmp), repo)
+            plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
+            pr_json = Path(tmp) / "pr.json"
+            write_materialization_pr_json(pr_json, plan)
+            token = git_pr_materialization_approval_token(
+                plan,
+                remote_url=remote_push_url(repo),
+                pr_number=42,
+            )
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            pr_url = "https://github.example/local/test/pull/42"
+            write_fake_gh_materializer(fake_bin, gh_log, pr_url)
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = pr_url
+            env["GH_FAKE_HEAD_REF"] = plan["proposed_branch"]
+            env["GH_FAKE_BASE_REF"] = plan["repository"]["base_branch"]
+            env["GH_FAKE_HEAD_OID"] = plan["repository"]["current_head"]
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(plan_path),
+                "--approval-token",
+                token,
+                "--pr-number",
+                "42",
+                "--pr-json-file",
+                str(pr_json),
+                "--max-pr-json-age-minutes",
+                "30",
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(packet["valid"])
+            self.assertEqual(packet["decision"], "materialized")
+            self.assertEqual(packet["pr_evidence"]["source"], "saved_pr_json")
+            self.assertEqual(packet["pr_evidence"]["freshness"], "saved_input")
+            self.assertFalse(packet["pr_evidence"]["stale"])
+            self.assertFalse(packet["pr_evidence"]["live"])
+            self.assertEqual(packet["pr_evidence"]["path"], str(pr_json.resolve()))
+            self.assertEqual(packet["pr_evidence"]["pr_json_checksum"], checksum_json(json.loads(pr_json.read_text(encoding="utf-8"))))
+
+    def test_git_pr_materialize_blocks_stale_saved_pr_evidence_before_pr_update_preflight(self):
+        """Stale saved PR evidence blocks before audit, Git writes, push, or gh preflight."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            add_origin_remote(Path(tmp), repo)
+            plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
+            pr_json = Path(tmp) / "pr.json"
+            write_materialization_pr_json(pr_json, plan)
+            old_timestamp = 946684800
+            os.utime(pr_json, (old_timestamp, old_timestamp))
+            token = git_pr_materialization_approval_token(
+                plan,
+                remote_url=remote_push_url(repo),
+                pr_number=42,
+            )
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_materializer(fake_bin, gh_log, "https://github.example/local/test/pull/42")
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = "https://github.example/local/test/pull/42"
+            env["GH_FAKE_HEAD_REF"] = plan["proposed_branch"]
+            env["GH_FAKE_BASE_REF"] = plan["repository"]["base_branch"]
+            env["GH_FAKE_HEAD_OID"] = plan["repository"]["current_head"]
+            refs_before = git(repo, "show-ref", "--heads").stdout
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(plan_path),
+                "--approval-token",
+                token,
+                "--pr-number",
+                "42",
+                "--pr-json-file",
+                str(pr_json),
+                "--max-pr-json-age-minutes",
+                "30",
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["decision"], "blocked")
+            self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
+            self.assertEqual(packet["side_effects"], [])
+            self.assertEqual(packet["pr_evidence"]["source"], "saved_pr_json")
+            self.assertEqual(packet["pr_evidence"]["freshness"], "stale")
+            self.assertTrue(packet["pr_evidence"]["stale"])
+            self.assertIn("pr_evidence_stale", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertNotIn("preflight_pull_request", {trace["label"] for trace in packet["command_trace"]})
+            self.assertEqual(git(repo, "show-ref", "--heads").stdout, refs_before)
+            self.assertFalse(gh_log.exists())
+            self.assertFalse((runtime_root / "audit" / "events.jsonl").exists())
+
+    def test_git_pr_materialize_labels_caller_asserted_live_like_pr_evidence(self):
+        """Function callers can mark PR evidence live-like without applying saved-file age policy."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            commit_plan_changes(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            add_origin_remote(Path(tmp), repo)
+            plan_path, plan = write_ready_plan(runtime_root, repo, Path(tmp))
+            pr = write_materialization_pr_json(Path(tmp) / "pr.json", plan)
+
+            packet = git_pr_plan_module.materialize_git_pr_plan(
+                cwd=repo,
+                plan_packet=plan,
+                plan_file=plan_path,
+                approval_token=None,
+                runtime_root=runtime_root,
+                pr_evidence=pr,
+                pr_evidence_source="live_pr_json",
+                pr_evidence_captured_at="2000-01-01T00:00:00Z",
+                max_pr_evidence_age_minutes=30,
+            )
+
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["pr_evidence"]["source"], "live_pr_json")
+            self.assertEqual(packet["pr_evidence"]["freshness"], "live_like")
+            self.assertTrue(packet["pr_evidence"]["live"])
+            self.assertFalse(packet["pr_evidence"]["stale"])
+            self.assertIn("caller_asserted_live_source", packet["pr_evidence"]["limitations"])
+            self.assertIn("operator_approval_missing", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertNotIn("pr_evidence_stale", {blocker["code"] for blocker in packet["blockers"]})
 
     def test_git_pr_materialize_rechecks_stale_head_before_side_effects(self):
         """A plan for an older HEAD is blocked before Git, gh, or audit writes."""

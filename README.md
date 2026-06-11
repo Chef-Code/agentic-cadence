@@ -844,9 +844,11 @@ agentic-cadence review-response-plan --pr-json-file pr.json --review-threads-fil
 
 The command recommends `emit_executor_task`, `refresh_pr_evidence`,
 `update_pr_body`, `wait_for_checks`, or `operator_review`. It reads local saved
-evidence only and does not call GitHub, resolve review threads, post comments,
-update PR bodies, create branches, commit, push, merge, release, publish
-packages, spend paid review, or invoke review agents.
+evidence only and labels that evidence as `saved_input` or `stale`; stale or
+future-dated PR JSON recommends `refresh_pr_evidence` before response work is
+emitted. It does not call GitHub, resolve review threads, post comments, update
+PR bodies, create branches, commit, push, merge, release, publish packages,
+spend paid review, or invoke review agents.
 
 ## PR Body Preflight
 
@@ -890,13 +892,13 @@ release, or package-publication commands.
 
 ## Operator-Approved Git/PR Materialization
 
-`git-pr-materialize` consumes a reviewed `git-pr-plan.v1` packet plus an exact operator approval token for that packet and materialization target. The token is an HMAC over the plan checksum, selected remote name, resolved push URL, and create-vs-update PR target, using `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`; the secret is required for verification and is never emitted in result packets. Immediately before side effects it rechecks the current branch and `HEAD`, branch policy, full local-diff coverage by materialized-change evidence, PR body preflight, task/result checksums, and plan freshness:
+`git-pr-materialize` consumes a reviewed `git-pr-plan.v1` packet plus an exact operator approval token for that packet and materialization target. The token is an HMAC over the plan checksum, selected remote name, resolved push URL, and create-vs-update PR target, using `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`; the secret is required for verification and is never emitted in result packets. Immediately before side effects it rechecks the current branch and `HEAD`, branch policy, full local-diff coverage by materialized-change evidence, PR body preflight, task/result checksums, plan freshness, and any supplied saved PR evidence freshness:
 
 ```bash
-agentic-cadence --root <runtime-root> git-pr-materialize --cwd . --plan-file git-pr-plan.json --approval-token approve-git-pr:hmac-sha256:<materialization-target-hmac>
+agentic-cadence --root <runtime-root> git-pr-materialize --cwd . --plan-file git-pr-plan.json --approval-token approve-git-pr:hmac-sha256:<materialization-target-hmac> --pr-json-file pr.json --max-pr-json-age-minutes 30
 ```
 
-When all gates pass, Cadence appends a `git_pr_materialization_intent` audit record, creates the proposed branch from the current materialized commit without switching the checkout, pushes it with Git hook verification disabled for that push, and creates or updates a pull request through `gh`. Existing PR updates first run a read-only `gh pr view` preflight to verify the PR head and base match the approved plan. Cadence then appends a `git_pr_materialization_result` audit record. Missing, mismatched, or unverifiable approval, stale plans, dirty worktrees, branch-policy failures, materialized-evidence failures, PR body failures, and failed Git/`gh` commands return `git-pr-materialization.v1` blocker packets. The command does not auto-merge, release, publish packages, or invoke an executor.
+When all gates pass, Cadence appends a `git_pr_materialization_intent` audit record, creates the proposed branch from the current materialized commit without switching the checkout, pushes it with Git hook verification disabled for that push, and creates or updates a pull request through `gh`. Existing PR updates first run a read-only `gh pr view` preflight to verify the PR head and base match the approved plan. Cadence then appends a `git_pr_materialization_result` audit record. Supplied PR JSON is emitted as `pr_evidence` with `saved_input` or `stale` freshness labels; unreadable, malformed, stale, or future-dated saved PR JSON blocks before audit, branch, push, or PR update work and recommends `refresh_pr_evidence`. Missing, mismatched, or unverifiable approval, stale plans, dirty worktrees, branch-policy failures, materialized-evidence failures, PR body failures, and failed Git/`gh` commands return `git-pr-materialization.v1` blocker packets. The command does not auto-merge, release, publish packages, or invoke an executor.
 
 ## Release Dry Run
 

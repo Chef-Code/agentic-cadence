@@ -539,7 +539,8 @@ Current evidence:
   blockers when an age policy is supplied;
 - `review-response-plan` consumes saved PR JSON, saved review-thread JSON,
   optional candidate discovery output, and PR-body evidence to recommend
-  bounded next actions without GitHub writes;
+  bounded next actions without GitHub writes, and its evidence summary now
+  preserves `saved_input` or `stale` freshness labels;
 - release dry-run follows operator-confirmation pattern;
 - a design spec for the first dry-run-only `git-pr-plan` packet exists at
   `docs/designs/2026-06-01-git-pr-dry-run-plan-design.md`;
@@ -558,6 +559,9 @@ Current evidence:
   current commit without switching the checkout, pushes with Git hook
   verification disabled for that push, and creates or updates a PR through
   `gh`;
+- `git-pr-materialize` can carry supplied saved PR JSON as `pr_evidence` and
+  blocks stale or future-dated saved PR evidence before write-side audit, branch,
+  push, or PR create/update side effects;
 - controlled real executor invocation exists, but no autonomous branch,
   dirty-worktree commit, push, PR creation, merge, release, package publication,
   or closeout-bound real-run automation exists.
@@ -598,8 +602,8 @@ Validation needed:
 - done: blocked invalid branch names;
 - done: stale saved PR evidence in review-response planning recommends
   refresh before acting on failed checks, review threads, or PR body issues;
-- remaining: freshness labels preserved when saved PR evidence is reused by
-  later write-side synchronization paths.
+- done: freshness labels preserved when saved PR evidence is reused by
+  write-side Git/PR materialization paths.
 
 Codex implementation rule: Codex can implement dry-run packets and the existing
 operator-approved materialization path directly. Autonomous branch creation,

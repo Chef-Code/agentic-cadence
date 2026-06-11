@@ -33,6 +33,46 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-11 - Preserve PR evidence freshness in write-side planning
+
+Summary:
+- `review-response-plan` evidence summaries now preserve `saved_input` and
+  `stale` freshness labels instead of only reporting a stale boolean.
+- `git-pr-materialize` accepts optional saved PR JSON, emits it as
+  `pr_evidence`, and blocks stale or future-dated saved PR evidence before
+  audit records, branch creation, push, or PR create/update work.
+- Function-level live-like PR evidence remains explicit and is not stale-gated
+  by the saved-file age policy.
+
+Completed slices:
+- Task 26: Preserve PR Evidence Freshness In Write-Side Planning.
+
+Confidence change:
+- Previous: 25%
+- New: 25%
+- Reason: PR evidence freshness is now carried into write-side materialization
+  packets, but Cadence still does not autonomously assign roles, schedule
+  agents, merge, release, publish packages, or run a continuous loop.
+
+Evidence:
+- `python -m py_compile codex_cadence\git_pr_plan.py codex_cadence\cli.py codex_cadence\review_response.py tests\test_git_pr_plan.py tests\test_pr_readiness.py`
+- `python -m unittest tests.test_pr_readiness.PrReadinessTests.test_review_response_plan_recommends_refresh_for_stale_pr_evidence tests.test_git_pr_plan.GitPrPlanTests.test_git_pr_materialize_malformed_pr_json_returns_stable_blocker_packet tests.test_git_pr_plan.GitPrPlanTests.test_git_pr_materialize_records_fresh_saved_pr_evidence_for_update tests.test_git_pr_plan.GitPrPlanTests.test_git_pr_materialize_blocks_stale_saved_pr_evidence_before_pr_update_preflight tests.test_git_pr_plan.GitPrPlanTests.test_git_pr_materialize_labels_caller_asserted_live_like_pr_evidence -v`
+- `python -m ruff check codex_cadence\git_pr_plan.py codex_cadence\cli.py codex_cadence\review_response.py tests\test_git_pr_plan.py tests\test_pr_readiness.py`
+- `python scripts\validate_protocol.py`
+- `python -m unittest tests.test_git_pr_plan tests.test_pr_readiness -v`
+- `python -m unittest tests.test_cadence -v`
+- `python scripts\ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- None.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+
 ## 2026-06-11 - Add dirty-worktree Git/PR materialization plan binding
 
 Summary:

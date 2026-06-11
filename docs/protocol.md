@@ -1310,6 +1310,17 @@ creation/update. PR update mode must first run a read-only `gh pr view`
 preflight and verify the existing PR head branch, base branch, and head SHA
 match the approved plan before branch creation, push, or PR edit.
 
+When saved PR JSON is supplied with `--pr-json-file`, materialization packets
+must include `pr_evidence` with `saved_input` or `stale` freshness labels,
+`live: false`, the saved JSON checksum, and the saved evidence path. When
+`--pr-json-file` is unreadable or malformed, or when
+`--max-pr-json-age-minutes` is supplied and saved PR evidence is stale or
+future-dated, materialization must return a `git-pr-materialization.v1` blocker
+packet before audit, branch, push, or PR create/update side effects and
+recommend `refresh_pr_evidence`. Function-level caller-asserted live inputs are
+labeled `live_like`; the saved-file age policy must not stale-gate those
+caller-asserted inputs.
+
 When all gates pass, the command may append a
 `git_pr_materialization_intent` audit record, create the proposed branch at the
 already-materialized current commit without switching the checkout, push the
@@ -1376,7 +1387,10 @@ must carry a bounded `follow_up_task` summary and the command-level
 recommendation must be one of `emit_executor_task`, `refresh_pr_evidence`,
 `update_pr_body`, `wait_for_checks`, or `operator_review`. Saved PR JSON age is
 checked from the file mtime when `--max-pr-json-age-minutes` is supplied; stale
-or future evidence recommends `refresh_pr_evidence` before emitting work items.
+or future evidence is labeled `stale` and recommends `refresh_pr_evidence`
+before emitting work items. Non-stale saved PR evidence is labeled
+`saved_input`; both freshness labels stay visible in the packet evidence
+summary.
 Malformed, missing-status, or incomplete paginated review-thread evidence must
 block with stable `review_thread_evidence_invalid` blockers. Candidate discovery
 input is advisory only; malformed candidate packets block planning, and matched

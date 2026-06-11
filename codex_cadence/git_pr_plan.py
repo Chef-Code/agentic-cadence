@@ -29,7 +29,7 @@ from codex_cadence.policy_audit import (
     git_pr_materialization_intent_audit_record,
     git_pr_materialization_result_audit_record,
 )
-from codex_cadence.pr_readiness import evaluate_pr_body_preflight
+from codex_cadence.pr_readiness import _pr_readiness_evidence, evaluate_pr_body_preflight
 from codex_cadence.store import BRAKE_STATUSES, read_json, utc_now
 
 GIT_PR_PLAN_SCHEMA_VERSION = "git-pr-plan.v1"
@@ -1482,6 +1482,8 @@ def _materialization_recommendation(blockers: list[dict[str, Any]], *, side_effe
     codes = {blocker.get("code") for blocker in blockers}
     if not blockers:
         return "inspect_pull_request"
+    if "pr_evidence_stale" in codes or "pr_evidence_from_future" in codes or "pr_evidence_unreadable" in codes:
+        return "refresh_pr_evidence"
     if "operator_approval_missing" in codes or "operator_approval_mismatch" in codes:
         return "provide_operator_approval"
     if "stale_git_pr_plan" in codes or "git_pr_plan_recheck_changed" in codes:
@@ -1510,9 +1512,10 @@ def _materialization_packet(
     pr_number: str | None,
     remote: str,
     remote_url: str | None = None,
+    pr_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     side_effects_started = bool(side_effects)
-    return {
+    packet = {
         "protocol_version": PROTOCOL_VERSION,
         "schema_version": GIT_PR_MATERIALIZATION_SCHEMA_VERSION,
         "packet": "git_pr_materialization",
@@ -1549,6 +1552,39 @@ def _materialization_packet(
             "does_not_invoke_executor",
         ],
     }
+    if pr_evidence is not None:
+        packet["pr_evidence"] = pr_evidence
+    return packet
+
+
+def _materialization_pr_evidence(
+    *,
+    pr_evidence: dict[str, Any] | None,
+    source: str,
+    captured_at: Any,
+    max_age_minutes: int | None,
+    path: str | Path | None,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    if pr_evidence is None:
+        return None, []
+    evidence, waiting = _pr_readiness_evidence(
+        source=source,
+        captured_at=captured_at,
+        max_age_minutes=max_age_minutes,
+        now=None,
+    )
+    evidence["pr_json_checksum"] = checksum_json(pr_evidence)
+    if path is not None:
+        evidence["path"] = str(Path(path).expanduser().resolve(strict=False))
+    blockers: list[dict[str, Any]] = []
+    for item in waiting:
+        blocker = dict(item)
+        if blocker.get("code") == "pr_evidence_stale":
+            blocker["message"] = "saved PR evidence is stale; refresh PR JSON before Git/PR materialization"
+        elif blocker.get("code") == "pr_evidence_from_future":
+            blocker["message"] = "PR evidence timestamp is in the future; refresh evidence before Git/PR materialization"
+        blockers.append(blocker)
+    return evidence, blockers
 
 
 def _plan_structural_blockers(plan_packet: Any) -> list[dict[str, Any]]:
@@ -1660,6 +1696,51 @@ def git_pr_materialization_load_error_packet(plan_file: str | Path, error: Excep
     )
 
 
+def git_pr_materialization_pr_evidence_load_error_packet(
+    *,
+    plan_packet: Any,
+    plan_file: str | Path,
+    pr_json_file: str | Path,
+    error: Exception,
+    remote: str = "origin",
+    pr_number: str | None = None,
+) -> dict[str, Any]:
+    """Build a stable blocker packet when optional PR evidence cannot be loaded."""
+    plan_path = Path(plan_file).expanduser().resolve(strict=False)
+    pr_path = Path(pr_json_file).expanduser().resolve(strict=False)
+    repository = plan_packet.get("repository") if isinstance(plan_packet, dict) else {}
+    proposed_branch = plan_packet.get("proposed_branch") if isinstance(plan_packet, dict) else None
+    proposed_pr_title = plan_packet.get("proposed_pr_title") if isinstance(plan_packet, dict) else None
+    return _materialization_packet(
+        valid=False,
+        decision="blocked",
+        approval_state="not_approved",
+        plan_file=plan_path,
+        plan_checksum=checksum_json(plan_packet),
+        repository=repository if isinstance(repository, dict) else {},
+        proposed_branch=proposed_branch if isinstance(proposed_branch, str) else None,
+        proposed_pr_title=proposed_pr_title if isinstance(proposed_pr_title, str) else None,
+        pr_url=None,
+        intended_side_effects=[
+            "create_branch",
+            "push_branch",
+            "update_pull_request" if pr_number else "create_pull_request",
+        ],
+        side_effects=[],
+        command_trace=[],
+        blockers=[
+            _issue(
+                "pr_evidence_unreadable",
+                f"could not read saved PR evidence before Git/PR materialization: {error}",
+                path=str(pr_path),
+            )
+        ],
+        warnings=[],
+        pr_number=pr_number,
+        remote=remote,
+    )
+
+
 def _remote_push_url(cwd: Path, remote: str) -> tuple[str | None, list[dict[str, Any]]]:
     blockers: list[dict[str, Any]] = []
     if not _non_empty_string(remote) or remote != remote.strip() or remote.startswith("-") or any(ch.isspace() for ch in remote):
@@ -1768,6 +1849,11 @@ def materialize_git_pr_plan(
     runtime_root: str | Path,
     remote: str = "origin",
     pr_number: str | None = None,
+    pr_evidence: dict[str, Any] | None = None,
+    pr_evidence_source: str = "saved_pr_json",
+    pr_evidence_captured_at: Any = None,
+    max_pr_evidence_age_minutes: int | None = None,
+    pr_evidence_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Materialize an operator-approved git-pr-plan packet into local Git/gh side effects."""
     repo_cwd = Path(cwd).expanduser().resolve()
@@ -1800,7 +1886,15 @@ def materialize_git_pr_plan(
         "push_branch",
         "update_pull_request" if pr_number else "create_pull_request",
     ]
+    pr_evidence_summary, pr_evidence_blockers = _materialization_pr_evidence(
+        pr_evidence=pr_evidence,
+        source=pr_evidence_source,
+        captured_at=pr_evidence_captured_at,
+        max_age_minutes=max_pr_evidence_age_minutes,
+        path=pr_evidence_path,
+    )
 
+    blockers.extend(pr_evidence_blockers)
     blockers.extend(remote_blockers)
     blockers.extend(_plan_structural_blockers(plan_packet))
     if not approval_token:
@@ -1857,6 +1951,7 @@ def materialize_git_pr_plan(
             pr_number=pr_number,
             remote=remote,
             remote_url=remote_url,
+            pr_evidence=pr_evidence_summary,
         )
 
     provenance = plan_packet.get("evidence_provenance") if isinstance(plan_packet.get("evidence_provenance"), dict) else {}
@@ -1976,6 +2071,7 @@ def materialize_git_pr_plan(
             pr_number=pr_number,
             remote=remote,
             remote_url=remote_url,
+            pr_evidence=pr_evidence_summary,
         )
 
     intent_payload = _materialization_packet(
@@ -1996,6 +2092,7 @@ def materialize_git_pr_plan(
         pr_number=pr_number,
         remote=remote,
         remote_url=remote_url,
+        pr_evidence=pr_evidence_summary,
     )
     audit_record, audit_blocker = _append_materialization_audit(
         runtime_path,
@@ -2020,6 +2117,7 @@ def materialize_git_pr_plan(
             pr_number=pr_number,
             remote=remote,
             remote_url=remote_url,
+            pr_evidence=pr_evidence_summary,
         )
     side_effects.append("audit_intent_record_appended")
 
@@ -2063,6 +2161,7 @@ def materialize_git_pr_plan(
                 pr_number=pr_number,
                 remote=remote,
                 remote_url=remote_url,
+                pr_evidence=pr_evidence_summary,
             )
             result_audit, result_audit_blocker = _append_materialization_audit(
                 runtime_path,
@@ -2089,6 +2188,7 @@ def materialize_git_pr_plan(
                     pr_number=pr_number,
                     remote=remote,
                     remote_url=remote_url,
+                    pr_evidence=pr_evidence_summary,
                 )
                 return failed_packet_without_audit
         side_effects.append(side_effect)
@@ -2132,6 +2232,7 @@ def materialize_git_pr_plan(
             pr_number=pr_number,
             remote=remote,
             remote_url=remote_url,
+            pr_evidence=pr_evidence_summary,
         )
         result_audit, result_audit_blocker = _append_materialization_audit(
             runtime_path,
@@ -2157,6 +2258,7 @@ def materialize_git_pr_plan(
             pr_number=pr_number,
             remote=remote,
             remote_url=remote_url,
+            pr_evidence=pr_evidence_summary,
         )
     try:
         if pr_number:
@@ -2217,6 +2319,7 @@ def materialize_git_pr_plan(
             pr_number=pr_number,
             remote=remote,
             remote_url=remote_url,
+            pr_evidence=pr_evidence_summary,
         )
         result_audit, result_audit_blocker = _append_materialization_audit(
             runtime_path,
@@ -2243,6 +2346,7 @@ def materialize_git_pr_plan(
                 pr_number=pr_number,
                 remote=remote,
                 remote_url=remote_url,
+                pr_evidence=pr_evidence_summary,
             )
 
     side_effects.append(gh_side_effect)
@@ -2267,6 +2371,7 @@ def materialize_git_pr_plan(
         pr_number=pr_number,
         remote=remote,
         remote_url=remote_url,
+        pr_evidence=pr_evidence_summary,
     )
     result_audit, result_audit_blocker = _append_materialization_audit(
         runtime_path,
@@ -2293,4 +2398,5 @@ def materialize_git_pr_plan(
             pr_number=pr_number,
             remote=remote,
             remote_url=remote_url,
+            pr_evidence=pr_evidence_summary,
         )
