@@ -748,11 +748,13 @@ class GitPrPlanTests(unittest.TestCase):
             with self.subTest(name=name):
                 with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
                     init_committed_repo(repo)
-                    task_path, result_path, invocation_path, closeout_path, _task, _result, invocation, _closeout, _fingerprint = (
+                    task_path, result_path, invocation_path, closeout_path, _task, _result, invocation, closeout, _fingerprint = (
                         write_dirty_materialization_inputs(tmp, repo)
                     )
                     mutate(repo, invocation)
                     invocation_path.write_text(json.dumps(invocation), encoding="utf-8")
+                    closeout["real_invocation"]["after_checksum"] = checksum_json(invocation)
+                    closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
 
                     result, packet = run_git_pr_dirty_materialization_plan(
                         Path(tmp) / "runtime",
