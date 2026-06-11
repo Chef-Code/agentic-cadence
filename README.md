@@ -37,6 +37,7 @@ local generic executor task and result evidence, read-only
 `github-evidence-sync`, read-only `review-response-plan`, read-only
 `role-readiness`, read-only `executor-invocation-readiness`, read-only
 `executor-invocation-plan`,
+operator-approved `git-pr-dirty-commit-materialize`,
 operator-approved `git-pr-materialize`, reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -889,6 +890,38 @@ preflight gates, and emits `git-pr-dirty-materialization-plan.v1` with exact
 proposed commit metadata plus `target_checksum` for later operator approval. It
 does not run `git add`, `git commit`, `git branch`, `git push`, `gh`, merge,
 release, or package-publication commands.
+
+## Operator-Approved Dirty Commit Materialization
+
+`git-pr-dirty-commit-materialize` consumes a reviewed
+`git-pr-dirty-materialization-plan.v1` packet plus an exact operator approval
+token for the saved plan checksum and target checksum. The token uses
+`CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET` and is never emitted in result
+packets:
+
+```bash
+agentic-cadence --root <runtime-root> git-pr-dirty-commit-materialize --cwd . --plan-file git-pr-dirty-materialization-plan.json --approval-token approve-git-pr:hmac-sha256:<dirty-commit-target-hmac>
+```
+
+Immediately before Git writes, Cadence re-reads the plan provenance, re-runs the
+dirty materialization plan checks, and compares repo path, current branch,
+`HEAD`, base branch, branch policy, dirty file list, dirty-worktree fingerprint,
+materialized-change evidence, closeout anchors, PR body preflight, proposed
+branch, commit message, file list, and target checksum against the approved
+packet. When all gates pass, it appends
+`git_pr_dirty_commit_materialization_intent`, snapshots the index for rollback,
+creates and checks out only the approved branch at the approved source head,
+runs hook-disabled Git commands, blocks planned files with Git `filter`
+drivers that configure `clean` or `process` steps before staging, stages only
+the planned files with `git add --`, creates exactly the approved commit message
+with commit signing disabled,
+verifies the committed parent/message/files, and appends
+`git_pr_dirty_commit_materialization_result`. Missing, mismatched, or
+unverifiable approval and stale dirty evidence block before audit or Git writes;
+failed branch/stage/commit paths attempt to restore the source branch/index and
+delete the generated branch before returning a blocker packet. The command does
+not push, call `gh`, create/update PRs, merge, release, publish packages, assign
+roles, schedule agents, or invoke an executor.
 
 ## Operator-Approved Git/PR Materialization
 

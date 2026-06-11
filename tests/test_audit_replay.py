@@ -331,6 +331,58 @@ def git_pr_materialization_result_record(valid: bool = True, **overrides):
     return record
 
 
+def git_pr_dirty_commit_materialization_intent_record(**overrides):
+    record = {
+        "schema_version": "cadence-audit.v1",
+        "recorded_at": "2999-05-22T00:00:00Z",
+        "event": "git_pr_dirty_commit_materialization_intent",
+        "action": "materialize_git_pr_dirty_commit_plan",
+        "reason": "operator_approved_git_pr_dirty_commit_materialization_intent",
+        "repo": "C:/tmp/repo",
+        "branch": "feature/task",
+        "head": "abc123",
+        "base_branch": "main",
+        "source_branch": "feature/task",
+        "source_head": "abc123",
+        "proposed_branch": "cadence/candidate-1",
+        "plan_file": "C:/tmp/git-pr-dirty-materialization-plan.json",
+        "payload_checksum": GOOD_CHECKSUM,
+        "plan_checksum": GOOD_CHECKSUM,
+        "target_checksum": GOOD_CHECKSUM,
+        "intended_side_effects_checksum": GOOD_CHECKSUM,
+    }
+    record.update(overrides)
+    return record
+
+
+def git_pr_dirty_commit_materialization_result_record(valid: bool = True, **overrides):
+    record = {
+        "schema_version": "cadence-audit.v1",
+        "recorded_at": "2999-05-22T00:00:00Z",
+        "event": "git_pr_dirty_commit_materialization_result",
+        "action": "materialized" if valid else "blocked",
+        "reason": "operator_approved_git_pr_dirty_commit_materialization_result",
+        "valid": valid,
+        "materialization_status": "completed" if valid else "blocked",
+        "repo": "C:/tmp/repo",
+        "branch": "cadence/candidate-1",
+        "head": "def456",
+        "base_branch": "main",
+        "source_branch": "feature/task",
+        "source_head": "abc123",
+        "proposed_branch": "cadence/candidate-1",
+        "created_commit": "def456",
+        "plan_file": "C:/tmp/git-pr-dirty-materialization-plan.json",
+        "payload_checksum": GOOD_CHECKSUM,
+        "plan_checksum": GOOD_CHECKSUM,
+        "target_checksum": GOOD_CHECKSUM,
+        "side_effects_checksum": GOOD_CHECKSUM,
+        "command_trace_checksum": GOOD_CHECKSUM,
+    }
+    record.update(overrides)
+    return record
+
+
 def operator_approval_verification_record(**overrides):
     record = {
         "schema_version": "cadence-audit.v1",
@@ -698,6 +750,8 @@ class AuditReplayCliTests(unittest.TestCase):
                 executor_epoch_closeout_record(),
                 git_pr_materialization_intent_record(),
                 git_pr_materialization_result_record(),
+                git_pr_dirty_commit_materialization_intent_record(),
+                git_pr_dirty_commit_materialization_result_record(),
                 operator_approval_verification_record(),
                 work_ownership_mutation_record(),
             )
@@ -706,13 +760,13 @@ class AuditReplayCliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(output["valid"])
-            self.assertEqual(output["lines_seen"], 9)
-            self.assertEqual(output["records_seen"], 9)
-            self.assertEqual(output["records_valid"], 9)
+            self.assertEqual(output["lines_seen"], 11)
+            self.assertEqual(output["records_seen"], 11)
+            self.assertEqual(output["records_valid"], 11)
             self.assertEqual(output["records_invalid"], 0)
             self.assertRegex(output["chain_head"], r"^sha256:[0-9a-f]{64}$")
             self.assertEqual(output["chain_records"], 0)
-            self.assertEqual(output["legacy_chain_roots"], 9)
+            self.assertEqual(output["legacy_chain_roots"], 11)
             self.assertEqual(
                 output["events_by_type"],
                 {
@@ -720,6 +774,8 @@ class AuditReplayCliTests(unittest.TestCase):
                     "executor_result_validation": 1,
                     "execution_start_decision": 1,
                     "execution_run_record": 1,
+                    "git_pr_dirty_commit_materialization_intent": 1,
+                    "git_pr_dirty_commit_materialization_result": 1,
                     "git_pr_materialization_intent": 1,
                     "git_pr_materialization_result": 1,
                     "loop_tick_decision": 1,
@@ -1134,6 +1190,22 @@ class AuditReplayCliTests(unittest.TestCase):
             ),
             (
                 git_pr_materialization_result_record(valid=False, materialization_status="completed"),
+                "audit_materialization_status_invalid",
+            ),
+            (
+                git_pr_dirty_commit_materialization_intent_record(action="other"),
+                "audit_materialization_action_invalid",
+            ),
+            (
+                git_pr_dirty_commit_materialization_result_record(valid=True, action="blocked"),
+                "audit_materialization_action_invalid",
+            ),
+            (
+                git_pr_dirty_commit_materialization_result_record(valid=True, materialization_status="blocked"),
+                "audit_materialization_status_invalid",
+            ),
+            (
+                git_pr_dirty_commit_materialization_result_record(valid=False, materialization_status="completed"),
                 "audit_materialization_status_invalid",
             ),
         ]

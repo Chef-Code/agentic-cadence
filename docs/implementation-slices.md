@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-11
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 23-27 complete in main, and the Tasks 28-32 roadmap current branch
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 23-27 complete in main, and the Tasks 28-32 roadmap current branch
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -44,8 +44,8 @@ read-only real executor invocation planning, controlled one-command real
 executor invocation evidence with real-invocation closeout binding, and a
 controlled single-tick packet that composes saved local evidence after
 closeout. It still
-does not add autonomous live GitHub synchronization, dirty-worktree commit
-materialization, automatic resume orchestration, agent-role assignment,
+does not add autonomous live GitHub synchronization, automatic resume
+orchestration, agent-role assignment,
 agent-pool coordination, distributed ownership locks, or enforced review
 separation.
 The first local policy/audit controls can bound
@@ -76,10 +76,14 @@ closeout, and dry-run Git/PR planning without GitHub writes.
 a dry-run Git/PR transition plan for separate review,
 `git-pr-dirty-materialization-plan` can bind closeout-approved dirty-worktree
 materialized-change evidence to a reviewed commit/PR materialization input
-without staging or committing, and `git-pr-materialize` can create a branch from
-the already-materialized current commit without switching the checkout, push it
-with Git hook verification disabled for that push, and create/update a PR only
-after exact target-bound operator approval and local rechecks. `verify-resume`
+without staging or committing, `git-pr-dirty-commit-materialize` can turn that
+approved dirty plan into one local branch commit after exact target-bound
+operator approval, clean/process filter safeguards, rollback-aware writes, and
+rechecks, and `git-pr-materialize` can create a branch from the
+already-materialized current commit without switching the checkout, push it with
+Git hook verification disabled for that push, and create/update a PR only after
+exact target-bound operator approval and local rechecks.
+`verify-resume`
 can check claimed handoff state, clean-square evidence, repo branch/head,
 dirty-worktree state, active brake, active epoch state, and pickup-policy
 evidence before a fresh session continues. `review-response-plan` can turn
@@ -563,9 +567,17 @@ Current evidence:
 - `git-pr-materialize` can carry supplied saved PR JSON as `pr_evidence` and
   blocks stale or future-dated saved PR evidence before write-side audit, branch,
   push, or PR create/update side effects;
+- `git-pr-dirty-commit-materialize` consumes a reviewed
+  `git-pr-dirty-materialization-plan.v1` plus target-bound HMAC approval,
+  re-runs dirty file/fingerprint/closeout/branch-policy/PR-body gates, audits
+  intended/completed local commit materialization, creates and checks out only
+  the approved branch, blocks planned files with Git clean/process filters,
+  stages only planned files, disables commit signing, rolls back failed write
+  paths, and creates exactly the approved commit message without pushing or
+  calling GitHub;
 - controlled real executor invocation exists, but no autonomous branch,
-  dirty-worktree commit, push, PR creation, merge, release, package publication,
-  or closeout-bound real-run automation exists.
+  push, PR creation, merge, release, package publication, or closeout-bound
+  real-run automation exists.
 
 Why it matters: the autonomous build loop needs to reach PR state before review
 feedback can become useful loop input.
@@ -604,12 +616,14 @@ Validation needed:
 - done: stale saved PR evidence in review-response planning recommends
   refresh before acting on failed checks, review threads, or PR body issues;
 - done: freshness labels preserved when saved PR evidence is reused by
-  write-side Git/PR materialization paths.
+  write-side Git/PR materialization paths;
+- done: approved dirty-worktree materialization plan can become exactly one
+  local branch commit without push/PR/GitHub side effects.
 
 Codex implementation rule: Codex can implement dry-run packets and the existing
-operator-approved materialization path directly. Autonomous branch creation,
-dirty-worktree commits, pull request writes without exact operator approval,
-merge, release, and package publication require later explicit approval.
+operator-approved materialization paths directly. Autonomous branch creation,
+pull request writes without exact operator approval, merge, release, and package
+publication require later explicit approval.
 
 ## 5. CI/Review Feedback Back Into Candidate Discovery
 

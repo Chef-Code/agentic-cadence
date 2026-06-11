@@ -939,8 +939,9 @@ Supported events are `loop_tick_decision`, `executor_fixture_invocation`,
 `execution_run_record`, `executor_result_validation`,
 `executor_epoch_closeout`, `execution_start_decision`,
 `git_pr_materialization_intent`, `git_pr_materialization_result`,
-`operator_approval_verification`, `controlled_loop_tick`, and
-`work_ownership_mutation`. It does not
+`git_pr_dirty_commit_materialization_intent`,
+`git_pr_dirty_commit_materialization_result`, `operator_approval_verification`,
+`controlled_loop_tick`, and `work_ownership_mutation`. It does not
 recompute `payload_checksum`,
 `run_record_checksum`,
 `task_packet_checksum`, `result_evidence_checksum`,
@@ -1289,6 +1290,53 @@ publish packages. Stable blockers include
 `materialized_change_files_mismatch`, `repository_branch_mismatch`,
 `repository_head_mismatch`, `base_head_mismatch`,
 `branch_policy_base_branch_disallowed`, and `required_body_section_missing`.
+
+## Operator-Approved Dirty Commit Materialization
+
+`git-pr-dirty-commit-materialize` is the explicit local write-side bridge for a
+reviewed `git-pr-dirty-materialization-plan.v1` packet. It must consume the
+saved plan packet, require an exact HMAC operator approval token over the plan
+checksum, target checksum, proposed branch, source head, and
+`dirty_commit_materialization` operation using
+`CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`, and emit a
+`git-pr-dirty-commit-materialization.v1` packet. Missing, mismatched, or
+unverifiable approval must block before audit, branch checkout, staging, or
+commit side effects. The packet must not emit the expected approval token or
+approval secret.
+
+Before side effects, the command must re-read the task, result,
+real-invocation, and closeout evidence named by the dirty plan provenance,
+verify their checksums still match, rerun `git-pr-dirty-materialization-plan`
+against current local state, and compare the current repo path, branch, `HEAD`,
+base branch/head, dirty file list, dirty-worktree fingerprint, materialized
+change evidence, closeout anchors, branch policy, PR body preflight, proposed
+branch, proposed commit message, planned file list, and target checksum against
+the approved packet. Stale heads, branch drift, base drift, generated-branch
+collisions, extra or missing dirty files, dirty content tampering, PR body
+blockers, and provenance checksum changes must return blocker packets before
+audit or Git writes.
+
+When all gates pass, the command may append a
+`git_pr_dirty_commit_materialization_intent` audit record, snapshot the index
+for rollback, create and check out only the approved proposed branch at the
+approved source head, stage only the planned files with `git add --`, verify the
+staged file set exactly equals the approved file list, and create exactly the
+approved commit message. Before staging, planned files whose Git `filter` driver
+configures `clean` or `process` steps must block to avoid filter command
+execution. All bounded Git write commands must run with hooks disabled, commit
+signing disabled for the local materialization commit, and the completed commit
+must be rechecked against the approved parent, full commit message, and
+committed file set. It
+must append a
+`git_pr_dirty_commit_materialization_result` audit record after success or
+after a bounded side-effect failure; successful side effects without a result
+audit record must return an invalid blocker packet. Failed Git write paths must
+return stable blocker packets with command trace and structured recovery
+evidence, including rollback attempts that restore the source branch/index and
+delete the generated branch when a branch write already started. The command
+must not push, call GitHub, create or update pull requests, auto-merge, release,
+publish packages, spend paid review, assign roles, schedule agents, claim
+distributed locks, or invoke a real executor.
 
 ## Operator-Approved Git/PR Materialization
 
