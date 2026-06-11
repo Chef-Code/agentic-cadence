@@ -6,17 +6,17 @@ Last updated: 2026-06-11
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `0395185d720d2518a82524d7503faa86165cf615` after PR #91 merged.
-- Working branch intent: implement Task 23, controlled single-tick run packet.
-- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence; PR #88 merged read-only real executor invocation plan evidence; PR #89 merged controlled real executor invocation evidence; PR #90 merged real executor invocation closeout binding; PR #91 merged the Tasks 23-27 roadmap.
-- Completed roadmap marker: Tasks 18-22 from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` are complete in `main`, including local audit hash-chain integrity, authenticated operator approval identity evidence, real executor invocation planning, controlled real executor invocation, and real executor invocation closeout binding.
-- Current branch scope: `codex/task-23-controlled-single-tick-run-packet` adds
-  `controlled-loop-tick`, `controlled-loop-tick.v1`, and
-  `controlled_loop_tick` audit replay support. It composes saved local
-  evidence only; it must not add a continuous loop, executor retry,
-  dirty-worktree commit path, GitHub PR/review writes, merge, release, package
-  publication, role assignment, agent scheduling, shared runtime, or
-  distributed lock authority.
+- Current base: `origin/main` at `4a66a0b9f706c4bde248192dcdd339e352c451a0` after PR #96 merged.
+- Working branch intent: prepare the Tasks 28-32 roadmap and post-Task-27 handoff docs.
+- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence; PR #88 merged read-only real executor invocation plan evidence; PR #89 merged controlled real executor invocation evidence; PR #90 merged real executor invocation closeout binding; PR #91 merged the Tasks 23-27 roadmap; PR #92 merged controlled single-tick run packet evidence; PR #93 merged closeout-bound ownership completion evidence; PR #94 merged dirty-worktree Git/PR materialization planning; PR #95 merged PR evidence freshness in write-side planning; PR #96 merged review follow-up candidates from saved threads.
+- Completed roadmap marker: Tasks 23-27 from `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` are complete in `main`, including controlled single-tick evidence, closeout-bound ownership completion, dirty-worktree materialization planning, saved PR evidence freshness in write-side planning, and review follow-up candidate generation.
+- Current branch scope: `codex/tasks-28-32-roadmap-handoff` adds
+  `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`, marks stale business
+  memory fulfilled, seeds the next active write-side bridge backlog item, and
+  refreshes living docs after PR #96. It must not add implementation commands,
+  create dirty-worktree commits, push, open or update PRs, post review
+  comments, resolve review threads, merge, release, publish packages, assign
+  roles, schedule agents, create distributed locks, or run a continuous loop.
 
 ## Current Capability Baseline
 
@@ -114,7 +114,7 @@ Last updated: 2026-06-11
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
 - Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete in `main` via PR #84.
 - Tasks 18-22 from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` are complete in `main` via PRs #86-#90.
-- This branch prepares `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`; the
+- This branch prepares `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`; the
   PR for this branch should review task ordering, boundaries, validation
   commands, and consistency with the living roadmap docs.
 
@@ -199,16 +199,15 @@ python scripts/ci_smoke.py
 git diff --check
 ```
 
-The Task 22 real-invocation closeout validation block remains recorded in
-`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` for the merged PR #90 slice.
-The Task 23 full validation evidence is recorded in `docs/progress-log.md` for
-this branch.
+The Task 27 review-follow-up candidate validation block is recorded in
+`docs/progress-log.md` for the merged PR #96 slice. This branch is a
+documentation and roadmap handoff slice.
 
 ## Next Action
 
-Open and review the Task 23 PR for
-`codex/task-23-controlled-single-tick-run-packet`, address any new bot or
-review findings, and merge only after checks and review are clean. If the merge
-is clean, the next implementation branch should start Task 24,
-closeout-bound ownership completion evidence, from
-`docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`.
+Open and review the Tasks 28-32 roadmap PR for
+`codex/tasks-28-32-roadmap-handoff`, address any new bot or review findings,
+and merge only after checks and review are clean. If the merge is clean, the
+next implementation branch should start Task 28, operator-approved dirty
+commit materialization, from
+`docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`.

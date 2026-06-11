@@ -33,6 +33,49 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-11 - Prepare Tasks 28-32 roadmap after review candidates
+
+Summary:
+- Refreshed the handoff after PR #96 merged review follow-up candidate
+  generation.
+- Added `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md` to sequence the
+  next bounded work after Task 27.
+- Marked the stale real-executor hardening business-memory item fulfilled and
+  seeded the next active backlog item for exact operator-approved write-side
+  bridges.
+- Kept the next work focused on plan-first, approval-bound Git/PR and review
+  response bridges before any autonomous merge, release, package publication,
+  role assignment, distributed lock, or continuous loop authority.
+
+Completed slices:
+- Documentation and handoff preparation after Task 27.
+
+Confidence change:
+- Previous: 25%
+- New: 25%
+- Reason: The next roadmap is clearer, but Cadence still lacks autonomous
+  dirty-worktree commit materialization, PR/review-response writes, role
+  assignment, agent scheduling, distributed locks, merge, release, package
+  publication, and continuous loop execution.
+
+Evidence:
+- PR #96 merged as `4a66a0b9f706c4bde248192dcdd339e352c451a0`.
+- `python -m codex_cadence.cli discover-candidates --cwd . --intent hybrid --discovery-mode local --proposal-allowance elect --elect --max-candidates 10 --max-candidates-per-source 5 --max-business-memory-candidates 5`
+
+New risks or blockers:
+- None beyond the existing plan-only dirty-worktree materialization and
+  read-only review-response gaps targeted by Tasks 28-32.
+
+Docs updated:
+- `docs/session-handoff.md`
+- `docs/cadence/business-memory.md`
+- `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`
+- `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+
 ## 2026-06-11 - Generate review follow-up candidates from saved threads
 
 Summary:

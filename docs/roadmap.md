@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-11
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, Tasks 18-22 complete in main, and the Tasks 23-27 roadmap current tree
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, Tasks 23-27 complete in main, and the Tasks 28-32 roadmap current branch
 Current unattended-operation confidence: 25%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -360,8 +360,10 @@ approval identity evidence, is implemented in the current tree. Task 20,
 `executor-invocation-plan` real executor invocation plan and approval binding,
 is implemented in the current tree. Task 21, controlled real executor
 invocation runner, is implemented in `main` via PR #89. Task 22, real executor
-run closeout binding, is implemented in `main` via PR #90. The current roadmap
-handoff branch prepares `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`.
+run closeout binding, is implemented in `main` via PR #90. Tasks 23-27 from
+`docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` are complete in `main` via
+PRs #92-#96. The current roadmap handoff branch prepares
+`docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`.
 
 ## Roadmap
 
