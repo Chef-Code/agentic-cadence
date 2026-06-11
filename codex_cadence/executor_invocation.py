@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import shlex
+import shutil
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -31,6 +32,7 @@ REAL_EXECUTOR_INVOCATION_SCHEMA_VERSION = "real-executor-invocation.v1"
 MAX_READINESS_AGE_SECONDS = 15 * 60
 MAX_INVOCATION_PLAN_AGE_SECONDS = 15 * 60
 REAL_EXECUTOR_SIDE_EFFECT_MODES = ("evidence_only", "materialized_changes")
+_GIT_EXECUTABLE: str | None = None
 FORWARDED_OWNERSHIP_BLOCKER_CODES = (
     "ownership_record_missing",
     "ownership_record_unreadable",
@@ -929,6 +931,23 @@ def _process_output_text(value: Any) -> str:
     return ""
 
 
+def _git_executable() -> str:
+    global _GIT_EXECUTABLE
+    if _GIT_EXECUTABLE is None:
+        git = shutil.which("git")
+        if not git:
+            raise RuntimeError("git executable could not be resolved")
+        git_path = Path(git)
+        if not git_path.is_absolute():
+            raise RuntimeError("git executable did not resolve to an absolute path")
+        _GIT_EXECUTABLE = str(git_path)
+    return _GIT_EXECUTABLE
+
+
+def _git_environment() -> dict[str, str]:
+    return dict(os.environ)
+
+
 def _result_evidence(
     result_file: Path,
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
@@ -945,9 +964,12 @@ def _result_evidence(
 
 def _local_branch_refs(cwd: Path) -> dict[str, str]:
     result = subprocess.run(
-        ["git", "for-each-ref", "--format=%(refname:short)%00%(objectname)", "refs/heads"],
+        [_git_executable(), "for-each-ref", "--format=%(refname:short)%00%(objectname)", "refs/heads"],
         cwd=cwd,
+        env=_git_environment(),
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         check=False,
     )
@@ -996,9 +1018,12 @@ def _repo_evidence_or_blocker(cwd: Path, *, code: str, message: str) -> tuple[di
 
 def _local_dirty_files(cwd: Path) -> tuple[set[str] | None, dict[str, Any] | None]:
     result = subprocess.run(
-        ["git", "--no-optional-locks", "status", "--porcelain", "--untracked-files=all", "--"],
+        [_git_executable(), "--no-optional-locks", "status", "--porcelain", "--untracked-files=all", "--"],
         cwd=cwd,
+        env=_git_environment(),
         text=True,
+        encoding="utf-8",
+        errors="replace",
         capture_output=True,
         check=False,
     )

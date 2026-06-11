@@ -871,6 +871,8 @@ REQUIRED_TOKENS = {
         "MAX_INVOCATION_PLAN_AGE_SECONDS",
         "build_executor_invocation_plan",
         "invoke_real_executor",
+        "shutil.which(\"git\")",
+        "_git_executable",
         "executor_invocation_target_descriptor",
         "executor_invocation_plan",
         "executor_invocation_planned",
