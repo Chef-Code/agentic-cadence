@@ -247,7 +247,11 @@ class PrReadinessTests(unittest.TestCase):
         self.assertTrue(packet["valid"])
         self.assertFalse(packet["plan_ready"])
         self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
+        self.assertEqual(packet["evidence"]["source"], "saved_pr_json")
+        self.assertEqual(packet["evidence"]["freshness"], "stale")
+        self.assertFalse(packet["evidence"]["live"])
         self.assertTrue(packet["evidence"]["stale"])
+        self.assertIn("refresh_saved_pr_json_before_merge", packet["evidence"]["limitations"])
         self.assertEqual(packet["plan_items"], [])
 
     def test_review_response_plan_recommends_wait_for_pending_checks(self):

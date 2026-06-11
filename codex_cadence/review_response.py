@@ -336,13 +336,26 @@ def _evidence_summary(
                     max_age_minutes=max_evidence_age_minutes,
                 )
             )
+    freshness = "stale" if stale else "saved_input"
+    limitations = (
+        ["does_not_call_github", "refresh_saved_pr_json_before_merge"]
+        if stale
+        else [
+            "does_not_call_github",
+            "depends_on_saved_status_check_rollup",
+            "depends_on_saved_review_threads",
+        ]
+    )
     return {
         "source": "saved_pr_json",
+        "freshness": freshness,
+        "live": False,
         "captured_at": _format_utc(captured),
         "checked_at": _format_utc(checked),
         "age_minutes": round(age_minutes, 2) if age_minutes is not None else None,
         "max_age_minutes": max_evidence_age_minutes,
         "stale": stale,
+        "limitations": limitations,
         "pr_json_checksum": _checksum_json(pr),
         "review_threads_checksum": _checksum_json(review_threads) if review_threads is not None else None,
         "candidate_discovery_checksum": _checksum_json(candidate_discovery) if candidate_discovery is not None else None,

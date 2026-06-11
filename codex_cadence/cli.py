@@ -45,6 +45,7 @@ from codex_cadence.git_pr_plan import (
     evaluate_dirty_git_pr_materialization_plan,
     evaluate_git_pr_plan,
     git_pr_materialization_load_error_packet,
+    git_pr_materialization_pr_evidence_load_error_packet,
     materialize_git_pr_plan,
     validate_git_pr_plan_dry_run_packet,
 )
@@ -4939,6 +4940,25 @@ def git_pr_materialize_command(args: argparse.Namespace) -> int:
         payload = git_pr_materialization_load_error_packet(plan_file, exc)
         emit(payload)
         return 1
+    pr_evidence = None
+    pr_evidence_path = None
+    pr_evidence_captured_at = None
+    if args.pr_json_file:
+        pr_evidence_path = Path(args.pr_json_file)
+        try:
+            pr_evidence = load_pr_json(pr_evidence_path)
+            pr_evidence_captured_at = datetime.fromtimestamp(pr_evidence_path.stat().st_mtime, timezone.utc)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            payload = git_pr_materialization_pr_evidence_load_error_packet(
+                plan_packet=plan_packet,
+                plan_file=plan_file,
+                pr_json_file=pr_evidence_path,
+                error=exc,
+                remote=args.remote,
+                pr_number=str(args.pr_number) if args.pr_number is not None else None,
+            )
+            emit(payload)
+            return 1
     payload = materialize_git_pr_plan(
         cwd=Path(args.cwd),
         plan_packet=plan_packet,
@@ -4947,6 +4967,10 @@ def git_pr_materialize_command(args: argparse.Namespace) -> int:
         runtime_root=args.root,
         remote=args.remote,
         pr_number=str(args.pr_number) if args.pr_number is not None else None,
+        pr_evidence=pr_evidence,
+        pr_evidence_captured_at=pr_evidence_captured_at,
+        max_pr_evidence_age_minutes=args.max_pr_json_age_minutes,
+        pr_evidence_path=pr_evidence_path,
     )
     emit(payload)
     return 0 if payload["valid"] else 1
@@ -5407,6 +5431,8 @@ def build_parser() -> argparse.ArgumentParser:
     git_pr_materialize_parser.add_argument("--approval-token")
     git_pr_materialize_parser.add_argument("--remote", default="origin")
     git_pr_materialize_parser.add_argument("--pr-number", type=positive_int)
+    git_pr_materialize_parser.add_argument("--pr-json-file")
+    git_pr_materialize_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
     git_pr_materialize_parser.set_defaults(func=git_pr_materialize_command, requires_root=True)
 
     operator_approval_parser = subparsers.add_parser(
