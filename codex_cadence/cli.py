@@ -1997,6 +1997,10 @@ def controlled_tick_paths_match(left: Any, right: Path) -> bool:
     return False
 
 
+def controlled_tick_context_paths_match(context_file: Path, left: Any, right: Path) -> bool:
+    return _closeout_paths_match(controlled_tick_context_path(context_file, left), right)
+
+
 def controlled_tick_context_path(context_file: Path, value: Any) -> Any:
     if not isinstance(value, str) or not value.strip():
         return value
@@ -2004,6 +2008,12 @@ def controlled_tick_context_path(context_file: Path, value: Any) -> Any:
     if not path.is_absolute():
         path = context_file.parent / path
     return path
+
+
+def controlled_tick_invocation_path(invocation: dict[str, Any], value: Any) -> Any:
+    if not isinstance(value, str) or not value.strip():
+        return value
+    return _invocation_context_path(invocation, value)
 
 
 def controlled_loop_tick_command(args: argparse.Namespace) -> int:
@@ -2142,7 +2152,7 @@ def controlled_loop_tick_command(args: argparse.Namespace) -> int:
             blocker = controlled_loop_tick_blocker("execution_start_task_mismatch", "execution start task anchor does not match task packet")
             step_blockers["execution_start"].append(blocker)
             blockers.append(blocker)
-        if "task_file" in execution_start and not controlled_tick_paths_match(execution_start.get("task_file"), packet_inputs["task"]):
+        if "task_file" in execution_start and not controlled_tick_context_paths_match(packet_inputs["execution_start"], execution_start.get("task_file"), packet_inputs["task"]):
             blocker = controlled_loop_tick_blocker("execution_start_task_mismatch", "execution start task_file does not match supplied task file")
             step_blockers["execution_start"].append(blocker)
             blockers.append(blocker)
@@ -2206,11 +2216,11 @@ def controlled_loop_tick_command(args: argparse.Namespace) -> int:
             blocker = controlled_loop_tick_blocker("real_invocation_plan_mismatch", "real invocation target checksum does not match invocation plan")
             step_blockers["real_invocation"].append(blocker)
             blockers.append(blocker)
-        if not controlled_tick_paths_match(real_invocation.get("record_file"), packet_inputs["real_invocation"]):
+        if not _closeout_paths_match(controlled_tick_invocation_path(real_invocation, real_invocation.get("record_file")), packet_inputs["real_invocation"]):
             blocker = controlled_loop_tick_blocker("real_invocation_record_mismatch", "real invocation record_file does not match supplied real invocation file")
             step_blockers["real_invocation"].append(blocker)
             blockers.append(blocker)
-        if not controlled_tick_paths_match(real_invocation.get("plan_file"), packet_inputs["invocation_plan"]):
+        if not _closeout_paths_match(controlled_tick_invocation_path(real_invocation, real_invocation.get("plan_file")), packet_inputs["invocation_plan"]):
             blocker = controlled_loop_tick_blocker("real_invocation_plan_mismatch", "real invocation plan_file does not match supplied invocation plan file")
             step_blockers["real_invocation"].append(blocker)
             blockers.append(blocker)
@@ -2218,7 +2228,7 @@ def controlled_loop_tick_command(args: argparse.Namespace) -> int:
             blocker = controlled_loop_tick_blocker("real_invocation_result_mismatch", "real invocation result checksum does not match supplied result")
             step_blockers["real_invocation"].append(blocker)
             blockers.append(blocker)
-        if not controlled_tick_paths_match(real_invocation.get("result_file"), packet_inputs["result"]):
+        if not _closeout_paths_match(controlled_tick_invocation_path(real_invocation, real_invocation.get("result_file")), packet_inputs["result"]):
             blocker = controlled_loop_tick_blocker("real_invocation_result_mismatch", "real invocation result_file does not match supplied result file")
             step_blockers["real_invocation"].append(blocker)
             blockers.append(blocker)
@@ -2236,15 +2246,15 @@ def controlled_loop_tick_command(args: argparse.Namespace) -> int:
             blocker = controlled_loop_tick_blocker("closeout_epoch_mismatch", "closeout epoch does not match execution start")
             step_blockers["closeout"].append(blocker)
             blockers.append(blocker)
-        if not controlled_tick_paths_match(closeout.get("task_file"), packet_inputs["task"]):
+        if not controlled_tick_context_paths_match(packet_inputs["closeout"], closeout.get("task_file"), packet_inputs["task"]):
             blocker = controlled_loop_tick_blocker("closeout_task_mismatch", "closeout task_file does not match supplied task file")
             step_blockers["closeout"].append(blocker)
             blockers.append(blocker)
-        if not controlled_tick_paths_match(closeout.get("result_file"), packet_inputs["result"]):
+        if not controlled_tick_context_paths_match(packet_inputs["closeout"], closeout.get("result_file"), packet_inputs["result"]):
             blocker = controlled_loop_tick_blocker("closeout_result_mismatch", "closeout result_file does not match supplied result file")
             step_blockers["closeout"].append(blocker)
             blockers.append(blocker)
-        if not controlled_tick_paths_match(closeout.get("snapshot_after_file"), packet_inputs["snapshot_after"]):
+        if not controlled_tick_context_paths_match(packet_inputs["closeout"], closeout.get("snapshot_after_file"), packet_inputs["snapshot_after"]):
             blocker = controlled_loop_tick_blocker("closeout_snapshot_mismatch", "closeout snapshot_after_file does not match supplied snapshot-after file")
             step_blockers["closeout"].append(blocker)
             blockers.append(blocker)
@@ -2268,7 +2278,7 @@ def controlled_loop_tick_command(args: argparse.Namespace) -> int:
             )
             step_blockers["closeout"].append(blocker)
             blockers.append(blocker)
-        if not controlled_tick_paths_match(closeout_invocation.get("path"), packet_inputs["real_invocation"]):
+        if not controlled_tick_context_paths_match(packet_inputs["closeout"], closeout_invocation.get("path"), packet_inputs["real_invocation"]):
             blocker = controlled_loop_tick_blocker("closeout_invocation_mismatch", "closeout real invocation path does not match supplied real invocation file")
             step_blockers["closeout"].append(blocker)
             blockers.append(blocker)
@@ -2299,6 +2309,11 @@ def controlled_loop_tick_command(args: argparse.Namespace) -> int:
             blocker = controlled_loop_tick_blocker("real_invocation_closeout_mismatch", "real invocation closeout_status does not match closeout evidence")
             step_blockers["real_invocation"].append(blocker)
             blockers.append(blocker)
+        if closeout.get("closeout_status") != "completed" or real_invocation.get("closeout_status") != "completed":
+            blocker = controlled_loop_tick_blocker("closeout_not_completed", "closeout and real invocation must be completed to emit a controlled tick")
+            step_blockers["closeout"].append(blocker)
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
         if real_invocation.get("epoch_id") != epoch_id:
             blocker = controlled_loop_tick_blocker("real_invocation_closeout_mismatch", "real invocation epoch_id does not match execution start")
             step_blockers["real_invocation"].append(blocker)
@@ -2311,7 +2326,7 @@ def controlled_loop_tick_command(args: argparse.Namespace) -> int:
             blocker = controlled_loop_tick_blocker("real_invocation_closeout_mismatch", "real invocation snapshot-after checksum does not match supplied snapshot-after evidence")
             step_blockers["real_invocation"].append(blocker)
             blockers.append(blocker)
-        if not controlled_tick_paths_match(real_invocation.get("task_file"), packet_inputs["task"]):
+        if not _closeout_paths_match(controlled_tick_invocation_path(real_invocation, real_invocation.get("task_file")), packet_inputs["task"]):
             blocker = controlled_loop_tick_blocker("real_invocation_closeout_mismatch", "real invocation task_file does not match supplied task file")
             step_blockers["real_invocation"].append(blocker)
             blockers.append(blocker)

@@ -4477,6 +4477,7 @@ class CadenceCliTests(unittest.TestCase):
         }
 
     def run_controlled_loop_tick_cli(self, tmp, chain, **overrides):
+        cwd = overrides.pop("cwd", None)
         values = {
             "loop_tick_file": chain["loop_tick_path"],
             "task_file": chain["task_path"],
@@ -4513,6 +4514,8 @@ class CadenceCliTests(unittest.TestCase):
         ]
         if values["git_pr_plan_file"] is not None:
             args.extend(["--git-pr-plan-file", str(values["git_pr_plan_file"])])
+        if cwd is not None:
+            return run_cli_from(cwd, tmp, *args)
         return run_cli(tmp, *args)
 
     def controlled_loop_tick_args(self, tmp, chain, **overrides):
@@ -4851,6 +4854,48 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
             self.assertTrue(replay_output["valid"])
 
+    def test_controlled_loop_tick_accepts_saved_relative_anchors_from_other_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as other:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            root = Path(tmp)
+
+            def rel(path):
+                return str(Path(path).relative_to(root))
+
+            execution_start = json.loads(chain["execution_start_path"].read_text(encoding="utf-8"))
+            execution_start["task_file"] = rel(chain["task_path"])
+            chain["execution_start_path"].write_text(json.dumps(execution_start), encoding="utf-8")
+
+            invocation = json.loads(chain["invocation_path"].read_text(encoding="utf-8"))
+            closeout = json.loads(chain["closeout_path"].read_text(encoding="utf-8"))
+            invocation["invocation_cwd"] = str(root)
+            invocation["record_file"] = rel(chain["invocation_path"])
+            invocation["plan_file"] = rel(chain["plan_path"])
+            invocation["result_file"] = rel(chain["result_path"])
+            invocation["task_file"] = rel(chain["task_path"])
+            closeout["task_file"] = rel(chain["task_path"])
+            closeout["result_file"] = rel(chain["result_path"])
+            closeout["snapshot_after_file"] = rel(chain["snapshot_after_path"])
+            closeout["real_invocation"]["path"] = rel(chain["invocation_path"])
+            closeout_core_packet = {
+                key: value
+                for key, value in closeout.items()
+                if key not in {"audit_record", "run_record", "real_invocation"}
+            }
+            epoch_closeout_checksum = checksum_json(closeout_core_packet)
+            invocation["epoch_closeout_checksum"] = epoch_closeout_checksum
+            closeout["real_invocation"]["epoch_closeout_checksum"] = epoch_closeout_checksum
+            closeout["real_invocation"]["after_checksum"] = checksum_json(invocation)
+            chain["invocation_path"].write_text(json.dumps(invocation), encoding="utf-8")
+            chain["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+
+            result, output = self.run_controlled_loop_tick_cli(tmp, chain, cwd=other)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["blockers"], [])
+
     def test_controlled_loop_tick_blocks_mismatched_readiness_without_audit_append(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -4943,6 +4988,35 @@ class CadenceCliTests(unittest.TestCase):
             codes = {blocker["code"] for blocker in output["blockers"]}
             self.assertIn("closeout_invocation_mismatch", codes)
             self.assertIn("real_invocation_closeout_mismatch", codes)
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
+    def test_controlled_loop_tick_blocks_non_completed_closeout_without_append(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            invocation = json.loads(chain["invocation_path"].read_text(encoding="utf-8"))
+            closeout = json.loads(chain["closeout_path"].read_text(encoding="utf-8"))
+            closeout["closeout_status"] = "failed"
+            invocation["closeout_status"] = "failed"
+            closeout_core_packet = {
+                key: value
+                for key, value in closeout.items()
+                if key not in {"audit_record", "run_record", "real_invocation"}
+            }
+            epoch_closeout_checksum = checksum_json(closeout_core_packet)
+            invocation["epoch_closeout_checksum"] = epoch_closeout_checksum
+            closeout["real_invocation"]["epoch_closeout_checksum"] = epoch_closeout_checksum
+            closeout["real_invocation"]["after_checksum"] = checksum_json(invocation)
+            chain["invocation_path"].write_text(json.dumps(invocation), encoding="utf-8")
+            chain["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            before_audit_count = len(audit_records(tmp))
+
+            result, output = self.run_controlled_loop_tick_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertNotIn("audit_record", output)
+            self.assertIn("closeout_not_completed", {blocker["code"] for blocker in output["blockers"]})
             self.assertEqual(len(audit_records(tmp)), before_audit_count)
 
     def test_controlled_loop_tick_blocks_real_invocation_epoch_drift_without_append(self):

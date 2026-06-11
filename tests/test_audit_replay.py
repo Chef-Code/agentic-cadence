@@ -934,6 +934,26 @@ class AuditReplayCliTests(unittest.TestCase):
             self.assertFalse(output["valid"])
             self.assertIn("audit_controlled_loop_tick_executor_not_started", {blocker["code"] for blocker in output["blockers"]})
 
+    def test_controlled_loop_tick_audit_record_requires_paired_git_pr_plan_anchor(self):
+        cases = [
+            ("missing git pr plan file", {"git_pr_plan_checksum": GOOD_CHECKSUM}),
+            ("missing git pr plan checksum", {"git_pr_plan_file": "C:/tmp/git-pr-plan.json"}),
+        ]
+        for label, overrides in cases:
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    write_audit_records(root, controlled_loop_tick_record(**overrides))
+
+                    result, output = run_cli(tmp, "audit-replay")
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(output["valid"])
+                    self.assertIn(
+                        "audit_controlled_loop_tick_git_pr_plan_anchor_incomplete",
+                        {blocker["code"] for blocker in output["blockers"]},
+                    )
+
     def test_controlled_loop_tick_audit_record_requires_invocation_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

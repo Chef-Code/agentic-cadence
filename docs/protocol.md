@@ -1147,6 +1147,7 @@ Stable blocker codes include `loop_tick_evidence_missing`,
 `closeout_invalid`, `closeout_epoch_mismatch`, `closeout_task_mismatch`,
 `closeout_result_mismatch`, `closeout_snapshot_mismatch`,
 `closeout_invocation_mismatch`, `closeout_validation_mismatch`,
+`closeout_not_completed`,
 `git_pr_plan_unanchored`, and `git_pr_plan_mismatch`.
 
 `controlled-loop-tick` may report `executor_started: true` only because the

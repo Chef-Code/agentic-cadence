@@ -594,10 +594,20 @@ def validate_controlled_loop_tick_audit_record(record: dict[str, Any], line: int
                 line,
             )
         )
-    if "git_pr_plan_file" in record:
+    has_git_plan_file = "git_pr_plan_file" in record and record.get("git_pr_plan_file") not in (None, "")
+    has_git_plan_checksum = "git_pr_plan_checksum" in record and record.get("git_pr_plan_checksum") not in (None, "")
+    if has_git_plan_file:
         blockers.extend(required_string(record, "git_pr_plan_file", line))
-    if "git_pr_plan_checksum" in record:
+    if has_git_plan_checksum:
         blockers.extend(required_checksum_present(record, "git_pr_plan_checksum", line))
+    if has_git_plan_file != has_git_plan_checksum:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_loop_tick_git_pr_plan_anchor_incomplete",
+                "git_pr_plan_file and git_pr_plan_checksum must be present together",
+                line,
+            )
+        )
     return blockers
 
 
