@@ -44,8 +44,10 @@ from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.git_pr_plan import (
     evaluate_dirty_git_pr_materialization_plan,
     evaluate_git_pr_plan,
+    git_pr_dirty_commit_materialization_load_error_packet,
     git_pr_materialization_load_error_packet,
     git_pr_materialization_pr_evidence_load_error_packet,
+    materialize_dirty_commit_plan,
     materialize_git_pr_plan,
     validate_git_pr_plan_dry_run_packet,
 )
@@ -4976,6 +4978,25 @@ def git_pr_materialize_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 1
 
 
+def git_pr_dirty_commit_materialize_command(args: argparse.Namespace) -> int:
+    plan_file = Path(args.plan_file)
+    try:
+        plan_packet = read_json(plan_file)
+    except (OSError, json.JSONDecodeError, ValueError) as exc:
+        payload = git_pr_dirty_commit_materialization_load_error_packet(plan_file, exc)
+        emit(payload)
+        return 1
+    payload = materialize_dirty_commit_plan(
+        cwd=Path(args.cwd),
+        plan_packet=plan_packet,
+        plan_file=plan_file,
+        approval_token=args.approval_token,
+        runtime_root=args.root,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 OPERATOR_APPROVAL_SECRET_ENV = "CADENCE_OPERATOR_APPROVAL_SECRET"
 
 
@@ -5434,6 +5455,15 @@ def build_parser() -> argparse.ArgumentParser:
     git_pr_materialize_parser.add_argument("--pr-json-file")
     git_pr_materialize_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
     git_pr_materialize_parser.set_defaults(func=git_pr_materialize_command, requires_root=True)
+
+    dirty_commit_materialize_parser = subparsers.add_parser(
+        "git-pr-dirty-commit-materialize",
+        help="Materialize an operator-approved dirty-worktree plan into one local commit",
+    )
+    dirty_commit_materialize_parser.add_argument("--cwd", default=".")
+    dirty_commit_materialize_parser.add_argument("--plan-file", required=True)
+    dirty_commit_materialize_parser.add_argument("--approval-token")
+    dirty_commit_materialize_parser.set_defaults(func=git_pr_dirty_commit_materialize_command, requires_root=True)
 
     operator_approval_parser = subparsers.add_parser(
         "verify-operator-approval",

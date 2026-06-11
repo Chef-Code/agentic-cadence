@@ -33,6 +33,57 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-11 - Add approved dirty-worktree commit materialization
+
+Summary:
+- Added `git-pr-dirty-commit-materialize`, an operator-approved local bridge
+  from reviewed `git-pr-dirty-materialization-plan.v1` packets to exactly one
+  branch commit.
+- The command verifies a target-bound HMAC approval token, re-runs dirty
+  file/fingerprint/closeout/branch-policy/PR-body gates immediately before Git
+  writes, creates and checks out only the approved branch, stages only the
+  planned files, disables Git hooks for bounded writes, and commits exactly the
+  approved message.
+- Added replayable `git_pr_dirty_commit_materialization_intent` and
+  `git_pr_dirty_commit_materialization_result` audit event support.
+- The command does not push, call GitHub, create/update PRs, merge, release,
+  publish packages, assign roles, schedule agents, claim distributed locks, or
+  invoke executors.
+
+Completed slices:
+- Task 28: operator-approved dirty-worktree local commit materialization.
+
+Confidence change:
+- Previous: 25%
+- New: 25%
+- Reason: Cadence now has a narrow approved local commit bridge for dirty
+  executor output, but still lacks the follow-on dirty commit to PR bridge,
+  review-response writes, role assignment, agent scheduling, distributed locks,
+  merge, release, package publication, and continuous loop execution.
+
+Evidence:
+- `python -m py_compile codex_cadence\git_pr_plan.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_git_pr_plan.py tests\test_audit_replay.py`
+- `python -m unittest tests.test_git_pr_plan -v`
+- `python -m unittest tests.test_cadence -v`
+- `python -m unittest tests.test_audit_replay -v`
+- `python -m unittest tests.test_ci_checks -v`
+- `python scripts\validate_protocol.py`
+- `python scripts\ci_smoke.py`
+- `git diff --check`
+- Local review agents: first pass found hook/message-boundary findings; both
+  were fixed and post-fix review reported no material findings.
+
+New risks or blockers:
+- Dirty commit evidence still needs Task 29 before it can feed an approved
+  push/PR materialization path.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`
+
 ## 2026-06-11 - Prepare Tasks 28-32 roadmap after review candidates
 
 Summary:
