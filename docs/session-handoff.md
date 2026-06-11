@@ -6,17 +6,17 @@ Last updated: 2026-06-10
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `2de6cdcc1729a5c088ce14fbe447d09607b52c56` after PR #87 merged.
-- Working branch intent: implement Task 20 read-only real executor invocation plan and approval binding before any real executor process-start path exists.
-- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence.
+- Current base: `origin/main` at `071ea6b040d304773827f56f239cdde1b82ea05c` after PR #88 merged.
+- Working branch intent: implement Task 21 controlled real executor invocation records from approved invocation plans.
+- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence; PR #88 merged read-only real executor invocation plan evidence.
 - Completed roadmap marker: Tasks 13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in `main`, including `work-ownership-claim.v1`, `work-ownership-closeout.v1`, ownership-bound `execution-start.v1`, ownership-aware `resume-continuation.v1`, read-only `role-readiness.v1`, and read-only `executor-invocation-readiness.v1` packet evidence.
-- Current branch scope: `codex/task-20-real-executor-invocation-plan` adds
-  read-only `executor-invocation-plan.v1` evidence that binds readiness,
-  approval identity, audit-chain, adapter, rollback, command, environment,
-  timeout, cwd, active epoch, active ownership, and result-path anchors. It
-  must not invoke a real executor, modify code through an executor, create
-  branches outside this task branch, write GitHub state beyond the
-  operator-approved PR for this slice, merge, release, or publish packages.
+- Current branch scope: `codex/task-21-controlled-real-executor-invocation`
+  adds `invoke-real-executor` and `real-executor-invocation.v1` evidence from a
+  fresh approved invocation plan. It may start exactly one approved local
+  process with bounded environment and timeout, capture stdout/stderr, and
+  record before/after repo snapshots. It must not create branches, commit,
+  push, open or update PRs, merge, release, publish packages, assign roles,
+  schedule agents, or claim distributed locks.
 
 ## Current Capability Baseline
 
@@ -88,16 +88,22 @@ Last updated: 2026-06-10
   environment allowlist, timeout, cwd, active epoch, active ownership, and
   expected result path evidence, then recommend `invoke_real_executor` only
   when all anchors still match while reporting `executor_started: false`.
+- `invoke-real-executor` consumes a fresh successful
+  `executor-invocation-plan.v1`, re-runs the plan gates immediately before
+  process start, starts one approved command with `shell=False`, captures
+  stdout/stderr, writes `real-executor-invocation.v1` records under
+  `<root>/real-executor-invocations/`, and enforces `evidence_only` versus
+  `materialized_changes` side-effect modes.
 - `run-controlled-executor-fixture` can launch the bundled fake external executor fixture from an explicit current-Python, absolute-script command template in tests/examples, validate its task packet and command before start, require expected result evidence under the runtime root, reject stale result files, and append `executor_fixture_invocation` plus `executor_result_validation` audit records.
 - Disabled executor permissions now also reject merge, release, and package-publication command forms, including `gh pr merge`, `gh release create`, `gh release upload`, mutating `git tag` forms while allowing read-only tag listing/verification, `twine upload`, Python launcher `-m twine upload` forms including versioned `python3.x`, `npm publish`, `pnpm publish`, `yarn publish`, `yarn npm publish`, `poetry publish`, `uv publish`, `hatch publish`, and `flit publish`.
 - Dry-run-only `git-pr-plan` is merged. It turns validated executor evidence into proposed branch, commit, PR title, and PR body text without creating a branch, committing, pushing, calling GitHub, opening a pull request, merging, releasing, or publishing packages.
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
 - Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete in `main` via PR #84.
-- This branch implements Task 20 from
+- This branch implements Task 21 from
   `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`; the PR for this branch
-  should review read-only real executor invocation planning and approval
-  binding evidence.
+  should review controlled real executor invocation evidence and side-effect
+  enforcement.
 
 ## Important Boundaries
 
@@ -143,14 +149,19 @@ Last updated: 2026-06-10
   evidence, but it does not start a process, append audit records, modify code,
   create branches, commit, push, write PRs, merge, release, publish packages,
   assign roles, schedule agents, or write GitHub state.
+- `invoke-real-executor` is invocation evidence only. It can start one approved
+  local process from a fresh plan and write local runtime evidence, but it is
+  not authority to commit, push, open or update PRs, resolve review threads,
+  merge, release, publish packages, assign roles, schedule agents, claim
+  distributed locks, or write GitHub state.
 - The active business-memory backlog entry is discovery input only. It does not authorize executor invocation, code modification, branch creation, commits, pushes, PR creation, merges, releases, package publication, or paid review spending.
-- The controlled fake executor fixture is merged, but it is still only a tests/examples component. No real executor invocation, branch/PR automation, write-side GitHub sync, merge authority, release behavior, hash chain, authenticated approval identity, or package-publication authority is available from that fixture.
-- Real executor invocation remains blocked even though governed execution
-  start, resume verification, resume-continuation, controlled fixture
-  execution, local execution-run records, result validation, local closeout,
-  read-only GitHub evidence sync, and operator-approved PR materialization
-  exist. A valid local run record is evidence for closeout, not authority to
-  run a real executor or named host adapter.
+- The controlled fake executor fixture remains only a tests/examples component.
+  The real invocation runner is separate local process-start evidence and still
+  does not provide named host adapter support, autonomous branch/PR automation,
+  merge authority, release behavior, or package-publication authority.
+- Real executor invocation records are evidence for the next closeout-binding
+  gate, not final authority for epoch closeout, ownership closeout, Git/PR
+  planning, or named host adapters.
 - Keep public docs free of private machine paths and private repository assumptions.
 
 ## Validation To Re-run
@@ -165,19 +176,19 @@ python scripts/ci_smoke.py
 git diff --check
 ```
 
-For this branch, use the Task 20 invocation-plan validation block above. The
-Task 17 runtime validation block remains recorded in
+For this branch, include the Task 21 `invoke-real-executor` focused validation
+block in addition to the broader validation commands above. The Task 17 runtime
+validation block remains recorded in
 `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the merged
 `executor-invocation-readiness.v1` slice.
 
 ## Next Action
 
-Finish review on the Task 20 PR for
-`codex/task-20-real-executor-invocation-plan`, address any new findings, and
-merge only after checks and review are clean. Task 21 from
-`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, controlled real executor
-invocation runner, is the next bounded slice after this branch. Code
-modification by an executor, dirty-worktree commit, autonomous push, PR writes
-outside the approved PR for this task, role assignment, agent pools, GitHub
-issue assignment, shared runtimes, distributed locks, release, and package
-publication remain outside this branch.
+Finish review on the Task 21 PR for
+`codex/task-21-controlled-real-executor-invocation`, address any new findings,
+and merge only after checks and review are clean. Task 22 from
+`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, real executor run closeout
+binding, is the next bounded slice after this branch. Dirty-worktree commit,
+autonomous push, PR writes outside the approved PR for this task, role
+assignment, agent pools, GitHub issue assignment, shared runtimes, distributed
+locks, release, and package publication remain outside this branch.

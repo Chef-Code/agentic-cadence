@@ -673,6 +673,86 @@ append audit records, emit process metadata, modify code, create branches,
 commit, push, open or update PRs, merge, release, publish packages, assign
 roles, schedule agents, or write GitHub state.
 
+## Real Executor Invocation
+
+`invoke-real-executor` is the controlled process-start boundary after
+`executor-invocation-plan`. It consumes a fresh successful
+`executor-invocation-plan.v1` packet and an operator approval secret, then
+re-runs the repository, brake, epoch, ownership, approval, audit-chain,
+rollback, timeout, command-policy, and result-path gates immediately before
+starting any process:
+
+```bash
+agentic-cadence --root <runtime-root> invoke-real-executor --plan-file executor-invocation-plan.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --side-effect-mode evidence_only
+```
+
+It emits and writes a `real-executor-invocation.v1` packet shaped as:
+
+```json
+{
+  "protocol_version": "v1",
+  "schema_version": "real-executor-invocation.v1",
+  "packet": "real_executor_invocation",
+  "valid": false,
+  "executor_started": true,
+  "timed_out": false,
+  "invocation_id": "real-executor-invocation-...",
+  "side_effect_mode": "evidence_only",
+  "plan_checksum": "sha256:...",
+  "command": {"command": "python ...", "cwd": "/repo", "timeout_seconds": 300},
+  "process": {"exit_code": 0, "timed_out": false},
+  "result_file": "<runtime-root>/executor-results/executor-result.json",
+  "stdout_log": "<runtime-root>/real-executor-invocations/<id>.stdout.log",
+  "stderr_log": "<runtime-root>/real-executor-invocations/<id>.stderr.log",
+  "record_file": "<runtime-root>/real-executor-invocations/<id>.json",
+  "repository_before": {
+    "head": "abc...",
+    "dirty_worktree": false,
+    "local_branch_refs": {"main": "abc..."}
+  },
+  "repository_after": {
+    "head": "abc...",
+    "dirty_worktree": false,
+    "local_branch_refs": {"main": "abc..."}
+  },
+  "rollback": {"checksum": "sha256:..."},
+  "audit_chain": {"chain_head": "sha256:..."},
+  "blockers": [{"code": "executor_result_missing", "message": "human readable"}],
+  "side_effects": ["real_executor_process_started", "stdout_stderr_captured", "real_executor_invocation_record_written"]
+}
+```
+
+The command starts exactly one approved command with `shell=False`, explicit
+cwd, bounded environment allowlist, approved timeout, and stdout/stderr capture
+to runtime-owned log files. It records process exit status, timeout status,
+before/after repository snapshots including `local_branch_refs`, rollback
+evidence checksum, result path, output log paths, plan checksum, and the
+audit-chain head used by the immediate pre-start recheck.
+
+`--side-effect-mode evidence_only` requires the target repository to remain
+clean after invocation. `--side-effect-mode materialized_changes` allows a
+dirty worktree only when the executor result includes verified
+`materialized_change_evidence`; Cadence records the dirty-worktree evidence but
+does not commit, push, open PRs, resolve threads, merge, release, publish
+packages, assign roles, schedule agents, claim distributed locks, or write
+GitHub state.
+Added, removed, or retargeted local branch refs are recorded in
+`local_branch_refs` and fail as `unexpected_repo_modification` in both
+side-effect modes.
+
+Stable blockers include `plan_packet_stale`, `plan_not_invocable`,
+`approval_recheck_failed`, `rollback_evidence_missing`,
+`rollback_recheck_failed`, `brake_not_drive`, `active_epoch_mismatch`,
+`runtime_root_unsafe`, `repo_inspection_failed`, `executor_process_timeout`,
+`executor_process_failed`, `executor_result_stale`, `executor_result_missing`,
+`unexpected_repo_modification`, and `materialized_change_evidence_missing`.
+Immediate pre-start rechecks can also forward `executor-invocation-plan`
+blockers such as `repo_head_mismatch`, `active_epoch_missing`, and
+`executor_command_denied`.
+Before-start blockers do not write a real executor invocation record. Once the
+process starts, Cadence writes the local record even when timeout, missing
+result evidence, or side-effect-mode blockers make the invocation invalid.
+
 ## Handoff Signature
 
 Draft marker:

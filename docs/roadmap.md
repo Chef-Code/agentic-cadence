@@ -2,8 +2,8 @@
 
 Status: living document
 Last updated: 2026-06-10
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
-Current unattended-operation confidence: 10%
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Current unattended-operation confidence: 15%
 
 This document tracks the practical path from the current Agentic Cadence
 protocol toolkit toward GitHub-native orchestration for autonomous software
@@ -76,20 +76,22 @@ epoch gating, local execution-run evidence, operator-approved Git/PR
 materialization, read-only resume verification, ownership-aware read-only
 resume continuation, read-only review-response planning, local work ownership
 claim/closeout evidence, read-only role-readiness evidence, read-only
-executor-invocation-readiness and invocation-plan evidence, and local audit
-hash-chain integrity evidence. It can
+executor-invocation-readiness and invocation-plan evidence, controlled real
+executor invocation evidence, and local audit hash-chain integrity evidence. It can
 materialize a reviewed Git/PR plan only through exact target-bound operator
 approval, and it can verify handoff pickup state before a fresh session
-continues, but it still cannot independently implement code, invoke a real
-executor, autonomously push branches, autonomously open pull requests, assign
+continues. It can also start one approved real executor command with local
+invocation evidence, but it still cannot independently implement code outside
+that approved command, bind real-run evidence into closeout and Git/PR
+planning, autonomously push branches, autonomously open pull requests, assign
 agent roles, resolve review feedback, launch fresh sessions, coordinate an
 agent pool, or continue in an unattended loop.
 
-Current confidence for unattended continuous operation is 10%.
+Current confidence for unattended continuous operation is 15%.
 
 The rating is low because the safety primitives are real, but the central
 autonomous build loop is not implemented. The first real unattended run would
-stop at implementation or PR/review integration.
+stop at real-run closeout binding or PR/review integration.
 
 See `docs/autonomous-loop-readiness.md` for the direct readiness assessment.
 
@@ -233,15 +235,15 @@ The following capabilities are not implemented as of this baseline:
 - agent pool, role registry, and role-aware permission model;
 - task decomposition across Planning, Architecture, Builder, Reviewer, QA,
   Documentation, Release, and Handoff agents;
-- real executor invocation or named executor adapter integration;
+- real-run closeout binding or named executor adapter integration;
 - autonomous code modification;
 - autonomous branch, dirty-worktree commit, push, and PR creation workflow;
 - continuous or write-side GitHub PR, check, comment, and review-thread synchronization;
 - write-side review-feedback response loop;
 - real host context-pressure integration;
 - automatic fresh-session launch and resume orchestration;
-- distributed locking, shared runtime, authenticated approval identity, or
-  tamper-evident remote audit log;
+- distributed locking, shared runtime, external identity-provider-backed
+  approval, or tamper-evident remote audit log;
 - autonomous merge, release, or package publication.
 
 ## Known Edges
@@ -347,8 +349,9 @@ real-executor invocation readiness planning, is merged. Task 18 from
 evidence, is implemented in the current tree. Task 19, authenticated operator
 approval identity evidence, is implemented in the current tree. Task 20,
 `executor-invocation-plan` real executor invocation plan and approval binding,
-is implemented in the current branch. Task 21, controlled real executor
-invocation runner, is the next bounded implementation slice.
+is implemented in the current tree. Task 21, controlled real executor
+invocation runner, is implemented in the current branch. Task 22, real
+executor run closeout binding, is the next bounded implementation slice.
 
 ## Roadmap
 
