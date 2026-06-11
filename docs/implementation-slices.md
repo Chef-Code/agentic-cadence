@@ -117,7 +117,7 @@ invocation records to epoch decisions and dry-run Git/PR planning, and
 `controlled-loop-tick` can compose the saved loop/task/start/readiness/plan/
 invocation/result/snapshot/closeout chain into `controlled-loop-tick.v1` with
 success-only `controlled_loop_tick` audit evidence. Autonomous
-autonomous branch/commit/push or PR creation, automatic session launch,
+branch/commit/push or PR creation, automatic session launch,
 distributed work ownership, role assignment, and continuous loop orchestration
 remain missing.
 Current unattended-operation confidence is 25%.

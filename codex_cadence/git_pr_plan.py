@@ -2215,7 +2215,7 @@ def materialize_dirty_commit_plan(
         blockers=[],
         warnings=warnings,
     )
-    audit_record, audit_blocker = _append_materialization_audit(
+    _audit_record, audit_blocker = _append_materialization_audit(
         runtime_path,
         git_pr_dirty_commit_materialization_intent_audit_record(intent_payload),
     )
@@ -2263,7 +2263,7 @@ def materialize_dirty_commit_plan(
             blockers=failure_blockers,
             warnings=warnings,
         )
-        result_audit, result_audit_blocker = _append_materialization_audit(
+        _result_audit, result_audit_blocker = _append_materialization_audit(
             runtime_path,
             git_pr_dirty_commit_materialization_result_audit_record(failed_packet),
         )
@@ -2409,7 +2409,7 @@ def materialize_dirty_commit_plan(
         blockers=[],
         warnings=warnings,
     )
-    result_audit, result_audit_blocker = _append_materialization_audit(
+    _result_audit, result_audit_blocker = _append_materialization_audit(
         runtime_path,
         git_pr_dirty_commit_materialization_result_audit_record(success_packet),
     )
@@ -2862,7 +2862,7 @@ def materialize_git_pr_plan(
         remote_url=remote_url,
         pr_evidence=pr_evidence_summary,
     )
-    audit_record, audit_blocker = _append_materialization_audit(
+    _audit_record, audit_blocker = _append_materialization_audit(
         runtime_path,
         git_pr_materialization_intent_audit_record(intent_payload),
     )
@@ -2931,7 +2931,7 @@ def materialize_git_pr_plan(
                 remote_url=remote_url,
                 pr_evidence=pr_evidence_summary,
             )
-            result_audit, result_audit_blocker = _append_materialization_audit(
+            _result_audit, result_audit_blocker = _append_materialization_audit(
                 runtime_path,
                 git_pr_materialization_result_audit_record(failed_packet),
             )
@@ -3002,7 +3002,7 @@ def materialize_git_pr_plan(
             remote_url=remote_url,
             pr_evidence=pr_evidence_summary,
         )
-        result_audit, result_audit_blocker = _append_materialization_audit(
+        _result_audit, result_audit_blocker = _append_materialization_audit(
             runtime_path,
             git_pr_materialization_result_audit_record(failed_packet),
         )
@@ -3089,7 +3089,7 @@ def materialize_git_pr_plan(
             remote_url=remote_url,
             pr_evidence=pr_evidence_summary,
         )
-        result_audit, result_audit_blocker = _append_materialization_audit(
+        _result_audit, result_audit_blocker = _append_materialization_audit(
             runtime_path,
             git_pr_materialization_result_audit_record(failed_packet),
         )
@@ -3141,7 +3141,7 @@ def materialize_git_pr_plan(
         remote_url=remote_url,
         pr_evidence=pr_evidence_summary,
     )
-    result_audit, result_audit_blocker = _append_materialization_audit(
+    _result_audit, result_audit_blocker = _append_materialization_audit(
         runtime_path,
         git_pr_materialization_result_audit_record(success_packet),
     )
