@@ -1321,11 +1321,12 @@ When all gates pass, the command may append a
 for rollback, create and check out only the approved proposed branch at the
 approved source head, stage only the planned files with `git add --`, verify the
 staged file set exactly equals the approved file list, and create exactly the
-approved commit message. Before staging, planned files with active Git `filter`
-attributes must block to avoid clean/process filter command execution. All
-bounded Git write commands must run with hooks disabled, commit signing disabled
-for the local materialization commit, and the completed commit must be rechecked
-against the approved parent, full commit message, and committed file set. It
+approved commit message. Before staging, planned files whose Git `filter` driver
+configures `clean` or `process` steps must block to avoid filter command
+execution. All bounded Git write commands must run with hooks disabled, commit
+signing disabled for the local materialization commit, and the completed commit
+must be rechecked against the approved parent, full commit message, and
+committed file set. It
 must append a
 `git_pr_dirty_commit_materialization_result` audit record after success or
 after a bounded side-effect failure; successful side effects without a result

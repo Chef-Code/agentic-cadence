@@ -1114,6 +1114,45 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertEqual(current_head(repo), head_before)
             self.assertFalse((runtime_root / "audit" / "events.jsonl").exists())
 
+    def test_git_pr_dirty_commit_materialize_allows_smudge_only_filter_driver(self):
+        """Smudge-only filter drivers do not run during git add and should not block."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            (Path(repo) / ".gitattributes").write_text("codex_cadence/git_pr_plan.py filter=smudgeonly\n", encoding="utf-8")
+            git(repo, "add", ".gitattributes")
+            git(repo, "commit", "-m", "add smudge attributes")
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            plan_path, plan, _inputs = write_ready_dirty_materialization_plan(runtime_root, Path(tmp), repo)
+            token = git_pr_dirty_commit_materialization_approval_token(plan)
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_materializer(fake_bin, gh_log, "https://github.example/local/test/pull/1")
+            git(repo, "config", "filter.smudgeonly.smudge", "gh pr create --title smudge-ran --body smudge-ran")
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = "https://github.example/local/test/pull/1"
+
+            result, packet = run_git_pr_dirty_commit_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(plan_path),
+                "--approval-token",
+                token,
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertIsNotNone(packet, result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(packet["valid"])
+            self.assertEqual(packet["decision"], "materialized")
+            self.assertFalse(gh_log.exists())
+
     def test_git_pr_dirty_commit_materialize_blocks_missing_or_mismatched_approval_without_side_effects(self):
         """Dirty commit materialization requires approval for the exact saved target."""
         cases = [

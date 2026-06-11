@@ -42,10 +42,10 @@ Summary:
 - The command verifies a target-bound HMAC approval token, re-runs dirty
   file/fingerprint/closeout/branch-policy/PR-body gates immediately before Git
   writes, creates and checks out only the approved branch, stages only the
-  planned files, blocks Git filter-managed planned files before staging,
-  disables Git hooks and commit signing for bounded writes, rolls back failed
-  write paths to the source branch/index, and commits exactly the approved
-  message.
+  planned files, blocks Git clean/process filter-managed planned files before
+  staging, disables Git hooks and commit signing for bounded writes, rolls back
+  failed write paths to the source branch/index, and commits exactly the
+  approved message.
 - Added replayable `git_pr_dirty_commit_materialization_intent` and
   `git_pr_dirty_commit_materialization_result` audit event support.
 - The command does not push, call GitHub, create/update PRs, merge, release,

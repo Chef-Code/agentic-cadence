@@ -912,8 +912,9 @@ packet. When all gates pass, it appends
 `git_pr_dirty_commit_materialization_intent`, snapshots the index for rollback,
 creates and checks out only the approved branch at the approved source head,
 runs hook-disabled Git commands, blocks planned files with Git `filter`
-attributes before staging, stages only the planned files with `git add --`,
-creates exactly the approved commit message with commit signing disabled,
+drivers that configure `clean` or `process` steps before staging, stages only
+the planned files with `git add --`, creates exactly the approved commit message
+with commit signing disabled,
 verifies the committed parent/message/files, and appends
 `git_pr_dirty_commit_materialization_result`. Missing, mismatched, or
 unverifiable approval and stale dirty evidence block before audit or Git writes;

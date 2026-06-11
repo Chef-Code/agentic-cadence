@@ -1719,7 +1719,7 @@ def _dirty_commit_filter_attribute_preflight(
                 stderr=result.stderr.strip(),
             )
         ]
-    active_filters: list[dict[str, str]] = []
+    planned_filters: list[dict[str, str]] = []
     fields = result.stdout.split("\0")
     if fields and fields[-1] == "":
         fields.pop()
@@ -1727,12 +1727,47 @@ def _dirty_commit_filter_attribute_preflight(
         path, _attribute, value = fields[index : index + 3]
         filter_value = value.strip()
         if filter_value and filter_value not in {"unspecified", "unset"}:
-            active_filters.append({"path": path.strip().replace("\\", "/"), "filter": filter_value})
+            planned_filters.append({"path": path.strip().replace("\\", "/"), "filter": filter_value})
+    active_filters: list[dict[str, Any]] = []
+    config_blockers: list[dict[str, Any]] = []
+    configured_steps_by_filter: dict[str, list[str]] = {}
+    for planned_filter in planned_filters:
+        filter_name = planned_filter["filter"]
+        configured_steps = configured_steps_by_filter.get(filter_name)
+        if configured_steps is None:
+            configured_steps = []
+            for step in ("clean", "process"):
+                config_argv = ["git", "--no-optional-locks", "config", "--get-all", f"filter.{filter_name}.{step}"]
+                config_result = _run_process(cwd, config_argv)
+                trace.append(
+                    _materialization_command_trace(
+                        label=f"preflight_filter_{step}_config",
+                        argv=config_argv,
+                        result=config_result,
+                    )
+                )
+                if config_result.returncode == 0 and config_result.stdout.strip():
+                    configured_steps.append(step)
+                elif config_result.returncode not in (0, 1):
+                    config_blockers.append(
+                        _issue(
+                            "git_pr_dirty_commit_filter_config_check_failed",
+                            "could not inspect Git filter driver configuration before dirty commit materialization",
+                            filter=filter_name,
+                            step=step,
+                            stderr=config_result.stderr.strip(),
+                        )
+                    )
+            configured_steps_by_filter[filter_name] = configured_steps
+        if configured_steps:
+            active_filters.append({**planned_filter, "configured_steps": configured_steps})
+    if config_blockers:
+        return trace, config_blockers
     if active_filters:
         return trace, [
             _issue(
                 "git_pr_dirty_commit_filter_attribute_present",
-                "planned dirty materialization files must not use Git clean/process filters",
+                "planned dirty materialization files must not use Git clean/process filter drivers",
                 active_filters=active_filters,
             )
         ]
