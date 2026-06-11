@@ -634,6 +634,12 @@ Current evidence:
 - candidate discovery can ingest saved PR JSON with `--pr-json-file` and turn
   failed check runs or status contexts into `pr_check_failure` execution
   candidates;
+- candidate discovery can turn saved current actionable review-thread comments
+  into bounded `review_finding` execution candidates with source PR identity,
+  thread/comment provenance, saved freshness labels, target files, and duplicate
+  same-target comment grouping;
+- malformed, incomplete, or non-repo-relative review-thread evidence now blocks
+  candidate creation instead of producing partial follow-up candidates;
 - PR readiness reports blockers;
 - PR readiness can ingest saved review-thread JSON with
   `--review-threads-file` and block unresolved actionable current review

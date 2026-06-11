@@ -33,6 +33,61 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-11 - Generate review follow-up candidates from saved threads
+
+Summary:
+- Saved review-thread evidence now produces bounded `review_finding` execution
+  candidates with source PR identity when available, thread/comment provenance,
+  author, path/line, saved freshness labels, and target files.
+- Duplicate actionable comments on the same thread/file/line follow-up target
+  are grouped into one candidate with merged comment ids and occurrence count.
+- Malformed or incomplete saved review-thread evidence now blocks candidate
+  creation with `review_thread_evidence_incomplete` and recommends refreshing
+  review-thread evidence instead of emitting partial candidates.
+- `github-evidence-sync` annotates saved review-thread payloads with the PR
+  number and URL from the already-read PR metadata so later local discovery can
+  preserve source PR identity without another GitHub call.
+
+Completed slices:
+- Task 27: Generate Review Follow-Up Candidates From Saved Threads.
+
+Confidence change:
+- Previous: 25%
+- New: 25%
+- Reason: saved review feedback can now become bounded follow-up candidates for
+  the controlled loop to elect, but the formal readiness rating remains pinned
+  because Cadence still does not autonomously post review replies, resolve
+  threads, invoke paid review, assign roles, schedule agents, merge, release,
+  publish packages, or run a continuous loop.
+
+Evidence:
+- `python -m unittest tests.test_candidates.CandidateDiscoveryBudgetTests.test_review_threads_file_preserves_pr_identity_freshness_and_target_files tests.test_candidates.CandidateDiscoveryBudgetTests.test_incomplete_review_threads_file_blocks_candidate_discovery -v`
+- `python -m unittest tests.test_candidates.CandidateDiscoveryBudgetTests.test_review_threads_file_groups_duplicate_comments_by_follow_up_target -v`
+- `python -m unittest tests.test_candidates.CandidateDiscoveryBudgetTests.test_review_threads_file_blocks_missing_comment_nodes tests.test_candidates.CandidateDiscoveryBudgetTests.test_review_threads_file_blocks_non_object_comment_nodes tests.test_pr_readiness.PrReadinessTests.test_review_response_plan_blocks_review_threads_missing_comment_nodes -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_discover_candidates_accepts_review_threads_file -v`
+- `python -m py_compile codex_cadence\candidates.py codex_cadence\github_evidence.py codex_cadence\review_response.py codex_cadence\pr_readiness.py tests\test_candidates.py tests\test_cadence.py`
+- `python -m ruff check codex_cadence\candidates.py codex_cadence\github_evidence.py tests\test_candidates.py tests\test_cadence.py`
+- `python -m unittest tests.test_candidates -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_github_evidence_sync_writes_read_only_evidence_files -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_github_evidence_sync_writes_read_only_evidence_files tests.test_cadence.CadenceCliTests.test_github_evidence_sync_paginates_review_threads_and_comments tests.test_cadence.CadenceCliTests.test_github_evidence_sync_incomplete_review_threads_returns_blocker_without_files -v`
+- `python -m unittest tests.test_pr_readiness -v`
+- `python scripts\validate_protocol.py`
+- `python scripts\ci_smoke.py`
+- `git diff --check`
+
+New risks or blockers:
+- Review follow-up candidates still depend on saved local evidence. Refreshing
+  stale PR/review state, executing candidates, posting comments, resolving
+  threads, and merging remain separately governed steps.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`
+
 ## 2026-06-11 - Preserve PR evidence freshness in write-side planning
 
 Summary:

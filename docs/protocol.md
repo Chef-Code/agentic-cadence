@@ -893,15 +893,20 @@ files. `--pr-json-file` reads saved PR JSON with `statusCheckRollup` and
 converts failed check runs or failed status contexts into `pr_check_failure`
 execution candidates. `--review-findings-file` reads the existing normalized
 JSON list of findings. `--review-threads-file` reads saved GitHub GraphQL
-`reviewThreads` JSON with `isResolved`, `isOutdated`, and comment `outdated`
-status fields, then converts actionable unresolved, current review comments
-into the same `review_finding` candidate shape. Candidate ingestion uses saved
-feedback as local work-discovery input; readiness decisions apply stricter
-completeness gates. This ingestion must stay
-deterministic and local: it must not call GitHub, trust PR body text, include
-resolved or outdated threads, assume missing status fields are current, include
-non-actionable summaries such as walkthroughs or no-actionable-comments
-reports, or bypass repo-relative path validation.
+`reviewThreads` JSON with completed `pageInfo`, `isResolved`, `isOutdated`,
+and comment `outdated` status fields, then converts actionable unresolved,
+current review comments into the same `review_finding` candidate shape.
+Review-thread candidates must preserve source PR number and URL when present,
+thread id, comment id or grouped comment ids, path, line, author, saved
+freshness label, and target file evidence. Duplicate comments on the same
+thread/file/line follow-up target may share one candidate with an occurrence
+count and merged comment ids. Candidate ingestion uses saved feedback as local
+work-discovery input and must fail closed when review-thread evidence is
+malformed or incomplete. This ingestion must stay deterministic and local: it
+must not call GitHub, trust PR body text, include resolved or outdated threads,
+assume missing status fields are current, include non-actionable summaries such
+as walkthroughs or no-actionable-comments reports, or bypass repo-relative path
+validation.
 
 ## Loop Tick
 
