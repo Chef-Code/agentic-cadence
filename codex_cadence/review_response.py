@@ -1446,8 +1446,8 @@ def _failed_review_response_materialization(
         side_effects=side_effects,
         command_trace=command_trace,
         github_writes=github_writes,
-        blockers=blockers,
-        warnings=[*warnings, audit_blocker],
+        blockers=[*blockers, audit_blocker],
+        warnings=warnings,
     )
 
 

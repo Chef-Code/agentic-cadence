@@ -1231,6 +1231,68 @@ class PrReadinessTests(unittest.TestCase):
         self.assertEqual(packet["recommended_next_action"], "repair_audit_materialization")
         self.assertIn("audit_write_failed", {blocker["code"] for blocker in packet["blockers"]})
 
+    def test_review_response_materialize_result_audit_failure_after_partial_write_is_blocking(self):
+        pr, threads, _response_plan, plan, _updated_body, _comment_body = review_response_materialization_inputs()
+        token = review_response_materialization_approval_token(plan, approval_secret=REVIEW_RESPONSE_APPROVAL_SECRET)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake_bin = tmp_path / "bin"
+            fake_bin.mkdir()
+            gh_log = tmp_path / "gh.log"
+            write_fake_review_response_gh(fake_bin, gh_log)
+            original_path = os.environ.get("PATH", "")
+            original_log = os.environ.get("GH_FAKE_LOG")
+            original_fail_comment = os.environ.get("GH_FAKE_FAIL_COMMENT")
+            original_secret = os.environ.get(REVIEW_RESPONSE_APPROVAL_SECRET_ENV)
+            os.environ["PATH"] = str(fake_bin) + os.pathsep + original_path
+            os.environ["GH_FAKE_LOG"] = str(gh_log)
+            os.environ["GH_FAKE_FAIL_COMMENT"] = "1"
+            os.environ[REVIEW_RESPONSE_APPROVAL_SECRET_ENV] = REVIEW_RESPONSE_APPROVAL_SECRET
+            try:
+                with mock.patch.object(
+                    review_response_module,
+                    "append_audit_record",
+                    side_effect=[{"event": "intent"}, OSError("result audit unavailable")],
+                ):
+                    packet = materialize_review_response_plan(
+                        cwd=tmp_path,
+                        plan_packet=plan,
+                        plan_file=tmp_path / "review-response-materialization-plan.json",
+                        approval_token=token,
+                        runtime_root=tmp_path / "runtime",
+                        pr=pr,
+                        review_threads=threads,
+                        pr_evidence_captured_at="2026-06-11T18:00:00Z",
+                        max_pr_evidence_age_minutes=30,
+                        now="2026-06-11T18:05:00Z",
+                    )
+            finally:
+                os.environ["PATH"] = original_path
+                if original_log is None:
+                    os.environ.pop("GH_FAKE_LOG", None)
+                else:
+                    os.environ["GH_FAKE_LOG"] = original_log
+                if original_fail_comment is None:
+                    os.environ.pop("GH_FAKE_FAIL_COMMENT", None)
+                else:
+                    os.environ["GH_FAKE_FAIL_COMMENT"] = original_fail_comment
+                if original_secret is None:
+                    os.environ.pop(REVIEW_RESPONSE_APPROVAL_SECRET_ENV, None)
+                else:
+                    os.environ[REVIEW_RESPONSE_APPROVAL_SECRET_ENV] = original_secret
+
+        self.assertFalse(packet["valid"])
+        self.assertTrue(packet["github_write_started"])
+        self.assertEqual(packet["recommended_next_action"], "repair_audit_materialization")
+        self.assertIn("updated_pr_body", packet["side_effects"])
+        self.assertNotIn("posted_review_comment", packet["side_effects"])
+        blocker_codes = {blocker["code"] for blocker in packet["blockers"]}
+        warning_codes = {warning["code"] for warning in packet["warnings"]}
+        self.assertIn("review_response_materialization_command_failed", blocker_codes)
+        self.assertIn("audit_write_failed", blocker_codes)
+        self.assertNotIn("audit_write_failed", warning_codes)
+
     def test_body_preflight_reports_ready_draft_body(self):
         packet = evaluate_pr_body_preflight(
             "# Summary\nReady slice.\n\nTesting\n-------\n- unit tests\n",
