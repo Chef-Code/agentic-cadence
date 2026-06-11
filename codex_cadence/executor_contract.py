@@ -1630,7 +1630,12 @@ def validate_executor_command(command: Any, task_packet: dict[str, Any]) -> tupl
     return True, "ok"
 
 
-def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]) -> tuple[bool, str]:
+def validate_executor_result_evidence(
+    evidence: Any,
+    task_packet: dict[str, Any],
+    *,
+    allow_succeeded_dirty_worktree: bool = False,
+) -> tuple[bool, str]:
     valid_task, task_reason = validate_executor_task_packet(task_packet)
     if not valid_task:
         return False, f"invalid executor task packet: {task_reason}"
@@ -1746,7 +1751,19 @@ def validate_executor_result_evidence(evidence: Any, task_packet: dict[str, Any]
     if not isinstance(evidence.get("dirty_worktree"), bool):
         return False, "executor result dirty_worktree must be a boolean"
     if evidence.get("status") == "succeeded" and evidence.get("dirty_worktree") is not False:
-        return False, "executor result dirty_worktree must be false when status is succeeded"
+        if not allow_succeeded_dirty_worktree:
+            return False, "executor result dirty_worktree must be false when status is succeeded"
+        materialized_evidence = evidence.get("materialized_change_evidence")
+        if not isinstance(materialized_evidence, dict):
+            return False, "executor result materialized_change_evidence is required when succeeded result is dirty"
+        files = materialized_evidence.get("files")
+        if (
+            materialized_evidence.get("status") != "verified"
+            or not isinstance(files, list)
+            or not files
+            or any(not _non_empty_string(path) for path in files)
+        ):
+            return False, "executor result materialized_change_evidence must be verified when succeeded result is dirty"
     resulting_head = evidence.get("resulting_head")
     if evidence.get("status") == "succeeded" and resulting_head is None:
         return False, "executor result resulting_head is required when status is succeeded"

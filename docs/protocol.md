@@ -633,7 +633,9 @@ It emits an `executor-invocation-plan.v1` packet shaped as:
 The approval target checksum is computed from an
 `executor-invocation-target.v1` descriptor that binds the readiness checksum,
 adapter checksum, rollback checksum, command, cwd, expected result path,
-environment allowlist, timeout, and current audit-chain head.
+environment allowlist, timeout, and current audit-chain head. File anchors
+persisted into the plan are absolute local paths, so later invocation and
+closeout replay do not depend on the operator's current directory.
 
 Stable blocker codes include `readiness_unreadable`,
 `readiness_packet_stale`, `readiness_not_invocable`, `task_file_unreadable`,
@@ -698,10 +700,20 @@ It emits and writes a `real-executor-invocation.v1` packet shaped as:
   "timed_out": false,
   "invocation_id": "real-executor-invocation-...",
   "side_effect_mode": "evidence_only",
+  "invocation_cwd": "/repo",
+  "plan_file": "/absolute/path/executor-invocation-plan.json",
   "plan_checksum": "sha256:...",
-  "command": {"command": "python ...", "cwd": "/repo", "timeout_seconds": 300},
+  "plan_target_checksum": "sha256:...",
+  "rechecked_plan_checksum": "sha256:...",
+  "command": {
+    "command": "python ...",
+    "cwd": "/repo",
+    "timeout_seconds": 300,
+    "expected_result_path": "<runtime-root>/executor-results/executor-result.json"
+  },
   "process": {"exit_code": 0, "timed_out": false},
   "result_file": "<runtime-root>/executor-results/executor-result.json",
+  "result_evidence_checksum": "sha256:...",
   "stdout_log": "<runtime-root>/real-executor-invocations/<id>.stdout.log",
   "stderr_log": "<runtime-root>/real-executor-invocations/<id>.stderr.log",
   "record_file": "<runtime-root>/real-executor-invocations/<id>.json",
@@ -725,17 +737,19 @@ It emits and writes a `real-executor-invocation.v1` packet shaped as:
 The command starts exactly one approved command with `shell=False`, explicit
 cwd, bounded environment allowlist, approved timeout, and stdout/stderr capture
 to runtime-owned log files. It records process exit status, timeout status,
+`command.expected_result_path`, `result_file`, `result_evidence_checksum`,
 before/after repository snapshots including `local_branch_refs`, rollback
-evidence checksum, result path, output log paths, plan checksum, and the
-audit-chain head used by the immediate pre-start recheck.
+evidence checksum, result path, output log paths, invocation cwd, absolute plan
+file path, plan checksum, and the audit-chain head used by the immediate
+pre-start recheck.
 
 `--side-effect-mode evidence_only` requires the target repository to remain
 clean after invocation. `--side-effect-mode materialized_changes` allows a
 dirty worktree only when the executor result includes verified
-`materialized_change_evidence`; Cadence records the dirty-worktree evidence but
-does not commit, push, open PRs, resolve threads, merge, release, publish
-packages, assign roles, schedule agents, claim distributed locks, or write
-GitHub state.
+`materialized_change_evidence`; Cadence records the dirty-worktree evidence and
+an invocation-time dirty-worktree fingerprint checksum, but does not commit,
+push, open PRs, resolve threads, merge, release, publish packages, assign
+roles, schedule agents, claim distributed locks, or write GitHub state.
 Added, removed, or retargeted local branch refs are recorded in
 `local_branch_refs` and fail as `unexpected_repo_modification` in both
 side-effect modes.
@@ -745,13 +759,55 @@ Stable blockers include `plan_packet_stale`, `plan_not_invocable`,
 `rollback_recheck_failed`, `brake_not_drive`, `active_epoch_mismatch`,
 `runtime_root_unsafe`, `repo_inspection_failed`, `executor_process_timeout`,
 `executor_process_failed`, `executor_result_stale`, `executor_result_missing`,
-`unexpected_repo_modification`, and `materialized_change_evidence_missing`.
+`unexpected_repo_modification`, `materialized_change_evidence_missing`, and
+`audit_append_failed`.
 Immediate pre-start rechecks can also forward `executor-invocation-plan`
 blockers such as `repo_head_mismatch`, `active_epoch_missing`, and
 `executor_command_denied`.
 Before-start blockers do not write a real executor invocation record. Once the
 process starts, Cadence writes the local record even when timeout, missing
-result evidence, or side-effect-mode blockers make the invocation invalid.
+result evidence, or side-effect-mode blockers make the invocation invalid. When
+result evidence is present, the record includes the invocation-time
+`result_evidence_checksum` that closeout later rechecks before epoch mutation.
+Materialized-change records also include `worktree_fingerprint_checksum` under
+`materialized_change_evidence`, and closeout recomputes it from the live dirty
+worktree so same-file post-invocation edits fail closed.
+The command also appends a `real_executor_invocation_record` audit event whose
+`invocation_record_checksum` anchors the just-written invocation JSON to the
+pre-run audit-chain head.
+If that post-run audit append fails, the command emits a structured blocked
+payload with `real_executor_invocation_audit_append_failed`, rewrites the local
+record as blocked when possible, reports `invocation_record_write_failed` if
+the blocked rewrite fails, and attempts a
+`record_real_executor_invocation_blocked` audit event only after the blocked
+payload rewrite succeeds so callers do not retry a real process that already
+ran.
+
+`real-executor-invocation.v1` records can be supplied to
+`closeout-executor-result --real-invocation-file` after result evidence is
+written. Closeout revalidates the canonical invocation path, invocation id,
+plan checksum, readiness task checksum, active epoch id, active ownership
+binding, repository before/after anchors, current repo state, snapshot-after
+cwd/branch/head/dirty-worktree state, materialized change evidence, result
+validation, invocation-time result checksum, the audited invocation record
+checksum, and audit-chain continuity before mutating epoch state. Accepted real
+invocation evidence updates the same invocation record with `closeout_status`,
+epoch id/status, closeout checksum, result checksum, validation checksum, and
+snapshot-after checksum, then appends an
+`update_real_executor_invocation_closeout` audit event whose
+`invocation_record_checksum` anchors the updated record. This binding can complete or
+fail the existing epoch path and may embed a dry-run Git/PR plan, but it still
+does not commit dirty worktree changes, create branches, push, call GitHub,
+open PRs, resolve threads, merge, release, publish packages, assign roles,
+schedule agents, or claim distributed locks. Stable real-invocation closeout
+blockers include `invocation_record_missing`, `invocation_checksum_mismatch`,
+`invocation_epoch_mismatch`, `invocation_result_missing`,
+`invocation_result_invalid`, `materialized_change_mismatch`,
+`audit_chain_mismatch`, `ownership_closeout_blocked`,
+`run_record_audit_append_failed`, `real_invocation_audit_append_failed`, and
+`closeout_audit_append_failed`;
+blocked real-run closeout recommends `inspect_real_run_blockers`, while
+post-mutation audit append failures recommend `recover_closeout_audit`.
 
 ## Handoff Signature
 
@@ -984,16 +1040,19 @@ Executor result evidence uses `schema_version: generic-executor-result.v1` and `
 
 `closeout-executor-result` is the local epoch boundary after executor evidence
 has been written. It reads a generic executor task packet, generic executor
-result evidence, a fresh `--snapshot-after-file`, and optional
-`--run-record-file`; validates the result with the same expected-path,
-command-policy, disabled-permission, runtime, and active brake gates as
-`validate-executor-result`; then binds the task packet to the requested active
-epoch. Binding requires exactly the requested active epoch, a task id recorded
-in that epoch, a task snapshot checksum matching the epoch `snapshot_before`,
-matching repo/branch/head anchors, and a valid snapshot-after packet captured
-after epoch start with a head matching the executor result and a `captured_at`
-timestamp at or after the executor result `ended_at`. When a run record is
-supplied, it must use `schema_version: execution-run.v1`,
+result evidence, a fresh `--snapshot-after-file`, and exactly one evidence
+artifact (`--run-record-file` or `--real-invocation-file`); validates the result with the
+same expected-path, command-policy, disabled-permission, runtime, and active
+brake gates as `validate-executor-result`; then binds the task packet to the
+requested active epoch. A real invocation in `materialized_changes` mode may
+close out successful dirty-worktree result evidence only when verified
+`materialized_change_evidence` is also bound. Binding requires exactly the
+requested active epoch, a task id recorded in that epoch, a task snapshot
+checksum matching the epoch `snapshot_before`, matching repo/branch/head
+anchors, and a valid snapshot-after packet captured after epoch start with a
+head matching the executor result and a `captured_at` timestamp at or after the
+executor result `ended_at`. When a run record is supplied, it must use
+`schema_version: execution-run.v1`,
 `protocol_version: v1`, `packet: execution_run`, a non-empty run id, a
 non-empty invocation id, `closeout_status: pending`, matching
 task/result/validation checksums, matching task and result file paths, matching
@@ -1001,12 +1060,13 @@ task id, and matching repo name/path/branch/head anchors. The supplied
 `--run-record-file` must also be the canonical local runtime path
 `<root>/execution-runs/<run_id>.json`; malformed, unreadable, non-canonical, or
 out-of-ledger run-record files block with stable run-record blockers instead of
-falling through to top-level CLI errors. Stale task snapshots,
-stale snapshot-after packets, head mismatches, active epoch conflicts,
+falling through to top-level CLI errors. `--run-record-file` and
+`--real-invocation-file` are mutually exclusive. Stale task snapshots, stale
+snapshot-after packets, head mismatches, active epoch conflicts,
 already-terminal epochs, malformed packets, partial run records, run-record
-checksum mismatches, run-record repo anchor mismatches, closeout replay, and
-evidence that needs more validation block closeout without moving the active
-epoch.
+checksum mismatches, run-record repo anchor mismatches, real-invocation
+checksum or result mismatches, closeout replay, and evidence that needs more
+validation block closeout without moving the active epoch.
 
 When closeout succeeds, the command emits `executor-epoch-closeout.v1`.
 Successful executor evidence records the task in active epoch `completed_tasks`
@@ -1026,6 +1086,15 @@ and snapshot-after path/checksum anchors for fresh closeout decisions. When a
 supplied run record is accepted and closeout succeeds, the command updates that
 local run record with the closeout status, epoch id/status, and closeout core
 checksum, then appends an `execution_run_record` audit event for the update.
+If that update audit append fails after epoch closeout, the command restores
+the pre-closeout run record when possible, emits `run_record_audit_append_failed`,
+`execution_run_audit_append_failed`, and either
+`execution_run_record_update_rolled_back` or
+`execution_run_record_update_unreconciled`, and recommends
+`recover_closeout_audit`.
+When a supplied real invocation is accepted and closeout succeeds, the command
+updates that invocation record with closeout status and checksum anchors, then
+appends an `update_real_executor_invocation_closeout` audit event.
 Already-terminal reruns report `closeout_status: already_closed` without
 appending another closeout audit record. It must not start an executor, create a
 branch, commit, push, call GitHub, open a pull request, merge, release, or

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import secrets
@@ -29,6 +30,7 @@ EXECUTOR_INVOCATION_TARGET_SCHEMA_VERSION = "executor-invocation-target.v1"
 EXECUTOR_ADAPTER_SCHEMA_VERSION = "executor-adapter.v1"
 EXECUTOR_ROLLBACK_SCHEMA_VERSION = "executor-rollback.v1"
 REAL_EXECUTOR_INVOCATION_SCHEMA_VERSION = "real-executor-invocation.v1"
+DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION = "dirty-worktree-fingerprint.v1"
 MAX_READINESS_AGE_SECONDS = 15 * 60
 MAX_INVOCATION_PLAN_AGE_SECONDS = 15 * 60
 REAL_EXECUTOR_SIDE_EFFECT_MODES = ("evidence_only", "materialized_changes")
@@ -682,25 +684,25 @@ def build_executor_invocation_plan(
         "target": target,
         "target_checksum": target_checksum,
         "readiness": {
-            "file": str(readiness_file),
+            "file": _normal_path(readiness_file),
             "checksum": readiness_checksum,
             "schema_version": readiness.get("schema_version") if isinstance(readiness, dict) else None,
         },
         "approval": {
-            "file": str(approval_file),
+            "file": _normal_path(approval_file),
             "valid": approval_result.get("valid") if isinstance(approval_result, dict) else False,
             "purpose": approval_packet.get("purpose") if isinstance(approval_packet, dict) else None,
             "operator_id": approval_packet.get("operator_id") if isinstance(approval_packet, dict) else None,
             "key_id": approval_packet.get("key_id") if isinstance(approval_packet, dict) else None,
         },
         "adapter": {
-            "file": str(adapter_file),
+            "file": _normal_path(adapter_file),
             "checksum": adapter_checksum,
             "id": adapter.get("adapter_id") if isinstance(adapter, dict) else None,
             "kind": adapter.get("adapter_kind") if isinstance(adapter, dict) else None,
         },
         "rollback": {
-            "file": str(rollback_file),
+            "file": _normal_path(rollback_file),
             "checksum": rollback_checksum,
         },
         "audit_chain": {
@@ -785,7 +787,8 @@ def _blocked_invocation_payload(
         "timed_out": False,
         "checked_at": _iso_now(),
         "side_effect_mode": side_effect_mode,
-        "plan_file": str(plan_file),
+        "invocation_cwd": _normal_path(Path.cwd()),
+        "plan_file": _normal_path(plan_file),
         "plan_checksum": plan_checksum,
         "command": None,
         "process": None,
@@ -1017,9 +1020,10 @@ def _repo_evidence_or_blocker(cwd: Path, *, code: str, message: str) -> tuple[di
 
 
 def _local_dirty_files(cwd: Path) -> tuple[set[str] | None, dict[str, Any] | None]:
+    repo_root = git_repo_root(cwd) or cwd
     result = subprocess.run(
         [_git_executable(), "--no-optional-locks", "status", "--porcelain", "--untracked-files=all", "--"],
-        cwd=cwd,
+        cwd=repo_root,
         env=_git_environment(),
         text=True,
         encoding="utf-8",
@@ -1043,6 +1047,83 @@ def _local_dirty_files(cwd: Path) -> tuple[set[str] | None, dict[str, Any] | Non
         if path:
             files.add(path.replace("\\", "/"))
     return files, None
+
+
+def _sha256_bytes(payload: bytes) -> str:
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _git_diff_checksum(cwd: Path, *args: str) -> tuple[str | None, dict[str, Any] | None]:
+    result = subprocess.run(
+        [_git_executable(), "--no-optional-locks", *args],
+        cwd=cwd,
+        env=_git_environment(),
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or b"").decode("utf-8", errors="replace").strip()
+        return None, invocation_blocker(
+            "materialized_change_evidence_missing",
+            "could not fingerprint local dirty-worktree diff",
+            detail=detail,
+        )
+    return _sha256_bytes(result.stdout), None
+
+
+def _dirty_worktree_fingerprint(cwd: Path, dirty_files: set[str]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    repo_root = git_repo_root(cwd) or cwd
+    staged_checksum, staged_blocker = _git_diff_checksum(repo_root, "diff", "--cached", "--binary", "--")
+    if staged_blocker is not None:
+        return None, staged_blocker
+    unstaged_checksum, unstaged_blocker = _git_diff_checksum(repo_root, "diff", "--binary", "--")
+    if unstaged_blocker is not None:
+        return None, unstaged_blocker
+
+    root = repo_root.resolve(strict=False)
+    entries: list[dict[str, Any]] = []
+    for path in sorted(dirty_files):
+        normalized_path = path.replace("\\", "/")
+        target = (repo_root / normalized_path).resolve(strict=False)
+        if not path_is_relative_to(target, root):
+            return None, invocation_blocker(
+                "materialized_change_evidence_missing",
+                "dirty worktree path escaped the repository root",
+                path=normalized_path,
+            )
+        try:
+            if not target.exists():
+                entries.append({"path": normalized_path, "type": "missing"})
+            elif target.is_file():
+                payload = target.read_bytes()
+                entries.append(
+                    {
+                        "path": normalized_path,
+                        "type": "file",
+                        "size": len(payload),
+                        "mode": target.stat().st_mode & 0o777,
+                        "content_checksum": _sha256_bytes(payload),
+                    }
+                )
+            elif target.is_dir():
+                entries.append({"path": normalized_path, "type": "directory"})
+            else:
+                entries.append({"path": normalized_path, "type": "special"})
+        except OSError as exc:
+            return None, invocation_blocker(
+                "materialized_change_evidence_missing",
+                "could not fingerprint dirty worktree file",
+                path=normalized_path,
+                error=str(exc),
+            )
+
+    return {
+        "schema_version": DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION,
+        "dirty_files": sorted(dirty_files),
+        "staged_diff_checksum": staged_checksum,
+        "unstaged_diff_checksum": unstaged_checksum,
+        "file_entries": entries,
+    }, None
 
 
 def _load_rechecked_task_packet(recheck: dict[str, Any]) -> dict[str, Any] | None:
@@ -1155,6 +1236,19 @@ def _materialized_change_evidence(
         "files": list(files),
         "limitations": [str(item) for item in raw.get("limitations") or [] if _non_empty_string(item)],
     }, []
+
+
+def _materialized_change_evidence_not_applicable(
+    materialized_evidence: dict[str, Any],
+    *,
+    limitation: str,
+) -> dict[str, Any]:
+    return {
+        "status": "absent",
+        "source": materialized_evidence.get("source"),
+        "files": [],
+        "limitations": [limitation],
+    }
 
 
 def invoke_real_executor(
@@ -1397,6 +1491,13 @@ def invoke_real_executor(
         dirty_files=dirty_files,
         observed_head=repository_after.get("head"),
     )
+    materialized_files = materialized_evidence.get("files")
+    materialized_files_present = isinstance(materialized_files, list) and any(
+        isinstance(path, str) and path.strip() for path in materialized_files
+    )
+    materialized_files_verified = (
+        materialized_evidence.get("status") == "verified" and materialized_files_present
+    )
     if head_changed or branch_changed or branch_refs_changed:
         process_blockers.append(
             invocation_blocker(
@@ -1416,8 +1517,64 @@ def invoke_real_executor(
                 "evidence_only real executor invocation left the target repository dirty",
             )
         )
-    elif side_effect_mode == "materialized_changes" and dirty_after:
+        if materialized_files_present:
+            materialized_evidence = _materialized_change_evidence_not_applicable(
+                materialized_evidence,
+                limitation="materialized_change_evidence_not_applicable_in_evidence_only_mode",
+            )
+    elif side_effect_mode == "materialized_changes":
+        if dirty_after:
+            if not materialized_blockers and dirty_files is not None:
+                fingerprint, fingerprint_blocker = _dirty_worktree_fingerprint(cwd, dirty_files)
+                if fingerprint_blocker is not None:
+                    process_blockers.append(fingerprint_blocker)
+                elif fingerprint is not None:
+                    materialized_evidence = dict(materialized_evidence)
+                    materialized_evidence["worktree_fingerprint_schema_version"] = (
+                        DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION
+                    )
+                    materialized_evidence["worktree_fingerprint_checksum"] = checksum_json(fingerprint)
+            process_blockers.extend(materialized_blockers)
+        elif materialized_files_verified:
+            process_blockers.append(
+                invocation_blocker(
+                    "materialized_change_evidence_missing",
+                    "verified materialized change evidence requires a dirty local worktree",
+                )
+            )
+            materialized_evidence = _materialized_change_evidence_not_applicable(
+                materialized_evidence,
+                limitation="materialized_change_evidence_requires_dirty_worktree",
+            )
+        elif materialized_files_present and materialized_blockers:
+            process_blockers.extend(materialized_blockers)
+            materialized_evidence = _materialized_change_evidence_not_applicable(
+                materialized_evidence,
+                limitation="materialized_change_evidence_requires_dirty_worktree",
+            )
+    elif materialized_files_verified:
+        process_blockers.append(
+            invocation_blocker(
+                "unexpected_repo_modification",
+                "materialized change evidence is only accepted in materialized_changes mode with a dirty local worktree",
+            )
+        )
+        materialized_evidence = _materialized_change_evidence_not_applicable(
+            materialized_evidence,
+            limitation="materialized_change_evidence_not_applicable_in_evidence_only_mode",
+        )
+    elif materialized_files_present and materialized_blockers:
+        process_blockers.append(
+            invocation_blocker(
+                "unexpected_repo_modification",
+                "materialized change evidence is only accepted in materialized_changes mode with a dirty local worktree",
+            )
+        )
         process_blockers.extend(materialized_blockers)
+        materialized_evidence = _materialized_change_evidence_not_applicable(
+            materialized_evidence,
+            limitation="materialized_change_evidence_not_applicable_in_evidence_only_mode",
+        )
 
     valid = not process_blockers
     payload: dict[str, Any] = {
@@ -1432,7 +1589,8 @@ def invoke_real_executor(
         "ended_at": ended_at,
         "invocation_id": invocation_id,
         "side_effect_mode": side_effect_mode,
-        "plan_file": str(plan_path),
+        "invocation_cwd": _normal_path(Path.cwd()),
+        "plan_file": _normal_path(plan_path),
         "plan_checksum": checksum_json(plan),
         "plan_target_checksum": plan.get("target_checksum"),
         "rechecked_plan_checksum": checksum_json(recheck),
@@ -1451,9 +1609,11 @@ def invoke_real_executor(
         },
         "result_file": str(expected_result_path),
         "result_present": expected_result_path.exists(),
+        "result_evidence_checksum": checksum_json(result_evidence) if isinstance(result_evidence, dict) else None,
         "stdout_log": str(stdout_log),
         "stderr_log": str(stderr_log),
         "record_file": str(record_file),
+        "closeout_status": "pending",
         "repository_before": repository_before,
         "repository_after": repository_after,
         "rollback": {

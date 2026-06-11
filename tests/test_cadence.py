@@ -520,7 +520,30 @@ if config.get("delete_git"):
 if config.get("write_result", True):
     started_at = now()
     ended_at = now()
-    files_changed = ["README.md"] if config.get("touch_repo") else []
+    configured_files_changed = config.get("files_changed")
+    files_changed = (
+        configured_files_changed
+        if isinstance(configured_files_changed, list)
+        else ["README.md"] if config.get("touch_repo") else []
+    )
+    commands_run = [
+        {
+            "command": config["command"],
+            "exit_code": config.get("exit_code", 0),
+        }
+    ]
+    validation_results = [
+        {
+            "name": "real-executor-script",
+            "status": "passed",
+            "command": config["command"],
+        }
+    ]
+    for index, check in enumerate(config.get("required_checks") or [], start=1):
+        if check == config["command"]:
+            continue
+        commands_run.append({"command": check, "exit_code": 0})
+        validation_results.append({"name": f"required-check-{index}", "status": "passed", "command": check})
     result = {
         "schema_version": "generic-executor-result.v1",
         "packet": "executor_result",
@@ -530,19 +553,8 @@ if config.get("write_result", True):
         "ended_at": ended_at,
         "status": config.get("status", "succeeded"),
         "files_changed": files_changed,
-        "commands_run": [
-            {
-                "command": config["command"],
-                "exit_code": config.get("exit_code", 0),
-            }
-        ],
-        "validation_results": [
-            {
-                "name": "real-executor-script",
-                "status": "passed",
-                "command": config["command"],
-            }
-        ],
+        "commands_run": commands_run,
+        "validation_results": validation_results,
         "summary": "Real executor invocation test result.",
         "confidence": "high",
         "blockers": [],
@@ -800,6 +812,26 @@ def write_execution_run_record(
     run_record_path.parent.mkdir(parents=True, exist_ok=True)
     run_record_path.write_text(json.dumps(record), encoding="utf-8")
     return run_record_path, record
+
+
+def write_closeout_run_record(root, *, task_path, result_path, task_packet, result_evidence, executor_started=False):
+    validation = build_executor_result_validation_payload(
+        root=Path(root),
+        task_file=Path(task_path),
+        result_file=Path(result_path),
+        task_packet=task_packet,
+        result_evidence=result_evidence,
+        executor_started=executor_started,
+        invocation_id="executor-fixture-invocation-test-1",
+    )
+    return write_execution_run_record(
+        root,
+        task_path=task_path,
+        result_path=result_path,
+        task_packet=task_packet,
+        result_evidence=result_evidence,
+        validation=validation,
+    )
 
 
 def audit_records(root):
@@ -4128,6 +4160,8 @@ class CadenceCliTests(unittest.TestCase):
         command="python -m unittest tests.test_cadence",
         timeout_seconds=300,
         task_mutator=None,
+        readiness_task_file_arg=None,
+        readiness_cwd=None,
     ):
         status_result, _status = run_cli(tmp, "status")
         self.assertEqual(status_result.returncode, 0, status_result.stderr)
@@ -4165,20 +4199,23 @@ class CadenceCliTests(unittest.TestCase):
             handoff_id=None,
         )
 
-        readiness_result, readiness_packet = run_cli(
-            tmp,
+        readiness_args = [
             "executor-invocation-readiness",
             "--cwd",
             repo,
             "--task-file",
-            str(task_path),
+            str(readiness_task_file_arg if readiness_task_file_arg is not None else task_path),
             "--epoch-id",
             "epoch-1",
             "--ownership-target",
             "ownership-1",
             "--expected-result-path",
             task_packet["expected_output"]["evidence_path"],
-        )
+        ]
+        if readiness_cwd is None:
+            readiness_result, readiness_packet = run_cli(tmp, *readiness_args)
+        else:
+            readiness_result, readiness_packet = run_cli_from(readiness_cwd, tmp, *readiness_args)
         self.assertEqual(readiness_result.returncode, 0, readiness_result.stderr)
         readiness_path = Path(tmp) / "executor-invocation-readiness.json"
         readiness_path.write_text(json.dumps(readiness_packet), encoding="utf-8")
@@ -4285,6 +4322,10 @@ class CadenceCliTests(unittest.TestCase):
         stdout_text=None,
         stderr_text=None,
         invalid_output=False,
+        files_changed=None,
+        task_mutator=None,
+        readiness_task_file_arg=None,
+        readiness_cwd=None,
     ):
         script_path = real_executor_script(Path(tmp) / "real-executor.py")
         config_path = Path(tmp) / "real-executor-config.json"
@@ -4294,12 +4335,16 @@ class CadenceCliTests(unittest.TestCase):
             repo,
             command=command,
             timeout_seconds=timeout_seconds,
+            task_mutator=task_mutator,
+            readiness_task_file_arg=readiness_task_file_arg,
+            readiness_cwd=readiness_cwd,
         )
         config = {
             "command": command,
             "create_branch": create_branch,
             "delete_branch": delete_branch,
             "exit_code": 0,
+            "files_changed": files_changed,
             "include_materialized_change_evidence": include_materialized_change_evidence,
             "invalid_output": invalid_output,
             "materialized_change_evidence": materialized_change_evidence,
@@ -4308,6 +4353,7 @@ class CadenceCliTests(unittest.TestCase):
             "result_path": inputs["task_packet"]["expected_output"]["evidence_path"],
             "resulting_head": resulting_head,
             "retarget_branch": retarget_branch,
+            "required_checks": inputs["task_packet"]["required_checks"],
             "sleep_seconds": sleep_seconds,
             "status": "succeeded",
             "stderr_text": stderr_text,
@@ -4538,7 +4584,297 @@ class CadenceCliTests(unittest.TestCase):
             self.assertTrue(record_path.exists())
             self.assertEqual(record_path.parent, Path(tmp) / "real-executor-invocations")
             self.assertEqual(json.loads(record_path.read_text(encoding="utf-8")), output)
-            self.assertEqual(audit_records(tmp), audit_before)
+            records = audit_records(tmp)
+            self.assertEqual(len(records), len(audit_before) + 1)
+            self.assertEqual(records[-1]["event"], "real_executor_invocation_record")
+            self.assertEqual(records[-1]["action"], "record_real_executor_invocation")
+            self.assertEqual(records[-1]["invocation_id"], output["invocation_id"])
+            self.assertEqual(records[-1]["invocation_record_file"], str(record_path))
+            self.assertEqual(records[-1]["invocation_record_checksum"], checksum_json(output))
+            self.assertEqual(records[-1]["result_evidence_checksum"], output["result_evidence_checksum"])
+            replay_result, replay_output = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay_output["valid"])
+            self.assertEqual(replay_output["events_by_type"]["real_executor_invocation_record"], 1)
+
+    def test_real_executor_invocation_closeout_accepts_relative_plan_invocation_from_other_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as other:
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo)
+            task_packet = inputs["task_packet"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+            invocation_result, invocation_output = run_cli_from(
+                tmp,
+                tmp,
+                "invoke-real-executor",
+                "--plan-file",
+                plan_path.name,
+                "--approval-secret",
+                OPERATOR_APPROVAL_SECRET,
+                "--side-effect-mode",
+                "evidence_only",
+            )
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            self.assertEqual(invocation_output["plan_file"], str(plan_path.resolve()))
+            self.assertEqual(invocation_output["invocation_cwd"], str(Path(tmp).resolve()))
+            invocation_path = Path(invocation_output["record_file"])
+            result_path = Path(invocation_output["result_file"])
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(
+                    closeout_snapshot(
+                        repo,
+                        id="snapshot-after-relative-plan",
+                        captured_at="2999-05-22T00:10:00Z",
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            closeout_result, closeout_output = run_cli_from(
+                other,
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-1",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--cwd",
+                repo,
+            )
+
+            self.assertEqual(closeout_result.returncode, 0, closeout_result.stderr)
+            self.assertTrue(closeout_output["valid"])
+            self.assertEqual(closeout_output["closeout_status"], "completed")
+            self.assertEqual(closeout_output["real_invocation"]["invocation_id"], invocation_output["invocation_id"])
+
+    def test_real_executor_invocation_closeout_resolves_relative_readiness_task_file_from_other_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as other:
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(
+                tmp,
+                repo,
+                readiness_task_file_arg="executor-task.json",
+                readiness_cwd=tmp,
+            )
+            self.assertEqual(inputs["readiness_packet"]["task"]["file"], "executor-task.json")
+            task_packet = inputs["task_packet"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+            invocation_result, invocation_output = self.run_invoke_real_executor_cli(tmp, plan_path)
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            invocation_path = Path(invocation_output["record_file"])
+            result_path = Path(invocation_output["result_file"])
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(
+                    closeout_snapshot(
+                        repo,
+                        id="snapshot-after-relative-readiness-task",
+                        captured_at="2999-05-22T00:10:00Z",
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            closeout_result, closeout_output = run_cli_from(
+                other,
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-1",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--cwd",
+                repo,
+            )
+
+            self.assertEqual(closeout_result.returncode, 0, closeout_result.stderr)
+            self.assertTrue(closeout_output["valid"])
+            self.assertEqual(closeout_output["closeout_status"], "completed")
+
+    def test_real_executor_invocation_closeout_blocks_structurally_when_update_audit_append_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo)
+            task_packet = inputs["task_packet"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+            invocation_result, invocation_output = self.run_invoke_real_executor_cli(tmp, plan_path)
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            invocation_path = Path(invocation_output["record_file"])
+            result_path = Path(invocation_output["result_file"])
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(
+                    closeout_snapshot(
+                        repo,
+                        id="snapshot-after-audit-failure",
+                        captured_at="2999-05-22T00:10:00Z",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            records_before_closeout = audit_records(tmp)
+            emitted = []
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "epoch_id": "epoch-1",
+                    "task_file": str(task_path),
+                    "result_file": str(result_path),
+                    "snapshot_after_file": str(snapshot_after_path),
+                    "run_record_file": None,
+                    "real_invocation_file": str(invocation_path),
+                    "allow_repo_local_root": False,
+                    "cwd": repo,
+                    "required_body_section": [],
+                    "emit_git_pr_plan": False,
+                    "pr_template_file": None,
+                    "policy_file": None,
+                    "base_branch": "main",
+                    "branch_prefix": "codex/",
+                },
+            )()
+            original_append = cadence_cli.append_audit_record
+
+            def fail_real_invocation_update(root, record):
+                if (
+                    record.get("event") == "real_executor_invocation_record"
+                    and record.get("action") == "update_real_executor_invocation_closeout"
+                ):
+                    raise OSError("disk full")
+                return original_append(root, record)
+
+            with mock.patch.object(cadence_cli, "append_audit_record", side_effect=fail_real_invocation_update):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.closeout_executor_result_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertEqual(len(emitted), 1)
+            output = emitted[0]
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["closeout_status"], "completed")
+            self.assertEqual(output["epoch_status"], "COMPLETED")
+            self.assertIn("real_invocation_audit_append_failed", {blocker["code"] for blocker in output["blockers"]})
+            self.assertIn("epoch_completed", output["side_effects"])
+            self.assertIn("real_executor_invocation_audit_append_failed", output["side_effects"])
+            self.assertIn("real_executor_invocation_record_update_rolled_back", output["side_effects"])
+            self.assertNotIn("real_executor_invocation_record_updated", output["side_effects"])
+            self.assertNotIn("real_executor_invocation_audit_appended", output["side_effects"])
+            self.assertNotIn("audit_record_appended", output["side_effects"])
+            self.assertEqual(json.loads(invocation_path.read_text(encoding="utf-8")), invocation_output)
+            self.assertTrue(output["real_invocation"]["rollback_record_restored"])
+            self.assertEqual(output["real_invocation"]["after_checksum"], checksum_json(invocation_output))
+            self.assertEqual(output["next_decision"]["recommended_next_action"], "recover_closeout_audit")
+            self.assertEqual(audit_records(tmp), records_before_closeout)
+            self.assertTrue((Path(tmp) / "epochs" / "completed" / "epoch-1.json").exists())
+
+    def test_invoke_real_executor_blocks_structurally_when_audit_append_fails_after_run(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            _inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo)
+            emitted = []
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "plan_file": str(plan_path),
+                    "approval_secret": OPERATOR_APPROVAL_SECRET,
+                    "approval_secret_env": "CADENCE_OPERATOR_APPROVAL_SECRET",
+                    "side_effect_mode": "evidence_only",
+                    "allow_repo_local_root": False,
+                    "max_plan_age_minutes": 15,
+                },
+            )()
+
+            with mock.patch.object(cadence_cli, "append_audit_record", side_effect=OSError("disk full")):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.invoke_real_executor_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertEqual(len(emitted), 1)
+            output = emitted[0]
+            self.assertFalse(output["valid"])
+            self.assertTrue(output["executor_started"])
+            self.assertEqual(output["closeout_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "inspect_runtime_state")
+            self.assertIn("audit_append_failed", {blocker["code"] for blocker in output["blockers"]})
+            self.assertIn("real_executor_invocation_audit_append_failed", output["side_effects"])
+            record_path = Path(output["record_file"])
+            expected_record = dict(output)
+            expected_record.pop("audit_record_error", None)
+            self.assertEqual(json.loads(record_path.read_text(encoding="utf-8")), expected_record)
+
+    def test_invoke_real_executor_does_not_audit_blocked_record_when_rewrite_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            _inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo)
+            emitted = []
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "plan_file": str(plan_path),
+                    "approval_secret": OPERATOR_APPROVAL_SECRET,
+                    "approval_secret_env": "CADENCE_OPERATOR_APPROVAL_SECRET",
+                    "side_effect_mode": "evidence_only",
+                    "allow_repo_local_root": False,
+                    "max_plan_age_minutes": 15,
+                },
+            )()
+
+            with mock.patch.object(
+                cadence_cli,
+                "append_audit_record",
+                side_effect=OSError("disk full"),
+            ) as append_mock:
+                with mock.patch.object(cadence_cli, "atomic_write_json", side_effect=OSError("write denied")):
+                    with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                        code = cadence_cli.invoke_real_executor_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertEqual(append_mock.call_count, 1)
+            self.assertEqual(len(emitted), 1)
+            output = emitted[0]
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["closeout_status"], "blocked")
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertIn("audit_append_failed", blocker_codes)
+            self.assertIn("invocation_record_write_failed", blocker_codes)
+            self.assertNotIn("audit_record_error", output)
+            persisted_record = json.loads(Path(output["record_file"]).read_text(encoding="utf-8"))
+            self.assertEqual(persisted_record["closeout_status"], "pending")
+            self.assertTrue(persisted_record["valid"])
 
     def test_invoke_real_executor_blocks_stale_or_uninvocable_plan_before_start(self):
         cases = [
@@ -4807,6 +5143,17 @@ class CadenceCliTests(unittest.TestCase):
                 None,
             ),
             (
+                "evidence-only-clean-claimed-materialized-evidence",
+                {
+                    "include_materialized_change_evidence": True,
+                    "files_changed": ["README.md"],
+                },
+                "evidence_only",
+                "unexpected_repo_modification",
+                False,
+                None,
+            ),
+            (
                 "materialized-missing-evidence",
                 {"touch_repo": True},
                 "materialized_changes",
@@ -4843,6 +5190,17 @@ class CadenceCliTests(unittest.TestCase):
                 None,
             ),
             (
+                "materialized-clean-claimed-materialized-evidence",
+                {
+                    "include_materialized_change_evidence": True,
+                    "files_changed": ["README.md"],
+                },
+                "materialized_changes",
+                "materialized_change_evidence_missing",
+                False,
+                None,
+            ),
+            (
                 "post-process-repo-missing",
                 {"delete_git": True},
                 "evidence_only",
@@ -4868,6 +5226,11 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertTrue(output["executor_started"])
                     self.assertEqual(output["repository_after"]["dirty_worktree"], expect_dirty)
                     self.assertTrue(Path(output["record_file"]).exists())
+                    persisted_invocation = json.loads(Path(output["record_file"]).read_text(encoding="utf-8"))
+                    self.assertEqual(
+                        persisted_invocation["materialized_change_evidence"],
+                        output["materialized_change_evidence"],
+                    )
                     if expected_logs is not None:
                         self.assertEqual(Path(output["stdout_log"]).read_text(encoding="utf-8"), expected_logs["stdout"])
                         self.assertEqual(Path(output["stderr_log"]).read_text(encoding="utf-8"), expected_logs["stderr"])
@@ -4878,6 +5241,13 @@ class CadenceCliTests(unittest.TestCase):
                     else:
                         self.assertFalse(output["valid"])
                         self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    if name in {
+                        "evidence-only-dirty",
+                        "evidence-only-clean-claimed-materialized-evidence",
+                        "materialized-clean-claimed-materialized-evidence",
+                    }:
+                        self.assertEqual(output["materialized_change_evidence"]["status"], "absent")
+                        self.assertEqual(output["materialized_change_evidence"]["files"], [])
 
     def test_invoke_real_executor_blocks_hidden_branch_ref_changes(self):
         cases = (
@@ -9034,6 +9404,13 @@ class CadenceCliTests(unittest.TestCase):
                 task_packet["snapshot"],
                 tasks=[task_packet["task"]],
             )
+            run_record_path, _run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
+            )
 
             result, output = run_cli(
                 tmp,
@@ -9046,6 +9423,8 @@ class CadenceCliTests(unittest.TestCase):
                 str(result_path),
                 "--snapshot-after-file",
                 str(snapshot_after_path),
+                "--run-record-file",
+                str(run_record_path),
                 "--emit-git-pr-plan",
                 "--cwd",
                 repo,
@@ -9064,7 +9443,10 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["next_decision"]["decision"], "generate_git_pr_plan")
             self.assertFalse(output["executor_started"])
             self.assertFalse(output["pr_action_started"])
-            self.assertEqual(output["side_effects"], ["epoch_completed", "audit_record_appended"])
+            self.assertEqual(
+                output["side_effects"],
+                ["epoch_completed", "execution_run_record_updated", "execution_run_audit_appended", "audit_record_appended"],
+            )
             self.assertTrue(output["git_pr_plan"]["dry_run"])
             self.assertTrue(output["git_pr_plan"]["ready_to_review"])
             self.assertEqual(output["git_pr_plan"]["side_effects"], [])
@@ -9076,8 +9458,11 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(completed_epoch["completed_tasks"], ["candidate-1"])
             self.assertEqual(completed_epoch["executor_closeout"]["result_file_checksum"], checksum_json(result_evidence))
             audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(audit_lines), 1)
-            audit_record = json.loads(audit_lines[0])
+            self.assertEqual(len(audit_lines), 2)
+            run_record_audit = json.loads(audit_lines[0])
+            self.assertEqual(run_record_audit["event"], "execution_run_record")
+            self.assertEqual(run_record_audit["action"], "update_execution_run_closeout")
+            audit_record = json.loads(audit_lines[1])
             self.assertEqual(audit_record["event"], "executor_epoch_closeout")
             self.assertEqual(audit_record["action"], "generate_git_pr_plan")
             self.assertEqual(audit_record["epoch_id"], "epoch-closeout-success")
@@ -9219,6 +9604,715 @@ class CadenceCliTests(unittest.TestCase):
             self.assertNotIn("execution_run_record_updated", rerun_output["side_effects"])
             self.assertEqual(checksum_json(json.loads(run_record_path.read_text(encoding="utf-8"))), checksum_json(updated_record))
             self.assertEqual(len(audit_records(tmp)), 5)
+
+    def test_run_record_closeout_blocks_structurally_when_update_audit_append_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            (
+                task_path,
+                result_path,
+                snapshot_after_path,
+                task_packet,
+                result_evidence,
+                _snapshot_after,
+            ) = write_closeout_packets(
+                tmp,
+                repo,
+            )
+            write_active_epoch(
+                tmp,
+                "epoch-closeout-run-record-audit-failure",
+                task_packet["snapshot"],
+                tasks=[task_packet["task"]],
+            )
+            run_record_path, run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
+            )
+            records_before_closeout = audit_records(tmp)
+            emitted = []
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "epoch_id": "epoch-closeout-run-record-audit-failure",
+                    "task_file": str(task_path),
+                    "result_file": str(result_path),
+                    "snapshot_after_file": str(snapshot_after_path),
+                    "run_record_file": str(run_record_path),
+                    "real_invocation_file": None,
+                    "allow_repo_local_root": False,
+                    "cwd": repo,
+                    "required_body_section": [],
+                    "emit_git_pr_plan": False,
+                    "pr_template_file": None,
+                    "policy_file": None,
+                    "base_branch": "main",
+                    "branch_prefix": "codex/",
+                },
+            )()
+            original_append = cadence_cli.append_audit_record
+
+            def fail_run_record_update(root, record):
+                if (
+                    record.get("event") == "execution_run_record"
+                    and record.get("action") == "update_execution_run_closeout"
+                ):
+                    raise OSError("disk full")
+                return original_append(root, record)
+
+            with mock.patch.object(cadence_cli, "append_audit_record", side_effect=fail_run_record_update):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.closeout_executor_result_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertEqual(len(emitted), 1)
+            output = emitted[0]
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["closeout_status"], "completed")
+            self.assertEqual(output["epoch_status"], "COMPLETED")
+            self.assertIn("run_record_audit_append_failed", {blocker["code"] for blocker in output["blockers"]})
+            self.assertIn("epoch_completed", output["side_effects"])
+            self.assertIn("execution_run_audit_append_failed", output["side_effects"])
+            self.assertIn("execution_run_record_update_rolled_back", output["side_effects"])
+            self.assertNotIn("execution_run_record_updated", output["side_effects"])
+            self.assertNotIn("execution_run_audit_appended", output["side_effects"])
+            self.assertNotIn("audit_record_appended", output["side_effects"])
+            self.assertEqual(json.loads(run_record_path.read_text(encoding="utf-8")), run_record)
+            self.assertTrue(output["run_record"]["rollback_record_restored"])
+            self.assertEqual(output["run_record"]["after_checksum"], checksum_json(run_record))
+            self.assertEqual(output["next_decision"]["recommended_next_action"], "recover_closeout_audit")
+            self.assertEqual(audit_records(tmp), records_before_closeout)
+            self.assertTrue(
+                (Path(tmp) / "epochs" / "completed" / "epoch-closeout-run-record-audit-failure.json").exists()
+            )
+
+    def test_closeout_executor_result_requires_exactly_one_evidence_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, _snapshot_after = write_closeout_packets(
+                tmp,
+                repo,
+            )
+            write_active_epoch(
+                tmp,
+                "epoch-closeout-requires-evidence",
+                task_packet["snapshot"],
+                tasks=[task_packet["task"]],
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    tmp,
+                    "closeout-executor-result",
+                    "--epoch-id",
+                    "epoch-closeout-requires-evidence",
+                    "--task-file",
+                    str(task_path),
+                    "--result-file",
+                    str(result_path),
+                    "--snapshot-after-file",
+                    str(snapshot_after_path),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 2)
+            self.assertEqual(result.stdout, "")
+            self.assertIn("one of the arguments --run-record-file --real-invocation-file is required", result.stderr)
+
+            both_result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    tmp,
+                    "closeout-executor-result",
+                    "--epoch-id",
+                    "epoch-closeout-requires-evidence",
+                    "--task-file",
+                    str(task_path),
+                    "--result-file",
+                    str(result_path),
+                    "--snapshot-after-file",
+                    str(snapshot_after_path),
+                    "--run-record-file",
+                    str(Path(tmp) / "execution-runs" / "run.json"),
+                    "--real-invocation-file",
+                    str(Path(tmp) / "real-executor-invocations" / "invocation.json"),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(both_result.returncode, 2)
+            self.assertEqual(both_result.stdout, "")
+            self.assertIn("not allowed with argument", both_result.stderr)
+
+    def test_real_executor_invocation_record_is_accepted_by_closeout_and_git_pr_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(
+                tmp,
+                repo,
+                touch_repo=True,
+                include_materialized_change_evidence=True,
+            )
+            task_packet = inputs["task_packet"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+            task_alias_dir = Path(tmp) / "task-path-alias"
+            task_alias_dir.mkdir()
+            closeout_task_path = task_alias_dir / ".." / task_path.name
+
+            invocation_result, invocation_output = self.run_invoke_real_executor_cli(
+                tmp,
+                plan_path,
+                side_effect_mode="materialized_changes",
+            )
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            self.assertTrue(invocation_output["valid"])
+            invocation_path = Path(invocation_output["record_file"])
+            result_path = Path(invocation_output["result_file"])
+            result_evidence = json.loads(result_path.read_text(encoding="utf-8"))
+            self.assertEqual(invocation_output["result_evidence_checksum"], checksum_json(result_evidence))
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(
+                    closeout_snapshot(
+                        repo,
+                        id="snapshot-after",
+                        captured_at="2999-05-22T00:10:00Z",
+                        dirty_worktree=True,
+                        repo_confidence="low",
+                        repo_confidence_drivers=["dirty_worktree"],
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            closeout_result, closeout_output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-1",
+                "--task-file",
+                str(closeout_task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--emit-git-pr-plan",
+                "--cwd",
+                repo,
+            )
+
+            self.assertEqual(closeout_result.returncode, 0, closeout_result.stderr)
+            self.assertTrue(closeout_output["valid"])
+            self.assertEqual(closeout_output["closeout_status"], "completed")
+            self.assertTrue(closeout_output["executor_started"])
+            self.assertEqual(closeout_output["validation"]["invocation_id"], invocation_output["invocation_id"])
+            self.assertEqual(closeout_output["real_invocation"]["path"], str(invocation_path))
+            self.assertEqual(closeout_output["real_invocation"]["invocation_id"], invocation_output["invocation_id"])
+            self.assertEqual(closeout_output["real_invocation"]["before_checksum"], checksum_json(invocation_output))
+            self.assertIn("real_executor_invocation_record_updated", closeout_output["side_effects"])
+            self.assertIn("real_executor_invocation_audit_appended", closeout_output["side_effects"])
+            self.assertIn("audit_record_appended", closeout_output["side_effects"])
+            self.assertTrue(closeout_output["git_pr_plan"]["dry_run"])
+            self.assertFalse(closeout_output["pr_action_started"])
+            updated_invocation = json.loads(invocation_path.read_text(encoding="utf-8"))
+            self.assertEqual(updated_invocation["closeout_status"], "completed")
+            self.assertEqual(updated_invocation["epoch_id"], "epoch-1")
+            self.assertEqual(updated_invocation["epoch_status"], "COMPLETED")
+            self.assertEqual(
+                updated_invocation["epoch_closeout_checksum"],
+                closeout_output["real_invocation"]["epoch_closeout_checksum"],
+            )
+            self.assertEqual(closeout_output["real_invocation"]["after_checksum"], checksum_json(updated_invocation))
+            completed_epoch = json.loads(
+                (Path(tmp) / "epochs" / "completed" / "epoch-1.json").read_text(
+                    encoding="utf-8",
+                )
+            )
+            self.assertEqual(completed_epoch["executor_closeout"]["result_file_checksum"], checksum_json(result_evidence))
+            records = audit_records(tmp)
+            invocation_update_records = [
+                record
+                for record in records
+                if record.get("event") == "real_executor_invocation_record"
+                and record.get("action") == "update_real_executor_invocation_closeout"
+            ]
+            self.assertEqual(len(invocation_update_records), 1)
+            invocation_update = invocation_update_records[0]
+            self.assertEqual(invocation_update["invocation_id"], invocation_output["invocation_id"])
+            self.assertEqual(
+                invocation_update["epoch_closeout_checksum"],
+                closeout_output["real_invocation"]["epoch_closeout_checksum"],
+            )
+            self.assertEqual(invocation_update["result_evidence_checksum"], checksum_json(result_evidence))
+            self.assertEqual(invocation_update["invocation_record_checksum"], checksum_json(updated_invocation))
+            closeout_records = [record for record in records if record.get("event") == "executor_epoch_closeout"]
+            self.assertEqual(len(closeout_records), 1)
+            payload_without_audit = dict(closeout_output)
+            payload_without_audit.pop("audit_record")
+            self.assertEqual(closeout_records[0]["payload_checksum"], checksum_json(payload_without_audit))
+            replay_result, replay_output = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay_output["valid"])
+            self.assertEqual(replay_output["events_by_type"]["real_executor_invocation_record"], 2)
+
+    def test_real_executor_invocation_closeout_blocks_missing_invocation_audit_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo)
+            task_packet = inputs["task_packet"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+            invocation_result, invocation_output = self.run_invoke_real_executor_cli(tmp, plan_path)
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            invocation_path = Path(invocation_output["record_file"])
+            before_invocation = json.loads(invocation_path.read_text(encoding="utf-8"))
+            result_path = Path(invocation_output["result_file"])
+            audit_path = Path(tmp) / "audit" / "events.jsonl"
+            records = audit_records(tmp)
+            retained_records = [record for record in records if record.get("event") != "real_executor_invocation_record"]
+            audit_path.write_text(
+                "".join(json.dumps(record, sort_keys=True) + "\n" for record in retained_records),
+                encoding="utf-8",
+            )
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(closeout_snapshot(repo, id="snapshot-after", captured_at="2999-05-22T00:10:00Z")),
+                encoding="utf-8",
+            )
+
+            closeout_result, closeout_output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-1",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--cwd",
+                repo,
+            )
+
+            self.assertEqual(closeout_result.returncode, 1)
+            self.assertFalse(closeout_output["valid"])
+            self.assertEqual(closeout_output["closeout_status"], "blocked")
+            self.assertIn("audit_chain_mismatch", {blocker["code"] for blocker in closeout_output["blockers"]})
+            self.assertEqual(json.loads(invocation_path.read_text(encoding="utf-8")), before_invocation)
+            self.assertTrue((Path(tmp) / "epochs" / "active" / "epoch-1.json").exists())
+            self.assertFalse((Path(tmp) / "epochs" / "completed" / "epoch-1.json").exists())
+
+    def test_real_executor_invocation_closeout_blocks_ownership_anchor_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo)
+            task_packet = inputs["task_packet"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+            invocation_result, invocation_output = self.run_invoke_real_executor_cli(tmp, plan_path)
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            invocation_path = Path(invocation_output["record_file"])
+            before_invocation = json.loads(invocation_path.read_text(encoding="utf-8"))
+            result_path = Path(invocation_output["result_file"])
+            ownership_path = Path(inputs["readiness_packet"]["ownership"]["path"])
+            ownership_record = json.loads(ownership_path.read_text(encoding="utf-8"))
+            ownership_record["claimer"] = "other-agent"
+            ownership_path.write_text(json.dumps(ownership_record), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(closeout_snapshot(repo, id="snapshot-after", captured_at="2999-05-22T00:10:00Z")),
+                encoding="utf-8",
+            )
+
+            closeout_result, closeout_output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-1",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--cwd",
+                repo,
+            )
+
+            self.assertEqual(closeout_result.returncode, 1)
+            self.assertFalse(closeout_output["valid"])
+            self.assertEqual(closeout_output["closeout_status"], "blocked")
+            self.assertIn("ownership_closeout_blocked", {blocker["code"] for blocker in closeout_output["blockers"]})
+            self.assertNotIn("real_executor_invocation_record_updated", closeout_output["side_effects"])
+            self.assertEqual(json.loads(invocation_path.read_text(encoding="utf-8")), before_invocation)
+            self.assertTrue((Path(tmp) / "epochs" / "active" / "epoch-1.json").exists())
+            self.assertFalse((Path(tmp) / "epochs" / "completed" / "epoch-1.json").exists())
+
+    def test_real_executor_invocation_closeout_blocks_dirty_file_content_tampering(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(
+                tmp,
+                repo,
+                touch_repo=True,
+                include_materialized_change_evidence=True,
+            )
+            task_packet = inputs["task_packet"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+            invocation_result, invocation_output = self.run_invoke_real_executor_cli(
+                tmp,
+                plan_path,
+                side_effect_mode="materialized_changes",
+            )
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            invocation_path = Path(invocation_output["record_file"])
+            before_invocation = json.loads(invocation_path.read_text(encoding="utf-8"))
+            result_path = Path(invocation_output["result_file"])
+            (Path(repo) / "README.md").write_text("tampered after invocation\n", encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(
+                    closeout_snapshot(
+                        repo,
+                        id="snapshot-after",
+                        captured_at="2999-05-22T00:10:00Z",
+                        dirty_worktree=True,
+                        repo_confidence="low",
+                        repo_confidence_drivers=["dirty_worktree"],
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            closeout_result, closeout_output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-1",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--cwd",
+                repo,
+            )
+
+            self.assertEqual(closeout_result.returncode, 1)
+            self.assertFalse(closeout_output["valid"])
+            self.assertEqual(closeout_output["closeout_status"], "blocked")
+            self.assertIn("materialized_change_mismatch", {blocker["code"] for blocker in closeout_output["blockers"]})
+            self.assertNotIn("real_executor_invocation_record_updated", closeout_output["side_effects"])
+            self.assertEqual(json.loads(invocation_path.read_text(encoding="utf-8")), before_invocation)
+            self.assertTrue((Path(tmp) / "epochs" / "active" / "epoch-1.json").exists())
+            self.assertFalse((Path(tmp) / "epochs" / "completed" / "epoch-1.json").exists())
+
+    def test_real_executor_invocation_closeout_blocks_result_file_tampering(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo)
+            task_packet = inputs["task_packet"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+            invocation_result, invocation_output = self.run_invoke_real_executor_cli(tmp, plan_path)
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            invocation_path = Path(invocation_output["record_file"])
+            before_invocation = json.loads(invocation_path.read_text(encoding="utf-8"))
+            result_path = Path(invocation_output["result_file"])
+            tampered_result = json.loads(result_path.read_text(encoding="utf-8"))
+            tampered_result["summary"] = "Tampered after invocation."
+            result_path.write_text(json.dumps(tampered_result), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(closeout_snapshot(repo, id="snapshot-after", captured_at="2999-05-22T00:10:00Z")),
+                encoding="utf-8",
+            )
+
+            closeout_result, closeout_output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-1",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--cwd",
+                repo,
+            )
+
+            self.assertEqual(closeout_result.returncode, 1)
+            self.assertFalse(closeout_output["valid"])
+            self.assertEqual(closeout_output["closeout_status"], "blocked")
+            self.assertIn("invocation_checksum_mismatch", {blocker["code"] for blocker in closeout_output["blockers"]})
+            self.assertNotIn("real_executor_invocation_record_updated", closeout_output["side_effects"])
+            self.assertEqual(json.loads(invocation_path.read_text(encoding="utf-8")), before_invocation)
+            self.assertTrue((Path(tmp) / "epochs" / "active" / "epoch-1.json").exists())
+            self.assertFalse((Path(tmp) / "epochs" / "completed" / "epoch-1.json").exists())
+
+    def test_real_executor_invocation_closeout_blocks_mutable_record_checksum_tampering(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo)
+            task_packet = inputs["task_packet"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+            invocation_result, invocation_output = self.run_invoke_real_executor_cli(tmp, plan_path)
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            invocation_path = Path(invocation_output["record_file"])
+            result_path = Path(invocation_output["result_file"])
+            tampered_result = json.loads(result_path.read_text(encoding="utf-8"))
+            tampered_result["summary"] = "Tampered after invocation with matching mutable checksum."
+            result_path.write_text(json.dumps(tampered_result), encoding="utf-8")
+            tampered_invocation = json.loads(invocation_path.read_text(encoding="utf-8"))
+            tampered_invocation["result_evidence_checksum"] = checksum_json(tampered_result)
+            invocation_path.write_text(json.dumps(tampered_invocation), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(closeout_snapshot(repo, id="snapshot-after", captured_at="2999-05-22T00:10:00Z")),
+                encoding="utf-8",
+            )
+
+            closeout_result, closeout_output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-1",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--cwd",
+                repo,
+            )
+
+            self.assertEqual(closeout_result.returncode, 1)
+            self.assertFalse(closeout_output["valid"])
+            self.assertEqual(closeout_output["closeout_status"], "blocked")
+            self.assertIn("invocation_checksum_mismatch", {blocker["code"] for blocker in closeout_output["blockers"]})
+            self.assertNotIn("real_executor_invocation_record_updated", closeout_output["side_effects"])
+            self.assertTrue((Path(tmp) / "epochs" / "active" / "epoch-1.json").exists())
+            self.assertFalse((Path(tmp) / "epochs" / "completed" / "epoch-1.json").exists())
+
+    def test_real_executor_invocation_closeout_blocks_false_snapshot_after_dirty_state(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(
+                tmp,
+                repo,
+                touch_repo=True,
+                include_materialized_change_evidence=True,
+            )
+            task_packet = inputs["task_packet"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+            invocation_result, invocation_output = self.run_invoke_real_executor_cli(
+                tmp,
+                plan_path,
+                side_effect_mode="materialized_changes",
+            )
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            invocation_path = Path(invocation_output["record_file"])
+            before_invocation = json.loads(invocation_path.read_text(encoding="utf-8"))
+            result_path = Path(invocation_output["result_file"])
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(closeout_snapshot(repo, id="snapshot-after", captured_at="2999-05-22T00:10:00Z")),
+                encoding="utf-8",
+            )
+
+            closeout_result, closeout_output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-1",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--cwd",
+                repo,
+            )
+
+            self.assertEqual(closeout_result.returncode, 1)
+            self.assertFalse(closeout_output["valid"])
+            self.assertEqual(closeout_output["closeout_status"], "blocked")
+            self.assertIn("materialized_change_mismatch", {blocker["code"] for blocker in closeout_output["blockers"]})
+            self.assertNotIn("real_executor_invocation_record_updated", closeout_output["side_effects"])
+            self.assertEqual(json.loads(invocation_path.read_text(encoding="utf-8")), before_invocation)
+            self.assertTrue((Path(tmp) / "epochs" / "active" / "epoch-1.json").exists())
+            self.assertFalse((Path(tmp) / "epochs" / "completed" / "epoch-1.json").exists())
+
+    def test_real_executor_invocation_closeout_blocks_unreported_dirty_files(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(
+                tmp,
+                repo,
+                touch_repo=True,
+                include_materialized_change_evidence=True,
+            )
+            task_packet = inputs["task_packet"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+            invocation_result, invocation_output = self.run_invoke_real_executor_cli(
+                tmp,
+                plan_path,
+                side_effect_mode="materialized_changes",
+            )
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            invocation_path = Path(invocation_output["record_file"])
+            before_invocation = json.loads(invocation_path.read_text(encoding="utf-8"))
+            result_path = Path(invocation_output["result_file"])
+            (Path(repo) / "unreported.txt").write_text("unreported dirty file\n", encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(closeout_snapshot(repo, id="snapshot-after", captured_at="2999-05-22T00:10:00Z")),
+                encoding="utf-8",
+            )
+
+            closeout_result, closeout_output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-1",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--cwd",
+                repo,
+            )
+
+            self.assertEqual(closeout_result.returncode, 1)
+            self.assertFalse(closeout_output["valid"])
+            self.assertEqual(closeout_output["closeout_status"], "blocked")
+            self.assertIn("materialized_change_mismatch", {blocker["code"] for blocker in closeout_output["blockers"]})
+            self.assertNotIn("real_executor_invocation_record_updated", closeout_output["side_effects"])
+            self.assertEqual(json.loads(invocation_path.read_text(encoding="utf-8")), before_invocation)
+            self.assertTrue((Path(tmp) / "epochs" / "active" / "epoch-1.json").exists())
+            self.assertFalse((Path(tmp) / "epochs" / "completed" / "epoch-1.json").exists())
+
+    def test_real_executor_invocation_closeout_blocks_tampered_repo_transition(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo)
+            task_packet = inputs["task_packet"]
+            task_path = Path(tmp) / "executor-task.json"
+            task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+
+            invocation_result, invocation_output = self.run_invoke_real_executor_cli(tmp, plan_path)
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            invocation_path = Path(invocation_output["record_file"])
+            result_path = Path(invocation_output["result_file"])
+            original_head = invocation_output["repository_before"]["head"]
+            (Path(repo) / "post-invocation.txt").write_text("post invocation commit\n", encoding="utf-8")
+            git(repo, "add", "post-invocation.txt")
+            git(repo, "commit", "-m", "post invocation commit")
+            new_head = current_head(repo)
+            tampered_invocation = json.loads(invocation_path.read_text(encoding="utf-8"))
+            tampered_invocation["repository_after"]["head"] = new_head
+            branch = tampered_invocation["repository_after"]["branch"]
+            tampered_invocation["repository_after"]["local_branch_refs"][branch] = new_head
+            invocation_path.write_text(json.dumps(tampered_invocation), encoding="utf-8")
+            snapshot_after_path = Path(tmp) / "snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(
+                    closeout_snapshot(
+                        repo,
+                        id="snapshot-after",
+                        head=original_head,
+                        captured_at="2999-05-22T00:10:00Z",
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            closeout_result, closeout_output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                "epoch-1",
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--cwd",
+                repo,
+            )
+
+            self.assertEqual(closeout_result.returncode, 1)
+            self.assertFalse(closeout_output["valid"])
+            self.assertEqual(closeout_output["closeout_status"], "blocked")
+            self.assertIn("invocation_checksum_mismatch", {blocker["code"] for blocker in closeout_output["blockers"]})
+            self.assertNotIn("real_executor_invocation_record_updated", closeout_output["side_effects"])
+            self.assertTrue((Path(tmp) / "epochs" / "active" / "epoch-1.json").exists())
+            self.assertFalse((Path(tmp) / "epochs" / "completed" / "epoch-1.json").exists())
 
     def test_closeout_executor_result_blocks_run_record_task_checksum_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
@@ -9537,7 +10631,7 @@ class CadenceCliTests(unittest.TestCase):
     def test_closeout_executor_result_blocks_malformed_run_record_file(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
-            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, _snapshot_after = write_closeout_packets(
                 tmp,
                 repo,
             )
@@ -9773,7 +10867,7 @@ class CadenceCliTests(unittest.TestCase):
             (Path(repo) / "README.md").write_text("hello\nbranch policy closeout\n", encoding="utf-8")
             git(repo, "add", "README.md")
             git(repo, "commit", "-m", "implement branch policy closeout fixture")
-            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, _snapshot_after = write_closeout_packets(
                 tmp,
                 repo,
             )
@@ -9782,6 +10876,13 @@ class CadenceCliTests(unittest.TestCase):
                 "epoch-closeout-branch-policy",
                 task_packet["snapshot"],
                 tasks=[task_packet["task"]],
+            )
+            run_record_path, _run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
             )
             policy_file = Path(tmp) / "loop-policy.json"
             policy_file.write_text(
@@ -9810,6 +10911,8 @@ class CadenceCliTests(unittest.TestCase):
                 str(result_path),
                 "--snapshot-after-file",
                 str(snapshot_after_path),
+                "--run-record-file",
+                str(run_record_path),
                 "--emit-git-pr-plan",
                 "--cwd",
                 repo,
@@ -9839,7 +10942,7 @@ class CadenceCliTests(unittest.TestCase):
             (Path(repo) / "README.md").write_text("hello\npartial closeout\n", encoding="utf-8")
             git(repo, "add", "README.md")
             git(repo, "commit", "-m", "complete first task")
-            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, _snapshot_after = write_closeout_packets(
                 tmp,
                 repo,
             )
@@ -9859,6 +10962,13 @@ class CadenceCliTests(unittest.TestCase):
                 task_packet["snapshot"],
                 tasks=[task_packet["task"], remaining_task],
             )
+            run_record_path, _run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
+            )
 
             result, output = run_cli(
                 tmp,
@@ -9871,6 +10981,8 @@ class CadenceCliTests(unittest.TestCase):
                 str(result_path),
                 "--snapshot-after-file",
                 str(snapshot_after_path),
+                "--run-record-file",
+                str(run_record_path),
                 "--emit-git-pr-plan",
                 "--cwd",
                 repo,
@@ -9881,7 +10993,10 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["closeout_status"], "task_completed")
             self.assertEqual(output["epoch_status"], "ACTIVE")
             self.assertEqual(output["next_decision"]["decision"], "continue")
-            self.assertEqual(output["side_effects"], ["epoch_task_completed", "audit_record_appended"])
+            self.assertEqual(
+                output["side_effects"],
+                ["epoch_task_completed", "execution_run_record_updated", "execution_run_audit_appended", "audit_record_appended"],
+            )
             self.assertIsNone(output["git_pr_plan"])
             active_path = Path(tmp) / "epochs" / "active" / "epoch-closeout-partial.json"
             self.assertTrue(active_path.exists())
@@ -9896,7 +11011,7 @@ class CadenceCliTests(unittest.TestCase):
             (Path(repo) / "README.md").write_text("hello\nduplicate task id\n", encoding="utf-8")
             git(repo, "add", "README.md")
             git(repo, "commit", "-m", "complete duplicate task")
-            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, _snapshot_after = write_closeout_packets(
                 tmp,
                 repo,
             )
@@ -9907,6 +11022,13 @@ class CadenceCliTests(unittest.TestCase):
                 "epoch-closeout-duplicate-task",
                 task_packet["snapshot"],
                 tasks=[task_packet["task"], duplicate_task],
+            )
+            run_record_path, _run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
             )
 
             result, output = run_cli(
@@ -9920,6 +11042,8 @@ class CadenceCliTests(unittest.TestCase):
                 str(result_path),
                 "--snapshot-after-file",
                 str(snapshot_after_path),
+                "--run-record-file",
+                str(run_record_path),
             )
 
             self.assertEqual(result.returncode, 1)
@@ -9935,7 +11059,7 @@ class CadenceCliTests(unittest.TestCase):
             (Path(repo) / "README.md").write_text("hello\npartial missing template\n", encoding="utf-8")
             git(repo, "add", "README.md")
             git(repo, "commit", "-m", "complete first task")
-            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, _snapshot_after = write_closeout_packets(
                 tmp,
                 repo,
             )
@@ -9955,6 +11079,13 @@ class CadenceCliTests(unittest.TestCase):
                 task_packet["snapshot"],
                 tasks=[task_packet["task"], remaining_task],
             )
+            run_record_path, _run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
+            )
 
             result, output = run_cli(
                 tmp,
@@ -9967,6 +11098,8 @@ class CadenceCliTests(unittest.TestCase):
                 str(result_path),
                 "--snapshot-after-file",
                 str(snapshot_after_path),
+                "--run-record-file",
+                str(run_record_path),
                 "--emit-git-pr-plan",
                 "--cwd",
                 repo,
@@ -9986,7 +11119,7 @@ class CadenceCliTests(unittest.TestCase):
     def test_closeout_executor_result_blocks_snapshot_after_before_executor_end(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
-            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, snapshot_after = write_closeout_packets(
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, snapshot_after = write_closeout_packets(
                 tmp,
                 repo,
             )
@@ -9997,6 +11130,13 @@ class CadenceCliTests(unittest.TestCase):
                 "epoch-closeout-stale-after",
                 task_packet["snapshot"],
                 tasks=[task_packet["task"]],
+            )
+            run_record_path, _run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
             )
 
             result, output = run_cli(
@@ -10010,6 +11150,8 @@ class CadenceCliTests(unittest.TestCase):
                 str(result_path),
                 "--snapshot-after-file",
                 str(snapshot_after_path),
+                "--run-record-file",
+                str(run_record_path),
             )
 
             self.assertEqual(result.returncode, 1)
@@ -10026,7 +11168,7 @@ class CadenceCliTests(unittest.TestCase):
             (Path(repo) / "README.md").write_text("hello\nmissing template\n", encoding="utf-8")
             git(repo, "add", "README.md")
             git(repo, "commit", "-m", "complete template task")
-            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, _snapshot_after = write_closeout_packets(
                 tmp,
                 repo,
             )
@@ -10035,6 +11177,13 @@ class CadenceCliTests(unittest.TestCase):
                 "epoch-closeout-missing-template",
                 task_packet["snapshot"],
                 tasks=[task_packet["task"]],
+            )
+            run_record_path, _run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
             )
 
             result, output = run_cli(
@@ -10048,6 +11197,8 @@ class CadenceCliTests(unittest.TestCase):
                 str(result_path),
                 "--snapshot-after-file",
                 str(snapshot_after_path),
+                "--run-record-file",
+                str(run_record_path),
                 "--emit-git-pr-plan",
                 "--cwd",
                 repo,
@@ -10128,7 +11279,7 @@ class CadenceCliTests(unittest.TestCase):
     def test_closeout_executor_result_fails_epoch_for_blocked_evidence(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
-            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, _snapshot_after = write_closeout_packets(
                 tmp,
                 repo,
                 result_evidence={
@@ -10155,6 +11306,13 @@ class CadenceCliTests(unittest.TestCase):
                 task_packet["snapshot"],
                 tasks=[task_packet["task"]],
             )
+            run_record_path, _run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
+            )
 
             result, output = run_cli(
                 tmp,
@@ -10167,6 +11325,8 @@ class CadenceCliTests(unittest.TestCase):
                 str(result_path),
                 "--snapshot-after-file",
                 str(snapshot_after_path),
+                "--run-record-file",
+                str(run_record_path),
             )
 
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -10183,7 +11343,7 @@ class CadenceCliTests(unittest.TestCase):
     def test_closeout_executor_result_blocks_stale_task_snapshot_without_closing_epoch(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
-            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, _snapshot_after = write_closeout_packets(
                 tmp,
                 repo,
             )
@@ -10194,6 +11354,13 @@ class CadenceCliTests(unittest.TestCase):
                 "epoch-closeout-stale",
                 stale_epoch_snapshot,
                 tasks=[task_packet["task"]],
+            )
+            run_record_path, _run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
             )
 
             result, output = run_cli(
@@ -10207,6 +11374,8 @@ class CadenceCliTests(unittest.TestCase):
                 str(result_path),
                 "--snapshot-after-file",
                 str(snapshot_after_path),
+                "--run-record-file",
+                str(run_record_path),
             )
 
             self.assertEqual(result.returncode, 1)
@@ -10221,9 +11390,16 @@ class CadenceCliTests(unittest.TestCase):
     def test_closeout_executor_result_blocks_active_epoch_conflict(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
-            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, _snapshot_after = write_closeout_packets(
                 tmp,
                 repo,
+            )
+            run_record_path, _run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
             )
             write_active_epoch(tmp, "epoch-conflict-1", task_packet["snapshot"], tasks=[task_packet["task"]])
             write_active_epoch(tmp, "epoch-conflict-2", task_packet["snapshot"], tasks=[task_packet["task"]])
@@ -10239,6 +11415,8 @@ class CadenceCliTests(unittest.TestCase):
                 str(result_path),
                 "--snapshot-after-file",
                 str(snapshot_after_path),
+                "--run-record-file",
+                str(run_record_path),
             )
 
             self.assertEqual(result.returncode, 1)
@@ -10250,9 +11428,16 @@ class CadenceCliTests(unittest.TestCase):
     def test_closeout_executor_result_rerun_reports_already_closed_without_second_completion(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
-            task_path, result_path, snapshot_after_path, task_packet, _result_evidence, _snapshot_after = write_closeout_packets(
+            task_path, result_path, snapshot_after_path, task_packet, result_evidence, _snapshot_after = write_closeout_packets(
                 tmp,
                 repo,
+            )
+            run_record_path, _run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
             )
             write_active_epoch(
                 tmp,
@@ -10270,6 +11455,8 @@ class CadenceCliTests(unittest.TestCase):
                 str(result_path),
                 "--snapshot-after-file",
                 str(snapshot_after_path),
+                "--run-record-file",
+                str(run_record_path),
             ]
 
             first_result, first_output = run_cli(tmp, *args)
@@ -10284,8 +11471,9 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(len(list((Path(tmp) / "epochs" / "completed").glob("epoch-closeout-rerun.json"))), 1)
             self.assertEqual(len(list((Path(tmp) / "epochs" / "failed").glob("epoch-closeout-rerun.json"))), 0)
             audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(audit_lines), 1)
-            self.assertEqual(json.loads(audit_lines[0])["event"], "executor_epoch_closeout")
+            self.assertEqual(len(audit_lines), 2)
+            self.assertEqual(json.loads(audit_lines[0])["event"], "execution_run_record")
+            self.assertEqual(json.loads(audit_lines[1])["event"], "executor_epoch_closeout")
 
     def test_work_ownership_status_surfaces_valid_active_record(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

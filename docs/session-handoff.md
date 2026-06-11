@@ -1,22 +1,22 @@
 # Current Session Handoff
 
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 
 ## Current State
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `071ea6b040d304773827f56f239cdde1b82ea05c` after PR #88 merged.
-- Working branch intent: implement Task 21 controlled real executor invocation records from approved invocation plans.
-- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence; PR #88 merged read-only real executor invocation plan evidence.
+- Current base: `origin/main` at `cff2b5c0369a02089e26b6d5350981aaefc2e5ce` after PR #89 merged.
+- Working branch intent: implement Task 22 real executor run closeout binding.
+- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence; PR #88 merged read-only real executor invocation plan evidence; PR #89 merged controlled real executor invocation evidence.
 - Completed roadmap marker: Tasks 13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in `main`, including `work-ownership-claim.v1`, `work-ownership-closeout.v1`, ownership-bound `execution-start.v1`, ownership-aware `resume-continuation.v1`, read-only `role-readiness.v1`, and read-only `executor-invocation-readiness.v1` packet evidence.
-- Current branch scope: `codex/task-21-controlled-real-executor-invocation`
-  adds `invoke-real-executor` and `real-executor-invocation.v1` evidence from a
-  fresh approved invocation plan. It may start exactly one approved local
-  process with bounded environment and timeout, capture stdout/stderr, and
-  record before/after repo snapshots. It must not create branches, commit,
-  push, open or update PRs, merge, release, publish packages, assign roles,
-  schedule agents, or claim distributed locks.
+- Current branch scope: `codex/task-22-real-executor-run-closeout-binding`
+  adds `closeout-executor-result --real-invocation-file` so accepted
+  `real-executor-invocation.v1` records can bind to result validation, active
+  ownership revalidation, epoch closeout, and dry-run Git/PR planning. It must
+  not commit dirty worktree changes, create branches, push, open or update PRs,
+  merge, release, publish packages, assign roles, schedule agents, or claim
+  distributed locks.
 
 ## Current Capability Baseline
 
@@ -37,6 +37,11 @@ Last updated: 2026-06-10
 - `closeout-executor-result --run-record-file` can reject mismatched or partial
   run records before epoch mutation and update accepted records with closeout
   status, epoch id/status, and closeout checksum.
+- `closeout-executor-result --real-invocation-file` can reject mismatched,
+  stale, missing, invalid, wrong-epoch, ownership-blocked, materialized-change
+  mismatched, or audit-chain mismatched real invocation evidence before epoch
+  mutation, then update accepted invocation records with closeout status and
+  checksum anchors.
 - `github-evidence-sync` can explicitly fetch read-only PR metadata, status checks, and review threads through `gh`, then save local PR JSON, review-thread JSON, and a summary packet for deterministic follow-on commands.
 - `git-pr-materialize` can consume a reviewed `git-pr-plan.v1` packet and matching target-bound HMAC operator approval token backed by `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`, re-run the local plan gates, create the proposed branch from the already-materialized current commit without switching the checkout, push it with Git hook verification disabled for that push, create or update a PR through `gh`, and append `git_pr_materialization_intent` plus `git_pr_materialization_result` audit records.
 - `verify-resume` can emit a read-only `resume-verification.v1` packet that checks handoff signature and claimed state, clean-square evidence, persisted resume snapshot binding, repo branch/head, dirty-worktree state, active brake, active epoch state, and pickup-policy evidence before a fresh session continues.
@@ -100,10 +105,10 @@ Last updated: 2026-06-10
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
 - Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete in `main` via PR #84.
-- This branch implements Task 21 from
+- This branch implements Task 22 from
   `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`; the PR for this branch
-  should review controlled real executor invocation evidence and side-effect
-  enforcement.
+  should review real invocation closeout binding, active ownership revalidation,
+  materialized-change evidence handling, and dry-run Git/PR planning.
 
 ## Important Boundaries
 
@@ -149,26 +154,31 @@ Last updated: 2026-06-10
   evidence, but it does not start a process, append audit records, modify code,
   create branches, commit, push, write PRs, merge, release, publish packages,
   assign roles, schedule agents, or write GitHub state.
-- `invoke-real-executor` is invocation evidence only. It can start one approved
-  local process from a fresh plan and write local runtime evidence, but it is
-  not authority to commit, push, open or update PRs, resolve review threads,
-  merge, release, publish packages, assign roles, schedule agents, claim
-  distributed locks, or write GitHub state.
+- `invoke-real-executor` is process-start evidence only. It can start one
+  approved local process from a fresh plan and write local runtime evidence,
+  but it is not authority to commit, push, open or update PRs, resolve review
+  threads, merge, release, publish packages, assign roles, schedule agents,
+  claim distributed locks, or write GitHub state.
+- `closeout-executor-result --real-invocation-file` can bind accepted real
+  invocation evidence into local closeout and dry-run planning decisions, but
+  it is not authority to materialize Git/PR writes or close ownership records
+  without the existing explicit commands.
 - The active business-memory backlog entry is discovery input only. It does not authorize executor invocation, code modification, branch creation, commits, pushes, PR creation, merges, releases, package publication, or paid review spending.
 - The controlled fake executor fixture remains only a tests/examples component.
   The real invocation runner is separate local process-start evidence and still
   does not provide named host adapter support, autonomous branch/PR automation,
   merge authority, release behavior, or package-publication authority.
-- Real executor invocation records are evidence for the next closeout-binding
-  gate, not final authority for epoch closeout, ownership closeout, Git/PR
-  planning, or named host adapters.
+- Real executor invocation records are acceptable local closeout evidence only
+  after the closeout command revalidates their task, epoch, ownership, result,
+  repo, materialized-change, and audit-chain anchors; they are not named host
+  adapter support or GitHub write authority.
 - Keep public docs free of private machine paths and private repository assumptions.
 
 ## Validation To Re-run
 
 ```powershell
 git status -sb
-python -m py_compile codex_cadence/executor_invocation.py codex_cadence/executor_readiness.py codex_cadence/approvals.py codex_cadence/policy_audit.py codex_cadence/cli.py tests/test_cadence.py
+python -m py_compile codex_cadence/executor_invocation.py codex_cadence/executor_readiness.py codex_cadence/approvals.py codex_cadence/policy_audit.py codex_cadence/executor_contract.py codex_cadence/cli.py tests/test_cadence.py
 python -m unittest tests.test_cadence -v
 python -m unittest tests.test_executor_contract tests.test_epochs tests.test_ci_checks -v
 python scripts/validate_protocol.py
@@ -176,19 +186,17 @@ python scripts/ci_smoke.py
 git diff --check
 ```
 
-For this branch, include the Task 21 `invoke-real-executor` focused validation
-block in addition to the broader validation commands above. The Task 17 runtime
-validation block remains recorded in
+For this branch, include the Task 22 real-invocation closeout focused
+validation block in addition to the broader validation commands above. The Task
+17 runtime validation block remains recorded in
 `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` for the merged
 `executor-invocation-readiness.v1` slice.
 
 ## Next Action
 
-Finish review on the Task 21 PR for
-`codex/task-21-controlled-real-executor-invocation`, address any new findings,
-and merge only after checks and review are clean. Task 22 from
-`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, real executor run closeout
-binding, is the next bounded slice after this branch. Dirty-worktree commit,
-autonomous push, PR writes outside the approved PR for this task, role
+Finish review on the Task 22 PR for
+`codex/task-22-real-executor-run-closeout-binding`, address any new findings,
+and merge only after checks and review are clean. Dirty-worktree commit,
+autonomous push, PR/review writes outside the approved PR for this task, role
 assignment, agent pools, GitHub issue assignment, shared runtimes, distributed
 locks, release, and package publication remain outside this branch.

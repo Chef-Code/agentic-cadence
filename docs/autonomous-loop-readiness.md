@@ -1,9 +1,9 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-06-10
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
-Current unattended-operation confidence: 15%
+Last updated: 2026-06-11
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Current unattended-operation confidence: 20%
 
 This document answers how close Agentic Cadence is to the "press start and
 build continuously" experience. The first usable path is a governed
@@ -210,8 +210,8 @@ Agentic Cadence cannot currently:
 | Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, task-carried branch policy, active brake stop handling, governed execution-start audit, local `execution-run.v1` records, `<root>/audit/events.jsonl`, hash-chained new audit appends, read-only `audit-replay`, and audited `operator-approval.v1` verification through `verify-operator-approval`; no external identity provider or real executor authority |
 | Agent-team orchestration | Partial read-only evidence | `role-readiness` can verify local `role-policy.v1`, scoped ownership role labels, and saved review-thread separation evidence; no agent pool, role assignment, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
-| Executor adapter contract | Partial generic contract | Task/result packet validation, a fake controlled fixture runner, supplied-run-record closeout binding, read-only `executor-invocation-readiness` preflight, read-only `executor-invocation-plan` approval/adapter/rollback binding, and controlled `invoke-real-executor` local process-start records exist, but no named host adapter or autonomous closeout binding |
-| Autonomous implementation | Not built | Requires real executor integration |
+| Executor adapter contract | Partial generic contract | Task/result packet validation, a fake controlled fixture runner, supplied-run-record closeout binding, read-only `executor-invocation-readiness` preflight, read-only `executor-invocation-plan` approval/adapter/rollback binding, controlled `invoke-real-executor` local process-start records, and real-invocation closeout binding exist, but no named host adapter or autonomous GitHub/merge authority |
+| Autonomous implementation | Not built | Requires host/session orchestration, named adapter support, autonomous Git/PR flow, merge governance, and release governance |
 | Live GitHub sync | Partial, read-only evidence capture | `github-evidence-sync` fetches PR JSON and review threads into local files without GitHub writes |
 | Git/PR transition planning | Partial, dry-run plus approved materialization | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects; `git-pr-materialize` can create branch, push, and create/update PR only after exact target-bound operator approval and local rechecks |
 | Branch/commit/push/PR creation | Partial, operator-approved only | No autonomous branch/PR writes, no dirty-worktree commit path, no merge, release, or package publication |
@@ -230,8 +230,9 @@ approval, validate the packet's local snapshot trust anchor, start one active
 epoch from an exactly approved task packet through `start-governed-execution`,
 run a controlled fake executor fixture from an explicit command template for
 tests/examples, write a local execution-run record, validate local executor
-result evidence, close out the active epoch with supplied run-record binding,
-produce a dry-run Git/PR transition plan for separate review, and
+result evidence, close out the active epoch with supplied run-record or
+real-invocation binding, produce a dry-run Git/PR transition plan for separate
+review, and
 materialize that plan only after exact target-bound operator approval and local
 rechecks. It can
 govern handoff and continuation decisions, including read-only resume and
@@ -269,13 +270,15 @@ environment allowlist, timeout, result path, and the current audit-chain head.
 Matching plans still use `recommended_next_action: invoke_real_executor`;
 process start only happens when an operator runs `invoke-real-executor`.
 `invoke-real-executor` can now start exactly one approved command and write
-`real-executor-invocation.v1` evidence, but real-run closeout binding remains
-Task 22 and the command still does not commit, push, open PRs, resolve threads,
-merge, release, publish packages, assign roles, schedule agents, or write
-GitHub state. The controlled fixture path can prove policy, timeout, audit,
-run-record, and result-evidence behavior with fake local evidence, and local
-closeout can record task completion or terminally complete/fail the active epoch
-from that evidence, but it does not implement product changes. The
+`real-executor-invocation.v1` evidence, and `closeout-executor-result
+--real-invocation-file` can bind that evidence to result validation, epoch
+closeout, active ownership revalidation, and dry-run Git/PR planning. These
+commands still do not commit, push, open PRs, resolve threads, merge, release,
+publish packages, assign roles, schedule agents, or write GitHub state. The
+controlled fixture path can prove policy, timeout, audit, run-record, and
+result-evidence behavior with fake local evidence, and local closeout can
+record task completion or terminally complete/fail the active epoch from that
+evidence, but it does not implement product changes. The
 dry-run `git-pr-plan` handoff remains
 review-only until an operator invokes `git-pr-materialize` with a matching plan
 approval token. Real code changes, autonomous Git/PR materialization,
@@ -291,26 +294,27 @@ execution can be considered. Audit history is now locally inspectable through
 
 ## What Would Break First
 
-The first hard stop in a real unattended run is now real-run closeout binding
-and Git/PR planning from real invocation evidence. Cadence can emit a bounded
+The first hard stop in a real unattended run is now autonomous Git/PR
+materialization and review-response writes after real-run closeout evidence.
+Cadence can emit a bounded
 executor task packet, reject malformed, dirty, low-confidence, relative-path,
 or mismatched snapshot anchors, start one approved active epoch through
 `start-governed-execution`, prove read-only executor invocation readiness
 through `executor-invocation-readiness`, bind a read-only real-executor
 invocation plan through `executor-invocation-plan`, start one approved real
 executor command through `invoke-real-executor`, run a fake controlled fixture,
-and close local fixture evidence into an epoch decision. It can also verify
-local authenticated operator approval identity evidence for a target checksum
-and purpose. It still does not bind `real-executor-invocation.v1` evidence into
-epoch closeout, ownership closeout, or Git/PR planning, and it does not apply
-code changes outside the approved executor command. The next hardening slice is
-real-run closeout binding.
+close local fixture evidence into an epoch decision, and bind accepted
+`real-executor-invocation.v1` evidence into epoch closeout, active ownership
+revalidation, and dry-run Git/PR planning. It can also verify local
+authenticated operator approval identity evidence for a target checksum and
+purpose. It still does not materialize dirty worktree changes into commits,
+push autonomously, write PR/review responses, merge, release, or coordinate
+agent pools.
 
 The next likely failures are:
 
-1. real executor invocation records are not yet accepted as closeout evidence
-   for result validation, epoch completion, ownership closeout, and Git/PR
-   planning;
+1. real executor invocation records are now local closeout evidence, but no
+   autonomous commit/push/PR workflow follows from that evidence;
 2. no autonomous branch/commit/push/PR workflow exists; the current Git/PR
    increment requires explicit operator approval and only creates a branch from
    an already-materialized clean commit;
@@ -371,7 +375,7 @@ constraints and pre-approved unattended ticks, not production-autonomous work.
 
 ## Current Confidence Rating
 
-Current rating: 15%.
+Current rating: 20%.
 
 Reasoning:
 
@@ -381,8 +385,8 @@ Reasoning:
 - The generic executor task/result contract is now explicit and testable, and
   is wired through read-only executor invocation readiness, read-only invocation
   planning, fake controlled executor fixtures, and controlled one-command real
-  executor invocation, but not real-run closeout-bound unattended
-  implementation.
+  executor invocation with real-run closeout binding, but not unattended
+  GitHub/review/session orchestration.
 - Executor task packets now fail closed on malformed local snapshots, missing
   repo identity, relative or unnormalizable cwd/path anchors, repo/cwd/branch/head
   mismatches, dirty worktrees, and low-confidence repo state.
@@ -391,8 +395,10 @@ Reasoning:
   commands outside task command policy, stop non-`stopped` result completion
   after the brake changes, run a controlled fixture, bind supplied run evidence
   to closeout, recheck real-executor invocation readiness without side effects,
-  and replay local audit history, but they do not govern a real executor or
-  provide tamper evidence.
+  run one approved real executor command, bind audit-anchored real invocation
+  evidence into closeout, and replay local audit history. Remaining gaps are
+  host/session orchestration, autonomous Git/PR flow, merge governance, release
+  governance, and package-publication governance.
 - The handoff and task/epoch model is useful.
 - Candidate discovery is deterministic and conservative.
 - Adapter contracts are tested at the public CLI boundary.
@@ -400,9 +406,9 @@ Reasoning:
   caller-asserted `live_like` evidence, and read-only live GitHub evidence can
   be captured into saved PR and review-thread files for later deterministic
   readiness, candidate-discovery, and review-response planning commands.
-- The real implementation executor, autonomous PR automation, live review
-  response writes, continuous loop runner, and resume orchestration are not
-  built.
+- Named host/session orchestration, autonomous PR automation, live review
+  response writes, continuous loop runner, merge governance, release
+  governance, and package-publication governance are not built.
 
 The rating should stay low until a controlled loop can make a real change in a
 fixture repo, validate it, record evidence, and stop cleanly.
