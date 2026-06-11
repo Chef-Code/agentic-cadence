@@ -6,17 +6,16 @@ Last updated: 2026-06-11
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `4a66a0b9f706c4bde248192dcdd339e352c451a0` after PR #96 merged.
-- Working branch intent: prepare the Tasks 28-32 roadmap and post-Task-27 handoff docs.
-- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence; PR #88 merged read-only real executor invocation plan evidence; PR #89 merged controlled real executor invocation evidence; PR #90 merged real executor invocation closeout binding; PR #91 merged the Tasks 23-27 roadmap; PR #92 merged controlled single-tick run packet evidence; PR #93 merged closeout-bound ownership completion evidence; PR #94 merged dirty-worktree Git/PR materialization planning; PR #95 merged PR evidence freshness in write-side planning; PR #96 merged review follow-up candidates from saved threads.
-- Completed roadmap marker: Tasks 23-27 from `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` are complete in `main`, including controlled single-tick evidence, closeout-bound ownership completion, dirty-worktree materialization planning, saved PR evidence freshness in write-side planning, and review follow-up candidate generation.
-- Current branch scope: `codex/tasks-28-32-roadmap-handoff` adds
-  `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`, marks stale business
-  memory fulfilled, seeds the next active write-side bridge backlog item, and
-  refreshes living docs after PR #96. It must not add implementation commands,
-  create dirty-worktree commits, push, open or update PRs, post review
-  comments, resolve review threads, merge, release, publish packages, assign
-  roles, schedule agents, create distributed locks, or run a continuous loop.
+- Current base: `origin/main` at `5cde90024c21671e7be49d5521e0f90aba243df3` after PR #100 merged.
+- Working branch intent: refresh the post-Task-30 handoff and backlog hygiene before starting Task 31.
+- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence; PR #88 merged read-only real executor invocation plan evidence; PR #89 merged controlled real executor invocation evidence; PR #90 merged real executor invocation closeout binding; PR #91 merged the Tasks 23-27 roadmap; PR #92 merged controlled single-tick run packet evidence; PR #93 merged closeout-bound ownership completion evidence; PR #94 merged dirty-worktree Git/PR materialization planning; PR #95 merged PR evidence freshness in write-side planning; PR #96 merged review follow-up candidates from saved threads; PR #97 merged the Tasks 28-32 roadmap; PR #98 merged approved dirty commit materialization; PR #99 merged dirty commit evidence binding to PR materialization; PR #100 merged review response materialization planning.
+- Completed roadmap marker: Tasks 28-30 from `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md` are complete in `main`, including approved dirty commit materialization, dirty commit evidence binding to PR materialization, and read-only review-response materialization planning.
+- Current branch scope: this hygiene pass refreshes stale handoff and business
+  memory state after PR #100, removes a local Ruff blocker, and documents
+  local validation sharding before Task 31. It must not add review-response
+  write execution, resolve review threads, invoke paid review, merge, release,
+  publish packages, assign roles, schedule agents, create distributed locks, or
+  run a continuous loop.
 
 ## Current Capability Baseline
 
@@ -192,22 +191,30 @@ Last updated: 2026-06-11
 ```powershell
 git status -sb
 python -m py_compile codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py tests/test_audit_replay.py
-python -m unittest tests.test_cadence tests.test_audit_replay -v
-python -m unittest tests.test_executor_contract tests.test_epochs tests.test_ci_checks -v
+python -m unittest tests.test_audit_replay tests.test_executor_contract tests.test_epochs -v
+python -m unittest tests.test_pr_readiness tests.test_candidates -v
+python -m unittest tests.test_git_pr_plan -v
+python -m unittest tests.test_handoff_loop -v
+python -m unittest tests.test_external_host_binding_conformance -v
+python -m unittest tests.test_ci_checks -v
+python -m ruff check codex_cadence tests
 python scripts/validate_protocol.py
 python scripts/ci_smoke.py
 git diff --check
 ```
 
-The Task 27 review-follow-up candidate validation block is recorded in
-`docs/progress-log.md` for the merged PR #96 slice. This branch is a
-documentation and roadmap handoff slice.
+The Task 30 review-response materialization planning validation block is
+recorded in `docs/progress-log.md` for the merged PR #100 slice. Full
+`python -m unittest discover -s tests -v` remains the CI entrypoint, but local
+Windows runs should prefer module shards when iterating because
+`tests.test_cadence`, `tests.test_git_pr_plan`,
+`tests.test_handoff_loop`, and external host-binding tests are slow enough to
+hit short ad hoc timeouts.
 
 ## Next Action
 
-Open and review the Tasks 28-32 roadmap PR for
-`codex/tasks-28-32-roadmap-handoff`, address any new bot or review findings,
-and merge only after checks and review are clean. If the merge is clean, the
-next implementation branch should start Task 28, operator-approved dirty
-commit materialization, from
-`docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`.
+Start Task 31 from `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`:
+add operator-approved review-response materialization for exact PR body and
+review-comment writes, while preserving the existing boundaries around review
+thread resolution, paid review, merge, release, package publication, role
+assignment, scheduling, distributed locks, and continuous looping.
