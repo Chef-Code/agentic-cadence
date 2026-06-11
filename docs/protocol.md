@@ -1317,21 +1317,25 @@ blockers, and provenance checksum changes must return blocker packets before
 audit or Git writes.
 
 When all gates pass, the command may append a
-`git_pr_dirty_commit_materialization_intent` audit record, create and check out
-only the approved proposed branch at the approved source head, stage only the
-planned files with `git add --`, verify the staged file set exactly equals the
-approved file list, and create exactly the approved commit message. All bounded
-Git write commands must run with hooks disabled, and the completed commit must
-be rechecked against the approved parent, full commit message, and committed
-file set. It must append a `git_pr_dirty_commit_materialization_result` audit
-record after
-success or after a bounded side-effect failure; successful side effects without
-a result audit record must return an invalid blocker packet. Failed Git
-commands must return stable blocker packets with command trace and structured
-recovery evidence. The command must not push, call GitHub, create or update
-pull requests, auto-merge, release, publish packages, spend paid review,
-assign roles, schedule agents, claim distributed locks, or invoke a real
-executor.
+`git_pr_dirty_commit_materialization_intent` audit record, snapshot the index
+for rollback, create and check out only the approved proposed branch at the
+approved source head, stage only the planned files with `git add --`, verify the
+staged file set exactly equals the approved file list, and create exactly the
+approved commit message. Before staging, planned files with active Git `filter`
+attributes must block to avoid clean/process filter command execution. All
+bounded Git write commands must run with hooks disabled, commit signing disabled
+for the local materialization commit, and the completed commit must be rechecked
+against the approved parent, full commit message, and committed file set. It
+must append a
+`git_pr_dirty_commit_materialization_result` audit record after success or
+after a bounded side-effect failure; successful side effects without a result
+audit record must return an invalid blocker packet. Failed Git write paths must
+return stable blocker packets with command trace and structured recovery
+evidence, including rollback attempts that restore the source branch/index and
+delete the generated branch when a branch write already started. The command
+must not push, call GitHub, create or update pull requests, auto-merge, release,
+publish packages, spend paid review, assign roles, schedule agents, claim
+distributed locks, or invoke a real executor.
 
 ## Operator-Approved Git/PR Materialization
 

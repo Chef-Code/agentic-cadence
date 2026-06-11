@@ -539,7 +539,7 @@ def write_forbidden_git_hooks(repo):
     """Install hooks that would call gh if materialization failed to disable hooks."""
     hooks_dir = Path(repo) / ".git" / "hooks"
     script = "#!/bin/sh\ngh pr create --title hook-ran --body hook-ran >/dev/null 2>&1 || true\n"
-    for hook_name in ("post-checkout", "prepare-commit-msg", "commit-msg", "post-commit"):
+    for hook_name in ("post-checkout", "prepare-commit-msg", "commit-msg", "post-commit", "reference-transaction"):
         hook_path = hooks_dir / hook_name
         hook_path.write_text(script, encoding="utf-8")
         if os.name != "nt":
@@ -967,6 +967,8 @@ class GitPrPlanTests(unittest.TestCase):
             env["GH_FAKE_LOG"] = str(gh_log)
             env["GH_FAKE_PR_URL"] = "https://github.example/local/test/pull/1"
             write_forbidden_git_hooks(repo)
+            git(repo, "config", "commit.gpgSign", "true")
+            git(repo, "config", "gpg.program", "gh")
 
             result, packet = run_git_pr_dirty_commit_materialize(
                 runtime_root,
@@ -1010,6 +1012,7 @@ class GitPrPlanTests(unittest.TestCase):
                 packet["side_effects"],
                 [
                     "audit_intent_record_appended",
+                    "index_tree_snapshotted",
                     "created_branch",
                     "checked_out_branch",
                     "staged_files",
@@ -1020,15 +1023,34 @@ class GitPrPlanTests(unittest.TestCase):
             command_argvs = [trace["argv"] for trace in packet["command_trace"]]
             self.assertEqual(
                 command_argvs[0],
-                ["git", "-c", "core.hooksPath=", "switch", "-c", plan["proposed_branch"], source_head],
+                ["git", "--no-optional-locks", "check-attr", "-z", "--stdin", "filter"],
             )
             self.assertEqual(
                 command_argvs[1],
-                ["git", "-c", "core.hooksPath=", "add", "--", *plan["proposed_commit"]["files"]],
+                ["git", "--no-optional-locks", "write-tree"],
             )
             self.assertEqual(
                 command_argvs[2],
-                ["git", "-c", "core.hooksPath=", "commit", "--no-verify", "-m", plan["proposed_commit"]["message"]],
+                ["git", "-c", "core.hooksPath=", "switch", "-c", plan["proposed_branch"], source_head],
+            )
+            self.assertEqual(
+                command_argvs[3],
+                ["git", "-c", "core.hooksPath=", "add", "--", *plan["proposed_commit"]["files"]],
+            )
+            self.assertEqual(
+                command_argvs[4],
+                [
+                    "git",
+                    "-c",
+                    "core.hooksPath=",
+                    "-c",
+                    "commit.gpgSign=false",
+                    "commit",
+                    "--no-verify",
+                    "--no-gpg-sign",
+                    "-m",
+                    plan["proposed_commit"]["message"],
+                ],
             )
             forbidden_tokens = {"gh", "push", "pr", "merge", "release", "publish"}
             for argv in command_argvs:
@@ -1039,6 +1061,58 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertTrue(replay["valid"])
             self.assertEqual(replay["events_by_type"]["git_pr_dirty_commit_materialization_intent"], 1)
             self.assertEqual(replay["events_by_type"]["git_pr_dirty_commit_materialization_result"], 1)
+
+    def test_git_pr_dirty_commit_materialize_blocks_filter_managed_files_before_git_writes(self):
+        """Planned files with Git clean/process filters are rejected before staging."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            (Path(repo) / ".gitattributes").write_text("codex_cadence/git_pr_plan.py filter=forbidden\n", encoding="utf-8")
+            git(repo, "add", ".gitattributes")
+            git(repo, "commit", "-m", "add filter attributes")
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            plan_path, plan, _inputs = write_ready_dirty_materialization_plan(runtime_root, Path(tmp), repo)
+            token = git_pr_dirty_commit_materialization_approval_token(plan)
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_materializer(fake_bin, gh_log, "https://github.example/local/test/pull/1")
+            git(repo, "config", "filter.forbidden.clean", "gh pr create --title filter-ran --body filter-ran")
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = "https://github.example/local/test/pull/1"
+            refs_before = git(repo, "show-ref", "--heads").stdout
+            status_before = git(repo, "status", "--porcelain", "--untracked-files=all").stdout
+            branch_before = current_branch(repo)
+            head_before = current_head(repo)
+
+            result, packet = run_git_pr_dirty_commit_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(plan_path),
+                "--approval-token",
+                token,
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertIsNotNone(packet, result.stderr)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["side_effects"], [])
+            self.assertIn(
+                "git_pr_dirty_commit_filter_attribute_present",
+                {blocker["code"] for blocker in packet["blockers"]},
+            )
+            self.assertFalse(gh_log.exists())
+            self.assertEqual(git(repo, "show-ref", "--heads").stdout, refs_before)
+            self.assertEqual(git(repo, "status", "--porcelain", "--untracked-files=all").stdout, status_before)
+            self.assertEqual(current_branch(repo), branch_before)
+            self.assertEqual(current_head(repo), head_before)
+            self.assertFalse((runtime_root / "audit" / "events.jsonl").exists())
 
     def test_git_pr_dirty_commit_materialize_blocks_missing_or_mismatched_approval_without_side_effects(self):
         """Dirty commit materialization requires approval for the exact saved target."""
@@ -1080,6 +1154,70 @@ class GitPrPlanTests(unittest.TestCase):
                     self.assertEqual(current_branch(repo), branch_before)
                     self.assertEqual(current_head(repo), head_before)
                     self.assertFalse((runtime_root / "audit" / "events.jsonl").exists())
+
+    def test_git_pr_dirty_commit_materialize_rolls_back_after_commit_failure(self):
+        """A failed post-branch Git write restores the source branch and original index."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            plan_path, plan, _inputs = write_ready_dirty_materialization_plan(runtime_root, Path(tmp), repo)
+            token = git_pr_dirty_commit_materialization_approval_token(plan)
+            refs_before = git(repo, "show-ref", "--heads").stdout
+            status_before = git(repo, "status", "--porcelain", "--untracked-files=all").stdout
+            branch_before = current_branch(repo)
+            head_before = current_head(repo)
+            git(repo, "config", "user.useConfigOnly", "true")
+            git(repo, "config", "--unset", "user.email")
+            git(repo, "config", "--unset", "user.name")
+            env = os.environ.copy()
+            for name in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL", "EMAIL"):
+                env.pop(name, None)
+            empty_home = Path(tmp) / "empty-home"
+            empty_home.mkdir()
+            env["GIT_CONFIG_NOSYSTEM"] = "1"
+            env["GIT_CONFIG_GLOBAL"] = str(empty_home / "missing-global-config")
+            env["HOME"] = str(empty_home)
+            env["USERPROFILE"] = str(empty_home)
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_materializer(fake_bin, gh_log, "https://github.example/local/test/pull/1")
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = "https://github.example/local/test/pull/1"
+            write_forbidden_git_hooks(repo)
+
+            result, packet = run_git_pr_dirty_commit_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(plan_path),
+                "--approval-token",
+                token,
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertIsNotNone(packet, result.stderr)
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertIn(
+                "git_pr_dirty_commit_materialization_command_failed",
+                {blocker["code"] for blocker in packet["blockers"]},
+            )
+            self.assertNotIn(
+                "git_pr_dirty_commit_materialization_rollback_failed",
+                {blocker["code"] for blocker in packet["blockers"]},
+            )
+            self.assertIn("rollback_generated_branch_deleted", packet["side_effects"])
+            self.assertEqual(git(repo, "show-ref", "--heads").stdout, refs_before)
+            self.assertEqual(git(repo, "status", "--porcelain", "--untracked-files=all").stdout, status_before)
+            self.assertEqual(current_branch(repo), branch_before)
+            self.assertEqual(current_head(repo), head_before)
+            self.assertNotIn(plan["proposed_branch"], git(repo, "branch", "--format=%(refname:short)").stdout.splitlines())
+            self.assertFalse(gh_log.exists())
 
     def test_git_pr_dirty_commit_materialize_rechecks_dirty_fingerprint_before_side_effects(self):
         """Dirty content changes after plan review block before audit or Git mutation."""

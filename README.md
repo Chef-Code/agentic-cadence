@@ -909,14 +909,18 @@ dirty materialization plan checks, and compares repo path, current branch,
 materialized-change evidence, closeout anchors, PR body preflight, proposed
 branch, commit message, file list, and target checksum against the approved
 packet. When all gates pass, it appends
-`git_pr_dirty_commit_materialization_intent`, creates and checks out only the
-approved branch at the approved source head, runs hook-disabled Git commands,
-stages only the planned files with `git add --`, creates exactly the approved
-commit message, verifies the committed parent/message/files, and appends
+`git_pr_dirty_commit_materialization_intent`, snapshots the index for rollback,
+creates and checks out only the approved branch at the approved source head,
+runs hook-disabled Git commands, blocks planned files with Git `filter`
+attributes before staging, stages only the planned files with `git add --`,
+creates exactly the approved commit message with commit signing disabled,
+verifies the committed parent/message/files, and appends
 `git_pr_dirty_commit_materialization_result`. Missing, mismatched, or
-unverifiable approval and stale dirty evidence block before audit or Git writes.
-The command does not push, call `gh`, create/update PRs, merge, release, publish
-packages, assign roles, schedule agents, or invoke an executor.
+unverifiable approval and stale dirty evidence block before audit or Git writes;
+failed branch/stage/commit paths attempt to restore the source branch/index and
+delete the generated branch before returning a blocker packet. The command does
+not push, call `gh`, create/update PRs, merge, release, publish packages, assign
+roles, schedule agents, or invoke an executor.
 
 ## Operator-Approved Git/PR Materialization
 

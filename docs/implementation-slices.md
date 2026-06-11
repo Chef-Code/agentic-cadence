@@ -78,10 +78,11 @@ a dry-run Git/PR transition plan for separate review,
 materialized-change evidence to a reviewed commit/PR materialization input
 without staging or committing, `git-pr-dirty-commit-materialize` can turn that
 approved dirty plan into one local branch commit after exact target-bound
-operator approval and rechecks, and `git-pr-materialize` can create a branch
-from the already-materialized current commit without switching the checkout,
-push it with Git hook verification disabled for that push, and create/update a
-PR only after exact target-bound operator approval and local rechecks.
+operator approval, filter/signing safeguards, rollback-aware writes, and
+rechecks, and `git-pr-materialize` can create a branch from the
+already-materialized current commit without switching the checkout, push it with
+Git hook verification disabled for that push, and create/update a PR only after
+exact target-bound operator approval and local rechecks.
 `verify-resume`
 can check claimed handoff state, clean-square evidence, repo branch/head,
 dirty-worktree state, active brake, active epoch state, and pickup-policy
@@ -570,8 +571,9 @@ Current evidence:
   `git-pr-dirty-materialization-plan.v1` plus target-bound HMAC approval,
   re-runs dirty file/fingerprint/closeout/branch-policy/PR-body gates, audits
   intended/completed local commit materialization, creates and checks out only
-  the approved branch, stages only planned files, and creates exactly the
-  approved commit message without pushing or calling GitHub;
+  the approved branch, blocks planned files with Git filters, stages only
+  planned files, disables commit signing, rolls back failed write paths, and
+  creates exactly the approved commit message without pushing or calling GitHub;
 - controlled real executor invocation exists, but no autonomous branch,
   push, PR creation, merge, release, package publication, or closeout-bound
   real-run automation exists.

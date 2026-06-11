@@ -68,12 +68,12 @@ def _run_git(cwd: Path, args: list[str], *, optional_locks: bool = True) -> subp
         return subprocess.CompletedProcess(command, 1, "", str(exc))
 
 
-def _run_process(cwd: Path, argv: list[str]) -> subprocess.CompletedProcess[str]:
+def _run_process(cwd: Path, argv: list[str], *, input_text: str | None = None) -> subprocess.CompletedProcess[str]:
     """Run a materialization command and preserve OSError as a failed process."""
     executable = shutil.which(argv[0])
     command = [executable or argv[0], *argv[1:]]
     try:
-        return subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False)
+        return subprocess.run(command, cwd=cwd, text=True, capture_output=True, check=False, input=input_text)
     except OSError as exc:
         return subprocess.CompletedProcess(command, 1, "", str(exc))
 
@@ -1702,6 +1702,43 @@ def _append_materialization_audit(root: Path, record: dict[str, Any]) -> tuple[d
         return None, _issue("audit_write_failed", f"could not write materialization audit record: {exc}")
 
 
+def _dirty_commit_filter_attribute_preflight(
+    cwd: Path,
+    materialized_files: list[str],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Block Git clean/process filters before staging planned dirty files."""
+    argv = ["git", "--no-optional-locks", "check-attr", "-z", "--stdin", "filter"]
+    input_text = "\0".join(materialized_files) + "\0"
+    result = _run_process(cwd, argv, input_text=input_text)
+    trace = [_materialization_command_trace(label="preflight_filter_attributes", argv=argv, result=result)]
+    if result.returncode != 0:
+        return trace, [
+            _issue(
+                "git_pr_dirty_commit_filter_attribute_check_failed",
+                "could not inspect Git filter attributes before dirty commit materialization",
+                stderr=result.stderr.strip(),
+            )
+        ]
+    active_filters: list[dict[str, str]] = []
+    fields = result.stdout.split("\0")
+    if fields and fields[-1] == "":
+        fields.pop()
+    for index in range(0, len(fields) - 2, 3):
+        path, _attribute, value = fields[index : index + 3]
+        filter_value = value.strip()
+        if filter_value and filter_value not in {"unspecified", "unset"}:
+            active_filters.append({"path": path.strip().replace("\\", "/"), "filter": filter_value})
+    if active_filters:
+        return trace, [
+            _issue(
+                "git_pr_dirty_commit_filter_attribute_present",
+                "planned dirty materialization files must not use Git clean/process filters",
+                active_filters=active_filters,
+            )
+        ]
+    return trace, []
+
+
 def _dirty_commit_materialization_recommendation(
     blockers: list[dict[str, Any]],
     *,
@@ -2037,6 +2074,7 @@ def materialize_dirty_commit_plan(
     commit_message = proposed_commit.get("message") if isinstance(proposed_commit.get("message"), str) else None
     materialized_files, file_blockers = _safe_materialization_files(proposed_commit.get("files"))
     intended_side_effects = [
+        "snapshot_index_tree",
         "create_branch",
         "checkout_branch",
         "stage_planned_files",
@@ -2196,6 +2234,30 @@ def materialize_dirty_commit_plan(
             warnings=warnings,
         )
 
+    filter_trace, filter_blockers = _dirty_commit_filter_attribute_preflight(repo_cwd, materialized_files)
+    command_trace.extend(filter_trace)
+    blockers.extend(filter_blockers)
+    if blockers:
+        return _dirty_commit_materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            target_checksum=target_checksum if isinstance(target_checksum, str) else None,
+            repository=repository,
+            source_branch=source_branch,
+            source_head=source_head,
+            proposed_branch=proposed_branch,
+            created_commit=None,
+            materialized_files=materialized_files,
+            intended_side_effects=intended_side_effects,
+            side_effects=[],
+            command_trace=command_trace,
+            blockers=blockers,
+            warnings=warnings,
+        )
+
     intent_payload = _dirty_commit_materialization_packet(
         valid=True,
         decision="approved",
@@ -2235,13 +2297,58 @@ def materialize_dirty_commit_plan(
             materialized_files=materialized_files,
             intended_side_effects=intended_side_effects,
             side_effects=[],
-            command_trace=[],
+            command_trace=command_trace,
             blockers=[audit_blocker],
             warnings=warnings,
         )
     side_effects.append("audit_intent_record_appended")
+    original_index_tree: str | None = None
+
+    def rollback_after_failed_write() -> list[dict[str, Any]]:
+        if "created_branch" not in side_effects:
+            return []
+        rollback_blockers: list[dict[str, Any]] = []
+        rollback_commands = [
+            (
+                "rollback_reset_to_source_head",
+                ["git", "-c", "core.hooksPath=", "reset", "--mixed", "--quiet", str(source_head)],
+                "rollback_reset_to_source_head",
+            ),
+            (
+                "rollback_restore_index_tree",
+                ["git", "--no-optional-locks", "read-tree", "--reset", str(original_index_tree)],
+                "rollback_index_restored",
+            ),
+            (
+                "rollback_switch_source_branch",
+                ["git", "-c", "core.hooksPath=", "switch", str(source_branch)],
+                "rollback_source_branch_restored",
+            ),
+            (
+                "rollback_delete_generated_branch",
+                ["git", "-c", "core.hooksPath=", "branch", "-D", str(proposed_branch)],
+                "rollback_generated_branch_deleted",
+            ),
+        ]
+        for label, argv, side_effect in rollback_commands:
+            result = _run_process(repo_cwd, argv)
+            command_trace.append(_materialization_command_trace(label=label, argv=argv, result=result))
+            if result.returncode == 0:
+                side_effects.append(side_effect)
+                continue
+            rollback_blockers.append(
+                _issue(
+                    "git_pr_dirty_commit_materialization_rollback_failed",
+                    f"{label} failed while rolling back dirty commit materialization",
+                    command_label=label,
+                    returncode=result.returncode,
+                    stderr=result.stderr.strip(),
+                )
+            )
+        return rollback_blockers
 
     def result_packet_after_failure(failure_blockers: list[dict[str, Any]]) -> dict[str, Any]:
+        failure_blockers = [*failure_blockers, *rollback_after_failed_write()]
         refreshed_repository = _refresh_materialization_repository(repo_cwd, repository)
         failed_side_effects = [*side_effects, "audit_result_record_appended"]
         failed_packet = _dirty_commit_materialization_packet(
@@ -2289,6 +2396,27 @@ def materialize_dirty_commit_plan(
             warnings=[*warnings, result_audit_blocker],
         )
 
+    index_snapshot_argv = ["git", "--no-optional-locks", "write-tree"]
+    index_snapshot = _run_process(repo_cwd, index_snapshot_argv)
+    command_trace.append(
+        _materialization_command_trace(
+            label="snapshot_index_tree",
+            argv=index_snapshot_argv,
+            result=index_snapshot,
+        )
+    )
+    if index_snapshot.returncode != 0 or not index_snapshot.stdout.strip():
+        blockers.append(
+            _issue(
+                "git_pr_dirty_commit_index_snapshot_failed",
+                "could not snapshot the Git index before dirty commit materialization",
+                stderr=index_snapshot.stderr.strip(),
+            )
+        )
+        return result_packet_after_failure(blockers)
+    original_index_tree = index_snapshot.stdout.strip()
+    side_effects.append("index_tree_snapshotted")
+
     commands = [
         (
             "create_and_switch_branch",
@@ -2298,7 +2426,18 @@ def materialize_dirty_commit_plan(
         ("stage_planned_files", ["git", "-c", "core.hooksPath=", "add", "--", *materialized_files], ["staged_files"]),
         (
             "create_commit",
-            ["git", "-c", "core.hooksPath=", "commit", "--no-verify", "-m", str(commit_message)],
+            [
+                "git",
+                "-c",
+                "core.hooksPath=",
+                "-c",
+                "commit.gpgSign=false",
+                "commit",
+                "--no-verify",
+                "--no-gpg-sign",
+                "-m",
+                str(commit_message),
+            ],
             ["created_commit"],
         ),
     ]
