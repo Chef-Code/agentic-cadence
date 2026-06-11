@@ -33,6 +33,48 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-11 - Bind dirty commit evidence to PR materialization
+
+Summary:
+- Extended `git-pr-materialize` so a reviewed
+  `git-pr-dirty-materialization-plan.v1` can be paired with the
+  `git-pr-dirty-commit-materialization.v1` result from Task 28.
+- The dirty PR bridge keeps the separate push/PR HMAC approval gate, rechecks
+  the dirty branch head, parent, commit message, committed file set, plan and
+  target checksums, branch policy, PR body, selected remote, remote URL,
+  create/update target, clean worktree, and optional saved PR evidence before
+  any network side effect.
+- Dirty PR materialization pushes the already-created branch and creates or
+  updates the approved PR; it does not create another local branch and does not
+  infer dirty-worktree commit authority.
+- `git_pr_materialization_intent` and `git_pr_materialization_result` audit
+  records now carry dirty commit source file/checksum/commit anchors when that
+  bridge is used.
+
+Completed slices:
+- Task 29: dirty commit evidence binding for approved PR materialization.
+
+Confidence change:
+- Previous: 25%
+- New: 25%
+- Reason: Cadence now has a bounded dirty commit-to-PR bridge, but still lacks
+  review-response writes, post-write evidence refresh, role assignment, agent
+  scheduling, distributed locks, merge, release, package publication, and
+  continuous loop execution.
+
+Evidence:
+- `python -m py_compile codex_cadence\git_pr_plan.py codex_cadence\github_evidence.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_git_pr_plan.py`
+- `python -m unittest tests.test_git_pr_plan -v`
+- `python -m unittest tests.test_cadence -v`
+- `python scripts\ci_smoke.py`
+- `python scripts\validate_protocol.py`
+- `git diff --check`
+
+New risks or blockers:
+- Approved GitHub review-response writes remain planned for Tasks 30-32; dirty
+  PR materialization still does not merge, release, publish, resolve review
+  threads, spend paid review, or continue the loop automatically.
+
 ## 2026-06-11 - Add approved dirty-worktree commit materialization
 
 Summary:

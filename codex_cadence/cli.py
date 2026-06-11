@@ -45,6 +45,7 @@ from codex_cadence.git_pr_plan import (
     evaluate_dirty_git_pr_materialization_plan,
     evaluate_git_pr_plan,
     git_pr_dirty_commit_materialization_load_error_packet,
+    git_pr_materialization_dirty_commit_load_error_packet,
     git_pr_materialization_load_error_packet,
     git_pr_materialization_pr_evidence_load_error_packet,
     materialize_dirty_commit_plan,
@@ -4961,6 +4962,23 @@ def git_pr_materialize_command(args: argparse.Namespace) -> int:
             )
             emit(payload)
             return 1
+    dirty_commit_materialization = None
+    dirty_commit_materialization_path = None
+    if args.dirty_commit_materialization_file:
+        dirty_commit_materialization_path = Path(args.dirty_commit_materialization_file)
+        try:
+            dirty_commit_materialization = read_json(dirty_commit_materialization_path)
+        except (OSError, json.JSONDecodeError, ValueError) as exc:
+            payload = git_pr_materialization_dirty_commit_load_error_packet(
+                plan_packet=plan_packet,
+                plan_file=plan_file,
+                dirty_commit_file=dirty_commit_materialization_path,
+                error=exc,
+                remote=args.remote,
+                pr_number=str(args.pr_number) if args.pr_number is not None else None,
+            )
+            emit(payload)
+            return 1
     payload = materialize_git_pr_plan(
         cwd=Path(args.cwd),
         plan_packet=plan_packet,
@@ -4973,6 +4991,8 @@ def git_pr_materialize_command(args: argparse.Namespace) -> int:
         pr_evidence_captured_at=pr_evidence_captured_at,
         max_pr_evidence_age_minutes=args.max_pr_json_age_minutes,
         pr_evidence_path=pr_evidence_path,
+        dirty_commit_materialization=dirty_commit_materialization,
+        dirty_commit_materialization_path=dirty_commit_materialization_path,
     )
     emit(payload)
     return 0 if payload["valid"] else 1
@@ -5454,6 +5474,7 @@ def build_parser() -> argparse.ArgumentParser:
     git_pr_materialize_parser.add_argument("--pr-number", type=positive_int)
     git_pr_materialize_parser.add_argument("--pr-json-file")
     git_pr_materialize_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
+    git_pr_materialize_parser.add_argument("--dirty-commit-materialization-file")
     git_pr_materialize_parser.set_defaults(func=git_pr_materialize_command, requires_root=True)
 
     dirty_commit_materialize_parser = subparsers.add_parser(

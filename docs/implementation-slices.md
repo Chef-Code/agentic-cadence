@@ -567,6 +567,13 @@ Current evidence:
 - `git-pr-materialize` can carry supplied saved PR JSON as `pr_evidence` and
   blocks stale or future-dated saved PR evidence before write-side audit, branch,
   push, or PR create/update side effects;
+- `git-pr-materialize` can also consume a reviewed
+  `git-pr-dirty-materialization-plan.v1` plus a saved
+  `git-pr-dirty-commit-materialization.v1` result, recheck the dirty branch
+  head, parent, message, file set, plan/target checksums, branch policy, PR body,
+  remote target, and saved PR evidence, then push the already-created dirty
+  branch and create/update the approved PR with dirty source anchors in the
+  materialization packet and audit records;
 - `git-pr-dirty-commit-materialize` consumes a reviewed
   `git-pr-dirty-materialization-plan.v1` plus target-bound HMAC approval,
   re-runs dirty file/fingerprint/closeout/branch-policy/PR-body gates, audits

@@ -1341,10 +1341,12 @@ distributed locks, or invoke a real executor.
 ## Operator-Approved Git/PR Materialization
 
 `git-pr-materialize` is the explicit write-side boundary for a reviewed
-`git-pr-plan.v1` packet. It must consume the saved plan packet, require an exact
-operator approval token produced as an HMAC over that packet checksum plus the
-selected remote name, resolved remote push URL, and create-vs-update PR target,
-using `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`, and emit a
+`git-pr-plan.v1` packet or, when supplied with dirty commit source evidence, a
+reviewed `git-pr-dirty-materialization-plan.v1` packet. It must consume the
+saved plan packet, require an exact operator approval token produced as an HMAC
+over that packet checksum plus the selected remote name, resolved remote push
+URL, and create-vs-update PR target, using
+`CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`, and emit a
 `git-pr-materialization.v1` packet. Missing, mismatched, or unverifiable
 approval must block before any audit, Git, or write-side `gh` side effect.
 Materialization packets must not emit the expected approval token or approval
@@ -1374,11 +1376,28 @@ recommend `refresh_pr_evidence`. Function-level caller-asserted live inputs are
 labeled `live_like`; the saved-file age policy must not stale-gate those
 caller-asserted inputs.
 
+When `--dirty-commit-materialization-file` is supplied, the saved plan packet
+must be `git-pr-dirty-materialization-plan.v1` and the dirty commit source must
+be a valid, materialized, operator-approved
+`git-pr-dirty-commit-materialization.v1` result. Before side effects, the
+command must verify the dirty source plan checksum, target checksum, proposed
+branch, source parent, committed branch head, full commit message, committed
+file set, repository path, clean worktree, branch policy, PR body preflight,
+remote push URL, and optional saved PR evidence freshness. Dirty commit source
+evidence must be necessary but not sufficient: the separate Git/PR
+materialization approval token remains required for the push and PR write
+target. Dirty PR materialization must push the already-created branch from the
+dirty commit result; it must not create a second local branch or infer
+dirty-worktree commit authority. Materialization packets and intent/result audit
+records must carry dirty commit source anchors including the source file path,
+source packet checksum, and created commit.
+
 When all gates pass, the command may append a
 `git_pr_materialization_intent` audit record, create the proposed branch at the
-already-materialized current commit without switching the checkout, push the
-branch to the selected remote with Git hook verification disabled for that push,
-and create or update a pull request with `gh pr create` or `gh pr edit`. It must
+already-materialized current commit without switching the checkout for standard
+plans, push the branch to the selected remote with Git hook verification
+disabled for that push, and create or update a pull request with `gh pr create`
+or `gh pr edit`. It must
 append a `git_pr_materialization_result` audit record after success or after a
 bounded side-effect failure; successful side effects without a result audit
 record must return an invalid blocker packet. Failed Git or `gh` commands must

@@ -1429,6 +1429,7 @@ def work_ownership_mutation_audit_record(payload: dict[str, Any]) -> dict[str, A
 
 def git_pr_materialization_intent_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
     repository = payload.get("repository") if isinstance(payload.get("repository"), dict) else {}
+    dirty_source = payload.get("dirty_commit_materialization") if isinstance(payload.get("dirty_commit_materialization"), dict) else {}
     record = {
         "event": "git_pr_materialization_intent",
         "action": "materialize_git_pr_plan",
@@ -1444,6 +1445,9 @@ def git_pr_materialization_intent_audit_record(payload: dict[str, Any]) -> dict[
         "plan_file": payload.get("plan_file"),
         "payload_checksum": checksum_json(payload),
         "plan_checksum": payload.get("plan_checksum"),
+        "dirty_commit_materialization_file": dirty_source.get("path"),
+        "dirty_commit_materialization_checksum": dirty_source.get("checksum"),
+        "dirty_commit_created_commit": dirty_source.get("created_commit"),
         "intended_side_effects_checksum": checksum_json(payload.get("intended_side_effects", [])),
     }
     return {key: value for key, value in record.items() if value is not None}
@@ -1451,6 +1455,7 @@ def git_pr_materialization_intent_audit_record(payload: dict[str, Any]) -> dict[
 
 def git_pr_materialization_result_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
     repository = payload.get("repository") if isinstance(payload.get("repository"), dict) else {}
+    dirty_source = payload.get("dirty_commit_materialization") if isinstance(payload.get("dirty_commit_materialization"), dict) else {}
     record = {
         "event": "git_pr_materialization_result",
         "action": payload.get("decision"),
@@ -1469,6 +1474,9 @@ def git_pr_materialization_result_audit_record(payload: dict[str, Any]) -> dict[
         "plan_file": payload.get("plan_file"),
         "payload_checksum": checksum_json(payload),
         "plan_checksum": payload.get("plan_checksum"),
+        "dirty_commit_materialization_file": dirty_source.get("path"),
+        "dirty_commit_materialization_checksum": dirty_source.get("checksum"),
+        "dirty_commit_created_commit": dirty_source.get("created_commit"),
         "side_effects_checksum": checksum_json(payload.get("side_effects", [])),
         "command_trace_checksum": checksum_json(payload.get("command_trace", [])),
     }
