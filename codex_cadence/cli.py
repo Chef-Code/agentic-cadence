@@ -42,6 +42,7 @@ from codex_cadence.executor_invocation import (
 from codex_cadence.executor_readiness import evaluate_executor_invocation_readiness
 from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.git_pr_plan import (
+    evaluate_dirty_git_pr_materialization_plan,
     evaluate_git_pr_plan,
     git_pr_materialization_load_error_packet,
     materialize_git_pr_plan,
@@ -4888,6 +4889,48 @@ def git_pr_plan_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def git_pr_dirty_materialization_plan_command(args: argparse.Namespace) -> int:
+    task_file = Path(args.task_file)
+    result_file = Path(args.result_file)
+    real_invocation_file = Path(args.real_invocation_file)
+    closeout_file = Path(args.closeout_file)
+    task_packet = read_json(task_file)
+    result_evidence = read_json(result_file)
+    real_invocation = read_json(real_invocation_file)
+    closeout_packet = read_json(closeout_file)
+    if getattr(args, "root", None) is not None:
+        repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
+        repo_path = repo.get("path")
+        if isinstance(repo_path, str) and repo_path and not args.allow_repo_local_root:
+            issue = runtime_root_safety_issue(args.root, repo_path)
+            if issue:
+                raise ValueError(issue)
+    required_body_sections = list(args.required_body_section or [])
+    if args.pr_template_file:
+        required_body_sections.extend(load_template_sections(Path(args.pr_template_file)))
+    policy = load_loop_policy(args.policy_file) if args.policy_file else None
+    payload = evaluate_dirty_git_pr_materialization_plan(
+        cwd=Path(args.cwd),
+        task_packet=task_packet,
+        result_evidence=result_evidence,
+        real_invocation=real_invocation,
+        closeout_packet=closeout_packet,
+        task_file=task_file,
+        result_file=result_file,
+        real_invocation_file=real_invocation_file,
+        closeout_file=closeout_file,
+        base_branch=args.base_branch,
+        branch_prefix=args.branch_prefix,
+        branch_policy=policy["branch_policy"] if policy else None,
+        required_body_sections=required_body_sections,
+        remote=args.remote,
+        pr_number=str(args.pr_number) if args.pr_number is not None else None,
+        expected_base_head=args.expected_base_head,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def git_pr_materialize_command(args: argparse.Namespace) -> int:
     plan_file = Path(args.plan_file)
     try:
@@ -5328,6 +5371,29 @@ def build_parser() -> argparse.ArgumentParser:
     git_pr_plan_parser.add_argument("--required-body-section", action="append", default=[])
     git_pr_plan_parser.set_defaults(
         func=git_pr_plan_command,
+        requires_root=False,
+        guards_optional_root=True,
+    )
+
+    dirty_materialization_plan_parser = subparsers.add_parser(
+        "git-pr-dirty-materialization-plan",
+        help="Generate a dry-run Git/PR materialization input for closeout-approved dirty worktrees",
+    )
+    dirty_materialization_plan_parser.add_argument("--cwd", default=".")
+    dirty_materialization_plan_parser.add_argument("--task-file", required=True)
+    dirty_materialization_plan_parser.add_argument("--result-file", required=True)
+    dirty_materialization_plan_parser.add_argument("--real-invocation-file", required=True)
+    dirty_materialization_plan_parser.add_argument("--closeout-file", required=True)
+    dirty_materialization_plan_parser.add_argument("--base-branch", default="main")
+    dirty_materialization_plan_parser.add_argument("--expected-base-head")
+    dirty_materialization_plan_parser.add_argument("--branch-prefix", default="cadence")
+    dirty_materialization_plan_parser.add_argument("--policy-file")
+    dirty_materialization_plan_parser.add_argument("--pr-template-file")
+    dirty_materialization_plan_parser.add_argument("--required-body-section", action="append", default=[])
+    dirty_materialization_plan_parser.add_argument("--remote", default="origin")
+    dirty_materialization_plan_parser.add_argument("--pr-number", type=positive_int)
+    dirty_materialization_plan_parser.set_defaults(
+        func=git_pr_dirty_materialization_plan_command,
         requires_root=False,
         guards_optional_root=True,
     )

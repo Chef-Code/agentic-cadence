@@ -73,9 +73,11 @@ status, complete or fail terminal epochs, and emit the next dry-run decision.
 invocation evidence to result validation, active ownership revalidation, epoch
 closeout, and dry-run Git/PR planning without GitHub writes.
 `git-pr-plan` can produce
-a dry-run Git/PR transition plan for separate review, and `git-pr-materialize`
-can create a branch from the
-already-materialized current commit without switching the checkout, push it
+a dry-run Git/PR transition plan for separate review,
+`git-pr-dirty-materialization-plan` can bind closeout-approved dirty-worktree
+materialized-change evidence to a reviewed commit/PR materialization input
+without staging or committing, and `git-pr-materialize` can create a branch from
+the already-materialized current commit without switching the checkout, push it
 with Git hook verification disabled for that push, and create/update a PR only
 after exact target-bound operator approval and local rechecks. `verify-resume`
 can check claimed handoff state, clean-square evidence, repo branch/head,

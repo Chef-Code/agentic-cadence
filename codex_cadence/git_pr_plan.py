@@ -16,7 +16,13 @@ from typing import Any
 
 from codex_cadence import PROTOCOL_VERSION
 from codex_cadence.branch_policy import normalize_branch_policy
+from codex_cadence.epochs import EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION
 from codex_cadence.executor_contract import validate_executor_result_evidence, validate_executor_task_packet
+from codex_cadence.executor_invocation import (
+    DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION,
+    _dirty_worktree_fingerprint,
+    _local_dirty_files,
+)
 from codex_cadence.policy_audit import (
     append_audit_record,
     checksum_json,
@@ -28,8 +34,10 @@ from codex_cadence.store import BRAKE_STATUSES, read_json, utc_now
 
 GIT_PR_PLAN_SCHEMA_VERSION = "git-pr-plan.v1"
 GIT_PR_MATERIALIZATION_SCHEMA_VERSION = "git-pr-materialization.v1"
+GIT_PR_DIRTY_MATERIALIZATION_PLAN_SCHEMA_VERSION = "git-pr-dirty-materialization-plan.v1"
 GIT_PR_MATERIALIZATION_APPROVAL_PREFIX = "approve-git-pr:"
 GIT_PR_MATERIALIZATION_APPROVAL_SECRET_ENV = "CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET"
+SHA256_CHECKSUM_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def _issue(code: str, message: str, **extra: Any) -> dict[str, Any]:
@@ -42,6 +50,10 @@ def _issue(code: str, message: str, **extra: Any) -> dict[str, Any]:
 def _non_empty_string(value: Any) -> bool:
     """Return True for strings that contain non-whitespace text."""
     return isinstance(value, str) and bool(value.strip())
+
+
+def _valid_sha256_checksum(value: Any) -> bool:
+    return isinstance(value, str) and SHA256_CHECKSUM_PATTERN.fullmatch(value) is not None
 
 
 def _run_git(cwd: Path, args: list[str], *, optional_locks: bool = True) -> subprocess.CompletedProcess[str]:
@@ -202,6 +214,7 @@ def _inspect_git_state(
     *,
     base_branch: str,
     proposed_branch: str,
+    allow_dirty_worktree: bool = False,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     """Collect Git state needed for PR planning and any blockers."""
     blockers: list[dict[str, Any]] = []
@@ -245,7 +258,7 @@ def _inspect_git_state(
         dirty_paths = [line for line in status.stdout.splitlines() if line.strip()]
         summary["dirty_paths"] = dirty_paths
         summary["worktree_clean"] = not dirty_paths
-        if dirty_paths:
+        if dirty_paths and not allow_dirty_worktree:
             blockers.append(
                 _issue(
                     "dirty_worktree",
@@ -284,6 +297,37 @@ def _inspect_git_state(
             )
 
     return summary, blockers
+
+
+def _same_resolved_path(left: Any, right: str | Path) -> bool:
+    if not _non_empty_string(left):
+        return False
+    try:
+        return Path(str(left)).expanduser().resolve(strict=False) == Path(right).expanduser().resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        return str(left) == str(right)
+
+
+def _path_from_context(context_file: str | Path, value: Any) -> Path | None:
+    if not _non_empty_string(value):
+        return None
+    try:
+        path = Path(str(value)).expanduser()
+        if not path.is_absolute():
+            path = Path(context_file).expanduser().resolve(strict=False).parent / path
+        return path.resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _same_context_path(context_file: str | Path, value: Any, expected: str | Path) -> bool:
+    resolved = _path_from_context(context_file, value)
+    if resolved is None:
+        return False
+    try:
+        return resolved == Path(expected).expanduser().resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        return str(resolved) == str(expected)
 
 
 def _local_changed_files_against_base(cwd: Path, base_head: Any, current_head: Any) -> tuple[set[str] | None, dict[str, Any] | None]:
@@ -791,6 +835,558 @@ def evaluate_git_pr_plan(
             "does_not_call_github",
             "operator_confirmation_required",
             "executor_is_not_git_pr_approval_authority",
+        ],
+    }
+
+
+def _dirty_materialization_recommendation(blockers: list[dict[str, Any]]) -> str:
+    codes = {blocker["code"] for blocker in blockers}
+    if not blockers:
+        return "approve_dirty_git_pr_materialization"
+    if "required_body_section_contract_not_supplied" in codes:
+        return "provide_template_or_sections"
+    if "required_body_section_missing" in codes:
+        return "update_pr_body"
+    if codes & {
+        "dirty_worktree_fingerprint_mismatch",
+        "materialized_change_files_mismatch",
+        "real_invocation_not_closeout_approved",
+    }:
+        return "inspect_materialized_change_evidence"
+    return "address_blockers"
+
+
+def _dirty_materialization_absent() -> dict[str, Any]:
+    return {
+        "status": "absent",
+        "source": None,
+        "files": [],
+        "limitations": ["dirty_worktree_materialized_change_evidence_absent"],
+    }
+
+
+def _dirty_closeout_core_checksum(closeout_packet: dict[str, Any]) -> str:
+    core_packet = {
+        key: value
+        for key, value in closeout_packet.items()
+        if key not in {"audit_record", "run_record", "real_invocation"}
+    }
+    return checksum_json(core_packet)
+
+
+def _dirty_materialization_closeout_blockers(
+    *,
+    closeout_packet: Any,
+    closeout_file: Path,
+    task_packet: Any,
+    real_invocation: Any,
+    task_file: Path,
+    result_file: Path,
+    real_invocation_file: Path,
+) -> tuple[str | None, list[dict[str, Any]]]:
+    blockers: list[dict[str, Any]] = []
+    if not isinstance(closeout_packet, dict):
+        return None, [_issue("closeout_evidence_missing", "executor closeout evidence must be a JSON object")]
+    if closeout_packet.get("protocol_version") != PROTOCOL_VERSION:
+        blockers.append(_issue("closeout_invalid", "executor closeout protocol_version is invalid"))
+    if closeout_packet.get("schema_version") != EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION:
+        blockers.append(
+            _issue(
+                "closeout_invalid",
+                "executor closeout schema_version is unsupported",
+                expected_schema=EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION,
+                actual_schema=closeout_packet.get("schema_version"),
+            )
+        )
+    if closeout_packet.get("packet") != "executor_epoch_closeout":
+        blockers.append(_issue("closeout_invalid", "executor closeout packet is invalid"))
+    if closeout_packet.get("valid") is not True or closeout_packet.get("closeout_status") != "completed":
+        blockers.append(
+            _issue(
+                "real_invocation_not_closeout_approved",
+                "executor closeout evidence must be valid and completed before dirty Git/PR materialization planning",
+                closeout_status=closeout_packet.get("closeout_status"),
+            )
+        )
+    if closeout_packet.get("task_checksum") != checksum_json(task_packet):
+        blockers.append(_issue("closeout_task_mismatch", "executor closeout task checksum does not match supplied task packet"))
+    if not _same_context_path(closeout_file, closeout_packet.get("task_file"), task_file):
+        blockers.append(_issue("closeout_task_mismatch", "executor closeout task_file does not match supplied task file"))
+    if not _same_context_path(closeout_file, closeout_packet.get("result_file"), result_file):
+        blockers.append(_issue("closeout_result_mismatch", "executor closeout result_file does not match supplied result file"))
+    if closeout_packet.get("executor_result_status") != "succeeded":
+        blockers.append(
+            _issue(
+                "closeout_result_mismatch",
+                "executor closeout result status must be succeeded for dirty Git/PR materialization planning",
+                executor_result_status=closeout_packet.get("executor_result_status"),
+            )
+        )
+    validation = closeout_packet.get("validation") if isinstance(closeout_packet.get("validation"), dict) else {}
+    if validation.get("valid") is not True:
+        blockers.append(_issue("closeout_validation_mismatch", "executor closeout validation evidence is not valid"))
+    closeout_invocation = closeout_packet.get("real_invocation") if isinstance(closeout_packet.get("real_invocation"), dict) else {}
+    if not closeout_invocation:
+        blockers.append(_issue("closeout_invocation_mismatch", "executor closeout must include real_invocation binding evidence"))
+    elif isinstance(real_invocation, dict):
+        if not _same_context_path(closeout_file, closeout_invocation.get("path"), real_invocation_file):
+            blockers.append(_issue("closeout_invocation_mismatch", "executor closeout real_invocation.path does not match supplied real invocation file"))
+        if closeout_invocation.get("invocation_id") != real_invocation.get("invocation_id"):
+            blockers.append(_issue("closeout_invocation_mismatch", "executor closeout invocation_id does not match supplied real invocation"))
+        if closeout_invocation.get("after_checksum") != checksum_json(real_invocation):
+            blockers.append(_issue("closeout_invocation_mismatch", "executor closeout real_invocation.after_checksum does not match supplied real invocation"))
+        epoch_closeout_checksum = _dirty_closeout_core_checksum(closeout_packet)
+        if closeout_invocation.get("epoch_closeout_checksum") != epoch_closeout_checksum:
+            blockers.append(
+                _issue(
+                    "closeout_invocation_mismatch",
+                    "executor closeout real_invocation.epoch_closeout_checksum does not match closeout evidence",
+                    expected=epoch_closeout_checksum,
+                    actual=closeout_invocation.get("epoch_closeout_checksum"),
+                )
+            )
+        if real_invocation.get("epoch_closeout_checksum") != epoch_closeout_checksum:
+            blockers.append(
+                _issue(
+                    "real_invocation_not_closeout_approved",
+                    "real invocation epoch_closeout_checksum does not match executor closeout evidence",
+                    expected=epoch_closeout_checksum,
+                    actual=real_invocation.get("epoch_closeout_checksum"),
+                )
+            )
+        if real_invocation.get("closeout_status") != closeout_packet.get("closeout_status"):
+            blockers.append(
+                _issue(
+                    "real_invocation_not_closeout_approved",
+                    "real invocation closeout_status does not match executor closeout evidence",
+                    expected=closeout_packet.get("closeout_status"),
+                    actual=real_invocation.get("closeout_status"),
+                )
+            )
+    return _dirty_closeout_core_checksum(closeout_packet), blockers
+
+
+def evaluate_dirty_git_pr_materialization_plan(
+    *,
+    cwd: str | Path,
+    task_packet: Any,
+    result_evidence: Any,
+    real_invocation: Any,
+    closeout_packet: Any,
+    task_file: str | Path,
+    result_file: str | Path,
+    real_invocation_file: str | Path,
+    closeout_file: str | Path,
+    base_branch: str = "main",
+    branch_prefix: str = "cadence",
+    proposed_branch_override: str | None = None,
+    branch_policy: Any | None = None,
+    required_body_sections: list[str] | None = None,
+    remote: str = "origin",
+    pr_number: str | None = None,
+    expected_base_head: str | None = None,
+) -> dict[str, Any]:
+    """Build a read-only plan for operator-approved dirty-worktree Git/PR materialization."""
+    repo_cwd = Path(cwd).expanduser().resolve()
+    task_path = Path(task_file).expanduser().resolve(strict=False)
+    result_path = Path(result_file).expanduser().resolve(strict=False)
+    invocation_path = Path(real_invocation_file).expanduser().resolve(strict=False)
+    closeout_path = Path(closeout_file).expanduser().resolve(strict=False)
+    blockers: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    required_sections = [section for section in (required_body_sections or []) if section.strip()]
+
+    task = task_packet.get("task") if isinstance(task_packet, dict) and isinstance(task_packet.get("task"), dict) else {}
+    repo = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
+    generated_branch = _generated_branch_name(branch_prefix, task.get("id"))
+    proposed_branch = proposed_branch_override.strip() if _non_empty_string(proposed_branch_override) else generated_branch
+    proposed_commit_message = str(task.get("title") or "").strip()
+    proposed_pr_title = proposed_commit_message
+    branch_policy_sources: list[dict[str, Any]] = []
+    task_branch_policy = None
+    if isinstance(task_packet, dict) and "branch_policy" in task_packet:
+        try:
+            task_branch_policy = normalize_branch_policy(
+                task_packet.get("branch_policy"),
+                label="executor task branch_policy",
+                require_object=True,
+            )
+            branch_policy_sources.append({"source": "task_packet", "policy": task_branch_policy})
+        except ValueError:
+            task_branch_policy = None
+    policy_file_branch_policy = None
+    if branch_policy is not None:
+        try:
+            policy_file_branch_policy = normalize_branch_policy(
+                branch_policy,
+                label="git-pr-dirty-materialization-plan branch_policy",
+                require_object=True,
+            )
+            branch_policy_sources.append({"source": "policy_file", "policy": policy_file_branch_policy})
+        except ValueError as exc:
+            blockers.append(_issue("branch_policy_invalid", str(exc)))
+
+    valid_task, task_reason = validate_executor_task_packet(task_packet)
+    if not valid_task:
+        blockers.append(_issue("invalid_task_packet", task_reason))
+        valid_result = False
+        result_reason = "task packet is invalid"
+    else:
+        valid_result, result_reason = validate_executor_result_evidence(
+            result_evidence,
+            task_packet,
+            allow_succeeded_dirty_worktree=True,
+        )
+        if not valid_result:
+            blockers.append(_issue("invalid_result_evidence", result_reason))
+        expected_output = task_packet.get("expected_output")
+        expected_path = expected_output.get("evidence_path") if isinstance(expected_output, dict) else None
+        if expected_path is not None and Path(expected_path).expanduser().resolve(strict=False) != result_path:
+            blockers.append(_issue("result_file_mismatch", "executor result file does not match task expected_output.evidence_path"))
+
+    status = result_evidence.get("status") if isinstance(result_evidence, dict) else None
+    if status != "succeeded":
+        blockers.append(_issue("result_not_successful", f"executor result status is not succeeded: {status}"))
+
+    git_summary, git_blockers = _inspect_git_state(
+        repo_cwd,
+        base_branch=base_branch,
+        proposed_branch=proposed_branch,
+        allow_dirty_worktree=True,
+    )
+    blockers.extend(git_blockers)
+    for source_policy in branch_policy_sources:
+        blockers.extend(
+            _branch_policy_blockers(
+                source_policy["policy"],
+                source=source_policy["source"],
+                base_branch=base_branch,
+                proposed_branch=proposed_branch,
+                current_branch=git_summary.get("current_branch"),
+            )
+        )
+    if _non_empty_string(expected_base_head) and git_summary.get("base_head") != expected_base_head:
+        blockers.append(
+            _issue(
+                "base_head_mismatch",
+                "local base branch head does not match expected base head",
+                expected=expected_base_head,
+                actual=git_summary.get("base_head"),
+            )
+        )
+
+    task_repo_path = repo.get("path")
+    if isinstance(task_repo_path, str) and task_repo_path.strip():
+        normalized_task_repo = str(Path(task_repo_path).expanduser().resolve(strict=False))
+        if normalized_task_repo != git_summary["repository_path"]:
+            blockers.append(
+                _issue(
+                    "repo_path_mismatch",
+                    "current repo path does not match task packet repo.path",
+                    task_repo_path=normalized_task_repo,
+                    current_repo_path=git_summary["repository_path"],
+                )
+            )
+    task_branch = repo.get("branch")
+    current_branch = git_summary.get("current_branch")
+    if _non_empty_string(task_branch) and current_branch and current_branch != task_branch:
+        blockers.append(
+            _issue(
+                "current_branch_mismatch",
+                f"current branch is {current_branch}, expected task branch {task_branch}",
+                current_branch=current_branch,
+                task_branch=task_branch,
+            )
+        )
+    current_head = git_summary.get("current_head")
+    resulting_head = result_evidence.get("resulting_head") if isinstance(result_evidence, dict) else None
+    if _non_empty_string(resulting_head) and current_head and resulting_head != current_head:
+        blockers.append(
+            _issue(
+                "head_mismatch",
+                "executor result resulting_head does not match current HEAD",
+                resulting_head=resulting_head,
+                current_head=current_head,
+            )
+        )
+
+    real_invocation_checksum = checksum_json(real_invocation) if isinstance(real_invocation, dict) else None
+    if not isinstance(real_invocation, dict):
+        blockers.append(_issue("real_invocation_invalid", "real invocation evidence must be a JSON object"))
+        invocation_materialized = _dirty_materialization_absent()
+        repository_after: dict[str, Any] = {}
+    else:
+        invocation_materialized = (
+            real_invocation.get("materialized_change_evidence")
+            if isinstance(real_invocation.get("materialized_change_evidence"), dict)
+            else _dirty_materialization_absent()
+        )
+        repository_after = real_invocation.get("repository_after") if isinstance(real_invocation.get("repository_after"), dict) else {}
+        if real_invocation.get("schema_version") != "real-executor-invocation.v1":
+            blockers.append(_issue("real_invocation_invalid", "real invocation schema_version is unsupported"))
+        if real_invocation.get("packet") != "real_executor_invocation":
+            blockers.append(_issue("real_invocation_invalid", "real invocation packet is invalid"))
+        if real_invocation.get("valid") is not True or real_invocation.get("executor_started") is not True:
+            blockers.append(_issue("real_invocation_invalid", "real invocation must be valid and executor-started"))
+        if real_invocation.get("timed_out") is True:
+            blockers.append(_issue("real_invocation_invalid", "real invocation must not be timed out"))
+        if real_invocation.get("side_effect_mode") != "materialized_changes":
+            blockers.append(
+                _issue(
+                    "real_invocation_not_materialized",
+                    "real invocation must use side_effect_mode materialized_changes",
+                )
+            )
+        if real_invocation.get("closeout_status") != "completed" or not _valid_sha256_checksum(
+            real_invocation.get("epoch_closeout_checksum")
+        ):
+            blockers.append(
+                _issue(
+                    "real_invocation_not_closeout_approved",
+                    "real invocation must be bound to completed executor closeout with a valid checksum before dirty Git/PR materialization planning",
+                    closeout_status=real_invocation.get("closeout_status"),
+                    epoch_closeout_checksum=real_invocation.get("epoch_closeout_checksum"),
+                )
+            )
+        if real_invocation.get("result_evidence_checksum") != checksum_json(result_evidence):
+            blockers.append(
+                _issue(
+                    "result_evidence_changed",
+                    "executor result checksum no longer matches the closeout-approved real invocation",
+                )
+            )
+        if not _same_resolved_path(real_invocation.get("record_file"), invocation_path):
+            blockers.append(_issue("real_invocation_record_mismatch", "real invocation record_file does not match supplied real invocation file"))
+        if not _same_resolved_path(real_invocation.get("result_file"), result_path):
+            blockers.append(_issue("result_file_mismatch", "real invocation result_file does not match supplied result file"))
+        if "task_file" in real_invocation and not _same_resolved_path(real_invocation.get("task_file"), task_path):
+            blockers.append(_issue("task_file_mismatch", "real invocation task_file does not match supplied task file"))
+
+    closeout_checksum, closeout_blockers = _dirty_materialization_closeout_blockers(
+        closeout_packet=closeout_packet,
+        closeout_file=closeout_path,
+        task_packet=task_packet,
+        real_invocation=real_invocation,
+        task_file=task_path,
+        result_file=result_path,
+        real_invocation_file=invocation_path,
+    )
+    blockers.extend(closeout_blockers)
+
+    if repository_after:
+        if not _same_resolved_path(repository_after.get("cwd"), repo_cwd):
+            blockers.append(_issue("repository_path_mismatch", "current repo path does not match real invocation repository_after.cwd"))
+        if repository_after.get("branch") != git_summary.get("current_branch"):
+            blockers.append(
+                _issue(
+                    "repository_branch_mismatch",
+                    "current branch does not match real invocation repository_after.branch",
+                    expected=repository_after.get("branch"),
+                    actual=git_summary.get("current_branch"),
+                )
+            )
+        if repository_after.get("head") != git_summary.get("current_head"):
+            blockers.append(
+                _issue(
+                    "repository_head_mismatch",
+                    "current HEAD does not match real invocation repository_after.head",
+                    expected=repository_after.get("head"),
+                    actual=git_summary.get("current_head"),
+                )
+            )
+        if repository_after.get("dirty_worktree") is not True:
+            blockers.append(_issue("dirty_worktree_missing", "real invocation repository_after must be dirty"))
+    elif isinstance(real_invocation, dict):
+        blockers.append(_issue("repository_after_missing", "real invocation repository_after evidence is required"))
+
+    result_materialized = (
+        result_evidence.get("materialized_change_evidence")
+        if isinstance(result_evidence, dict) and isinstance(result_evidence.get("materialized_change_evidence"), dict)
+        else {}
+    )
+    if invocation_materialized.get("status") != "verified":
+        blockers.append(_issue("materialized_change_evidence_unverified", "real invocation materialized evidence must be verified"))
+    if checksum_json({key: value for key, value in invocation_materialized.items() if key not in {"worktree_fingerprint_schema_version", "worktree_fingerprint_checksum"}}) != checksum_json(result_materialized):
+        blockers.append(
+            _issue(
+                "materialized_change_evidence_mismatch",
+                "real invocation materialized evidence does not match result evidence",
+            )
+        )
+    materialized_files = invocation_materialized.get("files")
+    normalized_materialized_files = (
+        {str(path).replace("\\", "/") for path in materialized_files}
+        if isinstance(materialized_files, list) and all(_non_empty_string(path) for path in materialized_files)
+        else set()
+    )
+    if not normalized_materialized_files:
+        blockers.append(_issue("materialized_change_evidence_unverified", "materialized evidence files are required"))
+
+    dirty_files, dirty_files_blocker = _local_dirty_files(repo_cwd)
+    if dirty_files_blocker is not None:
+        blockers.append(
+            _issue(
+                "dirty_worktree_unreadable",
+                "current dirty worktree files could not be inspected",
+                invocation_blocker=dirty_files_blocker,
+            )
+        )
+    elif dirty_files is not None and normalized_materialized_files != dirty_files:
+        blockers.append(
+            _issue(
+                "materialized_change_files_mismatch",
+                "current dirty worktree files must exactly match materialized-change evidence",
+                expected_files=sorted(normalized_materialized_files),
+                actual_files=sorted(dirty_files),
+            )
+        )
+
+    dirty_fingerprint = None
+    dirty_fingerprint_checksum = None
+    if dirty_files is not None:
+        dirty_fingerprint, fingerprint_blocker = _dirty_worktree_fingerprint(repo_cwd, dirty_files)
+        if fingerprint_blocker is not None:
+            blockers.append(
+                _issue(
+                    "dirty_worktree_unreadable",
+                    "current dirty worktree fingerprint could not be computed",
+                    invocation_blocker=fingerprint_blocker,
+                )
+            )
+        elif dirty_fingerprint is not None:
+            dirty_fingerprint_checksum = checksum_json(dirty_fingerprint)
+            if invocation_materialized.get("worktree_fingerprint_schema_version") != DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION:
+                blockers.append(
+                    _issue(
+                        "dirty_worktree_fingerprint_missing",
+                        "real invocation materialized evidence is missing dirty-worktree fingerprint schema",
+                        expected_schema=DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION,
+                        actual_schema=invocation_materialized.get("worktree_fingerprint_schema_version"),
+                    )
+                )
+            elif invocation_materialized.get("worktree_fingerprint_checksum") != dirty_fingerprint_checksum:
+                blockers.append(
+                    _issue(
+                        "dirty_worktree_fingerprint_mismatch",
+                        "current dirty worktree fingerprint does not match closeout-approved real invocation",
+                        expected=invocation_materialized.get("worktree_fingerprint_checksum"),
+                        actual=dirty_fingerprint_checksum,
+                    )
+                )
+
+    pr_body = _generated_pr_body(task, result_evidence if isinstance(result_evidence, dict) else {})
+    pr_body_preflight = _preflight_pr_body(pr_body, required_sections)
+    for blocker in pr_body_preflight.get("blockers", []):
+        if isinstance(blocker, dict):
+            blockers.append(blocker)
+    for warning in pr_body_preflight.get("warnings", []):
+        if isinstance(warning, dict):
+            warnings.append(warning)
+
+    remote_url, remote_blockers = _remote_push_url(repo_cwd, remote)
+    blockers.extend(remote_blockers)
+    proposed_files = sorted(normalized_materialized_files)
+    target = {
+        "schema_version": "git-pr-dirty-materialization-target.v1",
+        "packet": "git_pr_dirty_materialization_target",
+        "operation": "dirty_worktree_git_pr_materialization",
+        "task_id": task.get("id"),
+        "source_head": current_head,
+        "base_branch": base_branch,
+        "base_head": git_summary.get("base_head"),
+        "expected_base_head": expected_base_head,
+        "proposed_branch": proposed_branch,
+        "proposed_commit_message": proposed_commit_message,
+        "proposed_pr_title": proposed_pr_title,
+        "proposed_pr_body_checksum": checksum_json(pr_body),
+        "remote": remote,
+        "remote_url": remote_url,
+        "pr_number": str(pr_number) if pr_number is not None else None,
+        "materialized_change_files": proposed_files,
+        "dirty_worktree_fingerprint_checksum": dirty_fingerprint_checksum,
+        "task_file_checksum": checksum_json(task_packet) if isinstance(task_packet, dict) else None,
+        "result_file_checksum": checksum_json(result_evidence) if isinstance(result_evidence, dict) else None,
+        "real_invocation_checksum": real_invocation_checksum,
+        "closeout_file_checksum": checksum_json(closeout_packet) if isinstance(closeout_packet, dict) else None,
+        "epoch_closeout_checksum": closeout_checksum,
+    }
+    valid = not blockers
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": GIT_PR_DIRTY_MATERIALIZATION_PLAN_SCHEMA_VERSION,
+        "packet": "git_pr_dirty_materialization_plan",
+        "generated_at": utc_now(),
+        "valid": valid,
+        "ready_to_review": valid,
+        "decision": "ready" if valid else "blocked",
+        "recommended_next_action": _dirty_materialization_recommendation(blockers),
+        "dry_run": True,
+        "operator_confirmation_required": True,
+        "side_effects": [],
+        "approval_state": "not_approved",
+        "execution_authority": "none",
+        "merge_readiness": "not_evaluated",
+        "target": target,
+        "target_checksum": checksum_json(target),
+        "task": {
+            "id": task.get("id"),
+            "title": task.get("title"),
+            "summary": task.get("summary"),
+            "source": task.get("source"),
+        },
+        "repository": git_summary,
+        "evidence_provenance": {
+            "task_file": str(task_path),
+            "result_file": str(result_path),
+            "real_invocation_file": str(invocation_path),
+            "closeout_file": str(closeout_path),
+            "task_file_checksum": checksum_json(task_packet) if isinstance(task_packet, dict) else None,
+            "result_file_checksum": checksum_json(result_evidence) if isinstance(result_evidence, dict) else None,
+            "real_invocation_checksum": real_invocation_checksum,
+            "closeout_file_checksum": checksum_json(closeout_packet) if isinstance(closeout_packet, dict) else None,
+            "executor_id": result_evidence.get("executor_id") if isinstance(result_evidence, dict) else None,
+            "result_head": resulting_head,
+        },
+        "real_invocation": {
+            "file": str(invocation_path),
+            "checksum": real_invocation_checksum,
+            "invocation_id": real_invocation.get("invocation_id") if isinstance(real_invocation, dict) else None,
+            "closeout_status": real_invocation.get("closeout_status") if isinstance(real_invocation, dict) else None,
+            "epoch_closeout_checksum": real_invocation.get("epoch_closeout_checksum") if isinstance(real_invocation, dict) else None,
+        },
+        "closeout": {
+            "file": str(closeout_path),
+            "checksum": checksum_json(closeout_packet) if isinstance(closeout_packet, dict) else None,
+            "epoch_closeout_checksum": closeout_checksum,
+            "closeout_status": closeout_packet.get("closeout_status") if isinstance(closeout_packet, dict) else None,
+        },
+        "materialized_change_evidence": invocation_materialized,
+        "dirty_worktree_fingerprint": dirty_fingerprint,
+        "proposed_commit": {
+            "message": proposed_commit_message,
+            "files": proposed_files,
+            "source_head": current_head,
+            "base_branch": base_branch,
+            "base_head": git_summary.get("base_head"),
+            "dirty_worktree_fingerprint_checksum": dirty_fingerprint_checksum,
+        },
+        "proposed_branch": proposed_branch,
+        "proposed_pr_title": proposed_pr_title,
+        "proposed_pr_body": pr_body,
+        "pr_body_preflight": pr_body_preflight,
+        "branch_policy": {
+            "task_packet": task_branch_policy,
+            "policy_file": policy_file_branch_policy,
+        },
+        "blockers": blockers,
+        "warnings": warnings,
+        "limitations": [
+            "dry_run_only",
+            "does_not_stage_or_commit",
+            "does_not_create_branch_push_or_pr",
+            "does_not_call_github",
+            "operator_confirmation_required",
+            "dirty_worktree_must_match_closeout_approved_fingerprint",
         ],
     }
 
