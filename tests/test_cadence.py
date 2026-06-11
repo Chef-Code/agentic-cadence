@@ -13421,6 +13421,18 @@ class CadenceCliTests(unittest.TestCase):
                 {"epoch_id": None},
             ),
             (
+                "ownership_required_field_missing",
+                {"candidate_id": None},
+            ),
+            (
+                "ownership_required_field_missing",
+                {"role": None},
+            ),
+            (
+                "ownership_closeout_packet_invalid",
+                {"executor_closeout_checksum": "sha256:bad"},
+            ),
+            (
                 "ownership_closeout_not_completed",
                 {"executor_closeout_status": "failed"},
             ),

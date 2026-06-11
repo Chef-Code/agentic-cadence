@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -26,6 +27,7 @@ WORK_OWNERSHIP_CLOSEOUT_SCHEMA_VERSION = "work-ownership-closeout.v1"
 WORK_OWNERSHIP_STATUSES = ("ACTIVE", "CLOSED", "FAILED")
 ACTIVE_WORK_OWNERSHIP_STATUS = "ACTIVE"
 DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES = 24 * 60
+CHECKSUM_PATTERN = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 def ownership_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
@@ -1074,8 +1076,24 @@ def closeout_work_ownership(
             )
         if epoch_id is None:
             blockers.extend(_validate_required_text_field(epoch_id, "epoch_id"))
+        if candidate_id is None:
+            blockers.extend(_validate_record_id_field(candidate_id, "candidate_id", "candidate"))
+        if role is None:
+            blockers.extend(_validate_label_field(role, "role", "ownership_role_invalid"))
         for field, value in closeout_anchor_values.items():
             blockers.extend(_validate_required_text_field(value, field))
+        if (
+            isinstance(executor_closeout_checksum, str)
+            and executor_closeout_checksum.strip()
+            and CHECKSUM_PATTERN.fullmatch(executor_closeout_checksum) is None
+        ):
+            blockers.append(
+                ownership_blocker(
+                    "ownership_closeout_packet_invalid",
+                    "executor_closeout_checksum must be a sha256 checksum",
+                    field="executor_closeout_checksum",
+                )
+            )
         if executor_closeout_status != "completed":
             blockers.append(
                 ownership_blocker(
