@@ -1547,6 +1547,7 @@ def _materialization_packet(
     remote: str,
     remote_url: str | None = None,
     pr_evidence: dict[str, Any] | None = None,
+    dirty_commit_materialization: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     side_effects_started = bool(side_effects)
     packet = {
@@ -1588,6 +1589,8 @@ def _materialization_packet(
     }
     if pr_evidence is not None:
         packet["pr_evidence"] = pr_evidence
+    if dirty_commit_materialization is not None:
+        packet["dirty_commit_materialization"] = dirty_commit_materialization
     return packet
 
 
@@ -1619,6 +1622,345 @@ def _materialization_pr_evidence(
             blocker["message"] = "PR evidence timestamp is in the future; refresh evidence before Git/PR materialization"
         blockers.append(blocker)
     return evidence, blockers
+
+
+def _is_dirty_pr_materialization_plan(plan_packet: Any) -> bool:
+    return (
+        isinstance(plan_packet, dict)
+        and plan_packet.get("schema_version") == GIT_PR_DIRTY_MATERIALIZATION_PLAN_SCHEMA_VERSION
+        and plan_packet.get("packet") == "git_pr_dirty_materialization_plan"
+    )
+
+
+def _dirty_commit_materialization_summary(
+    dirty_packet: Any,
+    *,
+    path: str | Path | None,
+) -> dict[str, Any] | None:
+    if dirty_packet is None:
+        return None
+    summary: dict[str, Any] = {}
+    if path is not None:
+        summary["path"] = str(Path(path).expanduser().resolve(strict=False))
+    if isinstance(dirty_packet, dict):
+        summary.update(
+            {
+                "source": "git_pr_dirty_commit_materialization",
+                "checksum": checksum_json(dirty_packet),
+                "plan_checksum": dirty_packet.get("plan_checksum"),
+                "target_checksum": dirty_packet.get("target_checksum"),
+                "proposed_branch": dirty_packet.get("proposed_branch"),
+                "created_commit": dirty_packet.get("created_commit"),
+                "source_head": dirty_packet.get("source_head"),
+                "source_branch": dirty_packet.get("source_branch"),
+                "approval_state": dirty_packet.get("approval_state"),
+                "execution_authority": dirty_packet.get("execution_authority"),
+            }
+        )
+        files = dirty_packet.get("materialized_files")
+        if isinstance(files, list):
+            summary["materialized_files"] = [str(path).replace("\\", "/") for path in files if _non_empty_string(path)]
+    return summary or None
+
+
+def _dirty_commit_materialization_source_evidence(
+    *,
+    cwd: Path,
+    plan_packet: Any,
+    dirty_packet: Any,
+    dirty_packet_path: str | Path | None,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], list[dict[str, Any]]]:
+    """Validate a dirty local commit result before PR materialization writes."""
+    summary = _dirty_commit_materialization_summary(dirty_packet, path=dirty_packet_path)
+    blockers: list[dict[str, Any]] = []
+    command_trace: list[dict[str, Any]] = []
+    if dirty_packet is None:
+        return None, [], []
+    if not isinstance(dirty_packet, dict):
+        return summary, [
+            _issue(
+                "dirty_commit_materialization_invalid",
+                "dirty commit materialization evidence must be a JSON object",
+            )
+        ], command_trace
+    if dirty_packet.get("schema_version") != GIT_PR_DIRTY_COMMIT_MATERIALIZATION_SCHEMA_VERSION:
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_schema_invalid",
+                "dirty commit materialization schema_version must be git-pr-dirty-commit-materialization.v1",
+            )
+        )
+    if dirty_packet.get("packet") != "git_pr_dirty_commit_materialization":
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_packet_invalid",
+                "dirty commit materialization packet must be git_pr_dirty_commit_materialization",
+            )
+        )
+    if dirty_packet.get("valid") is not True or dirty_packet.get("decision") != "materialized":
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_not_materialized",
+                "dirty commit materialization evidence must be a valid materialized result",
+            )
+        )
+    if dirty_packet.get("approval_state") != "approved":
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_not_approved",
+                "dirty commit materialization evidence must have approved operator state",
+            )
+        )
+    if dirty_packet.get("execution_authority") != "operator_approved_dirty_commit_materialization":
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_authority_invalid",
+                "dirty commit materialization evidence must be operator-approved dirty commit authority",
+            )
+        )
+    if dirty_packet.get("plan_checksum") != checksum_json(plan_packet):
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_plan_checksum_mismatch",
+                "dirty commit materialization result must reference the approved dirty materialization plan",
+                expected=checksum_json(plan_packet),
+                actual=dirty_packet.get("plan_checksum"),
+            )
+        )
+    if isinstance(plan_packet, dict) and dirty_packet.get("target_checksum") != plan_packet.get("target_checksum"):
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_target_checksum_mismatch",
+                "dirty commit materialization target checksum does not match the approved dirty plan",
+                expected=plan_packet.get("target_checksum"),
+                actual=dirty_packet.get("target_checksum"),
+            )
+        )
+
+    proposed_branch = plan_packet.get("proposed_branch") if isinstance(plan_packet, dict) else None
+    proposed_commit = plan_packet.get("proposed_commit") if isinstance(plan_packet, dict) else {}
+    if not isinstance(proposed_commit, dict):
+        proposed_commit = {}
+    if dirty_packet.get("proposed_branch") != proposed_branch:
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_branch_mismatch",
+                "dirty commit materialization branch does not match the approved dirty plan",
+                expected=proposed_branch,
+                actual=dirty_packet.get("proposed_branch"),
+            )
+        )
+    if dirty_packet.get("source_head") != proposed_commit.get("source_head"):
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_parent_mismatch",
+                "dirty commit materialization parent does not match the approved dirty plan",
+                expected=proposed_commit.get("source_head"),
+                actual=dirty_packet.get("source_head"),
+            )
+        )
+
+    planned_files, planned_file_blockers = _safe_materialization_files(proposed_commit.get("files"))
+    materialized_files, materialized_file_blockers = _safe_materialization_files(dirty_packet.get("materialized_files"))
+    blockers.extend(planned_file_blockers)
+    blockers.extend(materialized_file_blockers)
+    if planned_files and materialized_files and planned_files != materialized_files:
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_files_mismatch",
+                "dirty commit materialization file set does not match the approved dirty plan",
+                expected_files=planned_files,
+                actual_files=materialized_files,
+            )
+        )
+
+    dirty_repo = dirty_packet.get("repository") if isinstance(dirty_packet.get("repository"), dict) else {}
+    if _non_empty_string(dirty_repo.get("repository_path")) and not _same_resolved_path(dirty_repo.get("repository_path"), cwd):
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_repository_mismatch",
+                "dirty commit materialization repository path does not match current repository",
+                expected=str(cwd),
+                actual=dirty_repo.get("repository_path"),
+            )
+        )
+
+    created_commit = dirty_packet.get("created_commit")
+    source_head = dirty_packet.get("source_head")
+    if not _non_empty_string(created_commit):
+        blockers.append(_issue("dirty_commit_materialization_created_commit_missing", "dirty commit materialization must name the created commit"))
+    if not _non_empty_string(source_head):
+        blockers.append(_issue("dirty_commit_materialization_source_head_missing", "dirty commit materialization must name the source parent"))
+    if not _non_empty_string(proposed_branch):
+        blockers.append(_issue("dirty_commit_materialization_branch_missing", "dirty commit materialization requires a proposed branch"))
+
+    if _non_empty_string(created_commit) and _non_empty_string(proposed_branch):
+        branch_argv = ["git", "--no-optional-locks", "rev-parse", "--verify", f"refs/heads/{proposed_branch}^{{commit}}"]
+        branch_result = _run_process(cwd, branch_argv)
+        command_trace.append(_materialization_command_trace(label="preflight_dirty_commit_branch", argv=branch_argv, result=branch_result))
+        if branch_result.returncode != 0:
+            blockers.append(
+                _issue(
+                    "dirty_commit_materialization_branch_missing",
+                    "dirty commit materialization branch does not resolve locally",
+                    proposed_branch=proposed_branch,
+                    stderr=branch_result.stderr.strip(),
+                )
+            )
+        elif branch_result.stdout.strip() != created_commit:
+            blockers.append(
+                _issue(
+                    "dirty_commit_materialization_branch_head_mismatch",
+                    "dirty commit materialization branch head changed before PR materialization",
+                    expected=created_commit,
+                    actual=branch_result.stdout.strip(),
+                )
+            )
+
+    if _non_empty_string(created_commit) and _non_empty_string(source_head):
+        parent_argv = ["git", "--no-optional-locks", "rev-parse", "--verify", f"{created_commit}^"]
+        parent_result = _run_process(cwd, parent_argv)
+        command_trace.append(_materialization_command_trace(label="preflight_dirty_commit_parent", argv=parent_argv, result=parent_result))
+        if parent_result.returncode != 0:
+            blockers.append(
+                _issue(
+                    "dirty_commit_materialization_parent_unreadable",
+                    "could not inspect dirty commit materialization parent",
+                    stderr=parent_result.stderr.strip(),
+                )
+            )
+        elif parent_result.stdout.strip() != source_head:
+            blockers.append(
+                _issue(
+                    "dirty_commit_materialization_parent_mismatch",
+                    "dirty commit materialization commit parent changed before PR materialization",
+                    expected=source_head,
+                    actual=parent_result.stdout.strip(),
+                )
+            )
+
+        diff_argv = ["git", "--no-optional-locks", "diff", "--name-only", source_head, created_commit, "--"]
+        diff_result = _run_process(cwd, diff_argv)
+        command_trace.append(_materialization_command_trace(label="preflight_dirty_commit_files", argv=diff_argv, result=diff_result))
+        if diff_result.returncode != 0:
+            blockers.append(
+                _issue(
+                    "dirty_commit_materialization_files_unreadable",
+                    "could not inspect dirty commit materialization file set",
+                    stderr=diff_result.stderr.strip(),
+                )
+            )
+        else:
+            committed_files = sorted(line.strip().replace("\\", "/") for line in diff_result.stdout.splitlines() if line.strip())
+            if planned_files and committed_files != planned_files:
+                blockers.append(
+                    _issue(
+                        "dirty_commit_materialization_committed_files_mismatch",
+                        "dirty commit materialization committed file set does not match the approved dirty plan",
+                        expected_files=planned_files,
+                        actual_files=committed_files,
+                    )
+                )
+
+        message_argv = ["git", "--no-optional-locks", "log", "-1", "--format=%B", created_commit]
+        message_result = _run_process(cwd, message_argv)
+        command_trace.append(_materialization_command_trace(label="preflight_dirty_commit_message", argv=message_argv, result=message_result))
+        expected_message = proposed_commit.get("message")
+        actual_message = message_result.stdout.replace("\r\n", "\n").rstrip("\n")
+        if message_result.returncode != 0:
+            blockers.append(
+                _issue(
+                    "dirty_commit_materialization_message_unreadable",
+                    "could not inspect dirty commit materialization message",
+                    stderr=message_result.stderr.strip(),
+                )
+            )
+        elif actual_message != expected_message:
+            blockers.append(
+                _issue(
+                    "dirty_commit_materialization_message_mismatch",
+                    "dirty commit materialization commit message does not match the approved dirty plan",
+                    expected=expected_message,
+                    actual=actual_message,
+                )
+            )
+
+    status_argv = ["git", "--no-optional-locks", "status", "--porcelain", "--untracked-files=all"]
+    status_result = _run_process(cwd, status_argv)
+    command_trace.append(_materialization_command_trace(label="preflight_dirty_commit_worktree", argv=status_argv, result=status_result))
+    if status_result.returncode != 0:
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_worktree_unreadable",
+                "could not inspect worktree before dirty PR materialization",
+                stderr=status_result.stderr.strip(),
+            )
+        )
+    elif status_result.stdout.strip():
+        blockers.append(
+            _issue(
+                "dirty_commit_materialization_worktree_dirty",
+                "worktree must be clean before dirty PR materialization",
+                dirty_status=status_result.stdout.splitlines(),
+            )
+        )
+
+    if isinstance(summary, dict) and isinstance(dirty_repo, dict):
+        repository = dict(dirty_repo)
+        if _non_empty_string(created_commit):
+            repository["current_head"] = created_commit
+        if _non_empty_string(proposed_branch):
+            repository["current_branch"] = proposed_branch
+        repository["worktree_clean"] = status_result.returncode == 0 and not status_result.stdout.strip()
+        summary["repository"] = repository
+    return summary, blockers, command_trace
+
+
+def _dirty_pr_materialization_target_blockers(
+    *,
+    plan_packet: Any,
+    remote: str,
+    remote_url: str | None,
+    pr_number: str | None,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    target = plan_packet.get("target") if isinstance(plan_packet, dict) and isinstance(plan_packet.get("target"), dict) else {}
+    if not target:
+        return blockers
+    target_pr_number = str(target.get("pr_number")) if target.get("pr_number") is not None else None
+    selected_pr_number = str(pr_number) if pr_number is not None else None
+    target_operation = "update_pull_request" if target_pr_number is not None else "create_pull_request"
+    selected_operation = "update_pull_request" if selected_pr_number is not None else "create_pull_request"
+    if target.get("remote") != remote:
+        blockers.append(
+            _issue(
+                "dirty_pr_materialization_target_remote_mismatch",
+                "selected remote does not match the approved dirty PR materialization target",
+                expected=target.get("remote"),
+                actual=remote,
+            )
+        )
+    if target.get("remote_url") != remote_url:
+        blockers.append(
+            _issue(
+                "dirty_pr_materialization_target_remote_url_mismatch",
+                "resolved remote push URL does not match the approved dirty PR materialization target",
+                expected=target.get("remote_url"),
+                actual=remote_url,
+            )
+        )
+    if target_pr_number != selected_pr_number or target_operation != selected_operation:
+        blockers.append(
+            _issue(
+                "dirty_pr_materialization_target_pr_number_mismatch",
+                "selected PR create/update target does not match the approved dirty PR materialization target",
+                expected_pr_number=target_pr_number,
+                actual_pr_number=selected_pr_number,
+                expected_operation=target_operation,
+                actual_operation=selected_operation,
+            )
+        )
+    return blockers
 
 
 def _plan_structural_blockers(plan_packet: Any) -> list[dict[str, Any]]:
@@ -2683,6 +3025,51 @@ def git_pr_materialization_pr_evidence_load_error_packet(
     )
 
 
+def git_pr_materialization_dirty_commit_load_error_packet(
+    *,
+    plan_packet: Any,
+    plan_file: str | Path,
+    dirty_commit_file: str | Path,
+    error: Exception,
+    remote: str = "origin",
+    pr_number: str | None = None,
+) -> dict[str, Any]:
+    """Build a stable blocker packet when dirty commit source evidence cannot be loaded."""
+    plan_path = Path(plan_file).expanduser().resolve(strict=False)
+    dirty_path = Path(dirty_commit_file).expanduser().resolve(strict=False)
+    repository = plan_packet.get("repository") if isinstance(plan_packet, dict) else {}
+    proposed_branch = plan_packet.get("proposed_branch") if isinstance(plan_packet, dict) else None
+    proposed_pr_title = plan_packet.get("proposed_pr_title") if isinstance(plan_packet, dict) else None
+    return _materialization_packet(
+        valid=False,
+        decision="blocked",
+        approval_state="not_approved",
+        plan_file=plan_path,
+        plan_checksum=checksum_json(plan_packet),
+        repository=repository if isinstance(repository, dict) else {},
+        proposed_branch=proposed_branch if isinstance(proposed_branch, str) else None,
+        proposed_pr_title=proposed_pr_title if isinstance(proposed_pr_title, str) else None,
+        pr_url=None,
+        intended_side_effects=[
+            "push_branch",
+            "update_pull_request" if pr_number else "create_pull_request",
+        ],
+        side_effects=[],
+        command_trace=[],
+        blockers=[
+            _issue(
+                "dirty_commit_materialization_unreadable",
+                f"could not read dirty commit materialization evidence before Git/PR materialization: {error}",
+                path=str(dirty_path),
+            )
+        ],
+        warnings=[],
+        pr_number=pr_number,
+        remote=remote,
+        dirty_commit_materialization={"path": str(dirty_path)},
+    )
+
+
 def _remote_push_url(cwd: Path, remote: str) -> tuple[str | None, list[dict[str, Any]]]:
     blockers: list[dict[str, Any]] = []
     if not _non_empty_string(remote) or remote != remote.strip() or remote.startswith("-") or any(ch.isspace() for ch in remote):
@@ -2796,6 +3183,8 @@ def materialize_git_pr_plan(
     pr_evidence_captured_at: Any = None,
     max_pr_evidence_age_minutes: int | None = None,
     pr_evidence_path: str | Path | None = None,
+    dirty_commit_materialization: Any | None = None,
+    dirty_commit_materialization_path: str | Path | None = None,
 ) -> dict[str, Any]:
     """Materialize an operator-approved git-pr-plan packet into local Git/gh side effects."""
     repo_cwd = Path(cwd).expanduser().resolve()
@@ -2818,16 +3207,19 @@ def materialize_git_pr_plan(
     repository = plan_packet.get("repository") if isinstance(plan_packet, dict) else {}
     proposed_branch = plan_packet.get("proposed_branch") if isinstance(plan_packet, dict) else None
     proposed_pr_title = plan_packet.get("proposed_pr_title") if isinstance(plan_packet, dict) else None
+    dirty_plan = _is_dirty_pr_materialization_plan(plan_packet)
+    dirty_commit_summary = _dirty_commit_materialization_summary(
+        dirty_commit_materialization,
+        path=dirty_commit_materialization_path,
+    )
     blockers: list[dict[str, Any]] = []
     warnings: list[dict[str, Any]] = []
     command_trace: list[dict[str, Any]] = []
     side_effects: list[str] = []
     pr_url = None
-    intended_side_effects = [
-        "create_branch",
-        "push_branch",
-        "update_pull_request" if pr_number else "create_pull_request",
-    ]
+    intended_side_effects = ["push_branch", "update_pull_request" if pr_number else "create_pull_request"]
+    if not dirty_plan:
+        intended_side_effects.insert(0, "create_branch")
     pr_evidence_summary, pr_evidence_blockers = _materialization_pr_evidence(
         pr_evidence=pr_evidence,
         source=pr_evidence_source,
@@ -2838,7 +3230,24 @@ def materialize_git_pr_plan(
 
     blockers.extend(pr_evidence_blockers)
     blockers.extend(remote_blockers)
-    blockers.extend(_plan_structural_blockers(plan_packet))
+    if dirty_plan:
+        blockers.extend(_dirty_commit_plan_structural_blockers(plan_packet))
+        if dirty_commit_materialization is None:
+            blockers.append(
+                _issue(
+                    "dirty_commit_materialization_missing",
+                    "dirty commit materialization evidence is required for dirty Git/PR materialization plans",
+                )
+            )
+    else:
+        blockers.extend(_plan_structural_blockers(plan_packet))
+        if dirty_commit_materialization is not None:
+            blockers.append(
+                _issue(
+                    "dirty_commit_materialization_unexpected",
+                    "dirty commit materialization evidence can only be used with git-pr-dirty-materialization-plan packets",
+                )
+            )
     if not approval_token:
         approval_state = "not_approved"
         blockers.append(
@@ -2894,68 +3303,52 @@ def materialize_git_pr_plan(
             remote=remote,
             remote_url=remote_url,
             pr_evidence=pr_evidence_summary,
+            dirty_commit_materialization=dirty_commit_summary,
         )
 
-    provenance = plan_packet.get("evidence_provenance") if isinstance(plan_packet.get("evidence_provenance"), dict) else {}
-    task_packet, task_blocker = _load_materialization_json(
-        provenance.get("task_file"),
-        "task_packet_unreadable",
-        "could not read task packet from git-pr-plan evidence provenance",
-    )
-    if task_blocker is not None:
-        blockers.append(task_blocker)
-    result_evidence, result_blocker = _load_materialization_json(
-        provenance.get("result_file"),
-        "result_evidence_unreadable",
-        "could not read executor result evidence from git-pr-plan evidence provenance",
-    )
-    if result_blocker is not None:
-        blockers.append(result_blocker)
-    if task_packet is not None and provenance.get("task_file_checksum") != checksum_json(task_packet):
-        blockers.append(
-            _issue(
-                "task_packet_changed",
-                "task packet checksum no longer matches the approved git-pr-plan packet",
-            )
-        )
-    if result_evidence is not None and provenance.get("result_file_checksum") != checksum_json(result_evidence):
-        blockers.append(
-            _issue(
-                "result_evidence_changed",
-                "executor result checksum no longer matches the approved git-pr-plan packet",
-            )
-        )
-
-    if task_packet is not None and result_evidence is not None:
-        branch_policy = plan_packet.get("branch_policy") if isinstance(plan_packet.get("branch_policy"), dict) else {}
-        rechecked_plan = evaluate_git_pr_plan(
+    if dirty_plan:
+        dirty_commit_summary, dirty_blockers, dirty_trace = _dirty_commit_materialization_source_evidence(
             cwd=repo_cwd,
-            task_packet=task_packet,
-            result_evidence=result_evidence,
-            task_file=provenance.get("task_file"),
-            result_file=provenance.get("result_file"),
-            base_branch=(
-                repository.get("base_branch")
-                if isinstance(repository, dict) and _non_empty_string(repository.get("base_branch"))
-                else "main"
-            ),
-            branch_prefix="",
-            proposed_branch_override=proposed_branch if isinstance(proposed_branch, str) else None,
-            branch_policy=branch_policy.get("policy_file") if isinstance(branch_policy, dict) else None,
-            required_body_sections=_materialization_required_sections(plan_packet),
-            runtime_root=runtime_path,
+            plan_packet=plan_packet,
+            dirty_packet=dirty_commit_materialization,
+            dirty_packet_path=dirty_commit_materialization_path,
         )
-        blockers.extend(_stale_plan_blockers(plan_packet, rechecked_plan))
-        blockers.extend(_changed_plan_blockers(plan_packet, rechecked_plan))
-        if not rechecked_plan.get("ready_to_review"):
-            blockers.append(
-                _issue(
-                    "git_pr_plan_recheck_blocked",
-                    "rechecked Git/PR plan is blocked immediately before materialization",
-                    recheck_blockers=rechecked_plan.get("blockers", []),
-                )
+        blockers.extend(dirty_blockers)
+        command_trace.extend(dirty_trace)
+        if isinstance(dirty_commit_summary, dict) and isinstance(dirty_commit_summary.get("repository"), dict):
+            repository = dirty_commit_summary["repository"]
+        blockers.extend(
+            _dirty_pr_materialization_target_blockers(
+                plan_packet=plan_packet,
+                remote=remote,
+                remote_url=remote_url,
+                pr_number=pr_number,
             )
-        repository = rechecked_plan.get("repository") if isinstance(rechecked_plan.get("repository"), dict) else repository
+        )
+        branch_policy = plan_packet.get("branch_policy") if isinstance(plan_packet.get("branch_policy"), dict) else {}
+        current_policy_branch = (
+            dirty_commit_summary.get("source_branch")
+            if isinstance(dirty_commit_summary, dict)
+            else repository.get("current_branch") if isinstance(repository, dict) else None
+        )
+        for source, policy in (
+            ("task_packet", branch_policy.get("task_packet") if isinstance(branch_policy, dict) else None),
+            ("policy_file", branch_policy.get("policy_file") if isinstance(branch_policy, dict) else None),
+        ):
+            if isinstance(policy, dict):
+                blockers.extend(
+                    _branch_policy_blockers(
+                        policy,
+                        source=source,
+                        base_branch=(
+                            repository.get("base_branch")
+                            if isinstance(repository, dict) and _non_empty_string(repository.get("base_branch"))
+                            else "main"
+                        ),
+                        proposed_branch=proposed_branch if isinstance(proposed_branch, str) else "",
+                        current_branch=current_policy_branch if isinstance(current_policy_branch, str) else None,
+                    )
+                )
         materialized_body = _materialized_pr_body(plan_packet)
         body_preflight = _preflight_pr_body(materialized_body, _materialization_required_sections(plan_packet))
         for blocker in body_preflight.get("blockers", []):
@@ -2965,7 +3358,76 @@ def materialize_git_pr_plan(
             if isinstance(warning, dict):
                 warnings.append(warning)
     else:
-        materialized_body = _materialized_pr_body(plan_packet) if isinstance(plan_packet, dict) else ""
+        provenance = plan_packet.get("evidence_provenance") if isinstance(plan_packet.get("evidence_provenance"), dict) else {}
+        task_packet, task_blocker = _load_materialization_json(
+            provenance.get("task_file"),
+            "task_packet_unreadable",
+            "could not read task packet from git-pr-plan evidence provenance",
+        )
+        if task_blocker is not None:
+            blockers.append(task_blocker)
+        result_evidence, result_blocker = _load_materialization_json(
+            provenance.get("result_file"),
+            "result_evidence_unreadable",
+            "could not read executor result evidence from git-pr-plan evidence provenance",
+        )
+        if result_blocker is not None:
+            blockers.append(result_blocker)
+        if task_packet is not None and provenance.get("task_file_checksum") != checksum_json(task_packet):
+            blockers.append(
+                _issue(
+                    "task_packet_changed",
+                    "task packet checksum no longer matches the approved git-pr-plan packet",
+                )
+            )
+        if result_evidence is not None and provenance.get("result_file_checksum") != checksum_json(result_evidence):
+            blockers.append(
+                _issue(
+                    "result_evidence_changed",
+                    "executor result checksum no longer matches the approved git-pr-plan packet",
+                )
+            )
+
+        if task_packet is not None and result_evidence is not None:
+            branch_policy = plan_packet.get("branch_policy") if isinstance(plan_packet.get("branch_policy"), dict) else {}
+            rechecked_plan = evaluate_git_pr_plan(
+                cwd=repo_cwd,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
+                task_file=provenance.get("task_file"),
+                result_file=provenance.get("result_file"),
+                base_branch=(
+                    repository.get("base_branch")
+                    if isinstance(repository, dict) and _non_empty_string(repository.get("base_branch"))
+                    else "main"
+                ),
+                branch_prefix="",
+                proposed_branch_override=proposed_branch if isinstance(proposed_branch, str) else None,
+                branch_policy=branch_policy.get("policy_file") if isinstance(branch_policy, dict) else None,
+                required_body_sections=_materialization_required_sections(plan_packet),
+                runtime_root=runtime_path,
+            )
+            blockers.extend(_stale_plan_blockers(plan_packet, rechecked_plan))
+            blockers.extend(_changed_plan_blockers(plan_packet, rechecked_plan))
+            if not rechecked_plan.get("ready_to_review"):
+                blockers.append(
+                    _issue(
+                        "git_pr_plan_recheck_blocked",
+                        "rechecked Git/PR plan is blocked immediately before materialization",
+                        recheck_blockers=rechecked_plan.get("blockers", []),
+                    )
+                )
+            repository = rechecked_plan.get("repository") if isinstance(rechecked_plan.get("repository"), dict) else repository
+            materialized_body = _materialized_pr_body(plan_packet)
+            body_preflight = _preflight_pr_body(materialized_body, _materialization_required_sections(plan_packet))
+            for blocker in body_preflight.get("blockers", []):
+                if isinstance(blocker, dict):
+                    blockers.append(blocker)
+            for warning in body_preflight.get("warnings", []):
+                if isinstance(warning, dict):
+                    warnings.append(warning)
+        else:
+            materialized_body = _materialized_pr_body(plan_packet) if isinstance(plan_packet, dict) else ""
 
     if not pr_number and not blockers and isinstance(proposed_branch, str):
         remote_trace, remote_branch_blockers = _remote_branch_create_preflight(
@@ -3014,6 +3476,7 @@ def materialize_git_pr_plan(
             remote=remote,
             remote_url=remote_url,
             pr_evidence=pr_evidence_summary,
+            dirty_commit_materialization=dirty_commit_summary,
         )
 
     intent_payload = _materialization_packet(
@@ -3035,6 +3498,7 @@ def materialize_git_pr_plan(
         remote=remote,
         remote_url=remote_url,
         pr_evidence=pr_evidence_summary,
+        dirty_commit_materialization=dirty_commit_summary,
     )
     _audit_record, audit_blocker = _append_materialization_audit(
         runtime_path,
@@ -3060,17 +3524,20 @@ def materialize_git_pr_plan(
             remote=remote,
             remote_url=remote_url,
             pr_evidence=pr_evidence_summary,
+            dirty_commit_materialization=dirty_commit_summary,
         )
     side_effects.append("audit_intent_record_appended")
 
-    commands = [
-        (
-            "create_branch",
-            ["git", "branch", str(proposed_branch), str(repository.get("current_head"))],
-            "created_branch",
-        ),
-        ("push_branch", ["git", "push", "--no-verify", "-u", remote, str(proposed_branch)], "pushed_branch"),
-    ]
+    commands = []
+    if not dirty_plan:
+        commands.append(
+            (
+                "create_branch",
+                ["git", "branch", str(proposed_branch), str(repository.get("current_head"))],
+                "created_branch",
+            )
+        )
+    commands.append(("push_branch", ["git", "push", "--no-verify", "-u", remote, str(proposed_branch)], "pushed_branch"))
     for label, argv, side_effect in commands:
         result = _run_process(repo_cwd, argv)
         command_trace.append(_materialization_command_trace(label=label, argv=argv, result=result))
@@ -3104,6 +3571,7 @@ def materialize_git_pr_plan(
                 remote=remote,
                 remote_url=remote_url,
                 pr_evidence=pr_evidence_summary,
+                dirty_commit_materialization=dirty_commit_summary,
             )
             _result_audit, result_audit_blocker = _append_materialization_audit(
                 runtime_path,
@@ -3131,6 +3599,7 @@ def materialize_git_pr_plan(
                     remote=remote,
                     remote_url=remote_url,
                     pr_evidence=pr_evidence_summary,
+                    dirty_commit_materialization=dirty_commit_summary,
                 )
                 return failed_packet_without_audit
         side_effects.append(side_effect)
@@ -3175,6 +3644,7 @@ def materialize_git_pr_plan(
             remote=remote,
             remote_url=remote_url,
             pr_evidence=pr_evidence_summary,
+            dirty_commit_materialization=dirty_commit_summary,
         )
         _result_audit, result_audit_blocker = _append_materialization_audit(
             runtime_path,
@@ -3201,6 +3671,7 @@ def materialize_git_pr_plan(
             remote=remote,
             remote_url=remote_url,
             pr_evidence=pr_evidence_summary,
+            dirty_commit_materialization=dirty_commit_summary,
         )
     try:
         if pr_number:
@@ -3262,6 +3733,7 @@ def materialize_git_pr_plan(
             remote=remote,
             remote_url=remote_url,
             pr_evidence=pr_evidence_summary,
+            dirty_commit_materialization=dirty_commit_summary,
         )
         _result_audit, result_audit_blocker = _append_materialization_audit(
             runtime_path,
@@ -3289,6 +3761,7 @@ def materialize_git_pr_plan(
                 remote=remote,
                 remote_url=remote_url,
                 pr_evidence=pr_evidence_summary,
+                dirty_commit_materialization=dirty_commit_summary,
             )
 
     side_effects.append(gh_side_effect)
@@ -3314,6 +3787,7 @@ def materialize_git_pr_plan(
         remote=remote,
         remote_url=remote_url,
         pr_evidence=pr_evidence_summary,
+        dirty_commit_materialization=dirty_commit_summary,
     )
     _result_audit, result_audit_blocker = _append_materialization_audit(
         runtime_path,
@@ -3341,4 +3815,5 @@ def materialize_git_pr_plan(
             remote=remote,
             remote_url=remote_url,
             pr_evidence=pr_evidence_summary,
+            dirty_commit_materialization=dirty_commit_summary,
         )

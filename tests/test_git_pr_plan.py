@@ -2404,6 +2404,275 @@ class GitPrPlanTests(unittest.TestCase):
             self.assertEqual(result_record["payload_checksum"], checksum_json(packet))
             self.assertEqual(result_record["side_effects_checksum"], checksum_json(packet["side_effects"]))
 
+    def test_git_pr_materialize_uses_dirty_commit_evidence_for_pr_create(self):
+        """Approved PR materialization can push a committed dirty materialization branch."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            dirty_plan_path, dirty_plan, _inputs = write_ready_dirty_materialization_plan(runtime_root, Path(tmp), repo)
+            dirty_token = git_pr_dirty_commit_materialization_approval_token(dirty_plan)
+            dirty_result, dirty_packet = run_git_pr_dirty_commit_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(dirty_plan_path),
+                "--approval-token",
+                dirty_token,
+                cwd=repo,
+            )
+            self.assertEqual(dirty_result.returncode, 0, dirty_result.stderr)
+            dirty_packet_path = Path(tmp) / "git-pr-dirty-commit-materialization.json"
+            dirty_packet_path.write_text(json.dumps(dirty_packet), encoding="utf-8")
+            token = git_pr_materialization_approval_token(dirty_plan, remote_url=remote_push_url(repo))
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            pr_url = "https://github.example/local/test/pull/321"
+            write_fake_gh_materializer(fake_bin, gh_log, pr_url)
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = pr_url
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(dirty_plan_path),
+                "--dirty-commit-materialization-file",
+                str(dirty_packet_path),
+                "--approval-token",
+                token,
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(packet["valid"])
+            self.assertEqual(packet["decision"], "materialized")
+            self.assertEqual(packet["pr_url"], pr_url)
+            dirty_source = packet["dirty_commit_materialization"]
+            self.assertEqual(dirty_source["path"], str(dirty_packet_path.resolve()))
+            self.assertEqual(dirty_source["checksum"], checksum_json(dirty_packet))
+            self.assertEqual(dirty_source["plan_checksum"], checksum_json(dirty_plan))
+            self.assertEqual(dirty_source["target_checksum"], dirty_plan["target_checksum"])
+            self.assertEqual(dirty_source["proposed_branch"], dirty_plan["proposed_branch"])
+            self.assertEqual(dirty_source["created_commit"], dirty_packet["created_commit"])
+            self.assertEqual(dirty_source["materialized_files"], dirty_plan["proposed_commit"]["files"])
+            self.assertEqual(
+                git(repo, "ls-remote", "--heads", "origin", dirty_plan["proposed_branch"]).stdout.split()[0],
+                dirty_packet["created_commit"],
+            )
+            command_argvs = [trace["argv"] for trace in packet["command_trace"]]
+            command_labels = [trace["label"] for trace in packet["command_trace"]]
+            self.assertEqual(
+                command_labels,
+                [
+                    "preflight_dirty_commit_branch",
+                    "preflight_dirty_commit_parent",
+                    "preflight_dirty_commit_files",
+                    "preflight_dirty_commit_message",
+                    "preflight_dirty_commit_worktree",
+                    "preflight_remote_branch",
+                    "push_branch",
+                    "create_pull_request",
+                ],
+            )
+            self.assertEqual(command_argvs[5], ["git", "ls-remote", "--heads", "origin", dirty_plan["proposed_branch"]])
+            self.assertEqual(command_argvs[6], ["git", "push", "--no-verify", "-u", "origin", dirty_plan["proposed_branch"]])
+            self.assertEqual(command_argvs[7][:7], ["gh", "pr", "create", "--base", "main", "--head", dirty_plan["proposed_branch"]])
+            self.assertFalse(any(argv[:2] == ["git", "branch"] for argv in command_argvs))
+            gh_lines = gh_log.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(gh_lines), 1)
+            self.assertTrue(gh_lines[0].startswith("pr create "))
+            records = [
+                json.loads(line)
+                for line in (runtime_root / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            ]
+            result_record = [record for record in records if record["event"] == "git_pr_materialization_result"][-1]
+            self.assertEqual(result_record["dirty_commit_materialization_checksum"], checksum_json(dirty_packet))
+            self.assertEqual(result_record["dirty_commit_created_commit"], dirty_packet["created_commit"])
+
+    def test_git_pr_materialize_blocks_dirty_commit_branch_head_drift_before_network(self):
+        """Dirty commit evidence must still match the local branch head before PR writes."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            dirty_plan_path, dirty_plan, _inputs = write_ready_dirty_materialization_plan(runtime_root, Path(tmp), repo)
+            dirty_token = git_pr_dirty_commit_materialization_approval_token(dirty_plan)
+            dirty_result, dirty_packet = run_git_pr_dirty_commit_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(dirty_plan_path),
+                "--approval-token",
+                dirty_token,
+                cwd=repo,
+            )
+            self.assertEqual(dirty_result.returncode, 0, dirty_result.stderr)
+            dirty_packet_path = Path(tmp) / "git-pr-dirty-commit-materialization.json"
+            dirty_packet_path.write_text(json.dumps(dirty_packet), encoding="utf-8")
+            (Path(repo) / "README.md").write_text("hello\nbranch drift\n", encoding="utf-8")
+            git(repo, "add", "README.md")
+            git(repo, "commit", "-m", "advance dirty branch")
+            token = git_pr_materialization_approval_token(dirty_plan, remote_url=remote_push_url(repo))
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_materializer(fake_bin, gh_log, "https://github.example/local/test/pull/321")
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = "https://github.example/local/test/pull/321"
+            audit_before = (runtime_root / "audit" / "events.jsonl").read_text(encoding="utf-8")
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(dirty_plan_path),
+                "--dirty-commit-materialization-file",
+                str(dirty_packet_path),
+                "--approval-token",
+                token,
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["decision"], "blocked")
+            self.assertEqual(packet["side_effects"], [])
+            self.assertIn("dirty_commit_materialization_branch_head_mismatch", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertNotIn("preflight_remote_branch", {trace["label"] for trace in packet["command_trace"]})
+            self.assertFalse(gh_log.exists())
+            self.assertEqual((runtime_root / "audit" / "events.jsonl").read_text(encoding="utf-8"), audit_before)
+
+    def test_git_pr_materialize_blocks_dirty_plan_remote_url_mismatch_before_network(self):
+        """The caller-selected remote URL must still match the reviewed dirty plan target."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            dirty_plan_path, dirty_plan, _inputs = write_ready_dirty_materialization_plan(runtime_root, Path(tmp), repo)
+            dirty_token = git_pr_dirty_commit_materialization_approval_token(dirty_plan)
+            dirty_result, dirty_packet = run_git_pr_dirty_commit_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(dirty_plan_path),
+                "--approval-token",
+                dirty_token,
+                cwd=repo,
+            )
+            self.assertEqual(dirty_result.returncode, 0, dirty_result.stderr)
+            dirty_packet_path = Path(tmp) / "git-pr-dirty-commit-materialization.json"
+            dirty_packet_path.write_text(json.dumps(dirty_packet), encoding="utf-8")
+            changed_remote = Path(tmp) / "changed-origin.git"
+            changed_remote.mkdir()
+            git(changed_remote, "init", "--bare")
+            git(repo, "remote", "set-url", "origin", str(changed_remote))
+            token = git_pr_materialization_approval_token(dirty_plan, remote_url=remote_push_url(repo))
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_materializer(fake_bin, gh_log, "https://github.example/local/test/pull/321")
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = "https://github.example/local/test/pull/321"
+            audit_before = (runtime_root / "audit" / "events.jsonl").read_text(encoding="utf-8")
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(dirty_plan_path),
+                "--dirty-commit-materialization-file",
+                str(dirty_packet_path),
+                "--approval-token",
+                token,
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["decision"], "blocked")
+            self.assertEqual(packet["side_effects"], [])
+            self.assertIn("dirty_pr_materialization_target_remote_url_mismatch", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertNotIn("preflight_remote_branch", {trace["label"] for trace in packet["command_trace"]})
+            self.assertFalse(gh_log.exists())
+            self.assertEqual((runtime_root / "audit" / "events.jsonl").read_text(encoding="utf-8"), audit_before)
+
+    def test_git_pr_materialize_blocks_dirty_plan_create_update_mismatch_before_network(self):
+        """A dirty create target cannot be materialized as a PR update."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            runtime_root = Path(tmp) / "runtime"
+            write_brake(runtime_root)
+            dirty_plan_path, dirty_plan, _inputs = write_ready_dirty_materialization_plan(runtime_root, Path(tmp), repo)
+            dirty_token = git_pr_dirty_commit_materialization_approval_token(dirty_plan)
+            dirty_result, dirty_packet = run_git_pr_dirty_commit_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(dirty_plan_path),
+                "--approval-token",
+                dirty_token,
+                cwd=repo,
+            )
+            self.assertEqual(dirty_result.returncode, 0, dirty_result.stderr)
+            dirty_packet_path = Path(tmp) / "git-pr-dirty-commit-materialization.json"
+            dirty_packet_path.write_text(json.dumps(dirty_packet), encoding="utf-8")
+            token = git_pr_materialization_approval_token(dirty_plan, remote_url=remote_push_url(repo), pr_number=42)
+            fake_bin = Path(tmp) / "bin"
+            fake_bin.mkdir()
+            gh_log = Path(tmp) / "gh.log"
+            write_fake_gh_materializer(fake_bin, gh_log, "https://github.example/local/test/pull/42")
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_PR_URL"] = "https://github.example/local/test/pull/42"
+            env["GH_FAKE_HEAD_REF"] = dirty_plan["proposed_branch"]
+            env["GH_FAKE_BASE_REF"] = dirty_plan["repository"]["base_branch"]
+            env["GH_FAKE_HEAD_OID"] = dirty_packet["created_commit"]
+            audit_before = (runtime_root / "audit" / "events.jsonl").read_text(encoding="utf-8")
+
+            result, packet = run_git_pr_materialize(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--plan-file",
+                str(dirty_plan_path),
+                "--dirty-commit-materialization-file",
+                str(dirty_packet_path),
+                "--approval-token",
+                token,
+                "--pr-number",
+                "42",
+                cwd=repo,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["decision"], "blocked")
+            self.assertEqual(packet["side_effects"], [])
+            self.assertIn("dirty_pr_materialization_target_pr_number_mismatch", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertNotIn("preflight_pr_update", {trace["label"] for trace in packet["command_trace"]})
+            self.assertFalse(gh_log.exists())
+            self.assertEqual((runtime_root / "audit" / "events.jsonl").read_text(encoding="utf-8"), audit_before)
+
     def test_git_pr_materialize_updates_existing_pr_after_approval(self):
         """Approved PR update mode preflights the target and uses gh pr edit."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
