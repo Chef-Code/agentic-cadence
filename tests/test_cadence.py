@@ -4884,6 +4884,7 @@ class CadenceCliTests(unittest.TestCase):
             ("side_effects_present", {"side_effects": ["created_branch"]}, "git_pr_plan_side_effects_present"),
             ("approval_state_invalid", {"approval_state": "approved"}, "git_pr_plan_approval_state_invalid"),
             ("execution_authority_invalid", {"execution_authority": "operator_approved_git_pr_materialization"}, "git_pr_plan_execution_authority_invalid"),
+            ("proposed_branch_missing", {"proposed_branch": ""}, "git_pr_plan_proposed_branch_missing"),
         ]
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)

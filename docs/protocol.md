@@ -1155,8 +1155,10 @@ Stable blocker codes include `loop_tick_evidence_missing`,
 `closeout_not_completed`,
 `git_pr_plan_unanchored`, `git_pr_plan_mismatch`, `git_pr_plan_not_ready`,
 `git_pr_plan_not_dry_run`, `git_pr_plan_operator_confirmation_missing`,
-`git_pr_plan_side_effects_present`, `git_pr_plan_approval_state_invalid`, and
-`git_pr_plan_execution_authority_invalid`.
+`git_pr_plan_side_effects_present`, `git_pr_plan_approval_state_invalid`,
+`git_pr_plan_execution_authority_invalid`,
+`git_pr_plan_proposed_branch_missing`, `git_pr_plan_proposed_pr_title_missing`,
+and `git_pr_plan_proposed_pr_body_missing`.
 
 `controlled-loop-tick` may report `executor_started: true` only because the
 accepted supplied `real-executor-invocation.v1` record says a prior controlled
