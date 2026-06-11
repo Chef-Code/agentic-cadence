@@ -291,22 +291,26 @@ execution can be considered. Audit history is now locally inspectable through
 
 ## What Would Break First
 
-The first hard stop in a real unattended run is still real executor invocation.
-Cadence can emit a bounded executor task packet, reject malformed, dirty,
-low-confidence, relative-path, or mismatched snapshot anchors, start one
-approved active epoch through `start-governed-execution`, prove read-only
-executor invocation readiness through `executor-invocation-readiness`, bind a
-read-only real-executor invocation plan through `executor-invocation-plan`, run
-a fake controlled fixture, and close local executor evidence into an epoch
-decision. It can also verify local authenticated operator approval identity
-evidence for a target checksum and purpose. It still does not invoke a real
-executor or apply code changes. The next hardening slice is a controlled real
-executor process start.
+The first hard stop in a real unattended run is now real-run closeout binding
+and Git/PR planning from real invocation evidence. Cadence can emit a bounded
+executor task packet, reject malformed, dirty, low-confidence, relative-path,
+or mismatched snapshot anchors, start one approved active epoch through
+`start-governed-execution`, prove read-only executor invocation readiness
+through `executor-invocation-readiness`, bind a read-only real-executor
+invocation plan through `executor-invocation-plan`, start one approved real
+executor command through `invoke-real-executor`, run a fake controlled fixture,
+and close local fixture evidence into an epoch decision. It can also verify
+local authenticated operator approval identity evidence for a target checksum
+and purpose. It still does not bind `real-executor-invocation.v1` evidence into
+epoch closeout, ownership closeout, or Git/PR planning, and it does not apply
+code changes outside the approved executor command. The next hardening slice is
+real-run closeout binding.
 
 The next likely failures are:
 
-1. real executor invocation has no controlled process-start runner that
-   rechecks the plan immediately before launch and records invocation evidence;
+1. real executor invocation records are not yet accepted as closeout evidence
+   for result validation, epoch completion, ownership closeout, and Git/PR
+   planning;
 2. no autonomous branch/commit/push/PR workflow exists; the current Git/PR
    increment requires explicit operator approval and only creates a branch from
    an already-materialized clean commit;

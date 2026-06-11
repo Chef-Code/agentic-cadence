@@ -235,15 +235,15 @@ The following capabilities are not implemented as of this baseline:
 - agent pool, role registry, and role-aware permission model;
 - task decomposition across Planning, Architecture, Builder, Reviewer, QA,
   Documentation, Release, and Handoff agents;
-- real executor invocation or named executor adapter integration;
+- real-run closeout binding or named executor adapter integration;
 - autonomous code modification;
 - autonomous branch, dirty-worktree commit, push, and PR creation workflow;
 - continuous or write-side GitHub PR, check, comment, and review-thread synchronization;
 - write-side review-feedback response loop;
 - real host context-pressure integration;
 - automatic fresh-session launch and resume orchestration;
-- distributed locking, shared runtime, authenticated approval identity, or
-  tamper-evident remote audit log;
+- distributed locking, shared runtime, external identity-provider-backed
+  approval, or tamper-evident remote audit log;
 - autonomous merge, release, or package publication.
 
 ## Known Edges

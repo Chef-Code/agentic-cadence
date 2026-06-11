@@ -710,9 +710,9 @@ side-effect modes.
 Stable blockers include `plan_packet_stale`, `plan_not_invocable`,
 `approval_recheck_failed`, `rollback_evidence_missing`,
 `rollback_recheck_failed`, `brake_not_drive`, `active_epoch_mismatch`,
-`runtime_root_unsafe`, `executor_process_timeout`, `executor_result_stale`,
-`executor_result_missing`, `unexpected_repo_modification`, and
-`materialized_change_evidence_missing`.
+`runtime_root_unsafe`, `repo_inspection_failed`, `executor_process_timeout`,
+`executor_process_failed`, `executor_result_stale`, `executor_result_missing`,
+`unexpected_repo_modification`, and `materialized_change_evidence_missing`.
 Immediate pre-start rechecks can also forward `executor-invocation-plan`
 blockers such as `repo_head_mismatch`, `active_epoch_missing`, and
 `executor_command_denied`.

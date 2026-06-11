@@ -1293,6 +1293,8 @@ def invoke_real_executor(
             cwd=cwd,
             env=_bounded_environment(environment_allowlist),
             text=True,
+            encoding="utf-8",
+            errors="replace",
             capture_output=True,
             timeout=timeout_seconds,
             check=False,

@@ -495,6 +495,11 @@ if config.get("stdout_text"):
 if config.get("stderr_text"):
     sys.stderr.write(config["stderr_text"])
     sys.stderr.flush()
+if config.get("invalid_output"):
+    sys.stdout.buffer.write(b"stdout invalid byte: \\xff\\n")
+    sys.stdout.buffer.flush()
+    sys.stderr.buffer.write(b"stderr invalid byte: \\xff\\n")
+    sys.stderr.buffer.flush()
 if config.get("sleep_seconds"):
     time.sleep(config["sleep_seconds"])
 if config.get("touch_repo"):
@@ -4279,6 +4284,7 @@ class CadenceCliTests(unittest.TestCase):
         resulting_head=None,
         stdout_text=None,
         stderr_text=None,
+        invalid_output=False,
     ):
         script_path = real_executor_script(Path(tmp) / "real-executor.py")
         config_path = Path(tmp) / "real-executor-config.json"
@@ -4295,6 +4301,7 @@ class CadenceCliTests(unittest.TestCase):
             "delete_branch": delete_branch,
             "exit_code": 0,
             "include_materialized_change_evidence": include_materialized_change_evidence,
+            "invalid_output": invalid_output,
             "materialized_change_evidence": materialized_change_evidence,
             "repo_head": current_head(repo),
             "repo_path": str(Path(repo).resolve()),
@@ -4723,6 +4730,30 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["side_effects"], [])
             self.assertIn("repo_head_mismatch", {blocker["code"] for blocker in output["blockers"]})
             self.assertNotIn("runtime_root_unsafe", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_invoke_real_executor_replaces_invalid_process_output_bytes(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            _inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo, invalid_output=True)
+
+            result, output = self.run_invoke_real_executor_cli(
+                tmp,
+                plan_path,
+                side_effect_mode="evidence_only",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertTrue(output["executor_started"])
+            self.assertTrue(Path(output["record_file"]).exists())
+            self.assertEqual(
+                Path(output["stdout_log"]).read_text(encoding="utf-8"),
+                "stdout invalid byte: \ufffd\n",
+            )
+            self.assertEqual(
+                Path(output["stderr_log"]).read_text(encoding="utf-8"),
+                "stderr invalid byte: \ufffd\n",
+            )
 
     def test_invoke_real_executor_enforces_result_and_side_effect_modes(self):
         bogus_head = "0" * 40
