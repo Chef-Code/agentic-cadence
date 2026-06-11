@@ -7,10 +7,17 @@ import unittest
 from pathlib import Path
 
 from codex_cadence.pr_readiness import evaluate_pr_body_preflight, evaluate_pr_readiness, required_sections_from_template
-from codex_cadence.review_response import evaluate_review_response_plan
+from codex_cadence.review_response import evaluate_review_response_materialization_plan, evaluate_review_response_plan
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "cadence.py"
+
+
+def checksum_json(data):
+    payload = json.dumps(data, sort_keys=True, separators=(",", ":"))
+    import hashlib
+
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def check_run(name, status="COMPLETED", conclusion="SUCCESS", workflow="tests"):
@@ -42,6 +49,9 @@ def base_pr(**overrides):
         "mergeable": "MERGEABLE",
         "mergeStateStatus": "CLEAN",
         "reviewDecision": "",
+        "headRefName": "codex/example-branch",
+        "baseRefName": "main",
+        "headRefOid": "abc123",
         "body": "## Summary\nReady slice.\n\n## Testing\n- unit tests\n",
         "statusCheckRollup": [
             check_run("Python and protocol checks"),
@@ -389,6 +399,415 @@ class PrReadinessTests(unittest.TestCase):
             self.assertEqual(packet["summary"]["failed_checks"], 1)
             self.assertEqual(packet["summary"]["review_threads"], 1)
             self.assertEqual({path: path.read_text(encoding="utf-8") for path in before}, before)
+
+    def test_review_response_materialization_plan_binds_exact_body_and_comment_writes(self):
+        pr = base_pr(body="## Summary\nReady slice.\n")
+        threads = review_threads_payload(
+            [
+                {
+                    "id": "thread-1",
+                    "path": "codex_cadence/cli.py",
+                    "line": 42,
+                    "isResolved": False,
+                    "isOutdated": False,
+                    "comments": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [
+                            {
+                                "id": "comment-1",
+                                "path": "codex_cadence/cli.py",
+                                "line": 42,
+                                "outdated": False,
+                                "body": "Please address this current review finding before merge.",
+                            }
+                        ],
+                    },
+                }
+            ]
+        )
+        response_plan = evaluate_review_response_plan(
+            pr,
+            review_threads=threads,
+            required_body_sections=["Summary", "Testing"],
+            evidence_captured_at="2026-06-11T18:00:00Z",
+            now="2026-06-11T18:05:00Z",
+            max_evidence_age_minutes=30,
+        )
+        updated_body = "## Summary\nReady slice.\n\n## Testing\n- unit tests\n"
+        comment_body = "Addressed in the latest push; tests now cover this path."
+        writes = [
+            {
+                "kind": "update_pr_body",
+                "body": updated_body,
+                "body_checksum": checksum_json(updated_body),
+            },
+            {
+                "kind": "post_review_comment",
+                "comment_id": "comment-1",
+                "body": comment_body,
+                "body_checksum": checksum_json(comment_body),
+            },
+        ]
+
+        packet = evaluate_review_response_materialization_plan(
+            response_plan,
+            pr=pr,
+            review_threads=threads,
+            intended_writes=writes,
+            required_body_sections=["Summary", "Testing"],
+            evidence_captured_at="2026-06-11T18:00:00Z",
+            now="2026-06-11T18:05:00Z",
+            max_evidence_age_minutes=30,
+        )
+
+        self.assertTrue(packet["valid"])
+        self.assertTrue(packet["plan_ready"])
+        self.assertEqual(packet["schema_version"], "review-response-materialization-plan.v1")
+        self.assertEqual(packet["packet"], "review_response_materialization_plan")
+        self.assertEqual(packet["approval_state"], "not_approved")
+        self.assertTrue(packet["operator_confirmation_required"])
+        self.assertFalse(packet["github_write_started"])
+        self.assertEqual(packet["side_effects"], [])
+        self.assertEqual(packet["target_checksum"], checksum_json(packet["target"]))
+        self.assertEqual(packet["target"]["response_plan_checksum"], checksum_json(response_plan))
+        self.assertEqual(packet["target"]["pr_number"], "330")
+        self.assertEqual(packet["target"]["head_ref"], pr["headRefName"])
+        self.assertEqual(packet["target"]["head_sha"], pr["headRefOid"])
+        self.assertEqual(packet["target"]["write_kinds"], ["post_review_comment", "update_pr_body"])
+        self.assertEqual([write["kind"] for write in packet["write_plan"]], ["post_review_comment", "update_pr_body"])
+        self.assertEqual(packet["write_plan"][0]["comment_ids"], ["comment-1"])
+        self.assertEqual(packet["write_plan"][0]["body_checksum"], checksum_json(comment_body))
+        self.assertEqual(packet["write_plan"][1]["body_checksum"], checksum_json(updated_body))
+        self.assertIn("does_not_call_github", packet["limitations"])
+
+    def test_cli_review_response_materialization_plan_reads_saved_files_without_side_effects(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            pr_path = tmp_path / "pr.json"
+            threads_path = tmp_path / "review-threads.json"
+            response_plan_path = tmp_path / "review-response-plan.json"
+            writes_path = tmp_path / "writes.json"
+            pr = base_pr(body="## Summary\nReady slice.\n")
+            threads = review_threads_payload(
+                [
+                    {
+                        "id": "thread-1",
+                        "path": "codex_cadence/cli.py",
+                        "line": 42,
+                        "isResolved": False,
+                        "isOutdated": False,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-1",
+                                    "path": "codex_cadence/cli.py",
+                                    "line": 42,
+                                    "outdated": False,
+                                    "body": "Please address this current review finding before merge.",
+                                }
+                            ],
+                        },
+                    }
+                ]
+            )
+            response_plan = evaluate_review_response_plan(pr, review_threads=threads, required_body_sections=["Summary", "Testing"])
+            updated_body = "## Summary\nReady slice.\n\n## Testing\n- unit tests\n"
+            writes = {
+                "writes": [
+                    {
+                        "kind": "update_pr_body",
+                        "body": updated_body,
+                        "body_checksum": checksum_json(updated_body),
+                    }
+                ]
+            }
+            pr_path.write_text(json.dumps(pr), encoding="utf-8")
+            threads_path.write_text(json.dumps(threads), encoding="utf-8")
+            response_plan_path.write_text(json.dumps(response_plan), encoding="utf-8")
+            writes_path.write_text(json.dumps(writes), encoding="utf-8")
+            before = {
+                pr_path: pr_path.read_text(encoding="utf-8"),
+                threads_path: threads_path.read_text(encoding="utf-8"),
+                response_plan_path: response_plan_path.read_text(encoding="utf-8"),
+                writes_path: writes_path.read_text(encoding="utf-8"),
+            }
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "review-response-materialization-plan",
+                    "--response-plan-file",
+                    str(response_plan_path),
+                    "--pr-json-file",
+                    str(pr_path),
+                    "--review-threads-file",
+                    str(threads_path),
+                    "--write-file",
+                    str(writes_path),
+                    "--required-body-section",
+                    "Summary",
+                    "--required-body-section",
+                    "Testing",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            packet = json.loads(result.stdout)
+            self.assertEqual(packet["schema_version"], "review-response-materialization-plan.v1")
+            self.assertTrue(packet["plan_ready"])
+            self.assertFalse(packet["github_write_started"])
+            self.assertEqual(packet["target"]["write_kinds"], ["update_pr_body"])
+            self.assertEqual(packet["side_effects"], [])
+            self.assertEqual({path: path.read_text(encoding="utf-8") for path in before}, before)
+
+    def test_review_response_materialization_plan_blocks_stale_evidence_and_head_drift(self):
+        pr = base_pr(body="## Summary\nReady slice.\n")
+        response_plan = evaluate_review_response_plan(
+            pr,
+            required_body_sections=["Summary", "Testing"],
+            evidence_captured_at="2026-06-11T18:00:00Z",
+            now="2026-06-11T18:05:00Z",
+            max_evidence_age_minutes=30,
+        )
+        updated_body = "## Summary\nReady slice.\n\n## Testing\n- unit tests\n"
+        current_pr = dict(pr)
+        current_pr["headRefOid"] = "def456"
+
+        packet = evaluate_review_response_materialization_plan(
+            response_plan,
+            pr=current_pr,
+            intended_writes=[
+                {
+                    "kind": "update_pr_body",
+                    "body": updated_body,
+                    "body_checksum": checksum_json(updated_body),
+                }
+            ],
+            required_body_sections=["Summary", "Testing"],
+            evidence_captured_at="2026-06-11T18:00:00Z",
+            now="2026-06-11T19:00:00Z",
+            max_evidence_age_minutes=30,
+        )
+
+        self.assertFalse(packet["valid"])
+        self.assertFalse(packet["plan_ready"])
+        self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
+        self.assertFalse(packet["github_write_started"])
+        self.assertEqual(packet["side_effects"], [])
+        self.assertIn("pr_evidence_stale", {blocker["code"] for blocker in packet["blockers"]})
+        self.assertIn("review_response_pr_target_mismatch", {blocker["code"] for blocker in packet["blockers"]})
+        self.assertIn("review_response_plan_pr_checksum_mismatch", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_review_response_materialization_plan_blocks_incomplete_threads_and_non_actionable_targets(self):
+        pr = base_pr()
+        threads = review_threads_payload(
+            [
+                {
+                    "id": "thread-1",
+                    "path": "codex_cadence/cli.py",
+                    "line": 42,
+                    "isResolved": False,
+                    "isOutdated": False,
+                    "comments": {
+                        "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+                        "nodes": [
+                            {
+                                "id": "comment-1",
+                                "path": "codex_cadence/cli.py",
+                                "line": 42,
+                                "outdated": False,
+                                "body": "No actionable comments.",
+                            }
+                        ],
+                    },
+                }
+            ]
+        )
+        response_plan = evaluate_review_response_plan(pr, review_threads=threads)
+        comment_body = "Addressed in the latest push."
+
+        packet = evaluate_review_response_materialization_plan(
+            response_plan,
+            pr=pr,
+            review_threads=threads,
+            intended_writes=[
+                {
+                    "kind": "post_review_comment",
+                    "comment_id": "comment-1",
+                    "body": comment_body,
+                    "body_checksum": checksum_json(comment_body),
+                }
+            ],
+        )
+
+        self.assertFalse(packet["valid"])
+        self.assertEqual(packet["side_effects"], [])
+        blocker_codes = {blocker["code"] for blocker in packet["blockers"]}
+        self.assertIn("review_thread_evidence_invalid", blocker_codes)
+        self.assertIn("review_response_plan_not_ready", blocker_codes)
+        self.assertIn("review_response_comment_target_not_actionable", blocker_codes)
+
+    def test_review_response_materialization_plan_blocks_invalid_write_kinds_checksums_and_body_preflight(self):
+        pr = base_pr(body="## Summary\nReady slice.\n")
+        response_plan = evaluate_review_response_plan(pr, required_body_sections=["Summary", "Testing"])
+        bad_body = "## Summary\nStill missing validation details.\n"
+
+        packet = evaluate_review_response_materialization_plan(
+            response_plan,
+            pr=pr,
+            intended_writes=[
+                {"kind": "resolve_review_thread", "thread_id": "thread-1", "body": "done", "body_checksum": checksum_json("done")},
+                {
+                    "kind": "update_pr_body",
+                    "body": bad_body,
+                    "body_checksum": "sha256:" + "0" * 64,
+                },
+            ],
+            required_body_sections=["Summary", "Testing"],
+        )
+
+        self.assertFalse(packet["valid"])
+        blocker_codes = {blocker["code"] for blocker in packet["blockers"]}
+        self.assertIn("review_response_write_kind_invalid", blocker_codes)
+        self.assertIn("review_response_write_body_checksum_mismatch", blocker_codes)
+        self.assertIn("review_response_pr_body_preflight_failed", blocker_codes)
+        self.assertNotIn("resolve_review_thread", packet["target"]["write_kinds"])
+
+    def test_review_response_materialization_plan_groups_duplicate_same_target_comment_writes(self):
+        pr = base_pr()
+        threads = review_threads_payload(
+            [
+                {
+                    "id": "thread-1",
+                    "path": "codex_cadence/cli.py",
+                    "line": 42,
+                    "isResolved": False,
+                    "isOutdated": False,
+                    "comments": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [
+                            {
+                                "id": "comment-1",
+                                "path": "codex_cadence/cli.py",
+                                "line": 42,
+                                "outdated": False,
+                                "body": "Please address this current review finding before merge.",
+                            }
+                        ],
+                    },
+                }
+            ]
+        )
+        response_plan = evaluate_review_response_plan(pr, review_threads=threads)
+        comment_body = "Addressed in the latest push."
+        duplicate_write = {
+            "kind": "post_review_comment",
+            "comment_id": "comment-1",
+            "body": comment_body,
+            "body_checksum": checksum_json(comment_body),
+        }
+
+        packet = evaluate_review_response_materialization_plan(
+            response_plan,
+            pr=pr,
+            review_threads=threads,
+            intended_writes=[duplicate_write, dict(duplicate_write)],
+        )
+
+        self.assertTrue(packet["valid"])
+        self.assertEqual(len(packet["write_plan"]), 1)
+        self.assertEqual(packet["write_plan"][0]["comment_ids"], ["comment-1"])
+        self.assertEqual(packet["target"]["writes"], [{"kind": "post_review_comment", "comment_ids": ["comment-1"], "body_checksum": checksum_json(comment_body)}])
+
+    def test_review_response_materialization_plan_blocks_missing_pr_target_anchors(self):
+        pr = base_pr()
+        for field in ("number", "headRefName", "baseRefName", "headRefOid"):
+            pr.pop(field)
+        response_plan = evaluate_review_response_plan(pr, required_body_sections=["Summary", "Testing"])
+        updated_body = "## Summary\nReady slice.\n\n## Testing\n- unit tests\n"
+
+        packet = evaluate_review_response_materialization_plan(
+            response_plan,
+            pr=pr,
+            intended_writes=[
+                {
+                    "kind": "update_pr_body",
+                    "body": updated_body,
+                    "body_checksum": checksum_json(updated_body),
+                }
+            ],
+            required_body_sections=["Summary", "Testing"],
+        )
+
+        self.assertFalse(packet["valid"])
+        self.assertFalse(packet["plan_ready"])
+        self.assertIn("review_response_pr_target_anchor_missing", {blocker["code"] for blocker in packet["blockers"]})
+        self.assertIsNone(packet["target"]["head_sha"])
+
+    def test_review_response_materialization_plan_canonicalizes_duplicate_multi_comment_writes(self):
+        pr = base_pr()
+        threads = review_threads_payload(
+            [
+                {
+                    "id": "thread-1",
+                    "path": "codex_cadence/cli.py",
+                    "line": 42,
+                    "isResolved": False,
+                    "isOutdated": False,
+                    "comments": {
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": [
+                            {
+                                "id": "comment-1",
+                                "path": "codex_cadence/cli.py",
+                                "line": 42,
+                                "outdated": False,
+                                "body": "Please address this current review finding before merge.",
+                            },
+                            {
+                                "id": "comment-2",
+                                "path": "codex_cadence/cli.py",
+                                "line": 43,
+                                "outdated": False,
+                                "body": "Handle this second current review finding too.",
+                            },
+                        ],
+                    },
+                }
+            ]
+        )
+        response_plan = evaluate_review_response_plan(pr, review_threads=threads)
+        comment_body = "Addressed in the latest push."
+
+        packet = evaluate_review_response_materialization_plan(
+            response_plan,
+            pr=pr,
+            review_threads=threads,
+            intended_writes=[
+                {
+                    "kind": "post_review_comment",
+                    "comment_ids": ["comment-1", "comment-2"],
+                    "body": comment_body,
+                    "body_checksum": checksum_json(comment_body),
+                },
+                {
+                    "kind": "post_review_comment",
+                    "comment_ids": ["comment-2", "comment-1"],
+                    "body": comment_body,
+                    "body_checksum": checksum_json(comment_body),
+                },
+            ],
+        )
+
+        self.assertTrue(packet["valid"])
+        self.assertEqual(len(packet["write_plan"]), 1)
+        self.assertEqual(packet["write_plan"][0]["comment_ids"], ["comment-1", "comment-2"])
+        self.assertEqual(len(packet["target"]["writes"]), 1)
 
     def test_body_preflight_reports_ready_draft_body(self):
         packet = evaluate_pr_body_preflight(

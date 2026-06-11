@@ -851,6 +851,24 @@ emitted. It does not call GitHub, resolve review threads, post comments, update
 PR bodies, create branches, commit, push, merge, release, publish packages,
 spend paid review, or invoke review agents.
 
+`review-response-materialization-plan` turns a reviewed response plan and exact
+intended write text into a read-only approval target for a later operator-gated
+GitHub write step:
+
+```bash
+agentic-cadence review-response-materialization-plan --response-plan-file review-response-plan.json --pr-json-file pr.json --review-threads-file review-threads.json --write-file review-response-writes.json --pr-template-file .github/pull_request_template.md
+```
+
+The write file may be a JSON array or an object with `writes`; each write must
+use `update_pr_body` or `post_review_comment`, carry the intended body text, and
+include a matching `body_checksum`. The packet rechecks PR number, branch, head
+SHA, saved evidence checksums, review-thread completeness, actionable comment
+targets, PR body preflight, and target text checksums, then emits
+`review-response-materialization-plan.v1` with `target_checksum`,
+`operator_confirmation_required: true`, and `github_write_started: false`. It
+still does not call GitHub, update PR bodies, post comments, resolve threads,
+merge, release, publish packages, spend paid review, or invoke review agents.
+
 ## PR Body Preflight
 
 `pr-body-preflight` checks a draft PR body before publishing or updating a pull request. It reads local files only, uses the same Markdown heading parser as `pr-readiness`, and never rewrites the body.

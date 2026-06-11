@@ -33,6 +33,43 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-11 - Add review response materialization planning
+
+Summary:
+- Added `review-response-materialization-plan` as the read-only bridge from a
+  reviewed `review-response-plan.v1` to exact future GitHub write targets.
+- The packet binds saved PR JSON, saved review-thread JSON, optional candidate
+  evidence, allowed write kinds, exact intended body text, and target text
+  checksums into `review-response-materialization-plan.v1`.
+- The plan rechecks PR number, branch, head SHA, evidence checksums,
+  review-thread completeness, actionable comment targets, PR body preflight,
+  response-plan checksum, and stale/future saved PR evidence before approval
+  targeting.
+- Duplicate same-target review-comment writes are grouped without duplicating
+  write actions, and the packet sets `github_write_started: false`.
+
+Completed slices:
+- Task 30: review response materialization plan approval binding.
+
+Confidence change:
+- Previous: 25%
+- New: 25%
+- Reason: Cadence can now produce an exact approval target for future review
+  response writes, but still lacks approved GitHub write execution,
+  post-write evidence refresh, role assignment, agent scheduling, distributed
+  locks, merge, release, package publication, and continuous loop execution.
+
+Evidence:
+- `python -m py_compile codex_cadence\review_response.py codex_cadence\pr_readiness.py codex_cadence\github_evidence.py codex_cadence\cli.py`
+- `python -m unittest tests.test_pr_readiness tests.test_cadence -v`
+- `python scripts\validate_protocol.py`
+- `git diff --check`
+
+New risks or blockers:
+- Approved review-response writes remain planned for Task 31; this slice still
+  does not call GitHub, update PR bodies, post comments, resolve review
+  threads, spend paid review, or continue the loop automatically.
+
 ## 2026-06-11 - Bind dirty commit evidence to PR materialization
 
 Summary:
