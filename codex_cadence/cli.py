@@ -44,6 +44,7 @@ from codex_cadence.git_pr_plan import (
     evaluate_git_pr_plan,
     git_pr_materialization_load_error_packet,
     materialize_git_pr_plan,
+    validate_git_pr_plan_dry_run_packet,
 )
 from codex_cadence.github_evidence import sync_github_evidence
 from codex_cadence.epochs import complete_epoch as complete_epoch_record
@@ -1936,6 +1937,7 @@ def loop_tick_command(args: argparse.Namespace) -> int:
 
 
 CONTROLLED_LOOP_TICK_SCHEMA_VERSION = "controlled-loop-tick.v1"
+CONTROLLED_LOOP_TICK_TERMINAL_CLOSEOUT_STATUSES = {"completed", "failed"}
 
 
 def controlled_loop_tick_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
@@ -2100,6 +2102,7 @@ def controlled_loop_tick_command(args: argparse.Namespace) -> int:
                 expected_packet="git_pr_plan",
                 expected_schema="git-pr-plan.v1",
             )
+            packet_blockers.extend(validate_git_pr_plan_dry_run_packet(git_pr_plan))
             step_blockers["git_pr_plan"].extend(packet_blockers)
             blockers.extend(packet_blockers)
 
@@ -2309,8 +2312,14 @@ def controlled_loop_tick_command(args: argparse.Namespace) -> int:
             blocker = controlled_loop_tick_blocker("real_invocation_closeout_mismatch", "real invocation closeout_status does not match closeout evidence")
             step_blockers["real_invocation"].append(blocker)
             blockers.append(blocker)
-        if closeout.get("closeout_status") != "completed" or real_invocation.get("closeout_status") != "completed":
-            blocker = controlled_loop_tick_blocker("closeout_not_completed", "closeout and real invocation must be completed to emit a controlled tick")
+        if (
+            closeout.get("closeout_status") not in CONTROLLED_LOOP_TICK_TERMINAL_CLOSEOUT_STATUSES
+            or real_invocation.get("closeout_status") not in CONTROLLED_LOOP_TICK_TERMINAL_CLOSEOUT_STATUSES
+        ):
+            blocker = controlled_loop_tick_blocker(
+                "closeout_not_completed",
+                "closeout and real invocation must be terminal completed or failed to emit a controlled tick",
+            )
             step_blockers["closeout"].append(blocker)
             step_blockers["real_invocation"].append(blocker)
             blockers.append(blocker)

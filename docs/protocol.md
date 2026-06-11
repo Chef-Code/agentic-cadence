@@ -1112,7 +1112,12 @@ available, task id/checksum, execution-start task anchors, readiness epoch and
 task anchors, invocation-plan readiness anchors, real-invocation plan/result
 anchors and invocation id, result task id, closeout epoch/task/result/snapshot anchors,
 closeout-to-real-invocation checksums, closeout validation status, and optional
-Git/PR plan checksum agreement.
+Git/PR plan checksum agreement. When `--git-pr-plan-file` is supplied, that
+plan must also be a review-ready, non-authorizing dry run with `dry_run: true`,
+`operator_confirmation_required: true`, `side_effects: []`,
+`approval_state: not_approved`, and `execution_authority: none`. The closeout
+status must be terminal `completed` or `failed`; blocked closeout evidence is
+not a completed controlled tick.
 
 The command emits `controlled-loop-tick.v1` with
 `packet: controlled_loop_tick`, `controlled_tick_status` of `completed` or
@@ -1148,7 +1153,10 @@ Stable blocker codes include `loop_tick_evidence_missing`,
 `closeout_result_mismatch`, `closeout_snapshot_mismatch`,
 `closeout_invocation_mismatch`, `closeout_validation_mismatch`,
 `closeout_not_completed`,
-`git_pr_plan_unanchored`, and `git_pr_plan_mismatch`.
+`git_pr_plan_unanchored`, `git_pr_plan_mismatch`, `git_pr_plan_not_ready`,
+`git_pr_plan_not_dry_run`, `git_pr_plan_operator_confirmation_missing`,
+`git_pr_plan_side_effects_present`, `git_pr_plan_approval_state_invalid`, and
+`git_pr_plan_execution_authority_invalid`.
 
 `controlled-loop-tick` may report `executor_started: true` only because the
 accepted supplied `real-executor-invocation.v1` record says a prior controlled

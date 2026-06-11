@@ -967,6 +967,30 @@ class AuditReplayCliTests(unittest.TestCase):
             self.assertFalse(output["valid"])
             self.assertIn("audit_required_field_missing", {blocker["code"] for blocker in output["blockers"]})
 
+    def test_controlled_loop_tick_audit_record_rejects_whitespace_required_anchors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = controlled_loop_tick_record(
+                tick_id="   ",
+                source_tick_id="   ",
+                task_id="   ",
+                epoch_id="   ",
+                invocation_id="   ",
+                loop_tick_file="   ",
+            )
+            write_audit_records(root, record)
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            blockers = [
+                blocker
+                for blocker in output["blockers"]
+                if blocker["code"] == "audit_required_field_missing"
+            ]
+            self.assertGreaterEqual(len(blockers), 6)
+
     def test_real_executor_invocation_audit_record_rejects_action_status_mismatch(self):
         cases = [
             real_executor_invocation_record(closeout_status="completed"),

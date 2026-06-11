@@ -142,10 +142,12 @@ def audit_replay_packet(
 
 def required_string(record: dict[str, Any], field: str, line: int) -> list[dict[str, Any]]:
     """Validate a required non-empty string audit field."""
-    if field not in record or record[field] is None or record[field] == "":
+    if field not in record or record[field] is None:
         return [audit_replay_blocker("audit_required_field_missing", f"{field} is required", line)]
     if not isinstance(record[field], str):
         return [audit_replay_blocker("audit_field_type_invalid", f"{field} must be a non-empty string", line)]
+    if not record[field].strip():
+        return [audit_replay_blocker("audit_required_field_missing", f"{field} is required", line)]
     return []
 
 

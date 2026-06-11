@@ -406,7 +406,8 @@ run. It reads saved `loop-tick`, `generic-executor-task.v1`,
 `executor-invocation-plan.v1`, `real-executor-invocation.v1`,
 `generic-executor-result.v1`, snapshot-after, `executor-epoch-closeout.v1`,
 and optional `git-pr-plan.v1` files, then rechecks their path and checksum
-anchors:
+anchors. A supplied optional Git/PR plan must also be a review-ready dry-run
+packet with no side effects or execution authority:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-tick --loop-tick-file loop-tick.json --task-file executor-task.json --execution-start-file execution-start.json --readiness-file executor-invocation-readiness.json --invocation-plan-file executor-invocation-plan.json --real-invocation-file real-executor-invocation.json --result-file executor-result.json --snapshot-after-file snapshot-after.json --closeout-file executor-closeout.json
