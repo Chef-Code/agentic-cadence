@@ -868,6 +868,26 @@ agentic-cadence --root <runtime-root> git-pr-plan --cwd . --task-file executor-t
 
 The packet is dry-run only. Cadence does not create a branch, commit, push, call GitHub, or open a pull request. Result `files_changed` is not enough by itself; the planner requires explicit `materialized_change_evidence` before it reports the plan as ready for review.
 
+## Dirty-Worktree Git/PR Materialization Plan
+
+`git-pr-dirty-materialization-plan` bridges accepted real-executor
+`materialized_changes` evidence into a reviewed commit/PR materialization input
+without staging or committing the dirty worktree:
+
+```bash
+agentic-cadence --root <runtime-root> git-pr-dirty-materialization-plan --cwd . --task-file executor-task.json --result-file executor-result.json --real-invocation-file real-invocation.json --closeout-file executor-closeout.json --required-body-section Summary --required-body-section Validation
+```
+
+The command requires the real-invocation record to be bound by completed
+`executor_epoch_closeout` evidence from `--closeout-file`, including matching
+real-invocation path, id, after-checksum, and epoch closeout checksum. It
+verifies the current dirty file set and dirty-worktree fingerprint against the invocation's
+`materialized_change_evidence`, rechecks branch/base/branch-policy and PR-body
+preflight gates, and emits `git-pr-dirty-materialization-plan.v1` with exact
+proposed commit metadata plus `target_checksum` for later operator approval. It
+does not run `git add`, `git commit`, `git branch`, `git push`, `gh`, merge,
+release, or package-publication commands.
+
 ## Operator-Approved Git/PR Materialization
 
 `git-pr-materialize` consumes a reviewed `git-pr-plan.v1` packet plus an exact operator approval token for that packet and materialization target. The token is an HMAC over the plan checksum, selected remote name, resolved push URL, and create-vs-update PR target, using `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`; the secret is required for verification and is never emitted in result packets. Immediately before side effects it rechecks the current branch and `HEAD`, branch policy, full local-diff coverage by materialized-change evidence, PR body preflight, task/result checksums, and plan freshness:

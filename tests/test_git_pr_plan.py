@@ -10,6 +10,11 @@ from pathlib import Path
 
 from codex_cadence import git_pr_plan as git_pr_plan_module
 from codex_cadence.executor_contract import DEFAULT_EXECUTOR_STOP_CONDITIONS, build_executor_task_packet
+from codex_cadence.executor_invocation import (
+    DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION,
+    _dirty_worktree_fingerprint,
+    _local_dirty_files,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -233,6 +238,21 @@ def run_git_pr_materialize(root, *args, cwd=None, env=None, approval_secret=APPR
     return result, output
 
 
+def run_git_pr_dirty_materialization_plan(root, *args, cwd=None, env=None):
+    """Run the dirty-worktree Git/PR materialization plan CLI."""
+    command = [sys.executable, str(SCRIPT), "--root", str(root), "git-pr-dirty-materialization-plan", *args]
+    result = subprocess.run(
+        command,
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    output = json.loads(result.stdout) if result.stdout.strip() else None
+    return result, output
+
+
 def run_audit_replay(root, cwd=None):
     """Run audit replay and parse its JSON output."""
     command = [sys.executable, str(SCRIPT), "--root", str(root), "audit-replay"]
@@ -286,6 +306,118 @@ def write_ready_plan(root, repo, tmp):
     plan_path = Path(tmp) / "git-pr-plan.json"
     plan_path.write_text(json.dumps(packet), encoding="utf-8")
     return plan_path, packet
+
+
+def write_dirty_materialization_inputs(tmp, repo):
+    """Write task/result/invocation inputs for a closeout-approved dirty worktree."""
+    git(repo, "switch", "-c", "feature/dirty-materialization")
+    code_path = Path(repo) / "codex_cadence" / "git_pr_plan.py"
+    test_path = Path(repo) / "tests" / "test_git_pr_plan.py"
+    code_path.parent.mkdir(parents=True, exist_ok=True)
+    test_path.parent.mkdir(parents=True, exist_ok=True)
+    code_path.write_text("print('dirty plan')\n", encoding="utf-8")
+    test_path.write_text("print('dirty test plan')\n", encoding="utf-8")
+
+    result_path = Path(tmp) / "executor-result.json"
+    task_packet = valid_task_packet(repo, result_path)
+    task_path = Path(tmp) / "executor-task.json"
+    files_changed = ["codex_cadence/git_pr_plan.py", "tests/test_git_pr_plan.py"]
+    result_evidence = valid_result(
+        repo,
+        dirty_worktree=True,
+        files_changed=files_changed,
+        materialized_change_evidence={
+            "status": "verified",
+            "source": "real_executor_invocation.local_diff",
+            "task_id": "candidate-1",
+            "resulting_head": current_head(repo),
+            "files": files_changed,
+            "limitations": ["verified_against_local_worktree_status"],
+        },
+    )
+    dirty_files, dirty_blocker = _local_dirty_files(Path(repo))
+    if dirty_blocker is not None:
+        raise AssertionError(dirty_blocker)
+    fingerprint, fingerprint_blocker = _dirty_worktree_fingerprint(Path(repo), dirty_files)
+    if fingerprint_blocker is not None:
+        raise AssertionError(fingerprint_blocker)
+    invocation_materialized = dict(result_evidence["materialized_change_evidence"])
+    invocation_materialized["worktree_fingerprint_schema_version"] = DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION
+    invocation_materialized["worktree_fingerprint_checksum"] = checksum_json(fingerprint)
+    task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+    result_path.write_text(json.dumps(result_evidence), encoding="utf-8")
+    invocation = {
+        "protocol_version": "v1",
+        "schema_version": "real-executor-invocation.v1",
+        "packet": "real_executor_invocation",
+        "valid": True,
+        "executor_started": True,
+        "timed_out": False,
+        "invocation_id": "invocation-1",
+        "side_effect_mode": "materialized_changes",
+        "result_file": str(result_path),
+        "result_evidence_checksum": checksum_json(result_evidence),
+        "closeout_status": "completed",
+        "epoch_id": "epoch-1",
+        "epoch_status": "COMPLETED",
+        "epoch_closeout_checksum": "sha256:" + "c" * 64,
+        "task_file": str(task_path),
+        "repository_after": {
+            "cwd": str(Path(repo).resolve()),
+            "branch": current_branch(repo),
+            "head": current_head(repo),
+            "dirty_worktree": True,
+        },
+        "materialized_change_evidence": invocation_materialized,
+        "blockers": [],
+    }
+    invocation_path = Path(tmp) / "real-invocation.json"
+    invocation["record_file"] = str(invocation_path)
+    closeout_path = Path(tmp) / "executor-closeout.json"
+    closeout = {
+        "protocol_version": "v1",
+        "schema_version": "executor-epoch-closeout.v1",
+        "packet": "executor_epoch_closeout",
+        "valid": True,
+        "reason": "task completed",
+        "epoch_id": "epoch-1",
+        "epoch_status": "COMPLETED",
+        "closeout_status": "completed",
+        "blockers": [],
+        "task_file": str(task_path),
+        "task_checksum": checksum_json(task_packet),
+        "result_file": str(result_path),
+        "snapshot_after_file": str(Path(tmp) / "snapshot-after.json"),
+        "snapshot_after_checksum": "sha256:" + "b" * 64,
+        "executor_result_status": "succeeded",
+        "executor_started": True,
+        "pr_action_started": False,
+        "operator_confirmation_required": True,
+        "validation": {
+            "valid": True,
+            "invocation_id": "invocation-1",
+        },
+        "next_decision": {
+            "decision": "generate_git_pr_plan",
+            "recommended_next_action": "approve_dirty_git_pr_materialization",
+        },
+        "git_pr_plan": None,
+        "side_effects": [],
+        "limitations": ["unit_test_closeout_packet"],
+    }
+    closeout_checksum = checksum_json(closeout)
+    invocation["epoch_closeout_checksum"] = closeout_checksum
+    invocation_path.write_text(json.dumps(invocation), encoding="utf-8")
+    closeout["real_invocation"] = {
+        "path": str(invocation_path),
+        "invocation_id": "invocation-1",
+        "before_checksum": "sha256:" + "a" * 64,
+        "closeout_status": "pending",
+        "after_checksum": checksum_json(invocation),
+        "epoch_closeout_checksum": closeout_checksum,
+    }
+    closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+    return task_path, result_path, invocation_path, closeout_path, task_packet, result_evidence, invocation, closeout, fingerprint
 
 
 def add_origin_remote(tmp, repo):
@@ -349,6 +481,363 @@ sys.exit(99)
 
 
 class GitPrPlanTests(unittest.TestCase):
+    def test_dirty_materialization_plan_binds_closeout_approved_dirty_worktree_without_writes(self):
+        """A matching dirty fingerprint yields a reviewed commit/PR materialization input."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            add_origin_remote(tmp, repo)
+            task_path, result_path, invocation_path, closeout_path, task_packet, result_evidence, invocation, _closeout, fingerprint = (
+                write_dirty_materialization_inputs(tmp, repo)
+            )
+            runtime_root = Path(tmp) / "runtime"
+            before_status = git(repo, "status", "--porcelain", "--untracked-files=all").stdout
+            before_head = current_head(repo)
+            expected_base_head = git(repo, "rev-parse", "main").stdout.strip()
+
+            result, packet = run_git_pr_dirty_materialization_plan(
+                runtime_root,
+                "--cwd",
+                repo,
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--closeout-file",
+                str(closeout_path),
+                "--expected-base-head",
+                expected_base_head,
+                "--required-body-section",
+                "Summary",
+                "--required-body-section",
+                "Validation",
+                cwd=repo,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(packet["valid"])
+            self.assertTrue(packet["ready_to_review"])
+            self.assertEqual(packet["schema_version"], "git-pr-dirty-materialization-plan.v1")
+            self.assertEqual(packet["packet"], "git_pr_dirty_materialization_plan")
+            self.assertTrue(packet["dry_run"])
+            self.assertEqual(packet["side_effects"], [])
+            self.assertTrue(packet["operator_confirmation_required"])
+            self.assertEqual(packet["approval_state"], "not_approved")
+            self.assertEqual(packet["execution_authority"], "none")
+            self.assertEqual(packet["recommended_next_action"], "approve_dirty_git_pr_materialization")
+            self.assertEqual(packet["target_checksum"], checksum_json(packet["target"]))
+            self.assertEqual(packet["target"]["operation"], "dirty_worktree_git_pr_materialization")
+            self.assertEqual(packet["target"]["real_invocation_checksum"], checksum_json(invocation))
+            self.assertEqual(packet["target"]["task_file_checksum"], checksum_json(task_packet))
+            self.assertEqual(packet["target"]["result_file_checksum"], checksum_json(result_evidence))
+            self.assertEqual(packet["proposed_commit"]["message"], "Implement Git PR plan")
+            self.assertEqual(packet["proposed_commit"]["files"], result_evidence["materialized_change_evidence"]["files"])
+            self.assertEqual(packet["proposed_commit"]["base_head"], expected_base_head)
+            self.assertEqual(packet["proposed_commit"]["source_head"], before_head)
+            self.assertEqual(packet["dirty_worktree_fingerprint"], fingerprint)
+            self.assertEqual(
+                packet["materialized_change_evidence"]["worktree_fingerprint_checksum"],
+                checksum_json(fingerprint),
+            )
+            self.assertTrue(packet["pr_body_preflight"]["ready_to_publish"])
+            self.assertEqual(git(repo, "status", "--porcelain", "--untracked-files=all").stdout, before_status)
+            self.assertEqual(current_head(repo), before_head)
+            self.assertFalse((runtime_root / "audit").exists())
+
+    def test_dirty_materialization_plan_blocks_dirty_fingerprint_tampering(self):
+        """Dirty content edits after invocation invalidate the fingerprint before planning."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, result_path, invocation_path, closeout_path, *_rest = write_dirty_materialization_inputs(tmp, repo)
+            (Path(repo) / "codex_cadence" / "git_pr_plan.py").write_text("tampered\n", encoding="utf-8")
+
+            result, packet = run_git_pr_dirty_materialization_plan(
+                Path(tmp) / "runtime",
+                "--cwd",
+                repo,
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--closeout-file",
+                str(closeout_path),
+                "--required-body-section",
+                "Summary",
+                "--required-body-section",
+                "Validation",
+                cwd=repo,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(packet["valid"])
+            self.assertIn("dirty_worktree_fingerprint_mismatch", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_dirty_materialization_plan_blocks_extra_dirty_files(self):
+        """The current dirty file set must exactly match materialized evidence."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, result_path, invocation_path, closeout_path, *_rest = write_dirty_materialization_inputs(tmp, repo)
+            (Path(repo) / "extra.txt").write_text("extra\n", encoding="utf-8")
+
+            result, packet = run_git_pr_dirty_materialization_plan(
+                Path(tmp) / "runtime",
+                "--cwd",
+                repo,
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--closeout-file",
+                str(closeout_path),
+                "--required-body-section",
+                "Summary",
+                "--required-body-section",
+                "Validation",
+                cwd=repo,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(packet["valid"])
+            self.assertIn("materialized_change_files_mismatch", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_dirty_materialization_plan_blocks_malformed_closeout_checksum(self):
+        """Closeout-approved real invocation evidence needs a checksum-shaped closeout anchor."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, result_path, invocation_path, closeout_path, _task, _result, invocation, _closeout, _fingerprint = (
+                write_dirty_materialization_inputs(tmp, repo)
+            )
+            invocation["epoch_closeout_checksum"] = "not-a-checksum"
+            invocation_path.write_text(json.dumps(invocation), encoding="utf-8")
+
+            result, packet = run_git_pr_dirty_materialization_plan(
+                Path(tmp) / "runtime",
+                "--cwd",
+                repo,
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--closeout-file",
+                str(closeout_path),
+                "--required-body-section",
+                "Summary",
+                "--required-body-section",
+                "Validation",
+                cwd=repo,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(packet["valid"])
+            self.assertIn("real_invocation_not_closeout_approved", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_dirty_materialization_plan_blocks_closeout_invocation_binding_mismatch(self):
+        """The closeout packet must bind the supplied real-invocation record."""
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            task_path, result_path, invocation_path, closeout_path, _task, _result, _invocation, closeout, _fingerprint = (
+                write_dirty_materialization_inputs(tmp, repo)
+            )
+            closeout["real_invocation"]["after_checksum"] = "sha256:" + "d" * 64
+            closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+
+            result, packet = run_git_pr_dirty_materialization_plan(
+                Path(tmp) / "runtime",
+                "--cwd",
+                repo,
+                "--task-file",
+                str(task_path),
+                "--result-file",
+                str(result_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--closeout-file",
+                str(closeout_path),
+                "--required-body-section",
+                "Summary",
+                "--required-body-section",
+                "Validation",
+                cwd=repo,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(packet["valid"])
+            self.assertIn("closeout_invocation_mismatch", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_dirty_materialization_plan_blocks_real_invocation_contract_drift(self):
+        """Real-invocation mode, repo head, and fingerprint-schema anchors are rechecked."""
+        cases = [
+            (
+                "side-effect-mode",
+                lambda invocation: invocation.__setitem__("side_effect_mode", "evidence_only"),
+                "real_invocation_not_materialized",
+            ),
+            (
+                "repository-head",
+                lambda invocation: invocation["repository_after"].__setitem__("head", "0" * 40),
+                "repository_head_mismatch",
+            ),
+            (
+                "fingerprint-schema",
+                lambda invocation: invocation["materialized_change_evidence"].pop(
+                    "worktree_fingerprint_schema_version",
+                    None,
+                ),
+                "dirty_worktree_fingerprint_missing",
+            ),
+        ]
+        for name, mutate, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    task_path, result_path, invocation_path, closeout_path, _task, _result, invocation, closeout, _fingerprint = (
+                        write_dirty_materialization_inputs(tmp, repo)
+                    )
+                    mutate(invocation)
+                    invocation_path.write_text(json.dumps(invocation), encoding="utf-8")
+                    closeout["real_invocation"]["after_checksum"] = checksum_json(invocation)
+                    closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+
+                    result, packet = run_git_pr_dirty_materialization_plan(
+                        Path(tmp) / "runtime",
+                        "--cwd",
+                        repo,
+                        "--task-file",
+                        str(task_path),
+                        "--result-file",
+                        str(result_path),
+                        "--real-invocation-file",
+                        str(invocation_path),
+                        "--closeout-file",
+                        str(closeout_path),
+                        "--required-body-section",
+                        "Summary",
+                        "--required-body-section",
+                        "Validation",
+                        cwd=repo,
+                    )
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(packet["valid"])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_dirty_materialization_plan_blocks_branch_and_base_drift(self):
+        """Branch and supplied base-head anchors are rechecked before review readiness."""
+        cases = [
+            (
+                "branch",
+                lambda repo, invocation: invocation["repository_after"].__setitem__("branch", "stale-branch"),
+                [],
+                "repository_branch_mismatch",
+            ),
+            (
+                "base",
+                lambda repo, invocation: None,
+                ["--expected-base-head", "0" * 40],
+                "base_head_mismatch",
+            ),
+        ]
+        for name, mutate, extra_args, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    task_path, result_path, invocation_path, closeout_path, _task, _result, invocation, closeout, _fingerprint = (
+                        write_dirty_materialization_inputs(tmp, repo)
+                    )
+                    mutate(repo, invocation)
+                    invocation_path.write_text(json.dumps(invocation), encoding="utf-8")
+                    closeout["real_invocation"]["after_checksum"] = checksum_json(invocation)
+                    closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+
+                    result, packet = run_git_pr_dirty_materialization_plan(
+                        Path(tmp) / "runtime",
+                        "--cwd",
+                        repo,
+                        "--task-file",
+                        str(task_path),
+                        "--result-file",
+                        str(result_path),
+                        "--real-invocation-file",
+                        str(invocation_path),
+                        "--closeout-file",
+                        str(closeout_path),
+                        *extra_args,
+                        "--required-body-section",
+                        "Summary",
+                        "--required-body-section",
+                        "Validation",
+                        cwd=repo,
+                    )
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(packet["valid"])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_dirty_materialization_plan_blocks_pr_body_and_branch_policy_failures(self):
+        """PR-body preflight and branch policy remain blocking dry-run gates."""
+        cases = [
+            (
+                "body",
+                lambda tmp: [],
+                ["--required-body-section", "Missing Section"],
+                "required_body_section_missing",
+            ),
+            (
+                "branch-policy",
+                lambda tmp: [
+                    "--policy-file",
+                    str(
+                        Path(tmp).joinpath("policy.json")
+                    ),
+                ],
+                ["--required-body-section", "Summary", "--required-body-section", "Validation"],
+                "branch_policy_base_branch_disallowed",
+            ),
+        ]
+        for name, policy_args, body_args, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    task_path, result_path, invocation_path, closeout_path, *_rest = write_dirty_materialization_inputs(tmp, repo)
+                    if name == "branch-policy":
+                        Path(tmp, "policy.json").write_text(
+                            json.dumps(
+                                {
+                                    "schema_version": "cadence-loop-policy.v1",
+                                    "branch_policy": {"allowed_base_branches": ["release"]},
+                                }
+                            ),
+                            encoding="utf-8",
+                        )
+
+                    result, packet = run_git_pr_dirty_materialization_plan(
+                        Path(tmp) / "runtime",
+                        "--cwd",
+                        repo,
+                        "--task-file",
+                        str(task_path),
+                        "--result-file",
+                        str(result_path),
+                        "--real-invocation-file",
+                        str(invocation_path),
+                        "--closeout-file",
+                        str(closeout_path),
+                        *policy_args(tmp),
+                        *body_args,
+                        cwd=repo,
+                    )
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(packet["valid"])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in packet["blockers"]})
+
     def test_ready_dry_run_packet_requires_operator_review_and_preserves_non_authority(self):
         """Ready packets remain dry-run plans with operator-only authority."""
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

@@ -1243,6 +1243,48 @@ current `main` checkout when `allow_current_branch_main` is false must block
 review readiness. Branch-policy blockers must not create branches, change refs,
 call GitHub, or treat a dry-run plan as approval.
 
+## Dirty-Worktree Git/PR Materialization Planning
+
+`git-pr-dirty-materialization-plan` is the read-only bridge from accepted
+`invoke-real-executor --side-effect-mode materialized_changes` evidence to a
+reviewed commit/PR materialization input. It reads the task packet, result
+evidence, closeout-updated `real-executor-invocation.v1` record, and completed
+`executor_epoch_closeout` packet from local JSON files and emits
+`git-pr-dirty-materialization-plan.v1`. A valid packet must include
+`packet: git_pr_dirty_materialization_plan`, `dry_run: true`,
+`operator_confirmation_required: true`,
+`side_effects: []`, `approval_state: not_approved`,
+`execution_authority: none`, `merge_readiness: not_evaluated`, exact proposed
+commit metadata, proposed branch/title/body, PR-body preflight, provenance
+checksums, the recomputed dirty-worktree fingerprint, and a deterministic
+`target_checksum` for later operator approval.
+
+The command must require `real_invocation.side_effect_mode:
+materialized_changes`, `real_invocation.closeout_status: completed`, an
+`epoch_closeout_checksum`, a matching `result_evidence_checksum`, matching
+task/result path anchors when present, matching current repo path/branch/HEAD,
+and `repository_after.dirty_worktree: true`. It must also require
+`--closeout-file` evidence whose task/result anchors, validation status,
+`real_invocation.path`, `real_invocation.invocation_id`,
+`real_invocation.after_checksum`, and recomputed epoch closeout checksum match
+the supplied packets. It must recompute the current dirty file set and
+dirty-worktree fingerprint, compare both with
+`real_invocation.materialized_change_evidence`, and block same-file content
+edits, extra dirty files, missing fingerprint schema, or fingerprint mismatches.
+It must also recheck the local base branch, optional `--expected-base-head`,
+task-carried and local `--policy-file` branch policy, and PR-body preflight
+sections.
+
+The bridge must not stage files, create commits, create branches, push, call
+GitHub, create or update pull requests, append audit records, merge, release, or
+publish packages. Stable blockers include
+`real_invocation_not_closeout_approved`, `real_invocation_not_materialized`,
+`closeout_invocation_mismatch`,
+`dirty_worktree_fingerprint_mismatch`,
+`materialized_change_files_mismatch`, `repository_branch_mismatch`,
+`repository_head_mismatch`, `base_head_mismatch`,
+`branch_policy_base_branch_disallowed`, and `required_body_section_missing`.
+
 ## Operator-Approved Git/PR Materialization
 
 `git-pr-materialize` is the explicit write-side boundary for a reviewed

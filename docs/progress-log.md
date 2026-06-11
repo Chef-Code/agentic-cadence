@@ -33,6 +33,53 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-11 - Add dirty-worktree Git/PR materialization plan binding
+
+Summary:
+- Added `git-pr-dirty-materialization-plan`, a read-only bridge from
+  closeout-approved real-executor `materialized_changes` evidence to a reviewed
+  commit/PR materialization input.
+- The command emits `git-pr-dirty-materialization-plan.v1` and blocks stale or
+  tampered dirty evidence with `dirty_worktree_fingerprint_mismatch` or
+  `materialized_change_files_mismatch`.
+- It now also requires `--closeout-file` and blocks stale closeout-to-invocation
+  anchors with `closeout_invocation_mismatch`.
+- The packet verifies the current dirty file set and dirty-worktree fingerprint
+  against the real-invocation record, rechecks branch/base/branch-policy and
+  PR-body gates, and emits exact proposed commit metadata plus `target_checksum`
+  for later operator approval.
+- Kept Git/PR writes out of scope: the command does not stage, commit, create
+  branches, push, call GitHub, open or update PRs, merge, release, or publish.
+
+Completed slices:
+- Task 25: Add Dirty-Worktree Git/PR Materialization Plan Binding.
+
+Confidence change:
+- Previous: 25%
+- New: 25%
+- Reason: Cadence can now prepare reviewed dirty-worktree materialization
+  inputs, but it still does not perform dirty-worktree commit materialization,
+  assign roles, schedule agents, claim distributed locks, merge, release,
+  publish packages, or run a continuous autonomous loop.
+
+Evidence:
+- `python -m unittest tests.test_git_pr_plan.GitPrPlanTests.test_dirty_materialization_plan_binds_closeout_approved_dirty_worktree_without_writes tests.test_git_pr_plan.GitPrPlanTests.test_dirty_materialization_plan_blocks_dirty_fingerprint_tampering tests.test_git_pr_plan.GitPrPlanTests.test_dirty_materialization_plan_blocks_extra_dirty_files tests.test_git_pr_plan.GitPrPlanTests.test_dirty_materialization_plan_blocks_branch_and_base_drift tests.test_git_pr_plan.GitPrPlanTests.test_dirty_materialization_plan_blocks_pr_body_and_branch_policy_failures -v`
+- `python -m unittest tests.test_git_pr_plan.GitPrPlanTests.test_dirty_materialization_plan_blocks_malformed_closeout_checksum tests.test_git_pr_plan.GitPrPlanTests.test_dirty_materialization_plan_blocks_closeout_invocation_binding_mismatch -v`
+- `python -m unittest tests.test_git_pr_plan.GitPrPlanTests.test_dirty_materialization_plan_blocks_real_invocation_contract_drift -v`
+- `python -m py_compile codex_cadence/git_pr_plan.py codex_cadence/cli.py tests/test_git_pr_plan.py`
+- `python -m ruff check codex_cadence/git_pr_plan.py codex_cadence/cli.py tests/test_git_pr_plan.py`
+
+New risks or blockers:
+- Dirty-worktree materialization is still a reviewed plan only. A later exact
+  approval path must perform any commit/push/PR writes.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+- `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`
+
 ## 2026-06-11 - Add closeout-bound ownership completion evidence
 
 Summary:
