@@ -4370,6 +4370,213 @@ class CadenceCliTests(unittest.TestCase):
         plan_path.write_text(json.dumps(plan), encoding="utf-8")
         return inputs, plan_path, plan
 
+    def write_controlled_loop_tick_chain(self, tmp, repo):
+        inputs, plan_path, plan = self.write_real_executor_invocation_plan(tmp, repo)
+        task_packet = inputs["task_packet"]
+        task_path = Path(tmp) / "executor-task.json"
+        task_checksum = checksum_json(task_packet)
+        loop_tick = {
+            "protocol_version": "v1",
+            "packet": "loop_tick",
+            "tick_id": "loop-tick-controlled-1",
+            "mode": "single_tick",
+            "read_only": True,
+            "executor_started": False,
+            "epoch_started": False,
+            "pr_action_started": False,
+            "operator_confirmation_required": True,
+            "executor_contract_required": False,
+            "recommended_next_action": "approve_executor_task",
+            "reason": "executor task packet emitted for operator approval",
+            "brake": {"status": "DRIVE", "reason": None, "scope": "global"},
+            "cadence": {"state": "PLAY_ON", "can_start_work": True},
+            "snapshot": task_packet["snapshot"],
+            "candidate_discovery": {"elected_next": [task_packet["task"]]},
+            "elected_next": [task_packet["task"]],
+            "executor_task": task_packet,
+            "policy": {},
+            "limitations": ["executor_not_started"],
+        }
+        loop_tick_path = Path(tmp) / "loop-tick.json"
+        loop_tick_path.write_text(json.dumps(loop_tick), encoding="utf-8")
+        ownership_path = Path(tmp) / "work-ownership" / "active" / "ownership-1.json"
+        ownership = json.loads(ownership_path.read_text(encoding="utf-8"))
+        execution_start = {
+            "protocol_version": "v1",
+            "schema_version": "execution-start.v1",
+            "packet": "execution_start",
+            "valid": True,
+            "blockers": [],
+            "epoch_started": True,
+            "executor_started": False,
+            "pr_action_started": False,
+            "recommended_next_action": "handoff_to_executor",
+            "reason": "approved executor task started a governed epoch",
+            "approval_state": "approved",
+            "task_checksum": task_checksum,
+            "task_id": task_packet["task"]["id"],
+            "task_file": str(task_path),
+            "epoch_id": "epoch-1",
+            "repo": {
+                "name": task_packet["repo"]["name"],
+                "path": task_packet["repo"]["path"],
+                "branch": task_packet["repo"]["branch"],
+                "head": task_packet["repo"]["head"],
+            },
+            "ownership": ownership,
+            "side_effects": ["epoch_started"],
+            "limitations": ["executor_not_started"],
+        }
+        execution_start_path = Path(tmp) / "execution-start.json"
+        execution_start_path.write_text(json.dumps(execution_start), encoding="utf-8")
+
+        invocation_result, invocation_output = self.run_invoke_real_executor_cli(tmp, plan_path)
+        self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+        invocation_path = Path(invocation_output["record_file"])
+        result_path = Path(invocation_output["result_file"])
+        snapshot_after_path = Path(tmp) / "snapshot-after.json"
+        snapshot_after_path.write_text(
+            json.dumps(closeout_snapshot(repo, id="snapshot-after-controlled", captured_at="2999-05-22T00:10:00Z")),
+            encoding="utf-8",
+        )
+
+        closeout_result, closeout_output = run_cli(
+            tmp,
+            "closeout-executor-result",
+            "--epoch-id",
+            "epoch-1",
+            "--task-file",
+            str(task_path),
+            "--result-file",
+            str(result_path),
+            "--snapshot-after-file",
+            str(snapshot_after_path),
+            "--real-invocation-file",
+            str(invocation_path),
+            "--cwd",
+            repo,
+        )
+        self.assertEqual(closeout_result.returncode, 0, closeout_result.stderr)
+        closeout_path = Path(tmp) / "executor-closeout.json"
+        closeout_path.write_text(json.dumps(closeout_output), encoding="utf-8")
+
+        return {
+            "loop_tick_path": loop_tick_path,
+            "task_path": task_path,
+            "execution_start_path": execution_start_path,
+            "readiness_path": inputs["readiness_path"],
+            "plan_path": plan_path,
+            "invocation_path": invocation_path,
+            "result_path": result_path,
+            "snapshot_after_path": snapshot_after_path,
+            "closeout_path": closeout_path,
+            "task_packet": task_packet,
+            "plan": plan,
+            "invocation_before_closeout": invocation_output,
+            "closeout": closeout_output,
+        }
+
+    def controlled_loop_tick_git_pr_plan(self, **overrides):
+        git_pr_plan = {
+            "protocol_version": "v1",
+            "schema_version": "git-pr-plan.v1",
+            "packet": "git_pr_plan",
+            "plan_id": "embedded-plan",
+            "ready_to_review": True,
+            "decision": "ready",
+            "recommended_next_action": "review_git_pr_plan",
+            "dry_run": True,
+            "operator_confirmation_required": True,
+            "side_effects": [],
+            "approval_state": "not_approved",
+            "execution_authority": "none",
+            "merge_readiness": "not_evaluated",
+            "proposed_branch": "codex/task-23-controlled-single-tick-run-packet",
+            "proposed_commit_message": "Add controlled single tick run packet",
+            "proposed_pr_title": "[codex] Add controlled single tick run packet",
+            "proposed_pr_body": "## Summary\n- Add controlled tick\n\n## Validation\n- tests",
+        }
+        git_pr_plan.update(overrides)
+        return git_pr_plan
+
+    def write_controlled_loop_tick_git_pr_plan_anchor(self, tmp, chain, git_pr_plan, *, filename="git-pr-plan.json"):
+        git_pr_plan_path = Path(tmp) / filename
+        git_pr_plan_path.write_text(json.dumps(git_pr_plan), encoding="utf-8")
+        invocation = json.loads(chain["invocation_path"].read_text(encoding="utf-8"))
+        closeout = json.loads(chain["closeout_path"].read_text(encoding="utf-8"))
+        closeout["git_pr_plan"] = git_pr_plan
+        closeout_core_packet = {
+            key: value
+            for key, value in closeout.items()
+            if key not in {"audit_record", "run_record", "real_invocation"}
+        }
+        epoch_closeout_checksum = checksum_json(closeout_core_packet)
+        invocation["epoch_closeout_checksum"] = epoch_closeout_checksum
+        closeout["real_invocation"]["epoch_closeout_checksum"] = epoch_closeout_checksum
+        closeout["real_invocation"]["after_checksum"] = checksum_json(invocation)
+        chain["invocation_path"].write_text(json.dumps(invocation), encoding="utf-8")
+        chain["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+        return git_pr_plan_path
+
+    def run_controlled_loop_tick_cli(self, tmp, chain, **overrides):
+        cwd = overrides.pop("cwd", None)
+        values = {
+            "loop_tick_file": chain["loop_tick_path"],
+            "task_file": chain["task_path"],
+            "execution_start_file": chain["execution_start_path"],
+            "readiness_file": chain["readiness_path"],
+            "invocation_plan_file": chain["plan_path"],
+            "real_invocation_file": chain["invocation_path"],
+            "result_file": chain["result_path"],
+            "snapshot_after_file": chain["snapshot_after_path"],
+            "closeout_file": chain["closeout_path"],
+            "git_pr_plan_file": None,
+        }
+        values.update(overrides)
+        args = [
+            "controlled-loop-tick",
+            "--loop-tick-file",
+            str(values["loop_tick_file"]),
+            "--task-file",
+            str(values["task_file"]),
+            "--execution-start-file",
+            str(values["execution_start_file"]),
+            "--readiness-file",
+            str(values["readiness_file"]),
+            "--invocation-plan-file",
+            str(values["invocation_plan_file"]),
+            "--real-invocation-file",
+            str(values["real_invocation_file"]),
+            "--result-file",
+            str(values["result_file"]),
+            "--snapshot-after-file",
+            str(values["snapshot_after_file"]),
+            "--closeout-file",
+            str(values["closeout_file"]),
+        ]
+        if values["git_pr_plan_file"] is not None:
+            args.extend(["--git-pr-plan-file", str(values["git_pr_plan_file"])])
+        if cwd is not None:
+            return run_cli_from(cwd, tmp, *args)
+        return run_cli(tmp, *args)
+
+    def controlled_loop_tick_args(self, tmp, chain, **overrides):
+        values = {
+            "root": Path(tmp),
+            "loop_tick_file": str(chain["loop_tick_path"]),
+            "task_file": str(chain["task_path"]),
+            "execution_start_file": str(chain["execution_start_path"]),
+            "readiness_file": str(chain["readiness_path"]),
+            "invocation_plan_file": str(chain["plan_path"]),
+            "real_invocation_file": str(chain["invocation_path"]),
+            "result_file": str(chain["result_path"]),
+            "snapshot_after_file": str(chain["snapshot_after_path"]),
+            "closeout_file": str(chain["closeout_path"]),
+            "git_pr_plan_file": None,
+        }
+        values.update(overrides)
+        return type("Args", (), values)()
+
     def run_invoke_real_executor_cli(self, tmp, plan_path, **overrides):
         args = [
             "invoke-real-executor",
@@ -4596,6 +4803,570 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
             self.assertTrue(replay_output["valid"])
             self.assertEqual(replay_output["events_by_type"]["real_executor_invocation_record"], 1)
+
+    def test_controlled_loop_tick_accepts_existing_real_invocation_closeout_chain(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            invocation_before = json.loads(chain["invocation_path"].read_text(encoding="utf-8"))
+            closeout_before = json.loads(chain["closeout_path"].read_text(encoding="utf-8"))
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-tick",
+                "--loop-tick-file",
+                str(chain["loop_tick_path"]),
+                "--task-file",
+                str(chain["task_path"]),
+                "--execution-start-file",
+                str(chain["execution_start_path"]),
+                "--readiness-file",
+                str(chain["readiness_path"]),
+                "--invocation-plan-file",
+                str(chain["plan_path"]),
+                "--real-invocation-file",
+                str(chain["invocation_path"]),
+                "--result-file",
+                str(chain["result_path"]),
+                "--snapshot-after-file",
+                str(chain["snapshot_after_path"]),
+                "--closeout-file",
+                str(chain["closeout_path"]),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "controlled-loop-tick.v1")
+            self.assertEqual(output["packet"], "controlled_loop_tick")
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["controlled_tick_status"], "completed")
+            self.assertEqual(output["source_tick_id"], "loop-tick-controlled-1")
+            self.assertEqual(output["task"]["id"], chain["task_packet"]["task"]["id"])
+            self.assertEqual(output["epoch"]["id"], "epoch-1")
+            self.assertEqual(output["real_invocation"]["closeout_status"], "completed")
+            self.assertTrue(output["executor_started"])
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual({step["status"] for step in output["steps"]}, {"accepted"})
+            self.assertIn("controlled_loop_tick_audit_appended", output["side_effects"])
+            self.assertIn("audit_record", output)
+            self.assertEqual(json.loads(chain["invocation_path"].read_text(encoding="utf-8")), invocation_before)
+            self.assertEqual(json.loads(chain["closeout_path"].read_text(encoding="utf-8")), closeout_before)
+            records = audit_records(tmp)
+            self.assertEqual(records[-1]["event"], "controlled_loop_tick")
+            self.assertEqual(records[-1]["task_id"], chain["task_packet"]["task"]["id"])
+            replay_result, replay_output = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay_output["valid"])
+            self.assertEqual(replay_output["events_by_type"]["controlled_loop_tick"], 1)
+
+    def test_controlled_loop_tick_audits_optional_git_pr_plan_file(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            git_pr_plan = self.controlled_loop_tick_git_pr_plan()
+            git_pr_plan_path = self.write_controlled_loop_tick_git_pr_plan_anchor(tmp, chain, git_pr_plan)
+
+            result, output = self.run_controlled_loop_tick_cli(tmp, chain, git_pr_plan_file=git_pr_plan_path)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            records = audit_records(tmp)
+            self.assertEqual(records[-1]["git_pr_plan_file"], str(git_pr_plan_path))
+            self.assertEqual(records[-1]["git_pr_plan_checksum"], checksum_json(git_pr_plan))
+            replay_result, replay_output = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay_output["valid"])
+
+    def test_controlled_loop_tick_blocks_unsafe_optional_git_pr_plan_without_append(self):
+        cases = [
+            ("not_ready", {"ready_to_review": False}, "git_pr_plan_not_ready"),
+            ("not_dry_run", {"dry_run": False}, "git_pr_plan_not_dry_run"),
+            ("operator_confirmation_missing", {"operator_confirmation_required": False}, "git_pr_plan_operator_confirmation_missing"),
+            ("side_effects_present", {"side_effects": ["created_branch"]}, "git_pr_plan_side_effects_present"),
+            ("approval_state_invalid", {"approval_state": "approved"}, "git_pr_plan_approval_state_invalid"),
+            ("execution_authority_invalid", {"execution_authority": "operator_approved_git_pr_materialization"}, "git_pr_plan_execution_authority_invalid"),
+            ("proposed_branch_missing", {"proposed_branch": ""}, "git_pr_plan_proposed_branch_missing"),
+        ]
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            before_audit_count = len(audit_records(tmp))
+
+            for name, overrides, expected_code in cases:
+                with self.subTest(name=name):
+                    git_pr_plan = self.controlled_loop_tick_git_pr_plan(**overrides)
+                    git_pr_plan_path = self.write_controlled_loop_tick_git_pr_plan_anchor(
+                        tmp,
+                        chain,
+                        git_pr_plan,
+                        filename=f"git-pr-plan-{name}.json",
+                    )
+
+                    result, output = self.run_controlled_loop_tick_cli(tmp, chain, git_pr_plan_file=git_pr_plan_path)
+
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["controlled_tick_status"], "blocked")
+                    self.assertFalse(output["side_effects"])
+                    self.assertNotIn("audit_record", output)
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
+    def test_controlled_loop_tick_accepts_saved_relative_anchors_from_other_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as other:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            root = Path(tmp)
+
+            def rel(path):
+                return str(Path(path).relative_to(root))
+
+            execution_start = json.loads(chain["execution_start_path"].read_text(encoding="utf-8"))
+            execution_start["task_file"] = rel(chain["task_path"])
+            chain["execution_start_path"].write_text(json.dumps(execution_start), encoding="utf-8")
+
+            invocation = json.loads(chain["invocation_path"].read_text(encoding="utf-8"))
+            closeout = json.loads(chain["closeout_path"].read_text(encoding="utf-8"))
+            invocation["invocation_cwd"] = str(root)
+            invocation["record_file"] = rel(chain["invocation_path"])
+            invocation["plan_file"] = rel(chain["plan_path"])
+            invocation["result_file"] = rel(chain["result_path"])
+            invocation["task_file"] = rel(chain["task_path"])
+            closeout["task_file"] = rel(chain["task_path"])
+            closeout["result_file"] = rel(chain["result_path"])
+            closeout["snapshot_after_file"] = rel(chain["snapshot_after_path"])
+            closeout["real_invocation"]["path"] = rel(chain["invocation_path"])
+            closeout_core_packet = {
+                key: value
+                for key, value in closeout.items()
+                if key not in {"audit_record", "run_record", "real_invocation"}
+            }
+            epoch_closeout_checksum = checksum_json(closeout_core_packet)
+            invocation["epoch_closeout_checksum"] = epoch_closeout_checksum
+            closeout["real_invocation"]["epoch_closeout_checksum"] = epoch_closeout_checksum
+            closeout["real_invocation"]["after_checksum"] = checksum_json(invocation)
+            chain["invocation_path"].write_text(json.dumps(invocation), encoding="utf-8")
+            chain["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+
+            result, output = self.run_controlled_loop_tick_cli(tmp, chain, cwd=other)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["blockers"], [])
+
+    def test_controlled_loop_tick_blocks_mismatched_readiness_without_audit_append(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            readiness = json.loads(chain["readiness_path"].read_text(encoding="utf-8"))
+            readiness["active_epoch"]["id"] = "epoch-drifted"
+            chain["readiness_path"].write_text(json.dumps(readiness), encoding="utf-8")
+            before_audit_count = len(audit_records(tmp))
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-tick",
+                "--loop-tick-file",
+                str(chain["loop_tick_path"]),
+                "--task-file",
+                str(chain["task_path"]),
+                "--execution-start-file",
+                str(chain["execution_start_path"]),
+                "--readiness-file",
+                str(chain["readiness_path"]),
+                "--invocation-plan-file",
+                str(chain["plan_path"]),
+                "--real-invocation-file",
+                str(chain["invocation_path"]),
+                "--result-file",
+                str(chain["result_path"]),
+                "--snapshot-after-file",
+                str(chain["snapshot_after_path"]),
+                "--closeout-file",
+                str(chain["closeout_path"]),
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_tick_status"], "blocked")
+            self.assertFalse(output["side_effects"])
+            self.assertNotIn("audit_record", output)
+            self.assertIn("readiness_epoch_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertIn("invocation_plan_readiness_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
+    def test_controlled_loop_tick_blocks_malformed_closeout_validation_without_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            closeout = json.loads(chain["closeout_path"].read_text(encoding="utf-8"))
+            closeout["validation"] = "not-a-validation-packet"
+            chain["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            before_audit_count = len(audit_records(tmp))
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-tick",
+                "--loop-tick-file",
+                str(chain["loop_tick_path"]),
+                "--task-file",
+                str(chain["task_path"]),
+                "--execution-start-file",
+                str(chain["execution_start_path"]),
+                "--readiness-file",
+                str(chain["readiness_path"]),
+                "--invocation-plan-file",
+                str(chain["plan_path"]),
+                "--real-invocation-file",
+                str(chain["invocation_path"]),
+                "--result-file",
+                str(chain["result_path"]),
+                "--snapshot-after-file",
+                str(chain["snapshot_after_path"]),
+                "--closeout-file",
+                str(chain["closeout_path"]),
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("closeout_validation_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
+    def test_controlled_loop_tick_blocks_stale_pre_closeout_invocation_record(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            chain["invocation_path"].write_text(json.dumps(chain["invocation_before_closeout"]), encoding="utf-8")
+            before_audit_count = len(audit_records(tmp))
+
+            result, output = self.run_controlled_loop_tick_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(output["valid"])
+            codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertIn("closeout_invocation_mismatch", codes)
+            self.assertIn("real_invocation_closeout_mismatch", codes)
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
+    def test_controlled_loop_tick_accepts_terminal_failed_closeout(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            invocation = json.loads(chain["invocation_path"].read_text(encoding="utf-8"))
+            closeout = json.loads(chain["closeout_path"].read_text(encoding="utf-8"))
+            closeout["closeout_status"] = "failed"
+            invocation["closeout_status"] = "failed"
+            closeout_core_packet = {
+                key: value
+                for key, value in closeout.items()
+                if key not in {"audit_record", "run_record", "real_invocation"}
+            }
+            epoch_closeout_checksum = checksum_json(closeout_core_packet)
+            invocation["epoch_closeout_checksum"] = epoch_closeout_checksum
+            closeout["real_invocation"]["epoch_closeout_checksum"] = epoch_closeout_checksum
+            closeout["real_invocation"]["after_checksum"] = checksum_json(invocation)
+            chain["invocation_path"].write_text(json.dumps(invocation), encoding="utf-8")
+            chain["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+
+            result, output = self.run_controlled_loop_tick_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["controlled_tick_status"], "completed")
+            self.assertEqual(output["epoch"]["closeout_status"], "failed")
+            self.assertEqual(output["real_invocation"]["closeout_status"], "failed")
+            self.assertIn("controlled_loop_tick_audit_appended", output["side_effects"])
+            self.assertIn("audit_record", output)
+
+    def test_controlled_loop_tick_blocks_non_terminal_closeout_without_append(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            invocation = json.loads(chain["invocation_path"].read_text(encoding="utf-8"))
+            closeout = json.loads(chain["closeout_path"].read_text(encoding="utf-8"))
+            closeout["closeout_status"] = "blocked"
+            invocation["closeout_status"] = "blocked"
+            closeout_core_packet = {
+                key: value
+                for key, value in closeout.items()
+                if key not in {"audit_record", "run_record", "real_invocation"}
+            }
+            epoch_closeout_checksum = checksum_json(closeout_core_packet)
+            invocation["epoch_closeout_checksum"] = epoch_closeout_checksum
+            closeout["real_invocation"]["epoch_closeout_checksum"] = epoch_closeout_checksum
+            closeout["real_invocation"]["after_checksum"] = checksum_json(invocation)
+            chain["invocation_path"].write_text(json.dumps(invocation), encoding="utf-8")
+            chain["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            before_audit_count = len(audit_records(tmp))
+
+            result, output = self.run_controlled_loop_tick_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertNotIn("audit_record", output)
+            self.assertIn("closeout_not_completed", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
+    def test_controlled_loop_tick_blocks_real_invocation_epoch_drift_without_append(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            invocation = json.loads(chain["invocation_path"].read_text(encoding="utf-8"))
+            closeout = json.loads(chain["closeout_path"].read_text(encoding="utf-8"))
+            invocation["epoch_id"] = "epoch-tampered"
+            closeout["real_invocation"]["after_checksum"] = checksum_json(invocation)
+            chain["invocation_path"].write_text(json.dumps(invocation), encoding="utf-8")
+            chain["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            before_audit_count = len(audit_records(tmp))
+
+            result, output = self.run_controlled_loop_tick_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertNotIn("audit_record", output)
+            self.assertIn("real_invocation_closeout_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
+    def test_controlled_loop_tick_blocks_audit_required_identity_drift_without_append(self):
+        cases = [
+            ("missing source tick id", "loop_tick_identity_missing"),
+            ("missing invocation id", "real_invocation_identity_missing"),
+        ]
+        for label, expected_code in cases:
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    chain = self.write_controlled_loop_tick_chain(tmp, repo)
+                    if expected_code == "loop_tick_identity_missing":
+                        loop_tick = json.loads(chain["loop_tick_path"].read_text(encoding="utf-8"))
+                        loop_tick.pop("tick_id")
+                        chain["loop_tick_path"].write_text(json.dumps(loop_tick), encoding="utf-8")
+                    else:
+                        invocation = json.loads(chain["invocation_path"].read_text(encoding="utf-8"))
+                        invocation.pop("invocation_id")
+                        closeout = json.loads(chain["closeout_path"].read_text(encoding="utf-8"))
+                        closeout["real_invocation"].pop("invocation_id", None)
+                        closeout["real_invocation"]["after_checksum"] = checksum_json(invocation)
+                        chain["invocation_path"].write_text(json.dumps(invocation), encoding="utf-8")
+                        chain["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+                    before_audit_count = len(audit_records(tmp))
+
+                    result, output = self.run_controlled_loop_tick_cli(tmp, chain)
+
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertNotIn("audit_record", output)
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertEqual(len(audit_records(tmp)), before_audit_count)
+                    replay_result, replay_output = run_cli(tmp, "audit-replay")
+                    self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+                    self.assertTrue(replay_output["valid"])
+
+    def test_controlled_loop_tick_blocks_unanchored_optional_git_pr_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            git_pr_plan_path = Path(tmp) / "git-pr-plan.json"
+            git_pr_plan_path.write_text(
+                json.dumps(
+                    {
+                        "protocol_version": "v1",
+                        "schema_version": "git-pr-plan.v1",
+                        "packet": "git_pr_plan",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            before_audit_count = len(audit_records(tmp))
+
+            result, output = self.run_controlled_loop_tick_cli(tmp, chain, git_pr_plan_file=git_pr_plan_path)
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("git_pr_plan_unanchored", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
+    def test_controlled_loop_tick_reports_representative_stable_blocker_codes(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            packet_paths = {
+                "loop_tick": chain["loop_tick_path"],
+                "execution_start": chain["execution_start_path"],
+                "invocation_plan": chain["plan_path"],
+                "real_invocation": chain["invocation_path"],
+                "closeout": chain["closeout_path"],
+            }
+            pristine_packets = {
+                name: json.loads(path.read_text(encoding="utf-8"))
+                for name, path in packet_paths.items()
+            }
+            git_pr_plan_path = Path(tmp) / "mismatched-git-pr-plan.json"
+
+            def fresh_packets():
+                return {
+                    name: json.loads(json.dumps(packet))
+                    for name, packet in pristine_packets.items()
+                }
+
+            def write_packets(packets):
+                for name, packet in packets.items():
+                    packet_paths[name].write_text(json.dumps(packet), encoding="utf-8")
+
+            cases = [
+                (
+                    "missing result evidence",
+                    "result_evidence_missing",
+                    lambda packets: None,
+                    {"result_file": Path(tmp) / "missing-result.json"},
+                ),
+                (
+                    "packet mismatch",
+                    "controlled_tick_packet_mismatch",
+                    lambda packets: packets["invocation_plan"].__setitem__("schema_version", "wrong-schema.v1"),
+                    {},
+                ),
+                (
+                    "loop tick not ready",
+                    "loop_tick_not_ready",
+                    lambda packets: packets["loop_tick"].__setitem__("recommended_next_action", "blocked"),
+                    {},
+                ),
+                (
+                    "execution start task mismatch",
+                    "execution_start_task_mismatch",
+                    lambda packets: packets["execution_start"].__setitem__("task_checksum", "sha256:" + "b" * 64),
+                    {},
+                ),
+                (
+                    "real invocation result mismatch",
+                    "real_invocation_result_mismatch",
+                    lambda packets: packets["real_invocation"].__setitem__("result_file", str(Path(tmp) / "other-result.json")),
+                    {},
+                ),
+                (
+                    "closeout task mismatch",
+                    "closeout_task_mismatch",
+                    lambda packets: packets["closeout"].__setitem__("task_file", str(Path(tmp) / "other-task.json")),
+                    {},
+                ),
+                (
+                    "closeout result mismatch",
+                    "closeout_result_mismatch",
+                    lambda packets: packets["closeout"].__setitem__("result_file", str(Path(tmp) / "other-result.json")),
+                    {},
+                ),
+                (
+                    "closeout snapshot mismatch",
+                    "closeout_snapshot_mismatch",
+                    lambda packets: packets["closeout"].__setitem__("snapshot_after_file", str(Path(tmp) / "other-snapshot.json")),
+                    {},
+                ),
+                (
+                    "git pr plan mismatch",
+                    "git_pr_plan_mismatch",
+                    lambda packets: (
+                        packets["closeout"].__setitem__(
+                            "git_pr_plan",
+                            {
+                                "protocol_version": "v1",
+                                "schema_version": "git-pr-plan.v1",
+                                "packet": "git_pr_plan",
+                                "plan_id": "embedded-plan",
+                            },
+                        ),
+                        git_pr_plan_path.write_text(
+                            json.dumps(
+                                {
+                                    "protocol_version": "v1",
+                                    "schema_version": "git-pr-plan.v1",
+                                    "packet": "git_pr_plan",
+                                    "plan_id": "supplied-plan",
+                                }
+                            ),
+                            encoding="utf-8",
+                        ),
+                    ),
+                    {"git_pr_plan_file": git_pr_plan_path},
+                ),
+            ]
+
+            for label, expected_code, mutate, overrides in cases:
+                with self.subTest(label=label):
+                    if git_pr_plan_path.exists():
+                        git_pr_plan_path.unlink()
+                    packets = fresh_packets()
+                    mutate(packets)
+                    write_packets(packets)
+
+                    result, output = self.run_controlled_loop_tick_cli(tmp, chain, **overrides)
+
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+
+    def test_controlled_loop_tick_blocks_real_invocation_path_anchor_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            invocation = json.loads(chain["invocation_path"].read_text(encoding="utf-8"))
+            invocation["record_file"] = str(Path(tmp) / "other-real-invocation.json")
+            invocation["plan_file"] = str(Path(tmp) / "other-plan.json")
+            chain["invocation_path"].write_text(json.dumps(invocation), encoding="utf-8")
+
+            result, output = self.run_controlled_loop_tick_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertIn("real_invocation_record_mismatch", codes)
+            self.assertIn("real_invocation_plan_mismatch", codes)
+
+    def test_controlled_loop_tick_blocks_closeout_real_invocation_path_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            closeout = json.loads(chain["closeout_path"].read_text(encoding="utf-8"))
+            closeout["real_invocation"]["path"] = str(Path(tmp) / "other-invocation.json")
+            chain["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+
+            result, output = self.run_controlled_loop_tick_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("closeout_invocation_mismatch", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_controlled_loop_tick_blocks_invalid_snapshot_after_shape(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            snapshot_after = json.loads(chain["snapshot_after_path"].read_text(encoding="utf-8"))
+            snapshot_after.pop("readiness_evidence")
+            chain["snapshot_after_path"].write_text(json.dumps(snapshot_after), encoding="utf-8")
+
+            result, output = self.run_controlled_loop_tick_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("snapshot_after_invalid", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_controlled_loop_tick_reports_audit_append_failure_without_audit_record(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_tick_chain(tmp, repo)
+            before_audit_count = len(audit_records(tmp))
+            emitted = []
+            args = self.controlled_loop_tick_args(tmp, chain)
+
+            with mock.patch.object(cadence_cli, "append_audit_record", side_effect=OSError("disk full")):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.controlled_loop_tick_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertEqual(len(emitted), 1)
+            self.assertFalse(emitted[0]["valid"])
+            self.assertEqual(emitted[0]["controlled_tick_status"], "blocked")
+            self.assertNotIn("audit_record", emitted[0])
+            self.assertEqual(emitted[0]["side_effects"], [])
+            self.assertIn("controlled_loop_tick_audit_append_failed", {blocker["code"] for blocker in emitted[0]["blockers"]})
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
 
     def test_real_executor_invocation_closeout_accepts_relative_plan_invocation_from_other_cwd(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo, tempfile.TemporaryDirectory() as other:

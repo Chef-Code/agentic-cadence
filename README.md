@@ -43,7 +43,9 @@ local `work-ownership-status` / `validate-work-ownership` /
 `claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, a
 fixture-only controlled executor runner for tests and examples, controlled
 `invoke-real-executor` process-start evidence, and real-invocation closeout binding
-through `closeout-executor-result --real-invocation-file`.
+through `closeout-executor-result --real-invocation-file`, plus
+`controlled-loop-tick` evidence that composes an already-recorded local
+single-tick chain without retrying the executor or writing Git/GitHub state.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -397,12 +399,42 @@ fixture-only. It is not a real executor integration or named host adapter, and
 malformed templates fail closed before launch. It must not create branches,
 commit, push, open or merge PRs, create releases, or publish packages.
 
+`controlled-loop-tick` composes an existing local evidence chain into one
+`controlled-loop-tick.v1` packet after the individual commands have already
+run. It reads saved `loop-tick`, `generic-executor-task.v1`,
+`execution-start.v1`, `executor-invocation-readiness.v1`,
+`executor-invocation-plan.v1`, `real-executor-invocation.v1`,
+`generic-executor-result.v1`, snapshot-after, `executor-epoch-closeout.v1`,
+and optional `git-pr-plan.v1` files, then rechecks their path and checksum
+anchors. A supplied optional Git/PR plan must also be a review-ready dry-run
+packet with no side effects or execution authority:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-tick --loop-tick-file loop-tick.json --task-file executor-task.json --execution-start-file execution-start.json --readiness-file executor-invocation-readiness.json --invocation-plan-file executor-invocation-plan.json --real-invocation-file real-executor-invocation.json --result-file executor-result.json --snapshot-after-file snapshot-after.json --closeout-file executor-closeout.json
+```
+
+A valid packet sets `controlled_tick_status: completed`, appends
+`controlled_loop_tick` audit evidence, and records
+`controlled_loop_tick_audit_appended`. Blocked packets return stable mismatch
+codes and append no audit record. The command composes existing local evidence
+only and carries limitation tokens including
+`composes_existing_local_evidence_only`, `does_not_retry_executor`, and
+`does_not_rewrite_invocation_or_closeout_records`. `executor_started` reflects
+the accepted prior real-invocation record, not a new process start. It does not
+retry the executor, rewrite invocation or closeout records, execute Git
+commands, call GitHub, create branches, commit, push, open/update PRs, merge,
+release, publish packages, assign roles, schedule agents, or claim distributed
+locks. Post-validation audit append failures
+return `controlled_loop_tick_audit_append_failed` and recommend
+`recover_controlled_tick_audit`.
+
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
-invocation, execution-run records, executor-result validation, and executor
-closeout append compact `cadence-audit.v1` records under
+invocation, execution-run records, executor-result validation, executor
+closeout, real-executor invocation records, and accepted controlled single-tick
+packets append compact `cadence-audit.v1` records under
 `<root>/audit/events.jsonl`; closeout audit anchors include the task packet,
-result evidence, snapshot-after packet, and supplied run-record binding when
-present. A local
+result evidence, snapshot-after packet, and supplied run-record or
+real-invocation binding when present. A local
 `cadence-loop-policy.v1` file can bound emitted executor task paths, required
 checks, command allow/deny lists, runtime, stop conditions, and a dry-run
 `branch_policy`. The branch policy supports `allowed_base_branches`,

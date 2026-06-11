@@ -243,6 +243,45 @@ def real_executor_invocation_record(**overrides):
     return record
 
 
+def controlled_loop_tick_record(**overrides):
+    record = {
+        "schema_version": "cadence-audit.v1",
+        "recorded_at": "2999-05-22T00:00:00Z",
+        "event": "controlled_loop_tick",
+        "action": "complete_controlled_loop_tick",
+        "reason": "controlled loop tick evidence is internally consistent",
+        "valid": True,
+        "tick_id": "controlled-loop-tick-1",
+        "source_tick_id": "loop-tick-1",
+        "task_id": "candidate-1",
+        "epoch_id": "epoch-1",
+        "invocation_id": "real-executor-invocation-1",
+        "executor_started": True,
+        "next_decision": "stop",
+        "loop_tick_file": "C:/tmp/loop-tick.json",
+        "task_file": "C:/tmp/executor-task.json",
+        "execution_start_file": "C:/tmp/execution-start.json",
+        "readiness_file": "C:/tmp/executor-invocation-readiness.json",
+        "invocation_plan_file": "C:/tmp/executor-invocation-plan.json",
+        "real_invocation_file": "C:/tmp/real-executor-invocations/real-executor-invocation-1.json",
+        "result_file": "C:/tmp/executor-results/executor-result.json",
+        "snapshot_after_file": "C:/tmp/snapshot-after.json",
+        "closeout_file": "C:/tmp/executor-closeout.json",
+        "payload_checksum": GOOD_CHECKSUM,
+        "loop_tick_checksum": GOOD_CHECKSUM,
+        "task_packet_checksum": GOOD_CHECKSUM,
+        "execution_start_checksum": GOOD_CHECKSUM,
+        "readiness_checksum": GOOD_CHECKSUM,
+        "invocation_plan_checksum": GOOD_CHECKSUM,
+        "real_invocation_checksum": GOOD_CHECKSUM,
+        "result_evidence_checksum": GOOD_CHECKSUM,
+        "snapshot_after_checksum": GOOD_CHECKSUM,
+        "closeout_checksum": GOOD_CHECKSUM,
+    }
+    record.update(overrides)
+    return record
+
+
 def git_pr_materialization_intent_record(**overrides):
     record = {
         "schema_version": "cadence-audit.v1",
@@ -860,6 +899,97 @@ class AuditReplayCliTests(unittest.TestCase):
             self.assertTrue(output["valid"])
             self.assertEqual(output["records_valid"], 1)
             self.assertEqual(output["events_by_type"]["real_executor_invocation_record"], 1)
+
+    def test_controlled_loop_tick_audit_record_replays(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_audit_records(root, controlled_loop_tick_record())
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 0, output)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["records_valid"], 1)
+            self.assertEqual(output["events_by_type"]["controlled_loop_tick"], 1)
+
+    def test_controlled_loop_tick_audit_record_rejects_block_action(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_audit_records(root, controlled_loop_tick_record(action="block_controlled_loop_tick"))
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertIn("audit_controlled_loop_tick_action_invalid", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_controlled_loop_tick_audit_record_requires_executor_started(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_audit_records(root, controlled_loop_tick_record(executor_started=False))
+
+            result, output = run_cli(tmp, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertIn("audit_controlled_loop_tick_executor_not_started", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_controlled_loop_tick_audit_record_requires_paired_git_pr_plan_anchor(self):
+        cases = [
+            ("missing git pr plan file", {"git_pr_plan_checksum": GOOD_CHECKSUM}),
+            ("missing git pr plan checksum", {"git_pr_plan_file": "C:/tmp/git-pr-plan.json"}),
+        ]
+        for label, overrides in cases:
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    write_audit_records(root, controlled_loop_tick_record(**overrides))
+
+                    result, output = run_cli(tmp, "audit-replay")
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(output["valid"])
+                    self.assertIn(
+                        "audit_controlled_loop_tick_git_pr_plan_anchor_incomplete",
+                        {blocker["code"] for blocker in output["blockers"]},
+                    )
+
+    def test_controlled_loop_tick_audit_record_requires_invocation_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = controlled_loop_tick_record()
+            record.pop("invocation_id")
+            write_audit_records(root, record)
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertIn("audit_required_field_missing", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_controlled_loop_tick_audit_record_rejects_whitespace_required_anchors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            record = controlled_loop_tick_record(
+                tick_id="   ",
+                source_tick_id="   ",
+                task_id="   ",
+                epoch_id="   ",
+                invocation_id="   ",
+                loop_tick_file="   ",
+            )
+            write_audit_records(root, record)
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            blockers = [
+                blocker
+                for blocker in output["blockers"]
+                if blocker["code"] == "audit_required_field_missing"
+            ]
+            self.assertGreaterEqual(len(blockers), 6)
 
     def test_real_executor_invocation_audit_record_rejects_action_status_mismatch(self):
         cases = [

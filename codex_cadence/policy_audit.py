@@ -142,10 +142,12 @@ def audit_replay_packet(
 
 def required_string(record: dict[str, Any], field: str, line: int) -> list[dict[str, Any]]:
     """Validate a required non-empty string audit field."""
-    if field not in record or record[field] is None or record[field] == "":
+    if field not in record or record[field] is None:
         return [audit_replay_blocker("audit_required_field_missing", f"{field} is required", line)]
     if not isinstance(record[field], str):
         return [audit_replay_blocker("audit_field_type_invalid", f"{field} must be a non-empty string", line)]
+    if not record[field].strip():
+        return [audit_replay_blocker("audit_required_field_missing", f"{field} is required", line)]
     return []
 
 
@@ -533,6 +535,84 @@ def validate_execution_start_audit_record(record: dict[str, Any], line: int) -> 
     return blockers
 
 
+def validate_controlled_loop_tick_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate controlled single-tick orchestration audit fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in (
+        "action",
+        "reason",
+        "tick_id",
+        "source_tick_id",
+        "task_id",
+        "epoch_id",
+        "invocation_id",
+        "loop_tick_file",
+        "task_file",
+        "execution_start_file",
+        "readiness_file",
+        "invocation_plan_file",
+        "real_invocation_file",
+        "result_file",
+        "snapshot_after_file",
+        "closeout_file",
+    ):
+        blockers.extend(required_string(record, field, line))
+    for field in ("valid", "executor_started"):
+        blockers.extend(required_bool(record, field, line))
+    for field in (
+        "payload_checksum",
+        "loop_tick_checksum",
+        "task_packet_checksum",
+        "execution_start_checksum",
+        "readiness_checksum",
+        "invocation_plan_checksum",
+        "real_invocation_checksum",
+        "result_evidence_checksum",
+        "snapshot_after_checksum",
+        "closeout_checksum",
+    ):
+        blockers.extend(required_checksum_present(record, field, line))
+    if record.get("action") != "complete_controlled_loop_tick":
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_loop_tick_action_invalid",
+                "controlled_loop_tick audit records must be completed packets",
+                line,
+            )
+        )
+    if record.get("valid") is not True:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_loop_tick_valid_invalid",
+                "controlled_loop_tick audit records are only appended for valid packets",
+                line,
+            )
+        )
+    if record.get("executor_started") is not True:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_loop_tick_executor_not_started",
+                "completed controlled_loop_tick audit records must have started executor evidence",
+                line,
+            )
+        )
+    has_git_plan_file = "git_pr_plan_file" in record and record.get("git_pr_plan_file") not in (None, "")
+    has_git_plan_checksum = "git_pr_plan_checksum" in record and record.get("git_pr_plan_checksum") not in (None, "")
+    if has_git_plan_file:
+        blockers.extend(required_string(record, "git_pr_plan_file", line))
+    if has_git_plan_checksum:
+        blockers.extend(required_checksum_present(record, "git_pr_plan_checksum", line))
+    if has_git_plan_file != has_git_plan_checksum:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_loop_tick_git_pr_plan_anchor_incomplete",
+                "git_pr_plan_file and git_pr_plan_checksum must be present together",
+                line,
+            )
+        )
+    return blockers
+
+
 def validate_work_ownership_mutation_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
     """Validate local work-ownership mutation audit fields."""
     blockers: list[dict[str, Any]] = []
@@ -656,6 +736,8 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
         blockers.extend(validate_operator_approval_verification_audit_record(record, line))
     elif event == "execution_start_decision":
         blockers.extend(validate_execution_start_audit_record(record, line))
+    elif event == "controlled_loop_tick":
+        blockers.extend(validate_controlled_loop_tick_audit_record(record, line))
     elif event == "work_ownership_mutation":
         blockers.extend(validate_work_ownership_mutation_audit_record(record, line))
     else:
@@ -1144,6 +1226,50 @@ def operator_approval_verification_audit_record(payload: dict[str, Any]) -> dict
         "checked_at": payload.get("checked_at"),
         "signature_verified": payload.get("signature_verified"),
         "payload_checksum": checksum_json(payload),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def controlled_loop_tick_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
+    task = payload.get("task") if isinstance(payload.get("task"), dict) else {}
+    epoch = payload.get("epoch") if isinstance(payload.get("epoch"), dict) else {}
+    files = payload.get("files") if isinstance(payload.get("files"), dict) else {}
+    checksums = payload.get("checksums") if isinstance(payload.get("checksums"), dict) else {}
+    real_invocation = payload.get("real_invocation") if isinstance(payload.get("real_invocation"), dict) else {}
+    next_decision = payload.get("next_decision") if isinstance(payload.get("next_decision"), dict) else {}
+    record = {
+        "event": "controlled_loop_tick",
+        "action": "complete_controlled_loop_tick",
+        "reason": payload.get("reason"),
+        "valid": payload.get("valid"),
+        "tick_id": payload.get("tick_id"),
+        "source_tick_id": payload.get("source_tick_id"),
+        "task_id": task.get("id"),
+        "epoch_id": epoch.get("id"),
+        "invocation_id": real_invocation.get("invocation_id"),
+        "executor_started": payload.get("executor_started"),
+        "next_decision": next_decision.get("decision"),
+        "loop_tick_file": files.get("loop_tick"),
+        "task_file": files.get("task"),
+        "execution_start_file": files.get("execution_start"),
+        "readiness_file": files.get("readiness"),
+        "invocation_plan_file": files.get("invocation_plan"),
+        "real_invocation_file": files.get("real_invocation"),
+        "result_file": files.get("result"),
+        "snapshot_after_file": files.get("snapshot_after"),
+        "closeout_file": files.get("closeout"),
+        "git_pr_plan_file": files.get("git_pr_plan"),
+        "payload_checksum": checksum_json(payload),
+        "loop_tick_checksum": checksums.get("loop_tick"),
+        "task_packet_checksum": checksums.get("task"),
+        "execution_start_checksum": checksums.get("execution_start"),
+        "readiness_checksum": checksums.get("readiness"),
+        "invocation_plan_checksum": checksums.get("invocation_plan"),
+        "real_invocation_checksum": checksums.get("real_invocation"),
+        "result_evidence_checksum": checksums.get("result"),
+        "snapshot_after_checksum": checksums.get("snapshot_after"),
+        "closeout_checksum": checksums.get("closeout"),
+        "git_pr_plan_checksum": checksums.get("git_pr_plan"),
     }
     return {key: value for key, value in record.items() if value is not None}
 

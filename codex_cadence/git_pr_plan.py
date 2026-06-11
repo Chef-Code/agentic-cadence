@@ -986,6 +986,11 @@ def _plan_structural_blockers(plan_packet: Any) -> list[dict[str, Any]]:
     return blockers
 
 
+def validate_git_pr_plan_dry_run_packet(plan_packet: Any) -> list[dict[str, Any]]:
+    """Validate that a saved Git/PR plan is review-ready and non-authorizing."""
+    return _plan_structural_blockers(plan_packet)
+
+
 def _stale_plan_blockers(plan_packet: dict[str, Any], rechecked_plan: dict[str, Any]) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
     plan_repo = plan_packet.get("repository") if isinstance(plan_packet.get("repository"), dict) else {}

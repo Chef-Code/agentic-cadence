@@ -33,6 +33,61 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-11 - Add controlled single-tick run packet
+
+Summary:
+- Added `controlled-loop-tick`, which composes saved `loop-tick`, task,
+  execution-start, invocation-readiness, invocation-plan, real-invocation,
+  result, snapshot-after, closeout, and optional Git/PR plan evidence into one
+  `controlled-loop-tick.v1` packet.
+- Added success-only `controlled_loop_tick` audit replay support with stable
+  checksum and local file anchors.
+- Review follow-up tightened final real-invocation closeout binding, explicit
+  path anchors, snapshot-after validation, optional Git/PR plan anchoring, and
+  success-only audit replay action validation.
+- Kept the command as existing-evidence composition only: it does not retry the
+  executor, rewrite invocation or closeout records, execute Git commands, call
+  GitHub, create branches, push, open PRs, merge, release, publish packages,
+  assign roles, schedule agents, or claim distributed locks. The packet carries
+  limitation tokens including `composes_existing_local_evidence_only`,
+  `does_not_retry_executor`, and
+  `does_not_rewrite_invocation_or_closeout_records`.
+
+Completed slices:
+- Task 23: Add Controlled Single-Tick Run Packet.
+
+Confidence change:
+- Previous: 20%
+- New: 25%
+- Reason: Cadence can now prove a saved single-tick evidence chain after
+  closeout, but continuous orchestration, autonomous Git/PR writes, dirty
+  worktree commit authority, review-response writes, session launch,
+  agent-pool coordination, merge, release, and package publication remain out
+  of scope.
+
+Evidence:
+- `python -m py_compile codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py tests\test_audit_replay.py`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_controlled_loop_tick_accepts_existing_real_invocation_closeout_chain tests.test_cadence.CadenceCliTests.test_controlled_loop_tick_blocks_mismatched_readiness_without_audit_append tests.test_audit_replay.AuditReplayCliTests.test_controlled_loop_tick_audit_record_replays -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_controlled_loop_tick_accepts_existing_real_invocation_closeout_chain tests.test_cadence.CadenceCliTests.test_controlled_loop_tick_blocks_mismatched_readiness_without_audit_append tests.test_cadence.CadenceCliTests.test_controlled_loop_tick_blocks_malformed_closeout_validation_without_traceback tests.test_cadence.CadenceCliTests.test_controlled_loop_tick_blocks_stale_pre_closeout_invocation_record tests.test_cadence.CadenceCliTests.test_controlled_loop_tick_blocks_unanchored_optional_git_pr_plan tests.test_cadence.CadenceCliTests.test_controlled_loop_tick_blocks_real_invocation_path_anchor_drift tests.test_cadence.CadenceCliTests.test_controlled_loop_tick_blocks_closeout_real_invocation_path_drift tests.test_cadence.CadenceCliTests.test_controlled_loop_tick_blocks_invalid_snapshot_after_shape tests.test_cadence.CadenceCliTests.test_controlled_loop_tick_reports_audit_append_failure_without_audit_record tests.test_audit_replay.AuditReplayCliTests.test_controlled_loop_tick_audit_record_replays tests.test_audit_replay.AuditReplayCliTests.test_controlled_loop_tick_audit_record_rejects_block_action tests.test_audit_replay.AuditReplayCliTests.test_controlled_loop_tick_audit_record_requires_invocation_id -v`
+- `python -m py_compile codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py tests\test_audit_replay.py scripts\validate_protocol.py`
+- `python -m unittest tests.test_cadence tests.test_audit_replay -v`
+- `python -m unittest tests.test_executor_contract tests.test_epochs tests.test_ci_checks -v`
+- `python scripts\validate_protocol.py`
+- `python scripts\ci_smoke.py`
+- `python -m ruff check codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py tests\test_audit_replay.py`
+- `git diff --check`
+
+New risks or blockers:
+- Task 23 still depends on separately produced local evidence files. It does
+  not run a continuous loop, automatically choose and invoke the next executor,
+  materialize dirty worktree changes into commits, or write PR/review updates.
+
+Docs updated:
+- `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`,
+  `docs/implementation-slices.md`, `docs/progress-log.md`,
+  `docs/roadmap.md`, `docs/session-handoff.md`,
+  `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`.
+
 ## 2026-06-11 - Prepare Tasks 23-27 roadmap after real closeout
 
 Summary:

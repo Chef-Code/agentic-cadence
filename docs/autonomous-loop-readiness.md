@@ -2,8 +2,8 @@
 
 Status: living document
 Last updated: 2026-06-11
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
-Current unattended-operation confidence: 20%
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and the Tasks 23-27 roadmap current tree
+Current unattended-operation confidence: 25%
 
 This document answers how close Agentic Cadence is to the "press start and
 build continuously" experience. The first usable path is a governed
@@ -156,6 +156,15 @@ runtime can do these things end-to-end:
   operator approval identity, clean audit replay, adapter metadata, rollback
   evidence, command, environment allowlist, timeout, active epoch, active
   ownership, and result-path rechecks before any future process start.
+- start one approved real executor command through `invoke-real-executor`,
+  write `real-executor-invocation.v1` evidence, and bind accepted
+  real-invocation evidence into closeout and dry-run Git/PR planning without
+  granting autonomous GitHub write authority.
+- compose a saved single-tick chain with `controlled-loop-tick`, rechecking
+  the `loop-tick`, task, execution-start, readiness, invocation-plan,
+  real-invocation, result, snapshot-after, closeout, and optional dry-run
+  Git/PR plan anchors into one `controlled-loop-tick.v1` packet and
+  success-only `controlled_loop_tick` audit record.
 
 These capabilities are still single-agent Phase 1 primitives, but they are not
 throwaway work. They are the same primitives a future orchestrator needs for
@@ -177,7 +186,8 @@ must provide equivalent workflow wiring before those checks are available.
 Agentic Cadence cannot currently:
 
 - implement code changes by itself;
-- choose a task and hand it to a real executor;
+- choose a task, hand it to a real executor, close it out, and continue without
+  separately approved evidence files;
 - decompose work across an agent pool;
 - assign role-specific agents such as Planning, Architecture, Builder,
   Reviewer, QA, Documentation, Release, or Handoff agents;
@@ -206,8 +216,8 @@ Agentic Cadence cannot currently:
 | Handoff lifecycle | Implemented | `codex_cadence/handoff_loop.py`, `codex_cadence/cli.py` |
 | PR body/readiness checks | Implemented from saved inputs | `codex_cadence/pr_readiness.py` |
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
-| Single loop tick | Partial, read-only | `loop-tick` emits next action and stops before execution |
-| Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, task-carried branch policy, active brake stop handling, governed execution-start audit, local `execution-run.v1` records, `<root>/audit/events.jsonl`, hash-chained new audit appends, read-only `audit-replay`, and audited `operator-approval.v1` verification through `verify-operator-approval`; no external identity provider or real executor authority |
+| Single loop tick | Partial, controlled local evidence | `loop-tick` emits next action and stops before execution; `controlled-loop-tick` composes saved local evidence after closeout without retrying or continuing |
+| Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, task-carried branch policy, active brake stop handling, governed execution-start audit, local `execution-run.v1` records, `<root>/audit/events.jsonl`, hash-chained new audit appends, read-only `audit-replay`, audited `operator-approval.v1` verification through `verify-operator-approval`, and success-only `controlled_loop_tick` audit evidence; no external identity provider or autonomous GitHub authority |
 | Agent-team orchestration | Partial read-only evidence | `role-readiness` can verify local `role-policy.v1`, scoped ownership role labels, and saved review-thread separation evidence; no agent pool, role assignment, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
 | Executor adapter contract | Partial generic contract | Task/result packet validation, a fake controlled fixture runner, supplied-run-record closeout binding, read-only `executor-invocation-readiness` preflight, read-only `executor-invocation-plan` approval/adapter/rollback binding, controlled `invoke-real-executor` local process-start records, and real-invocation closeout binding exist, but no named host adapter or autonomous GitHub/merge authority |
@@ -245,7 +255,10 @@ close, and fail local `work-ownership.v1` records, detect duplicate active
 ownership for the same repo, branch, and task, bind matching active ownership
 to a governed execution start, recheck matching active ownership at
 resume-continuation, and replay accepted ownership mutations through the local
-audit log before future multi-worker coordination exists. It cannot
+audit log before future multi-worker coordination exists. It can compose saved
+loop, task, start, readiness, invocation, result, snapshot-after, closeout, and
+optional Git/PR plan evidence into a `controlled-loop-tick.v1` packet after
+the fact. It cannot
 perform the core build loop by itself, and it cannot yet coordinate a team of
 role-specific agents.
 
@@ -256,7 +269,9 @@ inspect repo -> discover/elect candidate -> emit blocked/no_candidates/approval_
 ```
 
 It can also emit `policy_denied` when a supplied local loop policy blocks the
-requested executor-task bounds.
+requested executor-task bounds, and it can verify a post-closeout saved chain
+with `controlled-loop-tick` once external/operator steps have produced the
+required evidence files.
 
 At `requires_executor_contract`, a human or external agent still has to request
 an executor task packet. At `approve_executor_task`, a human or external agent
@@ -274,7 +289,11 @@ process start only happens when an operator runs `invoke-real-executor`.
 --real-invocation-file` can bind that evidence to result validation, epoch
 closeout, active ownership revalidation, and dry-run Git/PR planning. These
 commands still do not commit, push, open PRs, resolve threads, merge, release,
-publish packages, assign roles, schedule agents, or write GitHub state. The
+publish packages, assign roles, schedule agents, or write GitHub state.
+`controlled-loop-tick` can then recheck that saved local chain and emit one
+completed or blocked `controlled-loop-tick.v1` packet with success-only
+`controlled_loop_tick` audit evidence; it does not retry the executor or
+rewrite invocation or closeout records. The
 controlled fixture path can prove policy, timeout, audit, run-record, and
 result-evidence behavior with fake local evidence, and local closeout can
 record task completion or terminally complete/fail the active epoch from that
@@ -307,9 +326,10 @@ close local fixture evidence into an epoch decision, and bind accepted
 `real-executor-invocation.v1` evidence into epoch closeout, active ownership
 revalidation, and dry-run Git/PR planning. It can also verify local
 authenticated operator approval identity evidence for a target checksum and
-purpose. It still does not materialize dirty worktree changes into commits,
-push autonomously, write PR/review responses, merge, release, or coordinate
-agent pools.
+purpose, then compose the saved evidence into a `controlled-loop-tick.v1`
+packet. It still does not materialize dirty worktree changes into commits, push
+autonomously, write PR/review responses, merge, release, or coordinate agent
+pools.
 
 The next likely failures are:
 
@@ -375,7 +395,7 @@ constraints and pre-approved unattended ticks, not production-autonomous work.
 
 ## Current Confidence Rating
 
-Current rating: 20%.
+Current rating: 25%.
 
 Reasoning:
 
@@ -387,6 +407,10 @@ Reasoning:
   planning, fake controlled executor fixtures, and controlled one-command real
   executor invocation with real-run closeout binding, but not unattended
   GitHub/review/session orchestration.
+- `controlled-loop-tick` can now prove that a saved local single-tick evidence
+  chain is internally consistent and append `controlled_loop_tick` audit
+  evidence for the completed composition, but it depends on separately
+  produced evidence files and does not retry or continue.
 - Executor task packets now fail closed on malformed local snapshots, missing
   repo identity, relative or unnormalizable cwd/path anchors, repo/cwd/branch/head
   mismatches, dirty worktrees, and low-confidence repo state.
@@ -396,7 +420,8 @@ Reasoning:
   after the brake changes, run a controlled fixture, bind supplied run evidence
   to closeout, recheck real-executor invocation readiness without side effects,
   run one approved real executor command, bind audit-anchored real invocation
-  evidence into closeout, and replay local audit history. Remaining gaps are
+  evidence into closeout, compose the saved local chain into a controlled tick
+  packet, and replay local audit history. Remaining gaps are
   host/session orchestration, autonomous Git/PR flow, merge governance, release
   governance, and package-publication governance.
 - The handoff and task/epoch model is useful.

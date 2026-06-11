@@ -44,6 +44,7 @@ from codex_cadence.git_pr_plan import (
     evaluate_git_pr_plan,
     git_pr_materialization_load_error_packet,
     materialize_git_pr_plan,
+    validate_git_pr_plan_dry_run_packet,
 )
 from codex_cadence.github_evidence import sync_github_evidence
 from codex_cadence.epochs import complete_epoch as complete_epoch_record
@@ -80,6 +81,7 @@ from codex_cadence.ownership import (
 from codex_cadence.policy_audit import (
     append_audit_record,
     audit_events_path,
+    controlled_loop_tick_audit_record,
     execution_start_audit_record,
     execution_run_record_audit_record,
     executor_epoch_closeout_audit_record,
@@ -90,6 +92,7 @@ from codex_cadence.policy_audit import (
     real_executor_invocation_audit_record,
     replay_audit_log,
     resolve_executor_policy,
+    validate_controlled_loop_tick_audit_record,
     work_ownership_mutation_audit_record,
 )
 from codex_cadence.pr_readiness import (
@@ -1933,6 +1936,527 @@ def loop_tick_command(args: argparse.Namespace) -> int:
     return 0
 
 
+CONTROLLED_LOOP_TICK_SCHEMA_VERSION = "controlled-loop-tick.v1"
+CONTROLLED_LOOP_TICK_TERMINAL_CLOSEOUT_STATUSES = {"completed", "failed"}
+
+
+def controlled_loop_tick_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def controlled_tick_non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def read_controlled_tick_packet(path: Path, *, code: str, label: str) -> tuple[Any | None, list[dict[str, Any]]]:
+    try:
+        packet = read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, [controlled_loop_tick_blocker(code, f"{label} could not be read as JSON", path=str(path), error=str(exc))]
+    if not isinstance(packet, dict):
+        return None, [controlled_loop_tick_blocker(code, f"{label} must be a JSON object", path=str(path))]
+    return packet, []
+
+
+def controlled_tick_step(name: str, path: Path, packet: Any, status: str, blockers: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "name": name,
+        "status": status,
+        "file": str(path),
+        "checksum": checksum_json(packet) if isinstance(packet, dict) else None,
+        "blocker_codes": [blocker["code"] for blocker in blockers],
+    }
+
+
+def controlled_tick_packet_type_blockers(packet: dict[str, Any], *, label: str, expected_packet: str, expected_schema: str | None = None) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if expected_schema is not None and packet.get("schema_version") != expected_schema:
+        blockers.append(
+            controlled_loop_tick_blocker(
+                "controlled_tick_packet_mismatch",
+                f"{label} schema_version is invalid",
+                expected=expected_schema,
+                actual=packet.get("schema_version"),
+            )
+        )
+    if packet.get("packet") != expected_packet:
+        blockers.append(
+            controlled_loop_tick_blocker(
+                "controlled_tick_packet_mismatch",
+                f"{label} packet is invalid",
+                expected=expected_packet,
+                actual=packet.get("packet"),
+            )
+        )
+    return blockers
+
+
+def controlled_tick_paths_match(left: Any, right: Path) -> bool:
+    if isinstance(left, str) and left.strip():
+        return _closeout_paths_match(left, right)
+    return False
+
+
+def controlled_tick_context_paths_match(context_file: Path, left: Any, right: Path) -> bool:
+    return _closeout_paths_match(controlled_tick_context_path(context_file, left), right)
+
+
+def controlled_tick_context_path(context_file: Path, value: Any) -> Any:
+    if not isinstance(value, str) or not value.strip():
+        return value
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = context_file.parent / path
+    return path
+
+
+def controlled_tick_invocation_path(invocation: dict[str, Any], value: Any) -> Any:
+    if not isinstance(value, str) or not value.strip():
+        return value
+    return _invocation_context_path(invocation, value)
+
+
+def controlled_loop_tick_command(args: argparse.Namespace) -> int:
+    packet_inputs = {
+        "loop_tick": Path(args.loop_tick_file),
+        "task": Path(args.task_file),
+        "execution_start": Path(args.execution_start_file),
+        "readiness": Path(args.readiness_file),
+        "invocation_plan": Path(args.invocation_plan_file),
+        "real_invocation": Path(args.real_invocation_file),
+        "result": Path(args.result_file),
+        "snapshot_after": Path(args.snapshot_after_file),
+        "closeout": Path(args.closeout_file),
+    }
+    optional_git_pr_plan = Path(args.git_pr_plan_file) if args.git_pr_plan_file else None
+    packets: dict[str, Any] = {}
+    blockers: list[dict[str, Any]] = []
+    read_codes = {
+        "loop_tick": "loop_tick_evidence_missing",
+        "task": "task_evidence_missing",
+        "execution_start": "execution_start_evidence_missing",
+        "readiness": "readiness_evidence_missing",
+        "invocation_plan": "invocation_plan_evidence_missing",
+        "real_invocation": "real_invocation_evidence_missing",
+        "result": "result_evidence_missing",
+        "snapshot_after": "snapshot_after_evidence_missing",
+        "closeout": "closeout_evidence_missing",
+    }
+    step_blockers: dict[str, list[dict[str, Any]]] = {}
+    for name, path in packet_inputs.items():
+        packet, packet_blockers = read_controlled_tick_packet(
+            path,
+            code=read_codes[name],
+            label=name.replace("_", " "),
+        )
+        packets[name] = packet
+        step_blockers[name] = list(packet_blockers)
+        blockers.extend(packet_blockers)
+
+    if optional_git_pr_plan is not None:
+        packet, packet_blockers = read_controlled_tick_packet(
+            optional_git_pr_plan,
+            code="git_pr_plan_evidence_missing",
+            label="git pr plan",
+        )
+        packets["git_pr_plan"] = packet
+        step_blockers["git_pr_plan"] = list(packet_blockers)
+        blockers.extend(packet_blockers)
+
+    if not blockers:
+        loop_tick = packets["loop_tick"]
+        task_packet = packets["task"]
+        execution_start = packets["execution_start"]
+        readiness = packets["readiness"]
+        invocation_plan = packets["invocation_plan"]
+        real_invocation = packets["real_invocation"]
+        result_evidence = packets["result"]
+        snapshot_after = packets["snapshot_after"]
+        closeout = packets["closeout"]
+        git_pr_plan = packets.get("git_pr_plan")
+
+        expected_types = {
+            "loop_tick": ("loop_tick", None),
+            "execution_start": ("execution_start", EXECUTION_START_SCHEMA_VERSION),
+            "readiness": ("executor_invocation_readiness", "executor-invocation-readiness.v1"),
+            "invocation_plan": ("executor_invocation_plan", "executor-invocation-plan.v1"),
+            "real_invocation": ("real_executor_invocation", REAL_EXECUTOR_INVOCATION_SCHEMA_VERSION),
+            "result": ("executor_result", "generic-executor-result.v1"),
+            "closeout": ("executor_epoch_closeout", EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION),
+        }
+        for name, (expected_packet, expected_schema) in expected_types.items():
+            packet_blockers = controlled_tick_packet_type_blockers(
+                packets[name],
+                label=name.replace("_", " "),
+                expected_packet=expected_packet,
+                expected_schema=expected_schema,
+            )
+            step_blockers[name].extend(packet_blockers)
+            blockers.extend(packet_blockers)
+        if git_pr_plan is not None:
+            packet_blockers = controlled_tick_packet_type_blockers(
+                git_pr_plan,
+                label="git pr plan",
+                expected_packet="git_pr_plan",
+                expected_schema="git-pr-plan.v1",
+            )
+            packet_blockers.extend(validate_git_pr_plan_dry_run_packet(git_pr_plan))
+            step_blockers["git_pr_plan"].extend(packet_blockers)
+            blockers.extend(packet_blockers)
+
+        valid_task, invalid_task_reason = validate_executor_task_packet(task_packet)
+        if not valid_task:
+            blocker = controlled_loop_tick_blocker("executor_task_invalid", invalid_task_reason)
+            step_blockers["task"].append(blocker)
+            blockers.append(blocker)
+        task_checksum = checksum_json(task_packet)
+        task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
+        repo = task_packet.get("repo") if isinstance(task_packet.get("repo"), dict) else {}
+        task_id = task.get("id")
+        epoch_id = execution_start.get("epoch_id")
+
+        loop_task = loop_tick.get("executor_task") if isinstance(loop_tick.get("executor_task"), dict) else {}
+        if not controlled_tick_non_empty_string(loop_tick.get("tick_id")):
+            blocker = controlled_loop_tick_blocker("loop_tick_identity_missing", "loop tick tick_id is required")
+            step_blockers["loop_tick"].append(blocker)
+            blockers.append(blocker)
+        if checksum_json(loop_task) != task_checksum:
+            blocker = controlled_loop_tick_blocker(
+                "loop_tick_task_mismatch",
+                "loop tick executor_task does not match the supplied task packet",
+                expected=task_checksum,
+                actual=checksum_json(loop_task),
+            )
+            step_blockers["loop_tick"].append(blocker)
+            blockers.append(blocker)
+        if loop_tick.get("recommended_next_action") != "approve_executor_task":
+            blocker = controlled_loop_tick_blocker(
+                "loop_tick_not_ready",
+                "loop tick must have emitted an executor task for approval",
+                actual=loop_tick.get("recommended_next_action"),
+            )
+            step_blockers["loop_tick"].append(blocker)
+            blockers.append(blocker)
+        if execution_start.get("valid") is not True or execution_start.get("epoch_started") is not True:
+            blocker = controlled_loop_tick_blocker("execution_start_invalid", "execution start evidence must be valid and epoch_started")
+            step_blockers["execution_start"].append(blocker)
+            blockers.append(blocker)
+        if not controlled_tick_non_empty_string(epoch_id):
+            blocker = controlled_loop_tick_blocker("execution_start_invalid", "execution start epoch_id is required")
+            step_blockers["execution_start"].append(blocker)
+            blockers.append(blocker)
+        if execution_start.get("executor_started") is not False:
+            blocker = controlled_loop_tick_blocker("execution_start_invalid", "execution start must not start an executor")
+            step_blockers["execution_start"].append(blocker)
+            blockers.append(blocker)
+        if execution_start.get("task_checksum") != task_checksum or execution_start.get("task_id") != task_id:
+            blocker = controlled_loop_tick_blocker("execution_start_task_mismatch", "execution start task anchor does not match task packet")
+            step_blockers["execution_start"].append(blocker)
+            blockers.append(blocker)
+        if "task_file" in execution_start and not controlled_tick_context_paths_match(packet_inputs["execution_start"], execution_start.get("task_file"), packet_inputs["task"]):
+            blocker = controlled_loop_tick_blocker("execution_start_task_mismatch", "execution start task_file does not match supplied task file")
+            step_blockers["execution_start"].append(blocker)
+            blockers.append(blocker)
+
+        snapshot_valid, snapshot_reason = validate_repo_snapshot(
+            snapshot_after,
+            expected_repo=repo.get("name") if isinstance(repo.get("name"), str) else None,
+            expected_branch=repo.get("branch") if isinstance(repo.get("branch"), str) else None,
+        )
+        if not snapshot_valid:
+            blocker = controlled_loop_tick_blocker("snapshot_after_invalid", f"snapshot-after evidence is invalid: {snapshot_reason}")
+            step_blockers["snapshot_after"].append(blocker)
+            blockers.append(blocker)
+
+        readiness_task = readiness.get("task") if isinstance(readiness.get("task"), dict) else {}
+        readiness_epoch = readiness.get("active_epoch") if isinstance(readiness.get("active_epoch"), dict) else {}
+        if readiness.get("valid") is not True or readiness.get("executor_invocation_ready") is not True:
+            blocker = controlled_loop_tick_blocker("readiness_not_invocable", "readiness evidence is not invocable")
+            step_blockers["readiness"].append(blocker)
+            blockers.append(blocker)
+        if readiness_task.get("checksum") != task_checksum or readiness_task.get("id") != task_id:
+            blocker = controlled_loop_tick_blocker("readiness_task_mismatch", "readiness task anchor does not match task packet")
+            step_blockers["readiness"].append(blocker)
+            blockers.append(blocker)
+        if not _closeout_paths_match(controlled_tick_context_path(packet_inputs["readiness"], readiness_task.get("file")), packet_inputs["task"]):
+            blocker = controlled_loop_tick_blocker("readiness_task_mismatch", "readiness task file does not match supplied task file")
+            step_blockers["readiness"].append(blocker)
+            blockers.append(blocker)
+        if readiness_epoch.get("id") != epoch_id:
+            blocker = controlled_loop_tick_blocker("readiness_epoch_mismatch", "readiness active epoch does not match execution start")
+            step_blockers["readiness"].append(blocker)
+            blockers.append(blocker)
+
+        plan_readiness = invocation_plan.get("readiness") if isinstance(invocation_plan.get("readiness"), dict) else {}
+        if invocation_plan.get("valid") is not True or invocation_plan.get("executor_invocation_planned") is not True:
+            blocker = controlled_loop_tick_blocker("invocation_plan_not_invocable", "invocation plan evidence is not invocable")
+            step_blockers["invocation_plan"].append(blocker)
+            blockers.append(blocker)
+        if plan_readiness.get("checksum") != checksum_json(readiness):
+            blocker = controlled_loop_tick_blocker("invocation_plan_readiness_mismatch", "invocation plan readiness checksum does not match supplied readiness")
+            step_blockers["invocation_plan"].append(blocker)
+            blockers.append(blocker)
+        if "file" in plan_readiness and not _closeout_paths_match(controlled_tick_context_path(packet_inputs["invocation_plan"], plan_readiness.get("file")), packet_inputs["readiness"]):
+            blocker = controlled_loop_tick_blocker("invocation_plan_readiness_mismatch", "invocation plan readiness file does not match supplied readiness file")
+            step_blockers["invocation_plan"].append(blocker)
+            blockers.append(blocker)
+
+        if real_invocation.get("valid") is not True or real_invocation.get("executor_started") is not True:
+            blocker = controlled_loop_tick_blocker("real_invocation_invalid", "real invocation evidence must be valid and executor_started")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if not controlled_tick_non_empty_string(real_invocation.get("invocation_id")):
+            blocker = controlled_loop_tick_blocker("real_invocation_identity_missing", "real invocation invocation_id is required")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if real_invocation.get("plan_checksum") != checksum_json(invocation_plan):
+            blocker = controlled_loop_tick_blocker("real_invocation_plan_mismatch", "real invocation plan checksum does not match invocation plan")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if real_invocation.get("plan_target_checksum") != invocation_plan.get("target_checksum"):
+            blocker = controlled_loop_tick_blocker("real_invocation_plan_mismatch", "real invocation target checksum does not match invocation plan")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if not _closeout_paths_match(controlled_tick_invocation_path(real_invocation, real_invocation.get("record_file")), packet_inputs["real_invocation"]):
+            blocker = controlled_loop_tick_blocker("real_invocation_record_mismatch", "real invocation record_file does not match supplied real invocation file")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if not _closeout_paths_match(controlled_tick_invocation_path(real_invocation, real_invocation.get("plan_file")), packet_inputs["invocation_plan"]):
+            blocker = controlled_loop_tick_blocker("real_invocation_plan_mismatch", "real invocation plan_file does not match supplied invocation plan file")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if real_invocation.get("result_evidence_checksum") != checksum_json(result_evidence):
+            blocker = controlled_loop_tick_blocker("real_invocation_result_mismatch", "real invocation result checksum does not match supplied result")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if not _closeout_paths_match(controlled_tick_invocation_path(real_invocation, real_invocation.get("result_file")), packet_inputs["result"]):
+            blocker = controlled_loop_tick_blocker("real_invocation_result_mismatch", "real invocation result_file does not match supplied result file")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+
+        if result_evidence.get("task_id") != task_id:
+            blocker = controlled_loop_tick_blocker("result_task_mismatch", "executor result task_id does not match task packet")
+            step_blockers["result"].append(blocker)
+            blockers.append(blocker)
+
+        if closeout.get("valid") is not True:
+            blocker = controlled_loop_tick_blocker("closeout_invalid", "closeout evidence must be valid")
+            step_blockers["closeout"].append(blocker)
+            blockers.append(blocker)
+        if closeout.get("epoch_id") != epoch_id:
+            blocker = controlled_loop_tick_blocker("closeout_epoch_mismatch", "closeout epoch does not match execution start")
+            step_blockers["closeout"].append(blocker)
+            blockers.append(blocker)
+        if not controlled_tick_context_paths_match(packet_inputs["closeout"], closeout.get("task_file"), packet_inputs["task"]):
+            blocker = controlled_loop_tick_blocker("closeout_task_mismatch", "closeout task_file does not match supplied task file")
+            step_blockers["closeout"].append(blocker)
+            blockers.append(blocker)
+        if not controlled_tick_context_paths_match(packet_inputs["closeout"], closeout.get("result_file"), packet_inputs["result"]):
+            blocker = controlled_loop_tick_blocker("closeout_result_mismatch", "closeout result_file does not match supplied result file")
+            step_blockers["closeout"].append(blocker)
+            blockers.append(blocker)
+        if not controlled_tick_context_paths_match(packet_inputs["closeout"], closeout.get("snapshot_after_file"), packet_inputs["snapshot_after"]):
+            blocker = controlled_loop_tick_blocker("closeout_snapshot_mismatch", "closeout snapshot_after_file does not match supplied snapshot-after file")
+            step_blockers["closeout"].append(blocker)
+            blockers.append(blocker)
+        if closeout.get("snapshot_after_checksum") != checksum_epoch_json(snapshot_after):
+            blocker = controlled_loop_tick_blocker("closeout_snapshot_mismatch", "closeout snapshot checksum does not match supplied snapshot-after evidence")
+            step_blockers["closeout"].append(blocker)
+            blockers.append(blocker)
+        closeout_invocation = closeout.get("real_invocation") if isinstance(closeout.get("real_invocation"), dict) else {}
+        closeout_invocation_after_checksum = closeout_invocation.get("after_checksum")
+        if not isinstance(closeout_invocation_after_checksum, str) or not closeout_invocation_after_checksum.strip():
+            blocker = controlled_loop_tick_blocker(
+                "closeout_invocation_mismatch",
+                "closeout real invocation after_checksum is required for controlled tick composition",
+            )
+            step_blockers["closeout"].append(blocker)
+            blockers.append(blocker)
+        elif checksum_json(real_invocation) != closeout_invocation_after_checksum:
+            blocker = controlled_loop_tick_blocker(
+                "closeout_invocation_mismatch",
+                "closeout real invocation after_checksum does not match supplied real invocation evidence",
+            )
+            step_blockers["closeout"].append(blocker)
+            blockers.append(blocker)
+        if not controlled_tick_context_paths_match(packet_inputs["closeout"], closeout_invocation.get("path"), packet_inputs["real_invocation"]):
+            blocker = controlled_loop_tick_blocker("closeout_invocation_mismatch", "closeout real invocation path does not match supplied real invocation file")
+            step_blockers["closeout"].append(blocker)
+            blockers.append(blocker)
+        if closeout_invocation.get("invocation_id") != real_invocation.get("invocation_id"):
+            blocker = controlled_loop_tick_blocker("closeout_invocation_mismatch", "closeout real invocation id does not match supplied real invocation evidence")
+            step_blockers["closeout"].append(blocker)
+            blockers.append(blocker)
+        closeout_validation = closeout.get("validation") if isinstance(closeout.get("validation"), dict) else {}
+        if closeout_validation.get("valid") is not True:
+            blocker = controlled_loop_tick_blocker("closeout_validation_mismatch", "closeout validation evidence is not valid")
+            step_blockers["closeout"].append(blocker)
+            blockers.append(blocker)
+        closeout_core_packet = {
+            key: value
+            for key, value in closeout.items()
+            if key not in {"audit_record", "run_record", "real_invocation"}
+        }
+        epoch_closeout_checksum = checksum_json(closeout_core_packet)
+        if closeout_invocation.get("epoch_closeout_checksum") != epoch_closeout_checksum:
+            blocker = controlled_loop_tick_blocker("closeout_invocation_mismatch", "closeout real invocation epoch_closeout_checksum does not match closeout evidence")
+            step_blockers["closeout"].append(blocker)
+            blockers.append(blocker)
+        if real_invocation.get("epoch_closeout_checksum") != epoch_closeout_checksum:
+            blocker = controlled_loop_tick_blocker("real_invocation_closeout_mismatch", "real invocation epoch_closeout_checksum does not match closeout evidence")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if real_invocation.get("closeout_status") != closeout.get("closeout_status"):
+            blocker = controlled_loop_tick_blocker("real_invocation_closeout_mismatch", "real invocation closeout_status does not match closeout evidence")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if (
+            closeout.get("closeout_status") not in CONTROLLED_LOOP_TICK_TERMINAL_CLOSEOUT_STATUSES
+            or real_invocation.get("closeout_status") not in CONTROLLED_LOOP_TICK_TERMINAL_CLOSEOUT_STATUSES
+        ):
+            blocker = controlled_loop_tick_blocker(
+                "closeout_not_completed",
+                "closeout and real invocation must be terminal completed or failed to emit a controlled tick",
+            )
+            step_blockers["closeout"].append(blocker)
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if real_invocation.get("epoch_id") != epoch_id:
+            blocker = controlled_loop_tick_blocker("real_invocation_closeout_mismatch", "real invocation epoch_id does not match execution start")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if real_invocation.get("validation_packet_checksum") != checksum_json(closeout_validation):
+            blocker = controlled_loop_tick_blocker("real_invocation_closeout_mismatch", "real invocation validation checksum does not match closeout validation evidence")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if real_invocation.get("snapshot_after_checksum") != checksum_epoch_json(snapshot_after):
+            blocker = controlled_loop_tick_blocker("real_invocation_closeout_mismatch", "real invocation snapshot-after checksum does not match supplied snapshot-after evidence")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+        if not _closeout_paths_match(controlled_tick_invocation_path(real_invocation, real_invocation.get("task_file")), packet_inputs["task"]):
+            blocker = controlled_loop_tick_blocker("real_invocation_closeout_mismatch", "real invocation task_file does not match supplied task file")
+            step_blockers["real_invocation"].append(blocker)
+            blockers.append(blocker)
+
+        embedded_git_pr_plan = closeout.get("git_pr_plan") if isinstance(closeout.get("git_pr_plan"), dict) else None
+        if git_pr_plan is not None:
+            if embedded_git_pr_plan is None:
+                blocker = controlled_loop_tick_blocker("git_pr_plan_unanchored", "supplied git-pr plan is not embedded in closeout evidence")
+                step_blockers["git_pr_plan"].append(blocker)
+                blockers.append(blocker)
+            elif checksum_json(git_pr_plan) != checksum_json(embedded_git_pr_plan):
+                blocker = controlled_loop_tick_blocker("git_pr_plan_mismatch", "supplied git-pr plan does not match closeout embedded git-pr plan")
+                step_blockers["git_pr_plan"].append(blocker)
+                blockers.append(blocker)
+
+    valid = not blockers
+    tick_id = f"controlled-loop-tick-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{secrets.token_hex(4)}"
+    loop_tick = packets.get("loop_tick") if isinstance(packets.get("loop_tick"), dict) else {}
+    task_packet = packets.get("task") if isinstance(packets.get("task"), dict) else {}
+    execution_start = packets.get("execution_start") if isinstance(packets.get("execution_start"), dict) else {}
+    real_invocation = packets.get("real_invocation") if isinstance(packets.get("real_invocation"), dict) else {}
+    closeout = packets.get("closeout") if isinstance(packets.get("closeout"), dict) else {}
+    task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
+    next_decision = closeout.get("next_decision") if isinstance(closeout.get("next_decision"), dict) else {}
+    checksums = {
+        name: checksum_json(packet)
+        for name, packet in packets.items()
+        if isinstance(packet, dict)
+    }
+    files = {name: str(path) for name, path in packet_inputs.items()}
+    if optional_git_pr_plan is not None:
+        files["git_pr_plan"] = str(optional_git_pr_plan)
+    steps = [
+        controlled_tick_step(name, path, packets.get(name), "accepted" if not step_blockers.get(name) else "blocked", step_blockers.get(name, []))
+        for name, path in packet_inputs.items()
+    ]
+    if optional_git_pr_plan is not None:
+        steps.append(
+            controlled_tick_step(
+                "git_pr_plan",
+                optional_git_pr_plan,
+                packets.get("git_pr_plan"),
+                "accepted" if not step_blockers.get("git_pr_plan") else "blocked",
+                step_blockers.get("git_pr_plan", []),
+            )
+        )
+    recommended_next_action = "controlled_tick_complete" if valid else "inspect_controlled_tick_blockers"
+    reason = "controlled loop tick evidence is internally consistent" if valid else "controlled loop tick evidence is incomplete or mismatched"
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": CONTROLLED_LOOP_TICK_SCHEMA_VERSION,
+        "packet": "controlled_loop_tick",
+        "tick_id": tick_id,
+        "source_tick_id": loop_tick.get("tick_id"),
+        "valid": valid,
+        "controlled_tick_status": "completed" if valid else "blocked",
+        "reason": reason,
+        "executor_started": real_invocation.get("executor_started") is True,
+        "side_effects": [],
+        "recommended_next_action": recommended_next_action,
+        "operator_confirmation_required": not valid,
+        "task": {
+            "id": task.get("id"),
+            "checksum": checksums.get("task"),
+            "source": task.get("source"),
+        },
+        "epoch": {
+            "id": execution_start.get("epoch_id"),
+            "closeout_status": closeout.get("closeout_status"),
+            "epoch_status": closeout.get("epoch_status"),
+        },
+        "real_invocation": {
+            "invocation_id": real_invocation.get("invocation_id"),
+            "side_effect_mode": real_invocation.get("side_effect_mode"),
+            "closeout_status": real_invocation.get("closeout_status"),
+        },
+        "next_decision": next_decision,
+        "files": files,
+        "checksums": checksums,
+        "steps": steps,
+        "blockers": blockers,
+        "limitations": [
+            "composes_existing_local_evidence_only",
+            "does_not_start_executor",
+            "does_not_retry_executor",
+            "does_not_rewrite_invocation_or_closeout_records",
+            "does_not_execute_git_commands",
+            "does_not_call_github",
+            "does_not_create_branch_commit_push_or_pr",
+            "does_not_merge_release_or_publish_packages",
+            "does_not_assign_roles_or_claim_distributed_locks",
+        ],
+    }
+    if valid:
+        payload["side_effects"].append("controlled_loop_tick_audit_appended")
+        try:
+            audit_record = controlled_loop_tick_audit_record(payload)
+            audit_blockers = validate_controlled_loop_tick_audit_record(audit_record, 0)
+            if audit_blockers:
+                raise ValueError(f"controlled_loop_tick audit record is invalid: {audit_blockers[0]['code']}")
+            payload["audit_record"] = append_audit_record(args.root, audit_record)
+        except Exception as exc:
+            payload["valid"] = False
+            payload["controlled_tick_status"] = "blocked"
+            payload["reason"] = "controlled loop tick audit record could not be written"
+            payload["recommended_next_action"] = "recover_controlled_tick_audit"
+            payload["operator_confirmation_required"] = True
+            payload["side_effects"] = []
+            payload["blockers"] = [
+                {
+                    "code": "controlled_loop_tick_audit_append_failed",
+                    "message": "controlled loop tick audit record could not be written",
+                    "error": str(exc),
+                }
+            ]
+            emit(payload)
+            return 2
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def build_executor_result_validation_payload(
     *,
     root: Path | None,
@@ -3649,6 +4173,26 @@ def build_parser() -> argparse.ArgumentParser:
     loop_tick_parser.add_argument("--stop-condition", action="append", default=[])
     loop_tick_parser.add_argument("--policy-file")
     loop_tick_parser.set_defaults(func=loop_tick_command)
+
+    controlled_loop_tick_parser = subparsers.add_parser(
+        "controlled-loop-tick",
+        help="Compose existing local evidence into one controlled loop tick packet",
+    )
+    controlled_loop_tick_parser.add_argument("--loop-tick-file", required=True)
+    controlled_loop_tick_parser.add_argument("--task-file", required=True)
+    controlled_loop_tick_parser.add_argument("--execution-start-file", required=True)
+    controlled_loop_tick_parser.add_argument("--readiness-file", required=True)
+    controlled_loop_tick_parser.add_argument("--invocation-plan-file", required=True)
+    controlled_loop_tick_parser.add_argument("--real-invocation-file", required=True)
+    controlled_loop_tick_parser.add_argument("--result-file", required=True)
+    controlled_loop_tick_parser.add_argument("--snapshot-after-file", required=True)
+    controlled_loop_tick_parser.add_argument("--closeout-file", required=True)
+    controlled_loop_tick_parser.add_argument("--git-pr-plan-file")
+    controlled_loop_tick_parser.set_defaults(
+        func=controlled_loop_tick_command,
+        requires_root=True,
+        guards_runtime_root_only=True,
+    )
 
     executor_result_parser = subparsers.add_parser(
         "validate-executor-result",

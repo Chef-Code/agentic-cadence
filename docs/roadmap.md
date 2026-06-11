@@ -2,8 +2,8 @@
 
 Status: living document
 Last updated: 2026-06-11
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, local work ownership claim/closeout evidence, Tasks 18-22 complete in main, and the Tasks 23-27 roadmap current branch
-Current unattended-operation confidence: 20%
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, Tasks 18-22 complete in main, and the Tasks 23-27 roadmap current tree
+Current unattended-operation confidence: 25%
 
 This document tracks the practical path from the current Agentic Cadence
 protocol toolkit toward GitHub-native orchestration for autonomous software
@@ -77,17 +77,19 @@ materialization, read-only resume verification, ownership-aware read-only
 resume continuation, read-only review-response planning, local work ownership
 claim/closeout evidence, read-only role-readiness evidence, read-only
 executor-invocation-readiness and invocation-plan evidence, controlled real
-executor invocation evidence, and local audit hash-chain integrity evidence. It can
+executor invocation evidence, controlled single-tick run packet evidence, and
+local audit hash-chain integrity evidence. It can
 materialize a reviewed Git/PR plan only through exact target-bound operator
 approval, and it can verify handoff pickup state before a fresh session
 continues. It can also start one approved real executor command with local
 invocation evidence and bind accepted real-run evidence into epoch closeout and
-dry-run Git/PR planning, but it still cannot independently implement code
-outside that approved command, autonomously push branches, autonomously open
+dry-run Git/PR planning, then compose the saved local chain into
+`controlled-loop-tick.v1`, but it still cannot independently implement code
+outside approved command evidence, autonomously push branches, autonomously open
 pull requests, assign agent roles, resolve review feedback, launch fresh
 sessions, coordinate an agent pool, or continue in an unattended loop.
 
-Current confidence for unattended continuous operation is 20%.
+Current confidence for unattended continuous operation is 25%.
 
 The rating is low because the safety primitives are real, but the central
 autonomous build loop is not implemented. The first real unattended run would
@@ -169,6 +171,12 @@ command-policy and active-stop controls. It includes:
   operator approval identity, clean audit replay, adapter metadata, rollback evidence,
   command, environment allowlist, timeout, active epoch, active
   ownership, and result-path anchors before any future process start;
+- controlled `invoke-real-executor` local process-start records,
+  `closeout-executor-result --real-invocation-file` binding, and
+  `controlled-loop-tick` packets that compose saved local
+  loop/task/start/readiness/plan/invocation/result/snapshot/closeout evidence
+  into `controlled-loop-tick.v1` without retrying executors or writing
+  Git/GitHub state;
 - release dry-run checks that require operator confirmation before tag or
   release actions;
 - elected Codex Review GitHub workflow with preflight, dedupe, pinned action,
@@ -421,8 +429,9 @@ Goal: add one bounded command that performs snapshot, candidate discovery,
 policy check, epoch start, executor handoff, validation collection,
 epoch completion/failure, and next decision.
 
-Status: partial. Phase 1 implements a read-only `loop-tick` command and a
-separate governed execution-start command.
+Status: partial. Phase 1 implements a read-only `loop-tick` command, a
+separate governed execution-start command, and a controlled single-tick
+composition packet for saved post-closeout evidence.
 
 Current evidence: `loop-tick` captures and persists a local repo snapshot,
 runs deterministic candidate discovery with election enabled, checks Cadence
@@ -446,9 +455,13 @@ and `closeout-executor-result --run-record-file` can bind that record to local
 closeout evidence. `invoke-real-executor` can run one approved local executor
 process and write `real-executor-invocation.v1` evidence, and
 `closeout-executor-result --real-invocation-file` can bind accepted real-run
-evidence to epoch closeout and dry-run Git/PR planning. Cadence does not yet
-drive the full host/session loop from election through execution closeout in
-one command.
+evidence to epoch closeout and dry-run Git/PR planning. `controlled-loop-tick`
+can compose the saved `loop-tick`, task, execution-start, readiness,
+invocation-plan, real-invocation, result, snapshot-after, closeout, and
+optional dry-run Git/PR plan anchors into `controlled-loop-tick.v1` with
+success-only `controlled_loop_tick` audit evidence. Cadence does not yet drive
+the full host/session loop from election through execution closeout in one
+command, retry real executors, or continue continuously.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/candidates.py`,
 `codex_cadence/epochs.py`, `codex_cadence/model.py`,
@@ -463,7 +476,8 @@ epoch blockers, malformed active-epoch state blockers, malformed task packets,
 missing or mismatched approval, missing repo paths, missing/mismatched/duplicate
 work ownership blockers, ownership binding rollback on audit failure,
 controlled real executor invocation evidence, real-invocation closeout binding,
-and replayable audit evidence. Full autonomous completion still needs
+controlled-loop-tick success and mismatch-blocking evidence, and replayable
+audit evidence. Full autonomous completion still needs
 host/session orchestration and one-command completion/failure paths.
 
 Codex can implement directly if the command remains generic and does not push
