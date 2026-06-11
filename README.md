@@ -603,11 +603,16 @@ audit evidence for accepted mutations.
 `work-ownership-closeout.v1`, but only closes a targeted active record after a
 saved `executor_epoch_closeout` packet is valid, has
 `closeout_status: completed`, matches the supplied closeout checksum, and its
-task packet checksum rebinds the ownership task, candidate id, role, claimer,
-repo, branch, `HEAD`, and epoch id. Failed executor closeout evidence is not
-converted into ownership failure by this command; use the explicit
-`fail-work-ownership` path when the operator wants local ownership marked
-failed. Closeout-bound audit records add `epoch_id`,
+task packet checksum revalidates the saved executor task evidence for task id,
+candidate id, repo, branch, and `HEAD`. The command also rereads the referenced
+result and snapshot-after evidence, revalidates the result packet, and requires
+the saved snapshot checksum, validation decision anchors, exactly one bound
+execution record, and the referenced executor closeout audit-log line to match
+before it separately checks the targeted ownership id, role, claimer, candidate
+id, and epoch id against the active ownership record and closeout packet.
+Failed executor closeout evidence is not converted into ownership failure by
+this command; use the explicit `fail-work-ownership` path when the operator
+wants local ownership marked failed. Closeout-bound audit records add `epoch_id`,
 `executor_closeout_file`, `executor_closeout_checksum`, and
 `executor_closeout_status`. Stable blockers include
 `ownership_closeout_not_completed`, `ownership_closeout_checksum_mismatch`,

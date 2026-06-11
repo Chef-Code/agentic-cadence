@@ -13066,6 +13066,262 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse((Path(tmp) / "work-ownership" / "closed" / "ownership-1.json").exists())
             self.assertEqual(len(audit_records(tmp)), before_audit_count)
 
+    def test_complete_work_ownership_from_closeout_blocks_minimal_handwritten_closeout_before_move(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            _closeout_path, closeout_packet, task_packet, _result_evidence = write_executor_closeout_packet(
+                tmp,
+                repo,
+                epoch_id="epoch-closeout-owned",
+            )
+            minimal_closeout = {
+                "schema_version": "executor-epoch-closeout.v1",
+                "packet": "executor_epoch_closeout",
+                "valid": True,
+                "reason": "executor result succeeded",
+                "epoch_id": closeout_packet["epoch_id"],
+                "closeout_status": "completed",
+                "task_file": closeout_packet["task_file"],
+                "task_checksum": closeout_packet["task_checksum"],
+            }
+            minimal_closeout_path = Path(tmp) / "minimal-executor-closeout.json"
+            minimal_closeout_path.write_text(json.dumps(minimal_closeout), encoding="utf-8")
+            write_work_ownership(
+                tmp,
+                "ownership-1",
+                task_id=task_packet["task"]["id"],
+                candidate_id=task_packet["task"]["id"],
+                branch=task_packet["repo"]["branch"],
+                head=task_packet["repo"]["head"],
+                epoch_id=closeout_packet["epoch_id"],
+            )
+            before_audit_count = len(audit_records(tmp))
+
+            result, output = run_cli(
+                tmp,
+                "complete-work-ownership-from-closeout",
+                "ownership-1",
+                "--cwd",
+                repo,
+                "--closeout-file",
+                str(minimal_closeout_path),
+                "--closeout-checksum",
+                checksum_json(minimal_closeout),
+                "--candidate-id",
+                task_packet["task"]["id"],
+                "--role",
+                "implementer",
+                "--claimer",
+                "test-agent",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("ownership_closeout_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertTrue((Path(tmp) / "work-ownership" / "active" / "ownership-1.json").exists())
+            self.assertFalse((Path(tmp) / "work-ownership" / "closed" / "ownership-1.json").exists())
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
+    def test_complete_work_ownership_from_closeout_blocks_mutated_validation_before_move(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            _closeout_path, closeout_packet, task_packet, _result_evidence = write_executor_closeout_packet(
+                tmp,
+                repo,
+                epoch_id="epoch-closeout-owned",
+            )
+            mutated_closeout = dict(closeout_packet)
+            mutated_validation = dict(closeout_packet["validation"])
+            mutated_validation["executor_started"] = not mutated_validation["executor_started"]
+            mutated_closeout["validation"] = mutated_validation
+            mutated_closeout["operator_confirmation_required"] = False
+            mutated_closeout_path = Path(tmp) / "mutated-executor-closeout.json"
+            mutated_closeout_path.write_text(json.dumps(mutated_closeout), encoding="utf-8")
+            write_work_ownership(
+                tmp,
+                "ownership-1",
+                task_id=task_packet["task"]["id"],
+                candidate_id=task_packet["task"]["id"],
+                branch=task_packet["repo"]["branch"],
+                head=task_packet["repo"]["head"],
+                epoch_id=closeout_packet["epoch_id"],
+            )
+            before_audit_count = len(audit_records(tmp))
+
+            result, output = run_cli(
+                tmp,
+                "complete-work-ownership-from-closeout",
+                "ownership-1",
+                "--cwd",
+                repo,
+                "--closeout-file",
+                str(mutated_closeout_path),
+                "--closeout-checksum",
+                checksum_json(mutated_closeout),
+                "--candidate-id",
+                task_packet["task"]["id"],
+                "--role",
+                "implementer",
+                "--claimer",
+                "test-agent",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("ownership_closeout_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertTrue((Path(tmp) / "work-ownership" / "active" / "ownership-1.json").exists())
+            self.assertFalse((Path(tmp) / "work-ownership" / "closed" / "ownership-1.json").exists())
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
+    def test_complete_work_ownership_from_closeout_blocks_missing_execution_reference_before_move(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            _closeout_path, closeout_packet, task_packet, _result_evidence = write_executor_closeout_packet(
+                tmp,
+                repo,
+                epoch_id="epoch-closeout-owned",
+            )
+            unbound_closeout = dict(closeout_packet)
+            unbound_closeout.pop("run_record", None)
+            unbound_closeout.pop("real_invocation", None)
+            unbound_closeout_path = Path(tmp) / "unbound-executor-closeout.json"
+            unbound_closeout_path.write_text(json.dumps(unbound_closeout), encoding="utf-8")
+            write_work_ownership(
+                tmp,
+                "ownership-1",
+                task_id=task_packet["task"]["id"],
+                candidate_id=task_packet["task"]["id"],
+                branch=task_packet["repo"]["branch"],
+                head=task_packet["repo"]["head"],
+                epoch_id=closeout_packet["epoch_id"],
+            )
+            before_audit_count = len(audit_records(tmp))
+
+            result, output = run_cli(
+                tmp,
+                "complete-work-ownership-from-closeout",
+                "ownership-1",
+                "--cwd",
+                repo,
+                "--closeout-file",
+                str(unbound_closeout_path),
+                "--closeout-checksum",
+                checksum_json(unbound_closeout),
+                "--candidate-id",
+                task_packet["task"]["id"],
+                "--role",
+                "implementer",
+                "--claimer",
+                "test-agent",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("ownership_closeout_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertTrue((Path(tmp) / "work-ownership" / "active" / "ownership-1.json").exists())
+            self.assertFalse((Path(tmp) / "work-ownership" / "closed" / "ownership-1.json").exists())
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
+    def test_complete_work_ownership_from_closeout_blocks_forged_audit_reference_before_move(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            _closeout_path, closeout_packet, task_packet, _result_evidence = write_executor_closeout_packet(
+                tmp,
+                repo,
+                epoch_id="epoch-closeout-owned",
+            )
+            forged_closeout = dict(closeout_packet)
+            forged_audit = dict(closeout_packet["audit_record"])
+            forged_audit["event_hash"] = "sha256:" + "f" * 64
+            forged_closeout["audit_record"] = forged_audit
+            forged_closeout_path = Path(tmp) / "forged-audit-executor-closeout.json"
+            forged_closeout_path.write_text(json.dumps(forged_closeout), encoding="utf-8")
+            write_work_ownership(
+                tmp,
+                "ownership-1",
+                task_id=task_packet["task"]["id"],
+                candidate_id=task_packet["task"]["id"],
+                branch=task_packet["repo"]["branch"],
+                head=task_packet["repo"]["head"],
+                epoch_id=closeout_packet["epoch_id"],
+            )
+            before_audit_count = len(audit_records(tmp))
+
+            result, output = run_cli(
+                tmp,
+                "complete-work-ownership-from-closeout",
+                "ownership-1",
+                "--cwd",
+                repo,
+                "--closeout-file",
+                str(forged_closeout_path),
+                "--closeout-checksum",
+                checksum_json(forged_closeout),
+                "--candidate-id",
+                task_packet["task"]["id"],
+                "--role",
+                "implementer",
+                "--claimer",
+                "test-agent",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("ownership_closeout_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertTrue((Path(tmp) / "work-ownership" / "active" / "ownership-1.json").exists())
+            self.assertFalse((Path(tmp) / "work-ownership" / "closed" / "ownership-1.json").exists())
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
+    def test_complete_work_ownership_from_closeout_blocks_invalid_audit_chain_index_before_move(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            _closeout_path, closeout_packet, task_packet, _result_evidence = write_executor_closeout_packet(
+                tmp,
+                repo,
+                epoch_id="epoch-closeout-owned",
+            )
+            forged_closeout = dict(closeout_packet)
+            forged_audit = dict(closeout_packet["audit_record"])
+            forged_audit["chain_index"] = 0
+            forged_closeout["audit_record"] = forged_audit
+            forged_closeout_path = Path(tmp) / "invalid-chain-index-executor-closeout.json"
+            forged_closeout_path.write_text(json.dumps(forged_closeout), encoding="utf-8")
+            write_work_ownership(
+                tmp,
+                "ownership-1",
+                task_id=task_packet["task"]["id"],
+                candidate_id=task_packet["task"]["id"],
+                branch=task_packet["repo"]["branch"],
+                head=task_packet["repo"]["head"],
+                epoch_id=closeout_packet["epoch_id"],
+            )
+            before_audit_count = len(audit_records(tmp))
+
+            result, output = run_cli(
+                tmp,
+                "complete-work-ownership-from-closeout",
+                "ownership-1",
+                "--cwd",
+                repo,
+                "--closeout-file",
+                str(forged_closeout_path),
+                "--closeout-checksum",
+                checksum_json(forged_closeout),
+                "--candidate-id",
+                task_packet["task"]["id"],
+                "--role",
+                "implementer",
+                "--claimer",
+                "test-agent",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("ownership_closeout_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertTrue((Path(tmp) / "work-ownership" / "active" / "ownership-1.json").exists())
+            self.assertFalse((Path(tmp) / "work-ownership" / "closed" / "ownership-1.json").exists())
+            self.assertEqual(len(audit_records(tmp)), before_audit_count)
+
     def test_complete_work_ownership_from_closeout_rolls_back_move_when_audit_append_fails(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             import codex_cadence.cli as cadence_cli

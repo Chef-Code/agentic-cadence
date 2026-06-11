@@ -25,6 +25,7 @@ from codex_cadence.executor_contract import (
     execution_run_blocker,
     build_executor_task_packet,
     validate_executor_result_evidence,
+    validate_execution_run_record,
     validate_executor_task_packet,
 )
 from codex_cadence.executor_invocation import (
@@ -80,6 +81,7 @@ from codex_cadence.ownership import (
 )
 from codex_cadence.policy_audit import (
     append_audit_record,
+    audit_event_hash,
     audit_events_path,
     controlled_loop_tick_audit_record,
     execution_start_audit_record,
@@ -92,6 +94,7 @@ from codex_cadence.policy_audit import (
     real_executor_invocation_audit_record,
     replay_audit_log,
     resolve_executor_policy,
+    validate_audit_record,
     validate_controlled_loop_tick_audit_record,
     work_ownership_mutation_audit_record,
 )
@@ -1699,12 +1702,470 @@ def _closeout_context_path(context_file: Path, value: Any) -> Any:
     return path
 
 
+def _closeout_bound_non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _closeout_bound_string_list(value: Any) -> bool:
+    return isinstance(value, list) and all(_closeout_bound_non_empty_string(item) for item in value)
+
+
+def _closeout_bound_checksum(value: Any) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", value) is not None
+
+
+def _closeout_context_paths_match(context_file: Path, expected: Any, actual: Any) -> bool:
+    if not _closeout_bound_non_empty_string(expected) or not _closeout_bound_non_empty_string(actual):
+        return False
+    return _closeout_context_path(context_file, expected).expanduser().resolve() == _closeout_context_path(
+        context_file,
+        actual,
+    ).expanduser().resolve()
+
+
+def _validate_closeout_bound_packet_shape(closeout: dict[str, Any], closeout_file: Path) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+
+    def add(message: str, *, field: str | None = None, **extra: Any) -> None:
+        if field is not None:
+            extra["field"] = field
+        blockers.append(
+            _ownership_closeout_blocker(
+                "ownership_closeout_invalid",
+                message,
+                path=str(closeout_file),
+                **extra,
+            )
+        )
+
+    if closeout.get("protocol_version") != PROTOCOL_VERSION:
+        add(
+            "executor closeout evidence protocol_version is invalid",
+            field="protocol_version",
+            expected_protocol=PROTOCOL_VERSION,
+            actual_protocol=closeout.get("protocol_version"),
+        )
+    for field in (
+        "reason",
+        "epoch_id",
+        "epoch_status",
+        "closeout_status",
+        "task_file",
+        "result_file",
+        "snapshot_after_file",
+        "executor_result_status",
+    ):
+        if not _closeout_bound_non_empty_string(closeout.get(field)):
+            add(f"executor closeout evidence {field} is required", field=field)
+    for field in ("task_checksum", "snapshot_after_checksum"):
+        if not _closeout_bound_checksum(closeout.get(field)):
+            add(f"executor closeout evidence {field} must be a sha256 checksum", field=field)
+    for field in ("valid", "executor_started", "pr_action_started", "operator_confirmation_required"):
+        if not isinstance(closeout.get(field), bool):
+            add(f"executor closeout evidence {field} must be a boolean", field=field)
+    if closeout.get("pr_action_started") is not False:
+        add("executor closeout evidence must not have started PR actions", field="pr_action_started")
+
+    blockers_value = closeout.get("blockers")
+    if not isinstance(blockers_value, list):
+        add("executor closeout evidence blockers must be a list", field="blockers")
+    else:
+        for index, blocker in enumerate(blockers_value):
+            if (
+                not isinstance(blocker, dict)
+                or not _closeout_bound_non_empty_string(blocker.get("code"))
+                or not _closeout_bound_non_empty_string(blocker.get("message"))
+            ):
+                add(
+                    "executor closeout evidence blockers must contain code and message strings",
+                    field=f"blockers[{index}]",
+                )
+
+    validation = closeout.get("validation")
+    if not isinstance(validation, dict):
+        add("executor closeout evidence validation must be a JSON object", field="validation")
+    else:
+        if validation.get("protocol_version") != PROTOCOL_VERSION:
+            add("executor closeout validation protocol_version is invalid", field="validation.protocol_version")
+        if validation.get("packet") != "executor_result_validation":
+            add("executor closeout validation packet is invalid", field="validation.packet")
+        if not isinstance(validation.get("valid"), bool):
+            add("executor closeout validation valid must be a boolean", field="validation.valid")
+        if not isinstance(validation.get("executor_started"), bool):
+            add("executor closeout validation executor_started must be a boolean", field="validation.executor_started")
+        for field in ("reason", "task_file", "result_file", "recommended_next_action"):
+            if not _closeout_bound_non_empty_string(validation.get(field)):
+                add(f"executor closeout validation {field} is required", field=f"validation.{field}")
+        if not _closeout_context_paths_match(closeout_file, closeout.get("task_file"), validation.get("task_file")):
+            add("executor closeout validation task_file does not match closeout task_file", field="validation.task_file")
+        if not _closeout_context_paths_match(closeout_file, closeout.get("result_file"), validation.get("result_file")):
+            add(
+                "executor closeout validation result_file does not match closeout result_file",
+                field="validation.result_file",
+            )
+
+    next_decision = closeout.get("next_decision")
+    if not isinstance(next_decision, dict):
+        add("executor closeout evidence next_decision must be a JSON object", field="next_decision")
+    else:
+        for field in ("decision", "recommended_next_action", "reason"):
+            if not _closeout_bound_non_empty_string(next_decision.get(field)):
+                add(f"executor closeout next_decision {field} is required", field=f"next_decision.{field}")
+
+    git_pr_plan = closeout.get("git_pr_plan")
+    if "git_pr_plan" not in closeout or (git_pr_plan is not None and not isinstance(git_pr_plan, dict)):
+        add("executor closeout evidence git_pr_plan must be null or a JSON object", field="git_pr_plan")
+    if not _closeout_bound_string_list(closeout.get("side_effects")):
+        add("executor closeout evidence side_effects must be a list of strings", field="side_effects")
+    if not _closeout_bound_string_list(closeout.get("limitations")):
+        add("executor closeout evidence limitations must be a list of strings", field="limitations")
+    else:
+        expected_limitations = {
+            "local_packets_only",
+            "does_not_start_executor",
+            "does_not_execute_git_commands",
+            "does_not_call_github",
+            "does_not_create_branch_commit_push_or_pr",
+            "does_not_merge_release_or_publish_packages",
+        }
+        missing_limitations = sorted(expected_limitations.difference(closeout["limitations"]))
+        if missing_limitations:
+            add(
+                "executor closeout evidence limitations are incomplete",
+                field="limitations",
+                missing_limitations=missing_limitations,
+            )
+
+    audit_record = closeout.get("audit_record")
+    if not isinstance(audit_record, dict):
+        add("completed executor closeout evidence must include an audit_record reference", field="audit_record")
+    else:
+        if audit_record.get("event") != "executor_epoch_closeout":
+            add("executor closeout audit_record event is invalid", field="audit_record.event")
+        for field in ("path", "recorded_at", "audit_chain_version"):
+            if not _closeout_bound_non_empty_string(audit_record.get(field)):
+                add(f"executor closeout audit_record {field} is required", field=f"audit_record.{field}")
+        if (
+            isinstance(audit_record.get("chain_index"), bool)
+            or not isinstance(audit_record.get("chain_index"), int)
+            or audit_record.get("chain_index") < 1
+        ):
+            add(
+                "executor closeout audit_record chain_index must be a positive integer",
+                field="audit_record.chain_index",
+            )
+        for field in ("previous_event_hash", "event_hash"):
+            if not _closeout_bound_checksum(audit_record.get(field)):
+                add(f"executor closeout audit_record {field} must be a sha256 checksum", field=f"audit_record.{field}")
+
+    if closeout.get("valid") is True and closeout.get("closeout_status") == "completed":
+        if closeout.get("epoch_status") != "COMPLETED":
+            add("completed executor closeout evidence must report COMPLETED epoch_status", field="epoch_status")
+        if closeout.get("executor_result_status") != "succeeded":
+            add("completed executor closeout evidence must report succeeded executor_result_status", field="executor_result_status")
+        if blockers_value != []:
+            add("completed executor closeout evidence must not contain blockers", field="blockers")
+        if isinstance(validation, dict) and validation.get("valid") is not True:
+            add("completed executor closeout evidence must include valid result validation", field="validation.valid")
+        if isinstance(next_decision, dict) and next_decision.get("decision") != "generate_git_pr_plan":
+            add("completed executor closeout evidence next_decision is invalid", field="next_decision.decision")
+        side_effects = closeout.get("side_effects")
+        if isinstance(side_effects, list):
+            for expected_effect in ("epoch_completed", "audit_record_appended"):
+                if expected_effect not in side_effects:
+                    add(
+                        "completed executor closeout evidence side_effects are incomplete",
+                        field="side_effects",
+                        missing_side_effect=expected_effect,
+                    )
+    return blockers
+
+
+def _closeout_nested_blocker(message: str, *, path: str | None = None, nested_blocker: dict[str, Any] | None = None, **extra: Any) -> dict[str, Any]:
+    blocker = _ownership_closeout_blocker(
+        "ownership_closeout_invalid",
+        message,
+        path=path,
+        **extra,
+    )
+    if nested_blocker is not None:
+        blocker["nested_blocker"] = nested_blocker
+    return blocker
+
+
+def _validate_closeout_bound_execution_reference(
+    root: Path,
+    closeout: dict[str, Any],
+    closeout_file: Path,
+    *,
+    task_packet: dict[str, Any],
+    result_evidence: dict[str, Any],
+    validation: dict[str, Any],
+    task_file: Path,
+    result_file: Path,
+    epoch_id: str | None,
+    closeout_status: str | None,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    run_record_ref = closeout.get("run_record")
+    real_invocation_ref = closeout.get("real_invocation")
+    execution_refs = [
+        ref
+        for ref in (run_record_ref, real_invocation_ref)
+        if isinstance(ref, dict) and _closeout_bound_non_empty_string(ref.get("path"))
+    ]
+    if len(execution_refs) != 1:
+        return [
+            _closeout_nested_blocker(
+                "completed executor closeout evidence must reference exactly one execution record",
+                path=str(closeout_file),
+                execution_reference_count=len(execution_refs),
+            )
+        ]
+
+    if isinstance(run_record_ref, dict) and _closeout_bound_non_empty_string(run_record_ref.get("path")):
+        run_record_path = _closeout_context_path(closeout_file, run_record_ref["path"])
+        run_record, run_blockers = load_closeout_run_record(root, run_record_path)
+        blockers.extend(
+            _closeout_nested_blocker(
+                "executor closeout run record is invalid",
+                path=str(run_record_path),
+                nested_blocker=blocker,
+            )
+            for blocker in run_blockers
+        )
+        if isinstance(run_record, dict):
+            blockers.extend(
+                _closeout_nested_blocker(
+                    "executor closeout run record is invalid",
+                    path=str(run_record_path),
+                    nested_blocker=blocker,
+                )
+                for blocker in validate_execution_run_record(
+                    run_record,
+                    task_packet=task_packet,
+                    result_evidence=result_evidence,
+                    validation_packet=validation,
+                    task_file=task_file,
+                    result_file=result_file,
+                    expected_closeout_status=closeout_status or "",
+                    epoch_id=epoch_id,
+                )
+            )
+            for field in ("run_id", "invocation_id", "closeout_status", "epoch_closeout_checksum"):
+                if run_record_ref.get(field) != run_record.get(field):
+                    blockers.append(
+                        _closeout_nested_blocker(
+                            f"executor closeout run_record.{field} does not match bound run record",
+                            path=str(run_record_path),
+                            expected=run_record_ref.get(field),
+                            actual=run_record.get(field),
+                            field=f"run_record.{field}",
+                        )
+                    )
+            if run_record_ref.get("after_checksum") != checksum_json(run_record):
+                blockers.append(
+                    _closeout_nested_blocker(
+                        "executor closeout run_record after_checksum does not match bound run record",
+                        path=str(run_record_path),
+                        expected_checksum=run_record_ref.get("after_checksum"),
+                        actual_checksum=checksum_json(run_record),
+                        field="run_record.after_checksum",
+                    )
+                )
+            if run_record.get("epoch_id") != epoch_id or run_record.get("epoch_status") != closeout.get("epoch_status"):
+                blockers.append(
+                    _closeout_nested_blocker(
+                        "executor closeout run record epoch anchors do not match closeout evidence",
+                        path=str(run_record_path),
+                        expected_epoch_id=epoch_id,
+                        actual_epoch_id=run_record.get("epoch_id"),
+                        expected_epoch_status=closeout.get("epoch_status"),
+                        actual_epoch_status=run_record.get("epoch_status"),
+                    )
+                )
+        return blockers
+
+    if isinstance(real_invocation_ref, dict) and _closeout_bound_non_empty_string(real_invocation_ref.get("path")):
+        invocation_path = _closeout_context_path(closeout_file, real_invocation_ref["path"])
+        invocation, invocation_blockers = load_closeout_real_invocation(root, invocation_path)
+        blockers.extend(
+            _closeout_nested_blocker(
+                "executor closeout real invocation record is invalid",
+                path=str(invocation_path),
+                nested_blocker=blocker,
+            )
+            for blocker in invocation_blockers
+        )
+        if isinstance(invocation, dict):
+            required_fields = {
+                "protocol_version": PROTOCOL_VERSION,
+                "schema_version": REAL_EXECUTOR_INVOCATION_SCHEMA_VERSION,
+                "packet": "real_executor_invocation",
+                "invocation_id": real_invocation_ref.get("invocation_id"),
+                "closeout_status": closeout_status,
+                "epoch_id": epoch_id,
+                "epoch_status": closeout.get("epoch_status"),
+                "task_file": str(task_file),
+                "result_evidence_checksum": checksum_json(result_evidence),
+                "validation_packet_checksum": checksum_json(validation),
+                "snapshot_after_checksum": closeout.get("snapshot_after_checksum"),
+                "epoch_closeout_checksum": real_invocation_ref.get("epoch_closeout_checksum"),
+            }
+            for field, expected in required_fields.items():
+                if invocation.get(field) != expected:
+                    blockers.append(
+                        _closeout_nested_blocker(
+                            f"executor closeout real invocation {field} does not match closeout evidence",
+                            path=str(invocation_path),
+                            expected=expected,
+                            actual=invocation.get(field),
+                            field=f"real_invocation.{field}",
+                        )
+                    )
+            if real_invocation_ref.get("after_checksum") != checksum_json(invocation):
+                blockers.append(
+                    _closeout_nested_blocker(
+                        "executor closeout real_invocation after_checksum does not match bound invocation record",
+                        path=str(invocation_path),
+                        expected_checksum=real_invocation_ref.get("after_checksum"),
+                        actual_checksum=checksum_json(invocation),
+                        field="real_invocation.after_checksum",
+                    )
+                )
+        return blockers
+
+    return blockers
+
+
+def _validate_closeout_bound_audit_reference(
+    root: Path,
+    closeout: dict[str, Any],
+    closeout_file: Path,
+    *,
+    task_packet: dict[str, Any],
+    result_evidence: dict[str, Any],
+    snapshot_after: dict[str, Any],
+) -> list[dict[str, Any]]:
+    audit_ref = closeout.get("audit_record")
+    if not isinstance(audit_ref, dict):
+        return []
+    audit_path_value = audit_ref.get("path")
+    if not _closeout_bound_non_empty_string(audit_path_value):
+        return []
+    audit_path = _closeout_context_path(closeout_file, audit_path_value)
+    expected_audit_path = audit_events_path(root)
+    blockers: list[dict[str, Any]] = []
+    if not _closeout_paths_match(audit_path, expected_audit_path):
+        blockers.append(
+            _closeout_nested_blocker(
+                "executor closeout audit_record path does not match runtime audit log",
+                path=str(audit_path),
+                expected_path=str(expected_audit_path),
+                actual_path=str(audit_path),
+            )
+        )
+    chain_index = audit_ref.get("chain_index")
+    if isinstance(chain_index, bool) or not isinstance(chain_index, int) or chain_index < 1:
+        blockers.append(
+            _closeout_nested_blocker(
+                "executor closeout audit_record chain_index must be a positive integer",
+                path=str(audit_path),
+                field="audit_record.chain_index",
+                actual_chain_index=chain_index,
+            )
+        )
+        return blockers
+    try:
+        lines = audit_path.read_text(encoding="utf-8").splitlines()
+        raw_line = lines[chain_index - 1]
+        record = json.loads(raw_line)
+    except (IndexError, OSError, ValueError, json.JSONDecodeError) as exc:
+        blockers.append(
+            _closeout_nested_blocker(
+                "executor closeout audit_record line could not be read",
+                path=str(audit_path),
+                line=chain_index,
+                error=str(exc),
+            )
+        )
+        return blockers
+    if not isinstance(record, dict):
+        blockers.append(
+            _closeout_nested_blocker(
+                "executor closeout audit_record line must be a JSON object",
+                path=str(audit_path),
+                line=chain_index,
+            )
+        )
+        return blockers
+
+    _event, audit_blockers = validate_audit_record(record, chain_index)
+    blockers.extend(
+        _closeout_nested_blocker(
+            "executor closeout audit_record line is invalid",
+            path=str(audit_path),
+            nested_blocker=blocker,
+            line=chain_index,
+        )
+        for blocker in audit_blockers
+    )
+    for field in ("event", "recorded_at", "audit_chain_version", "chain_index", "previous_event_hash", "event_hash"):
+        if record.get(field) != audit_ref.get(field):
+            blockers.append(
+                _closeout_nested_blocker(
+                    f"executor closeout audit_record {field} does not match referenced audit line",
+                    path=str(audit_path),
+                    line=chain_index,
+                    expected=audit_ref.get(field),
+                    actual=record.get(field),
+                    field=f"audit_record.{field}",
+                )
+            )
+    computed_event_hash = audit_event_hash(record)
+    if record.get("event_hash") != computed_event_hash:
+        blockers.append(
+            _closeout_nested_blocker(
+                "executor closeout audit_record event_hash does not match audit line payload",
+                path=str(audit_path),
+                line=chain_index,
+                expected_checksum=record.get("event_hash"),
+                actual_checksum=computed_event_hash,
+            )
+        )
+    closeout_payload = dict(closeout)
+    closeout_payload.pop("audit_record", None)
+    expected_checksums = {
+        "payload_checksum": checksum_json(closeout_payload),
+        "task_packet_checksum": checksum_json(task_packet),
+        "result_evidence_checksum": checksum_json(result_evidence),
+        "snapshot_after_checksum": checksum_epoch_json(snapshot_after),
+    }
+    for field, expected in expected_checksums.items():
+        if record.get(field) != expected:
+            blockers.append(
+                _closeout_nested_blocker(
+                    f"executor closeout audit_record {field} does not match closeout evidence",
+                    path=str(audit_path),
+                    line=chain_index,
+                    expected_checksum=expected,
+                    actual_checksum=record.get(field),
+                    field=f"audit_record.{field}",
+                )
+            )
+    return blockers
+
+
 def _load_closeout_bound_ownership_inputs(args: argparse.Namespace) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     closeout_file = Path(args.closeout_file)
     blockers: list[dict[str, Any]] = []
     closeout: Any = None
     task_packet: Any = None
     task_file: Path | None = None
+    result_evidence: Any = None
+    result_file: Path | None = None
+    snapshot_after: Any = None
+    snapshot_after_file: Path | None = None
     closeout_checksum = None
     try:
         closeout = read_json(closeout_file)
@@ -1779,6 +2240,7 @@ def _load_closeout_bound_ownership_inputs(args: argparse.Namespace) -> tuple[dic
                 path=str(closeout_file),
             )
         )
+    blockers.extend(_validate_closeout_bound_packet_shape(closeout, closeout_file))
     epoch_id = closeout.get("epoch_id") if isinstance(closeout.get("epoch_id"), str) else None
     if epoch_id is None:
         blockers.append(
@@ -1822,6 +2284,100 @@ def _load_closeout_bound_ownership_inputs(args: argparse.Namespace) -> tuple[dic
             )
         )
 
+    result_file_value = closeout.get("result_file")
+    if isinstance(result_file_value, str) and result_file_value.strip():
+        result_file = _closeout_context_path(closeout_file, result_file_value)
+        try:
+            result_evidence = read_json(result_file)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            blockers.append(
+                _ownership_closeout_blocker(
+                    "ownership_closeout_invalid",
+                    f"executor closeout result file could not be read: {exc}",
+                    path=str(result_file),
+                )
+            )
+
+    snapshot_after_file_value = closeout.get("snapshot_after_file")
+    if isinstance(snapshot_after_file_value, str) and snapshot_after_file_value.strip():
+        snapshot_after_file = _closeout_context_path(closeout_file, snapshot_after_file_value)
+        try:
+            snapshot_after = read_json(snapshot_after_file)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            blockers.append(
+                _ownership_closeout_blocker(
+                    "ownership_closeout_invalid",
+                    f"executor closeout snapshot-after file could not be read: {exc}",
+                    path=str(snapshot_after_file),
+                )
+            )
+
+    expected_executor_started = False
+    validation_invocation_id = None
+    validation_packet_checksum = None
+    allow_succeeded_dirty_worktree = False
+    run_record_ref = closeout.get("run_record")
+    real_invocation_ref = closeout.get("real_invocation")
+    if isinstance(run_record_ref, dict) and _closeout_bound_non_empty_string(run_record_ref.get("path")):
+        run_record_path = _closeout_context_path(closeout_file, run_record_ref["path"])
+        try:
+            run_record = read_json(run_record_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            blockers.append(
+                _ownership_closeout_blocker(
+                    "ownership_closeout_invalid",
+                    f"executor closeout run record could not be read: {exc}",
+                    path=str(run_record_path),
+                )
+            )
+        else:
+            if isinstance(run_record, dict):
+                expected_executor_started = run_record.get("executor_started") is True
+                if _closeout_bound_non_empty_string(run_record.get("invocation_id")):
+                    validation_invocation_id = run_record["invocation_id"]
+                if _closeout_bound_checksum(run_record.get("validation_packet_checksum")):
+                    validation_packet_checksum = run_record["validation_packet_checksum"]
+            else:
+                blockers.append(
+                    _ownership_closeout_blocker(
+                        "ownership_closeout_invalid",
+                        "executor closeout run record must be a JSON object",
+                        path=str(run_record_path),
+                    )
+                )
+    if (
+        validation_invocation_id is None
+        and isinstance(real_invocation_ref, dict)
+        and _closeout_bound_non_empty_string(real_invocation_ref.get("path"))
+    ):
+        real_invocation_path = _closeout_context_path(closeout_file, real_invocation_ref["path"])
+        try:
+            real_invocation = read_json(real_invocation_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            blockers.append(
+                _ownership_closeout_blocker(
+                    "ownership_closeout_invalid",
+                    f"executor closeout real invocation record could not be read: {exc}",
+                    path=str(real_invocation_path),
+                )
+            )
+        else:
+            if isinstance(real_invocation, dict):
+                expected_executor_started = real_invocation.get("executor_started") is True
+                allow_succeeded_dirty_worktree = real_invocation.get("side_effect_mode") == "materialized_changes"
+                if _closeout_bound_non_empty_string(real_invocation.get("invocation_id")):
+                    validation_invocation_id = real_invocation["invocation_id"]
+                if _closeout_bound_checksum(real_invocation.get("validation_packet_checksum")):
+                    validation_packet_checksum = real_invocation["validation_packet_checksum"]
+            else:
+                blockers.append(
+                    _ownership_closeout_blocker(
+                        "ownership_closeout_invalid",
+                        "executor closeout real invocation record must be a JSON object",
+                        path=str(real_invocation_path),
+                    )
+                )
+
     task_id = ""
     repo_name = ""
     branch = ""
@@ -1855,6 +2411,158 @@ def _load_closeout_bound_ownership_inputs(args: argparse.Namespace) -> tuple[dic
             repo_name = repo["name"]
             branch = repo["branch"]
             head = repo["head"]
+            if result_evidence is not None:
+                result_valid, result_reason = validate_executor_result_evidence(
+                    result_evidence,
+                    task_packet,
+                    allow_succeeded_dirty_worktree=allow_succeeded_dirty_worktree,
+                )
+                if not result_valid:
+                    blockers.append(
+                        _ownership_closeout_blocker(
+                            "ownership_closeout_invalid",
+                            f"executor closeout result evidence is invalid: {result_reason}",
+                            path=str(result_file) if result_file is not None else None,
+                        )
+                    )
+                elif closeout.get("executor_result_status") != result_evidence.get("status"):
+                    blockers.append(
+                        _ownership_closeout_blocker(
+                            "ownership_closeout_invalid",
+                            "executor closeout result status does not match result evidence",
+                            expected_status=closeout.get("executor_result_status"),
+                            actual_status=result_evidence.get("status"),
+                            path=str(result_file) if result_file is not None else None,
+                        )
+                    )
+                else:
+                    expected_validation = {
+                        "protocol_version": PROTOCOL_VERSION,
+                        "packet": "executor_result_validation",
+                        "valid": True,
+                        "reason": result_reason,
+                        "task_file": str(task_file) if task_file is not None else str(closeout.get("task_file")),
+                        "result_file": str(result_file) if result_file is not None else str(closeout.get("result_file")),
+                        "executor_started": expected_executor_started,
+                        "recommended_next_action": "record_executor_result",
+                    }
+                    if validation_invocation_id is not None:
+                        expected_validation["invocation_id"] = validation_invocation_id
+                    saved_validation = closeout.get("validation")
+                    if isinstance(saved_validation, dict) and saved_validation != expected_validation:
+                        blockers.append(
+                            _ownership_closeout_blocker(
+                                "ownership_closeout_invalid",
+                                "executor closeout validation does not match reread task and result evidence",
+                                expected_checksum=checksum_json(expected_validation),
+                                actual_checksum=checksum_json(saved_validation),
+                                path=str(closeout_file),
+                            )
+                        )
+                    if (
+                        isinstance(saved_validation, dict)
+                        and validation_packet_checksum is not None
+                        and checksum_json(saved_validation) != validation_packet_checksum
+                    ):
+                        blockers.append(
+                            _ownership_closeout_blocker(
+                                "ownership_closeout_invalid",
+                                "executor closeout validation checksum does not match bound run evidence",
+                                expected_checksum=validation_packet_checksum,
+                                actual_checksum=checksum_json(saved_validation),
+                                path=str(closeout_file),
+                            )
+                        )
+            validation = closeout.get("validation")
+            if closeout.get("executor_started") is not expected_executor_started:
+                blockers.append(
+                    _ownership_closeout_blocker(
+                        "ownership_closeout_invalid",
+                        "executor closeout executor_started does not match bound run evidence",
+                        expected_executor_started=expected_executor_started,
+                        actual_executor_started=closeout.get("executor_started"),
+                        path=str(closeout_file),
+                    )
+                )
+            if isinstance(validation, dict) and closeout.get("executor_started") != validation.get("executor_started"):
+                blockers.append(
+                    _ownership_closeout_blocker(
+                        "ownership_closeout_invalid",
+                        "executor closeout executor_started does not match validation",
+                        expected_executor_started=validation.get("executor_started"),
+                        actual_executor_started=closeout.get("executor_started"),
+                        path=str(closeout_file),
+                    )
+                )
+            next_decision = closeout.get("next_decision")
+            if isinstance(next_decision, dict):
+                expected_confirmation = next_decision.get("decision") in {"generate_git_pr_plan", "handoff"}
+                if closeout.get("operator_confirmation_required") is not expected_confirmation:
+                    blockers.append(
+                        _ownership_closeout_blocker(
+                            "ownership_closeout_invalid",
+                            "executor closeout operator_confirmation_required does not match next_decision",
+                            expected_operator_confirmation_required=expected_confirmation,
+                            actual_operator_confirmation_required=closeout.get("operator_confirmation_required"),
+                            path=str(closeout_file),
+                        )
+                    )
+            if snapshot_after is not None:
+                snapshot_valid, snapshot_reason = validate_repo_snapshot(
+                    snapshot_after,
+                    expected_repo=repo_name,
+                    expected_branch=branch,
+                )
+                if not snapshot_valid:
+                    blockers.append(
+                        _ownership_closeout_blocker(
+                            "ownership_closeout_invalid",
+                            f"executor closeout snapshot-after evidence is invalid: {snapshot_reason}",
+                            path=str(snapshot_after_file) if snapshot_after_file is not None else None,
+                        )
+                    )
+                elif closeout.get("snapshot_after_checksum") != checksum_epoch_json(snapshot_after):
+                    blockers.append(
+                        _ownership_closeout_blocker(
+                            "ownership_closeout_invalid",
+                            "executor closeout snapshot checksum does not match snapshot-after evidence",
+                            expected_checksum=closeout.get("snapshot_after_checksum"),
+                            actual_checksum=checksum_epoch_json(snapshot_after),
+                            path=str(snapshot_after_file) if snapshot_after_file is not None else None,
+                        )
+                    )
+            saved_validation = closeout.get("validation")
+            if (
+                isinstance(result_evidence, dict)
+                and isinstance(snapshot_after, dict)
+                and isinstance(saved_validation, dict)
+                and task_file is not None
+                and result_file is not None
+            ):
+                blockers.extend(
+                    _validate_closeout_bound_execution_reference(
+                        args.root,
+                        closeout,
+                        closeout_file,
+                        task_packet=task_packet,
+                        result_evidence=result_evidence,
+                        validation=saved_validation,
+                        task_file=task_file,
+                        result_file=result_file,
+                        epoch_id=epoch_id,
+                        closeout_status=executor_closeout_status if isinstance(executor_closeout_status, str) else None,
+                    )
+                )
+                blockers.extend(
+                    _validate_closeout_bound_audit_reference(
+                        args.root,
+                        closeout,
+                        closeout_file,
+                        task_packet=task_packet,
+                        result_evidence=result_evidence,
+                        snapshot_after=snapshot_after,
+                    )
+                )
             if args.candidate_id != task_id:
                 blockers.append(
                     _ownership_closeout_blocker(

@@ -442,9 +442,19 @@ before mutation.
 It consumes a saved `executor_epoch_closeout` packet and supplied closeout
 checksum before moving ownership. The packet must be valid, have
 `closeout_status: completed`, expose a readable valid `executor_task`, and
-match ownership id, task id, task checksum, candidate id, role, claimer, repo,
-branch, `HEAD`, epoch id, and closeout checksum before any active record moves
-to `closed`.
+match the supplied closeout checksum. The closeout-bound gate also rereads the
+referenced `result_file` and `snapshot_after_file`, revalidates the result
+packet, checks the saved snapshot checksum, and compares the saved validation
+and next-decision anchors with the reread task/result evidence. Completed
+closeout-bound completion also requires exactly one bound execution record
+(`run_record` or `real_invocation`) with matching path, invocation, status,
+epoch, validation, and evidence checksums, plus a referenced
+`executor_epoch_closeout` audit-log line whose hash-chain metadata and payload
+checksum match the supplied closeout packet. The closeout, task, result,
+snapshot, execution record, and audit evidence bind task id, task checksum,
+candidate id, repo, branch, `HEAD`, and epoch id; the command separately checks
+the targeted ownership id, role, claimer, and candidate id against the active
+ownership record before any active record moves to `closed`.
 Failed executor closeout evidence is deliberately not treated as an ownership
 failure by this mode; `fail-work-ownership` remains the explicit local failure
 path. Accepted closeout-bound mutations append replayable
