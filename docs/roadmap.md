@@ -1,9 +1,9 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-10
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
-Current unattended-operation confidence: 15%
+Last updated: 2026-06-11
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Current unattended-operation confidence: 20%
 
 This document tracks the practical path from the current Agentic Cadence
 protocol toolkit toward GitHub-native orchestration for autonomous software
@@ -81,17 +81,18 @@ executor invocation evidence, and local audit hash-chain integrity evidence. It 
 materialize a reviewed Git/PR plan only through exact target-bound operator
 approval, and it can verify handoff pickup state before a fresh session
 continues. It can also start one approved real executor command with local
-invocation evidence, but it still cannot independently implement code outside
-that approved command, bind real-run evidence into closeout and Git/PR
-planning, autonomously push branches, autonomously open pull requests, assign
-agent roles, resolve review feedback, launch fresh sessions, coordinate an
-agent pool, or continue in an unattended loop.
+invocation evidence and bind accepted real-run evidence into epoch closeout and
+dry-run Git/PR planning, but it still cannot independently implement code
+outside that approved command, autonomously push branches, autonomously open
+pull requests, assign agent roles, resolve review feedback, launch fresh
+sessions, coordinate an agent pool, or continue in an unattended loop.
 
-Current confidence for unattended continuous operation is 15%.
+Current confidence for unattended continuous operation is 20%.
 
 The rating is low because the safety primitives are real, but the central
 autonomous build loop is not implemented. The first real unattended run would
-stop at real-run closeout binding or PR/review integration.
+stop at autonomous Git/PR materialization, PR/review integration, or session
+orchestration.
 
 See `docs/autonomous-loop-readiness.md` for the direct readiness assessment.
 
@@ -235,7 +236,7 @@ The following capabilities are not implemented as of this baseline:
 - agent pool, role registry, and role-aware permission model;
 - task decomposition across Planning, Architecture, Builder, Reviewer, QA,
   Documentation, Release, and Handoff agents;
-- real-run closeout binding or named executor adapter integration;
+- named executor adapter integration;
 - autonomous code modification;
 - autonomous branch, dirty-worktree commit, push, and PR creation workflow;
 - continuous or write-side GitHub PR, check, comment, and review-thread synchronization;
@@ -350,8 +351,8 @@ evidence, is implemented in the current tree. Task 19, authenticated operator
 approval identity evidence, is implemented in the current tree. Task 20,
 `executor-invocation-plan` real executor invocation plan and approval binding,
 is implemented in the current tree. Task 21, controlled real executor
-invocation runner, is implemented in the current branch. Task 22, real
-executor run closeout binding, is the next bounded implementation slice.
+invocation runner, is implemented in `main` via PR #89. Task 22, real executor
+run closeout binding, is implemented in the current branch.
 
 ## Roadmap
 
@@ -441,8 +442,11 @@ evidence for a target checksum and purpose, append
 epoch, PR, merge, release, or package side effects.
 `run-controlled-executor-fixture` can write a local `execution-run.v1` record,
 and `closeout-executor-result --run-record-file` can bind that record to local
-closeout evidence. Cadence does not yet hand work to a real executor, run
-execution, or drive the full loop from election through execution closeout in
+closeout evidence. `invoke-real-executor` can run one approved local executor
+process and write `real-executor-invocation.v1` evidence, and
+`closeout-executor-result --real-invocation-file` can bind accepted real-run
+evidence to epoch closeout and dry-run Git/PR planning. Cadence does not yet
+drive the full host/session loop from election through execution closeout in
 one command.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/candidates.py`,
@@ -456,10 +460,10 @@ loop-decision audit records, approved execution-start success, stale branch or
 HEAD blockers, dirty worktree blockers, non-`DRIVE` brake blockers, active
 epoch blockers, malformed active-epoch state blockers, malformed task packets,
 missing or mismatched approval, missing repo paths, missing/mismatched/duplicate
-work ownership blockers, ownership binding rollback on audit failure, and
-replayable `execution_start_decision` audit evidence. Full slice completion still needs
-real executor success/failure, validation collection, and one-command
-completion/failure paths.
+work ownership blockers, ownership binding rollback on audit failure,
+controlled real executor invocation evidence, real-invocation closeout binding,
+and replayable audit evidence. Full autonomous completion still needs
+host/session orchestration and one-command completion/failure paths.
 
 Codex can implement directly if the command remains generic and does not push
 or merge.
@@ -479,8 +483,11 @@ validating snapshot shape/readiness, requiring non-empty repo identity,
 absolute cwd/path consistency, branch/head consistency, and rejecting dirty,
 low-confidence, relative-path, or mismatched snapshots. The controlled fixture
 path now writes local `execution-run.v1` records, and closeout can reject
-supplied run-record mismatches before epoch mutation. No real executor applies
-code changes yet.
+supplied run-record mismatches before epoch mutation. Controlled
+`invoke-real-executor` can now run one approved local process in
+evidence-only mode or verified materialized-change mode, but named host
+adapters, autonomous GitHub writes, merge authority, release authority, and
+package publication remain outside this slice.
 
 Likely files: `docs/adapters.md`, `examples/adapter-template`,
 `examples/adapter-contract-runner`, `codex_cadence/model.py`,
@@ -518,8 +525,11 @@ chain-invalid records. Executor task packets now carry command allow/deny policy
 into result validation, and `validate-executor-result` prevents non-`stopped`
 completion evidence from being recorded after an active brake stop. There is
 now local branch policy for dry-run Git/PR planning and local audit hash-chain
-evidence plus local authenticated approval identity verification, but still no
-real executor start authority consuming those gates.
+evidence plus local authenticated approval identity verification. Controlled
+`invoke-real-executor` consumes those gates for one approved local process, and
+real-invocation closeout now requires an audit-anchored invocation checksum;
+host/session orchestration, autonomous Git/PR flow, merge, release, and package
+publication remain future work.
 
 Likely files: `codex_cadence/model.py`, `codex_cadence/store.py`,
 `codex_cadence/cli.py`, tests, docs.
@@ -548,9 +558,10 @@ reviewed packet plus exact target-bound HMAC operator approval, recheck current
 branch/head/base branch, branch policy, complete local-diff materialized
 evidence, PR body preflight, remote push URL, and optional PR update target,
 then create the branch without switching the checkout, push with Git hook
-verification disabled for that push, and create/update a PR. Cadence still does
-not create dirty-worktree commits, auto-merge, release, publish packages, or
-invoke a real executor.
+verification disabled for that push, and create/update a PR. Controlled
+`invoke-real-executor` and `closeout-executor-result --real-invocation-file`
+evidence exist, but Cadence still does not create dirty-worktree commits,
+auto-merge, release, publish packages, or run autonomous Git/PR actions.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/pr_readiness.py`,
 scripts, tests, docs.
@@ -664,13 +675,13 @@ mismatch, invalid role/claimer, closed evidence, close/fail move, malformed
 records, repo/branch/task mismatch fixtures, and audit replay of ownership
 mutation evidence.
 
-Follow-up: use `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` for the next
-bounded implementation sequence. Resume-continuation ownership enforcement,
-role-readiness evidence, real-executor invocation readiness planning, and audit
-hash-chain integrity are implemented in the current tree. Authenticated
-approval identity, exact real-executor invocation planning, controlled real
-executor invocation, distributed locking, agent pools, GitHub issue assignment,
-merge, release, and package publication remain future work.
+Follow-up: Tasks 18-22 from
+`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` are implemented through local
+audit hash-chain integrity, authenticated approval identity, exact
+real-executor invocation planning, controlled real executor invocation, and
+real-invocation closeout binding. Named host/session orchestration, autonomous
+Git/PR and review-response flow, distributed locking, agent pools, GitHub issue
+assignment, merge, release, and package publication remain future work.
 
 ## Long-Term Goals
 

@@ -1,8 +1,8 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-06-10
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Last updated: 2026-06-11
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -41,8 +41,8 @@ operator-approved Git/PR materialization, read-only resume verification,
 read-only review-response planning, local work ownership status, validation,
 claim, closeout, and failure packets, a governed execution-start gate,
 read-only real executor invocation planning, and controlled one-command real
-executor invocation evidence. It still does not add autonomous live GitHub
-synchronization, closeout binding from real executor runs, dirty-worktree commit
+executor invocation evidence with real-invocation closeout binding. It still
+does not add autonomous live GitHub synchronization, dirty-worktree commit
 materialization, automatic resume orchestration, agent-role assignment,
 agent-pool coordination, distributed ownership locks, or enforced review
 separation.
@@ -67,6 +67,9 @@ bind task, invocation, result, validation, and repo anchors; and
 `closeout-executor-result --run-record-file` can reject mismatched or partial
 run records before epoch mutation, update accepted records with closeout
 status, complete or fail terminal epochs, and emit the next dry-run decision.
+`closeout-executor-result --real-invocation-file` can bind accepted real
+invocation evidence to result validation, active ownership revalidation, epoch
+closeout, and dry-run Git/PR planning without GitHub writes.
 `git-pr-plan` can produce
 a dry-run Git/PR transition plan for separate review, and `git-pr-materialize`
 can create a branch from the
@@ -96,11 +99,12 @@ repo, branch, and `HEAD` before recommending governed execution start.
 PR JSON, and saved review-thread evidence to verify allowed ownership roles and
 builder/reviewer separation without GitHub writes. Controlled real executor
 invocation now exists for one approved local command with
-`real-executor-invocation.v1` evidence. Closeout binding from those run records,
-autonomous branch/commit/push or PR creation, automatic session launch,
+`real-executor-invocation.v1` evidence, and closeout can bind accepted real
+invocation records to epoch decisions and dry-run Git/PR planning. Autonomous
+branch/commit/push or PR creation, automatic session launch,
 distributed work ownership, role assignment, and continuous loop orchestration
 remain missing.
-Current unattended-operation confidence remains 15%.
+Current unattended-operation confidence is 20%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
 complete, Tasks 8-12 from
@@ -112,9 +116,9 @@ added read-only real-executor invocation readiness. Task 18 from
 integrity evidence before any real executor process start. Task 19 adds
 authenticated operator approval identity evidence. Task 20 added read-only real
 executor invocation plan and approval binding in `main` via PR #88.
-Task 21: controlled real executor invocation adds the runner in the current
-branch. The next bounded implementation slice is Task 22: real executor run
-closeout binding.
+Task 21 added controlled real executor invocation in `main` via PR #89.
+Task 22: real executor run closeout binding is implemented in the current
+branch.
 
 ## Vision Framing
 
@@ -197,8 +201,8 @@ Current evidence:
   other tasks remain, complete or fail terminal epochs, append closeout audit,
   and choose continue, stop, handoff, validate-more-evidence, or dry-run Git/PR
   planning as the next decision;
-- no command yet invokes a real executor or runs the full governed loop tick
-  end to end.
+- controlled real executor invocation and real-invocation closeout binding now
+  exist, but no command runs the full governed loop tick end to end.
 
 Why it matters: this moves Cadence from advisor to controller without requiring
 full autonomy.
@@ -654,7 +658,7 @@ paid review, and permission changes require operator approval.
 
 ## Expected Confidence Impact
 
-The current confidence rating is 15%.
+The current confidence rating is 20%.
 
 If all five slices are complete with evidence, expected confidence for
 low-risk constrained operation with pre-approved unattended ticks is 45% to

@@ -1451,9 +1451,11 @@ def invoke_real_executor(
         },
         "result_file": str(expected_result_path),
         "result_present": expected_result_path.exists(),
+        "result_evidence_checksum": checksum_json(result_evidence) if isinstance(result_evidence, dict) else None,
         "stdout_log": str(stdout_log),
         "stderr_log": str(stderr_log),
         "record_file": str(record_file),
+        "closeout_status": "pending",
         "repository_before": repository_before,
         "repository_after": repository_after,
         "rollback": {

@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-10
+Last updated: 2026-06-11
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,51 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-11 - Bind real executor invocation closeout
+
+Summary:
+- Added `closeout-executor-result --real-invocation-file`, which validates
+  canonical `real-executor-invocation.v1` evidence against result validation,
+  plan/readiness checksums, active epoch id, active ownership evidence, repo
+  before/after anchors, materialized-change evidence, and audit-chain
+  continuity before epoch mutation.
+- `invoke-real-executor` now appends a `real_executor_invocation_record` audit
+  event whose checksum anchors the just-written invocation JSON before
+  closeout can trust its binding fields.
+- Accepted real invocation closeout updates the invocation record with closeout
+  status and checksum anchors, can complete the governed epoch, and can embed a
+  dry-run Git/PR plan without committing, pushing, opening PRs, or writing
+  GitHub state.
+
+Completed slices:
+- Task 22: Bind Real Executor Run Evidence To Closeout And Git/PR Planning.
+
+Confidence change:
+- Previous: 15%
+- New: 20%
+- Reason: Cadence can now bind accepted real-run evidence into local closeout
+  and dry-run planning, but autonomous GitHub writes, review response writes,
+  session orchestration, named host adapters, merge, release, and package
+  publication remain out of scope.
+
+Evidence:
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_real_executor_invocation_record_is_accepted_by_closeout_and_git_pr_plan -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_real_executor_invocation_closeout_blocks_result_file_tampering tests.test_cadence.CadenceCliTests.test_real_executor_invocation_closeout_blocks_mutable_record_checksum_tampering tests.test_cadence.CadenceCliTests.test_real_executor_invocation_closeout_blocks_false_snapshot_after_dirty_state tests.test_cadence.CadenceCliTests.test_real_executor_invocation_closeout_blocks_unreported_dirty_files tests.test_cadence.CadenceCliTests.test_real_executor_invocation_closeout_blocks_tampered_repo_transition -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_controlled_executor_fixture_run_record_is_accepted_by_closeout tests.test_cadence.CadenceCliTests.test_closeout_executor_result_completes_epoch_and_embeds_dry_run_git_pr_plan -v`
+- `python -m py_compile codex_cadence\cli.py codex_cadence\executor_contract.py tests\test_cadence.py`
+- `python -m ruff check codex_cadence\cli.py codex_cadence\executor_contract.py tests\test_cadence.py`
+
+New risks or blockers:
+- No autonomous dirty-worktree commit path, GitHub PR/review writes, named host
+  adapter, merge, release, package publication, agent scheduling, or
+  distributed work ownership exists.
+
+Docs updated:
+- `docs/protocol.md`, `docs/autonomous-loop-readiness.md`,
+  `docs/implementation-slices.md`, `docs/progress-log.md`,
+  `docs/roadmap.md`, `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`,
+  `docs/session-handoff.md`.
 
 ## 2026-06-10 - Add controlled real executor invocation runner
 

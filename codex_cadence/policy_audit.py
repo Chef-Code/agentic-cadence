@@ -41,6 +41,7 @@ AUDIT_CHAIN_REPAIR_BLOCKERS = {
     "audit_chain_index_duplicate",
 }
 EXECUTION_RUN_AUDIT_ACTIONS = {"record_execution_run", "update_execution_run_closeout"}
+REAL_EXECUTOR_INVOCATION_AUDIT_ACTIONS = {"record_real_executor_invocation"}
 
 
 def checksum_json(data: Any) -> str:
@@ -267,6 +268,42 @@ def validate_execution_run_audit_record(record: dict[str, Any], line: int) -> li
     if record.get("closeout_status") not in (None, "pending"):
         blockers.extend(required_string(record, "epoch_id", line))
         blockers.extend(required_checksum_present(record, "epoch_closeout_checksum", line))
+    return blockers
+
+
+def validate_real_executor_invocation_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate local real-executor invocation audit-record fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in (
+        "action",
+        "reason",
+        "invocation_id",
+        "side_effect_mode",
+        "invocation_record_file",
+        "closeout_status",
+        "plan_file",
+        "result_file",
+    ):
+        blockers.extend(required_string(record, field, line))
+    for field in ("valid", "executor_started"):
+        blockers.extend(required_bool(record, field, line))
+    for field in (
+        "payload_checksum",
+        "invocation_record_checksum",
+        "plan_checksum",
+        "plan_target_checksum",
+    ):
+        blockers.extend(required_checksum_present(record, field, line))
+    if record.get("valid") is True:
+        blockers.extend(required_checksum_present(record, "result_evidence_checksum", line))
+    if record.get("action") not in REAL_EXECUTOR_INVOCATION_AUDIT_ACTIONS:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_real_executor_invocation_action_invalid",
+                "real_executor_invocation_record action is invalid",
+                line,
+            )
+        )
     return blockers
 
 
@@ -571,6 +608,8 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
         blockers.extend(validate_executor_fixture_invocation_audit_record(record, line))
     elif event == "execution_run_record":
         blockers.extend(validate_execution_run_audit_record(record, line))
+    elif event == "real_executor_invocation_record":
+        blockers.extend(validate_real_executor_invocation_audit_record(record, line))
     elif event == "executor_result_validation":
         blockers.extend(validate_executor_result_audit_record(record, line))
     elif event == "executor_epoch_closeout":
@@ -981,6 +1020,41 @@ def execution_run_record_audit_record(
         "result_evidence_checksum": run_record.get("result_evidence_checksum"),
         "validation_packet_checksum": run_record.get("validation_packet_checksum"),
         "epoch_closeout_checksum": run_record.get("epoch_closeout_checksum"),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def real_executor_invocation_audit_record(
+    invocation_record: dict[str, Any],
+    *,
+    invocation_record_file: str,
+    action: str,
+    reason: str,
+) -> dict[str, Any]:
+    record = {
+        "event": "real_executor_invocation_record",
+        "action": action,
+        "reason": reason,
+        "invocation_id": invocation_record.get("invocation_id"),
+        "side_effect_mode": invocation_record.get("side_effect_mode"),
+        "invocation_record_file": invocation_record_file,
+        "closeout_status": invocation_record.get("closeout_status"),
+        "plan_file": invocation_record.get("plan_file"),
+        "result_file": invocation_record.get("result_file"),
+        "valid": invocation_record.get("valid"),
+        "executor_started": invocation_record.get("executor_started"),
+        "payload_checksum": checksum_json(
+            {
+                "action": action,
+                "reason": reason,
+                "invocation_record_file": invocation_record_file,
+                "invocation_record_checksum": checksum_json(invocation_record),
+            }
+        ),
+        "invocation_record_checksum": checksum_json(invocation_record),
+        "plan_checksum": invocation_record.get("plan_checksum"),
+        "plan_target_checksum": invocation_record.get("plan_target_checksum"),
+        "result_evidence_checksum": invocation_record.get("result_evidence_checksum"),
     }
     return {key: value for key, value in record.items() if value is not None}
 

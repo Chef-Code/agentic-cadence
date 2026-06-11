@@ -40,8 +40,10 @@ local generic executor task and result evidence, read-only
 operator-approved `git-pr-materialize`, reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
-`claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, and a
-fixture-only controlled executor runner for tests and examples.
+`claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, a
+fixture-only controlled executor runner for tests and examples, controlled
+`invoke-real-executor` process-start evidence, and real-invocation closeout binding
+through `closeout-executor-result --real-invocation-file`.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -716,6 +718,21 @@ Stable blockers include `plan_packet_stale`, `plan_not_invocable`,
 Immediate pre-start rechecks can also forward `executor-invocation-plan`
 blockers such as `repo_head_mismatch`, `active_epoch_missing`, and
 `executor_command_denied`.
+
+After result evidence is written, `closeout-executor-result
+--real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can
+bind an accepted real invocation record to result validation, active ownership
+revalidation, epoch closeout, and dry-run Git/PR planning. Closeout rechecks
+the invocation-time result evidence checksum, the audit-anchored invocation
+record checksum (`real_executor_invocation_record` /
+`invocation_record_checksum`), and snapshot-after repo state before epoch
+mutation, then updates the local invocation record with closeout checksum anchors. It still
+does not commit, push, call GitHub, open PRs, merge, release, publish packages,
+assign roles, or claim distributed locks. Stable closeout blockers include
+`invocation_record_missing`, `invocation_checksum_mismatch`,
+`invocation_epoch_mismatch`, `invocation_result_missing`,
+`invocation_result_invalid`, `materialized_change_mismatch`,
+`audit_chain_mismatch`, and `ownership_closeout_blocked`.
 
 ## GitHub Evidence Sync
 
