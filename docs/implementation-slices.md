@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-11
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 18-22 complete in main, and the Tasks 23-27 roadmap current tree
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 23-27 complete in main, and the Tasks 28-32 roadmap current branch
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -131,9 +131,10 @@ authenticated operator approval identity evidence. Task 20 added read-only real
 executor invocation plan and approval binding in `main` via PR #88.
 Task 21 added controlled real executor invocation in `main` via PR #89.
 Task 22 added real executor run closeout binding in `main` via PR #90.
-Task 23 adds controlled single-tick run packet evidence in the current tree.
-`docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` is the current roadmap after
-Task 22.
+Task 23 added controlled single-tick run packet evidence in `main` via PR #92.
+Tasks 23-27 from `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` are
+complete in `main` via PRs #92-#96. The current roadmap after Task 27 is
+`docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`.
 
 ## Vision Framing
 

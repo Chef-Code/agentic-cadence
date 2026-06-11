@@ -282,18 +282,37 @@ Do not:
 
 ## Real Executor Invocation Needs Approval And Audit Hardening
 
+Status: fulfilled
+Fulfilled By: `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`
+Kind: risk
+Workflow: Controlled executor loop governance
+Time Saved: high
+Risk: high
+Pain: `executor-invocation-readiness.v1` proved local readiness before process start, and the project needed tamper-evident audit context, authenticated operator approval evidence, exact invocation planning, controlled invocation, and closeout binding before a real executor could run under governance.
+Signals:
+- PR #84 added read-only `executor-invocation-readiness.v1` evidence with `executor_started: false`.
+- PRs #86-#90 implemented the Tasks 18-22 sequence: audit hash-chain integrity, authenticated operator approval identity, real executor invocation planning, controlled real executor invocation, and real-run closeout binding.
+- Tasks 23-27 later composed that real-run evidence into controlled tick, ownership, Git/PR planning, PR freshness, and review-follow-up candidate evidence without granting autonomous write authority.
+- The current hard stop moved to approved dirty commit/PR materialization and review-response writes.
+Do not:
+- Do not start a real executor before approval, audit-chain, readiness, ownership, epoch, policy, result-path, timeout, and rollback evidence are defined.
+- Do not treat a real executor as authority to commit, push, open PRs, merge, release, publish packages, assign roles, or schedule agents.
+- Do not skip exact invocation planning and jump from readiness evidence directly to process start.
+
+## Approved Write-Side Bridges Remain Plan-Only
+
 Status: active
 Kind: risk
 Workflow: Controlled executor loop governance
 Time Saved: high
 Risk: high
-Pain: `executor-invocation-readiness.v1` can prove local readiness, but starting a real executor still needs tamper-evident audit context, authenticated operator approval evidence, and an exact invocation plan before any process launch.
+Pain: Cadence can close out real executor evidence, plan dirty-worktree materialization, preserve saved PR freshness, and turn saved review feedback into candidates, but dirty commits, PR updates, and review-response writes still need exact operator-approved bridges before a controlled loop can progress after closeout.
 Signals:
-- PR #84 added read-only `executor-invocation-readiness.v1` evidence with `executor_started: false`.
-- Task 18 adds local audit hash-chain integrity evidence for new audit appends and read-only replay.
-- `docs/autonomous-loop-readiness.md` still calls out missing real executor invocation and missing authenticated approval identity.
-- `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` sequences audit hash-chain evidence, operator approval identity, invocation planning, controlled real executor invocation, and real-run closeout binding.
+- Tasks 23-27 from `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` are complete in `main` via PRs #92-#96.
+- `git-pr-dirty-materialization-plan.v1` is still a reviewed plan and does not stage, commit, push, or create a PR.
+- `review-response-plan.v1` and review-follow-up candidates remain read-only and do not update PR bodies, post comments, or resolve threads.
+- `docs/autonomous-loop-readiness.md` identifies autonomous Git/PR materialization and review-response writes as the first hard stop after real-run closeout.
 Do not:
-- Do not start a real executor before approval, audit-chain, readiness, ownership, epoch, policy, result-path, timeout, and rollback evidence are defined.
-- Do not treat a real executor as authority to commit, push, open PRs, merge, release, publish packages, assign roles, or schedule agents.
-- Do not skip exact invocation planning and jump from readiness evidence directly to process start.
+- Do not make dirty-worktree commits, PR writes, or review-response writes without exact target-bound operator approval and audit evidence.
+- Do not merge dirty-worktree materialization, PR updates, review-thread resolution, paid review, merge, release, or package publication into one slice.
+- Do not treat refreshed PR or review evidence as permission to keep looping continuously.

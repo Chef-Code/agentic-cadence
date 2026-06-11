@@ -2291,7 +2291,7 @@ Risk: medium
             candidate = business_memory_candidates[0]
             self.assertEqual(
                 candidate["evidence"]["heading"],
-                "Real Executor Invocation Needs Approval And Audit Hardening",
+                "Approved Write-Side Bridges Remain Plan-Only",
             )
             self.assertEqual(candidate["classification"], "risk")
             self.assertEqual(candidate["classification_confidence"], "high")
