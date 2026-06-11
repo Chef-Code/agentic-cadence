@@ -1659,7 +1659,7 @@ def _dirty_commit_materialization_summary(
         )
         files = dirty_packet.get("materialized_files")
         if isinstance(files, list):
-            summary["materialized_files"] = [str(path).replace("\\", "/") for path in files if _non_empty_string(path)]
+            summary["materialized_files"] = [str(file_path).replace("\\", "/") for file_path in files if _non_empty_string(file_path)]
     return summary or None
 
 
