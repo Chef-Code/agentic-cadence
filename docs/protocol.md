@@ -701,11 +701,19 @@ It emits and writes a `real-executor-invocation.v1` packet shaped as:
   "invocation_id": "real-executor-invocation-...",
   "side_effect_mode": "evidence_only",
   "invocation_cwd": "/repo",
-  "plan_file": "/repo/executor-invocation-plan.json",
+  "plan_file": "/absolute/path/executor-invocation-plan.json",
   "plan_checksum": "sha256:...",
-  "command": {"command": "python ...", "cwd": "/repo", "timeout_seconds": 300},
+  "plan_target_checksum": "sha256:...",
+  "rechecked_plan_checksum": "sha256:...",
+  "command": {
+    "command": "python ...",
+    "cwd": "/repo",
+    "timeout_seconds": 300,
+    "expected_result_path": "<runtime-root>/executor-results/executor-result.json"
+  },
   "process": {"exit_code": 0, "timed_out": false},
   "result_file": "<runtime-root>/executor-results/executor-result.json",
+  "result_evidence_checksum": "sha256:...",
   "stdout_log": "<runtime-root>/real-executor-invocations/<id>.stdout.log",
   "stderr_log": "<runtime-root>/real-executor-invocations/<id>.stderr.log",
   "record_file": "<runtime-root>/real-executor-invocations/<id>.json",
@@ -729,6 +737,7 @@ It emits and writes a `real-executor-invocation.v1` packet shaped as:
 The command starts exactly one approved command with `shell=False`, explicit
 cwd, bounded environment allowlist, approved timeout, and stdout/stderr capture
 to runtime-owned log files. It records process exit status, timeout status,
+`command.expected_result_path`, `result_file`, `result_evidence_checksum`,
 before/after repository snapshots including `local_branch_refs`, rollback
 evidence checksum, result path, output log paths, invocation cwd, absolute plan
 file path, plan checksum, and the audit-chain head used by the immediate
@@ -768,9 +777,11 @@ The command also appends a `real_executor_invocation_record` audit event whose
 pre-run audit-chain head.
 If that post-run audit append fails, the command emits a structured blocked
 payload with `real_executor_invocation_audit_append_failed`, rewrites the local
-record as blocked when possible, and attempts a
-`record_real_executor_invocation_blocked` audit event so callers do not retry a
-real process that already ran.
+record as blocked when possible, reports `invocation_record_write_failed` if
+the blocked rewrite fails, and attempts a
+`record_real_executor_invocation_blocked` audit event only after the blocked
+payload rewrite succeeds so callers do not retry a real process that already
+ran.
 
 `real-executor-invocation.v1` records can be supplied to
 `closeout-executor-result --real-invocation-file` after result evidence is
@@ -793,7 +804,8 @@ blockers include `invocation_record_missing`, `invocation_checksum_mismatch`,
 `invocation_epoch_mismatch`, `invocation_result_missing`,
 `invocation_result_invalid`, `materialized_change_mismatch`,
 `audit_chain_mismatch`, `ownership_closeout_blocked`,
-`real_invocation_audit_append_failed`, and `closeout_audit_append_failed`;
+`run_record_audit_append_failed`, `real_invocation_audit_append_failed`, and
+`closeout_audit_append_failed`;
 blocked real-run closeout recommends `inspect_real_run_blockers`, while
 post-mutation audit append failures recommend `recover_closeout_audit`.
 
@@ -1074,9 +1086,15 @@ and snapshot-after path/checksum anchors for fresh closeout decisions. When a
 supplied run record is accepted and closeout succeeds, the command updates that
 local run record with the closeout status, epoch id/status, and closeout core
 checksum, then appends an `execution_run_record` audit event for the update.
+If that update audit append fails after epoch closeout, the command restores
+the pre-closeout run record when possible, emits `run_record_audit_append_failed`,
+`execution_run_audit_append_failed`, and either
+`execution_run_record_update_rolled_back` or
+`execution_run_record_update_unreconciled`, and recommends
+`recover_closeout_audit`.
 When a supplied real invocation is accepted and closeout succeeds, the command
-updates that invocation record with closeout status and checksum anchors but
-does not append a separate invocation audit record.
+updates that invocation record with closeout status and checksum anchors, then
+appends an `update_real_executor_invocation_closeout` audit event.
 Already-terminal reruns report `closeout_status: already_closed` without
 appending another closeout audit record. It must not start an executor, create a
 branch, commit, push, call GitHub, open a pull request, merge, release, or

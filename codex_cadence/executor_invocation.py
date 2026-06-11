@@ -1238,6 +1238,19 @@ def _materialized_change_evidence(
     }, []
 
 
+def _materialized_change_evidence_not_applicable(
+    materialized_evidence: dict[str, Any],
+    *,
+    limitation: str,
+) -> dict[str, Any]:
+    return {
+        "status": "absent",
+        "source": materialized_evidence.get("source"),
+        "files": [],
+        "limitations": [limitation],
+    }
+
+
 def invoke_real_executor(
     *,
     root: Path,
@@ -1478,6 +1491,13 @@ def invoke_real_executor(
         dirty_files=dirty_files,
         observed_head=repository_after.get("head"),
     )
+    materialized_files = materialized_evidence.get("files")
+    materialized_files_present = isinstance(materialized_files, list) and any(
+        isinstance(path, str) and path.strip() for path in materialized_files
+    )
+    materialized_files_verified = (
+        materialized_evidence.get("status") == "verified" and materialized_files_present
+    )
     if head_changed or branch_changed or branch_refs_changed:
         process_blockers.append(
             invocation_blocker(
@@ -1497,16 +1517,64 @@ def invoke_real_executor(
                 "evidence_only real executor invocation left the target repository dirty",
             )
         )
-    elif side_effect_mode == "materialized_changes" and dirty_after:
-        if not materialized_blockers and dirty_files is not None:
-            fingerprint, fingerprint_blocker = _dirty_worktree_fingerprint(cwd, dirty_files)
-            if fingerprint_blocker is not None:
-                process_blockers.append(fingerprint_blocker)
-            elif fingerprint is not None:
-                materialized_evidence = dict(materialized_evidence)
-                materialized_evidence["worktree_fingerprint_schema_version"] = DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION
-                materialized_evidence["worktree_fingerprint_checksum"] = checksum_json(fingerprint)
+        if materialized_files_present:
+            materialized_evidence = _materialized_change_evidence_not_applicable(
+                materialized_evidence,
+                limitation="materialized_change_evidence_not_applicable_in_evidence_only_mode",
+            )
+    elif side_effect_mode == "materialized_changes":
+        if dirty_after:
+            if not materialized_blockers and dirty_files is not None:
+                fingerprint, fingerprint_blocker = _dirty_worktree_fingerprint(cwd, dirty_files)
+                if fingerprint_blocker is not None:
+                    process_blockers.append(fingerprint_blocker)
+                elif fingerprint is not None:
+                    materialized_evidence = dict(materialized_evidence)
+                    materialized_evidence["worktree_fingerprint_schema_version"] = (
+                        DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION
+                    )
+                    materialized_evidence["worktree_fingerprint_checksum"] = checksum_json(fingerprint)
+            process_blockers.extend(materialized_blockers)
+        elif materialized_files_verified:
+            process_blockers.append(
+                invocation_blocker(
+                    "materialized_change_evidence_missing",
+                    "verified materialized change evidence requires a dirty local worktree",
+                )
+            )
+            materialized_evidence = _materialized_change_evidence_not_applicable(
+                materialized_evidence,
+                limitation="materialized_change_evidence_requires_dirty_worktree",
+            )
+        elif materialized_files_present and materialized_blockers:
+            process_blockers.extend(materialized_blockers)
+            materialized_evidence = _materialized_change_evidence_not_applicable(
+                materialized_evidence,
+                limitation="materialized_change_evidence_requires_dirty_worktree",
+            )
+    elif materialized_files_verified:
+        process_blockers.append(
+            invocation_blocker(
+                "unexpected_repo_modification",
+                "materialized change evidence is only accepted in materialized_changes mode with a dirty local worktree",
+            )
+        )
+        materialized_evidence = _materialized_change_evidence_not_applicable(
+            materialized_evidence,
+            limitation="materialized_change_evidence_not_applicable_in_evidence_only_mode",
+        )
+    elif materialized_files_present and materialized_blockers:
+        process_blockers.append(
+            invocation_blocker(
+                "unexpected_repo_modification",
+                "materialized change evidence is only accepted in materialized_changes mode with a dirty local worktree",
+            )
+        )
         process_blockers.extend(materialized_blockers)
+        materialized_evidence = _materialized_change_evidence_not_applicable(
+            materialized_evidence,
+            limitation="materialized_change_evidence_not_applicable_in_evidence_only_mode",
+        )
 
     valid = not process_blockers
     payload: dict[str, Any] = {

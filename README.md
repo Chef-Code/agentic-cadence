@@ -696,11 +696,14 @@ agentic-cadence --root <runtime-root> invoke-real-executor --plan-file executor-
 The command starts exactly one approved command with `shell=False`, explicit
 cwd, bounded environment allowlist, timeout, and stdout/stderr logs. It writes a
 `real-executor-invocation.v1` record under
-`<runtime-root>/real-executor-invocations/` with the invocation id, plan
-checksum, invocation cwd, absolute plan file path, process exit and timeout
-status, before/after repository snapshots including `local_branch_refs`,
-rollback evidence checksum, expected result path, output log paths, and
-audit-chain head.
+`<runtime-root>/real-executor-invocations/` with the invocation id,
+`plan_checksum`, `plan_target_checksum`, `rechecked_plan_checksum`,
+`result_evidence_checksum`, `invocation_cwd`, `plan_file` normalized to an
+absolute path, process exit and timeout status, `repository_before` and
+`repository_after` snapshots including `local_branch_refs`,
+`rollback.checksum`, `result_file` and `command.expected_result_path`,
+`stdout_log`, `stderr_log`, and
+`audit_chain.chain_head`.
 
 `--side-effect-mode evidence_only` requires the target repository to remain
 clean after invocation. `--side-effect-mode materialized_changes` allows a
@@ -740,7 +743,9 @@ packages, assign roles, or claim distributed locks. Stable closeout blockers inc
 `invocation_epoch_mismatch`, `invocation_result_missing`,
 `invocation_result_invalid`, `materialized_change_mismatch`,
 `audit_chain_mismatch`, `ownership_closeout_blocked`,
-`real_invocation_audit_append_failed`, and `closeout_audit_append_failed`.
+`run_record_audit_append_failed`, `real_invocation_audit_append_failed`, and
+`closeout_audit_append_failed`; post-mutation audit append failures recommend
+`recover_closeout_audit`.
 
 ## GitHub Evidence Sync
 

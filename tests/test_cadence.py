@@ -520,7 +520,12 @@ if config.get("delete_git"):
 if config.get("write_result", True):
     started_at = now()
     ended_at = now()
-    files_changed = ["README.md"] if config.get("touch_repo") else []
+    configured_files_changed = config.get("files_changed")
+    files_changed = (
+        configured_files_changed
+        if isinstance(configured_files_changed, list)
+        else ["README.md"] if config.get("touch_repo") else []
+    )
     commands_run = [
         {
             "command": config["command"],
@@ -4317,6 +4322,7 @@ class CadenceCliTests(unittest.TestCase):
         stdout_text=None,
         stderr_text=None,
         invalid_output=False,
+        files_changed=None,
         task_mutator=None,
         readiness_task_file_arg=None,
         readiness_cwd=None,
@@ -4338,6 +4344,7 @@ class CadenceCliTests(unittest.TestCase):
             "create_branch": create_branch,
             "delete_branch": delete_branch,
             "exit_code": 0,
+            "files_changed": files_changed,
             "include_materialized_change_evidence": include_materialized_change_evidence,
             "invalid_output": invalid_output,
             "materialized_change_evidence": materialized_change_evidence,
@@ -4825,6 +4832,50 @@ class CadenceCliTests(unittest.TestCase):
             expected_record.pop("audit_record_error", None)
             self.assertEqual(json.loads(record_path.read_text(encoding="utf-8")), expected_record)
 
+    def test_invoke_real_executor_does_not_audit_blocked_record_when_rewrite_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            _inputs, plan_path, _plan = self.write_real_executor_invocation_plan(tmp, repo)
+            emitted = []
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "plan_file": str(plan_path),
+                    "approval_secret": OPERATOR_APPROVAL_SECRET,
+                    "approval_secret_env": "CADENCE_OPERATOR_APPROVAL_SECRET",
+                    "side_effect_mode": "evidence_only",
+                    "allow_repo_local_root": False,
+                    "max_plan_age_minutes": 15,
+                },
+            )()
+
+            with mock.patch.object(
+                cadence_cli,
+                "append_audit_record",
+                side_effect=OSError("disk full"),
+            ) as append_mock:
+                with mock.patch.object(cadence_cli, "atomic_write_json", side_effect=OSError("write denied")):
+                    with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                        code = cadence_cli.invoke_real_executor_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertEqual(append_mock.call_count, 1)
+            self.assertEqual(len(emitted), 1)
+            output = emitted[0]
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["closeout_status"], "blocked")
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertIn("audit_append_failed", blocker_codes)
+            self.assertIn("invocation_record_write_failed", blocker_codes)
+            self.assertNotIn("audit_record_error", output)
+            persisted_record = json.loads(Path(output["record_file"]).read_text(encoding="utf-8"))
+            self.assertEqual(persisted_record["closeout_status"], "pending")
+            self.assertTrue(persisted_record["valid"])
+
     def test_invoke_real_executor_blocks_stale_or_uninvocable_plan_before_start(self):
         cases = [
             (
@@ -5092,6 +5143,17 @@ class CadenceCliTests(unittest.TestCase):
                 None,
             ),
             (
+                "evidence-only-clean-claimed-materialized-evidence",
+                {
+                    "include_materialized_change_evidence": True,
+                    "files_changed": ["README.md"],
+                },
+                "evidence_only",
+                "unexpected_repo_modification",
+                False,
+                None,
+            ),
+            (
                 "materialized-missing-evidence",
                 {"touch_repo": True},
                 "materialized_changes",
@@ -5128,6 +5190,17 @@ class CadenceCliTests(unittest.TestCase):
                 None,
             ),
             (
+                "materialized-clean-claimed-materialized-evidence",
+                {
+                    "include_materialized_change_evidence": True,
+                    "files_changed": ["README.md"],
+                },
+                "materialized_changes",
+                "materialized_change_evidence_missing",
+                False,
+                None,
+            ),
+            (
                 "post-process-repo-missing",
                 {"delete_git": True},
                 "evidence_only",
@@ -5153,6 +5226,11 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertTrue(output["executor_started"])
                     self.assertEqual(output["repository_after"]["dirty_worktree"], expect_dirty)
                     self.assertTrue(Path(output["record_file"]).exists())
+                    persisted_invocation = json.loads(Path(output["record_file"]).read_text(encoding="utf-8"))
+                    self.assertEqual(
+                        persisted_invocation["materialized_change_evidence"],
+                        output["materialized_change_evidence"],
+                    )
                     if expected_logs is not None:
                         self.assertEqual(Path(output["stdout_log"]).read_text(encoding="utf-8"), expected_logs["stdout"])
                         self.assertEqual(Path(output["stderr_log"]).read_text(encoding="utf-8"), expected_logs["stderr"])
@@ -5163,6 +5241,13 @@ class CadenceCliTests(unittest.TestCase):
                     else:
                         self.assertFalse(output["valid"])
                         self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    if name in {
+                        "evidence-only-dirty",
+                        "evidence-only-clean-claimed-materialized-evidence",
+                        "materialized-clean-claimed-materialized-evidence",
+                    }:
+                        self.assertEqual(output["materialized_change_evidence"]["status"], "absent")
+                        self.assertEqual(output["materialized_change_evidence"]["files"], [])
 
     def test_invoke_real_executor_blocks_hidden_branch_ref_changes(self):
         cases = (
@@ -9519,6 +9604,94 @@ class CadenceCliTests(unittest.TestCase):
             self.assertNotIn("execution_run_record_updated", rerun_output["side_effects"])
             self.assertEqual(checksum_json(json.loads(run_record_path.read_text(encoding="utf-8"))), checksum_json(updated_record))
             self.assertEqual(len(audit_records(tmp)), 5)
+
+    def test_run_record_closeout_blocks_structurally_when_update_audit_append_fails(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            (
+                task_path,
+                result_path,
+                snapshot_after_path,
+                task_packet,
+                result_evidence,
+                _snapshot_after,
+            ) = write_closeout_packets(
+                tmp,
+                repo,
+            )
+            write_active_epoch(
+                tmp,
+                "epoch-closeout-run-record-audit-failure",
+                task_packet["snapshot"],
+                tasks=[task_packet["task"]],
+            )
+            run_record_path, run_record = write_closeout_run_record(
+                tmp,
+                task_path=task_path,
+                result_path=result_path,
+                task_packet=task_packet,
+                result_evidence=result_evidence,
+            )
+            records_before_closeout = audit_records(tmp)
+            emitted = []
+            args = type(
+                "Args",
+                (),
+                {
+                    "root": Path(tmp),
+                    "epoch_id": "epoch-closeout-run-record-audit-failure",
+                    "task_file": str(task_path),
+                    "result_file": str(result_path),
+                    "snapshot_after_file": str(snapshot_after_path),
+                    "run_record_file": str(run_record_path),
+                    "real_invocation_file": None,
+                    "allow_repo_local_root": False,
+                    "cwd": repo,
+                    "required_body_section": [],
+                    "emit_git_pr_plan": False,
+                    "pr_template_file": None,
+                    "policy_file": None,
+                    "base_branch": "main",
+                    "branch_prefix": "codex/",
+                },
+            )()
+            original_append = cadence_cli.append_audit_record
+
+            def fail_run_record_update(root, record):
+                if (
+                    record.get("event") == "execution_run_record"
+                    and record.get("action") == "update_execution_run_closeout"
+                ):
+                    raise OSError("disk full")
+                return original_append(root, record)
+
+            with mock.patch.object(cadence_cli, "append_audit_record", side_effect=fail_run_record_update):
+                with mock.patch.object(cadence_cli, "emit", lambda payload: emitted.append(payload)):
+                    code = cadence_cli.closeout_executor_result_command(args)
+
+            self.assertEqual(code, 2)
+            self.assertEqual(len(emitted), 1)
+            output = emitted[0]
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["closeout_status"], "completed")
+            self.assertEqual(output["epoch_status"], "COMPLETED")
+            self.assertIn("run_record_audit_append_failed", {blocker["code"] for blocker in output["blockers"]})
+            self.assertIn("epoch_completed", output["side_effects"])
+            self.assertIn("execution_run_audit_append_failed", output["side_effects"])
+            self.assertIn("execution_run_record_update_rolled_back", output["side_effects"])
+            self.assertNotIn("execution_run_record_updated", output["side_effects"])
+            self.assertNotIn("execution_run_audit_appended", output["side_effects"])
+            self.assertNotIn("audit_record_appended", output["side_effects"])
+            self.assertEqual(json.loads(run_record_path.read_text(encoding="utf-8")), run_record)
+            self.assertTrue(output["run_record"]["rollback_record_restored"])
+            self.assertEqual(output["run_record"]["after_checksum"], checksum_json(run_record))
+            self.assertEqual(output["next_decision"]["recommended_next_action"], "recover_closeout_audit")
+            self.assertEqual(audit_records(tmp), records_before_closeout)
+            self.assertTrue(
+                (Path(tmp) / "epochs" / "completed" / "epoch-closeout-run-record-audit-failure.json").exists()
+            )
 
     def test_closeout_executor_result_requires_exactly_one_evidence_artifact(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

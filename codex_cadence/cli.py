@@ -2977,15 +2977,71 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
             }
         )
         atomic_write_json(run_record_file, updated_run_record)
-        run_record_audit = append_audit_record(
-            args.root,
-            execution_run_record_audit_record(
-                updated_run_record,
-                run_record_file=str(run_record_file),
-                action="update_execution_run_closeout",
-                reason="execution run closeout status updated",
-            ),
-        )
+        try:
+            run_record_audit = append_audit_record(
+                args.root,
+                execution_run_record_audit_record(
+                    updated_run_record,
+                    run_record_file=str(run_record_file),
+                    action="update_execution_run_closeout",
+                    reason="execution run closeout status updated",
+                ),
+            )
+        except Exception as exc:
+            rollback_restored = False
+            rollback_error = None
+            try:
+                atomic_write_json(run_record_file, run_record)
+                rollback_restored = True
+            except Exception as rollback_exc:
+                rollback_error = str(rollback_exc)
+            current_run_record = run_record if rollback_restored else updated_run_record
+            payload["valid"] = False
+            payload["reason"] = "execution run closeout audit record could not be written"
+            payload["blockers"] = [
+                *payload["blockers"],
+                {
+                    "code": "run_record_audit_append_failed",
+                    "message": "execution run closeout audit record could not be written",
+                    "error": str(exc),
+                },
+            ]
+            payload["next_decision"] = {
+                "decision": "operator_review",
+                "recommended_next_action": "recover_closeout_audit",
+                "reason": "execution run closeout audit append failed after epoch closeout",
+            }
+            payload["operator_confirmation_required"] = True
+            payload["side_effects"] = [
+                effect
+                for effect in payload["side_effects"]
+                if effect
+                not in {
+                    "execution_run_record_updated",
+                    "execution_run_audit_appended",
+                    "audit_record_appended",
+                }
+            ]
+            payload["side_effects"].append("execution_run_audit_append_failed")
+            rollback_side_effect = (
+                "execution_run_record_update_rolled_back"
+                if rollback_restored
+                else "execution_run_record_update_unreconciled"
+            )
+            payload["side_effects"].append(rollback_side_effect)
+            payload["run_record"].update(
+                {
+                    "after_checksum": checksum_json(current_run_record),
+                    "closeout_status": current_run_record.get("closeout_status"),
+                    "epoch_closeout_checksum": epoch_closeout_checksum,
+                    "audit_record_error": str(exc),
+                    "rollback_record_restored": rollback_restored,
+                }
+            )
+            if rollback_error is not None:
+                payload["run_record"]["rollback_error"] = rollback_error
+            emit(payload)
+            return 2
         payload["run_record"].update(
             {
                 "after_checksum": checksum_json(updated_run_record),
@@ -3265,8 +3321,10 @@ def invoke_real_executor_command(args: argparse.Namespace) -> int:
             payload["recommended_next_action"] = "inspect_runtime_state"
             payload["reason"] = "real executor invocation blocked because audit record append failed"
             payload.setdefault("side_effects", []).append("real_executor_invocation_audit_append_failed")
+            blocked_record_written = False
             try:
                 atomic_write_json(Path(record_file), payload)
+                blocked_record_written = True
             except Exception as write_exc:
                 payload["blockers"].append(
                     {
@@ -3275,18 +3333,19 @@ def invoke_real_executor_command(args: argparse.Namespace) -> int:
                         "error": str(write_exc),
                     }
                 )
-            try:
-                append_audit_record(
-                    args.root,
-                    real_executor_invocation_audit_record(
-                        payload,
-                        invocation_record_file=record_file,
-                        action="record_real_executor_invocation_blocked",
-                        reason="real executor invocation blocked due to audit write failure",
-                    ),
-                )
-            except Exception as blocked_audit_exc:
-                payload["audit_record_error"] = str(blocked_audit_exc)
+            if blocked_record_written:
+                try:
+                    append_audit_record(
+                        args.root,
+                        real_executor_invocation_audit_record(
+                            payload,
+                            invocation_record_file=record_file,
+                            action="record_real_executor_invocation_blocked",
+                            reason="real executor invocation blocked due to audit write failure",
+                        ),
+                    )
+                except Exception as blocked_audit_exc:
+                    payload["audit_record_error"] = str(blocked_audit_exc)
             emit(payload)
             return 2
     emit(payload)
