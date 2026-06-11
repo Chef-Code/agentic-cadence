@@ -109,6 +109,10 @@ runtime can do these things end-to-end:
   replayable audit records;
 - explicitly fetch read-only live GitHub PR metadata, status checks, and review
   threads into saved local JSON evidence files through `github-evidence-sync`;
+- convert saved current actionable review-thread comments into bounded
+  `review_finding` execution candidates with source PR identity, thread/comment
+  provenance, saved freshness labels, target files, duplicate same-target
+  grouping, and fail-closed handling for incomplete thread evidence;
 - size tasks and enforce pickup policy;
 - start, check, complete, or fail bounded epochs;
 - prepare a signed handoff packet and clean-square evidence;
@@ -431,6 +435,9 @@ Reasoning:
   caller-asserted `live_like` evidence, and read-only live GitHub evidence can
   be captured into saved PR and review-thread files for later deterministic
   readiness, candidate-discovery, and review-response planning commands.
+- Saved actionable review-thread evidence can now seed bounded follow-up
+  candidates without calling GitHub, posting comments, resolving threads, or
+  bypassing approval, ownership, or executor gates.
 - Named host/session orchestration, autonomous PR automation, live review
   response writes, continuous loop runner, merge governance, release
   governance, and package-publication governance are not built.

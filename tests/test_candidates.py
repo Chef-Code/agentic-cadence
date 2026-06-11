@@ -50,12 +50,25 @@ def file_sha256(path):
 
 
 def review_threads_payload(nodes):
+    normalized_nodes = []
+    for node in nodes:
+        if not isinstance(node, dict):
+            normalized_nodes.append(node)
+            continue
+        normalized = dict(node)
+        comments = normalized.get("comments")
+        if isinstance(comments, dict) and "pageInfo" not in comments:
+            comments = dict(comments)
+            comments["pageInfo"] = {"hasNextPage": False, "endCursor": None}
+            normalized["comments"] = comments
+        normalized_nodes.append(normalized)
     return {
         "data": {
             "repository": {
                 "pullRequest": {
                     "reviewThreads": {
-                        "nodes": nodes,
+                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        "nodes": normalized_nodes,
                     }
                 }
             }
@@ -971,6 +984,182 @@ class CandidateDiscoveryBudgetTests(unittest.TestCase):
             self.assertEqual(result["sources"]["review_findings"], 1)
             self.assertEqual(result["elected_next"][0]["source"], "review_finding")
 
+    def test_review_threads_file_preserves_pr_identity_freshness_and_target_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            init_repo(tmp)
+            threads = Path(tmp, "review-threads.json")
+            threads.write_text(
+                json.dumps(
+                    {
+                        "github_evidence": {
+                            "source": "gh_graphql_review_threads",
+                            "freshness": "saved_input",
+                            "live": False,
+                            "stale": False,
+                            "captured_at": "2026-06-11T10:00:00Z",
+                        },
+                        "data": {
+                            "repository": {
+                                "pullRequest": {
+                                    "number": 95,
+                                    "url": "https://github.com/Chef-Code/agentic-cadence/pull/95",
+                                    "reviewThreads": {
+                                        "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                        "nodes": [
+                                            {
+                                                "id": "thread-1",
+                                                "isResolved": False,
+                                                "isOutdated": False,
+                                                "path": "codex_cadence/candidates.py",
+                                                "line": 448,
+                                                "comments": {
+                                                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                                                    "nodes": [
+                                                        {
+                                                            "id": "comment-1",
+                                                            "body": "Validate PR thread payloads before creating candidates.",
+                                                            "author": {"login": "coderabbitai"},
+                                                            "outdated": False,
+                                                        }
+                                                    ],
+                                                },
+                                            }
+                                        ],
+                                    },
+                                }
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = discover_candidates(cwd=Path(tmp), intent="merge_readiness", review_threads_file=threads)
+
+            review_candidates = [item for item in result["candidates"] if item["source"] == "review_finding"]
+            self.assertEqual(len(review_candidates), 1)
+            candidate = review_candidates[0]
+            self.assertEqual(candidate["evidence"]["source"], "review_thread")
+            self.assertEqual(candidate["evidence"]["source_pr_number"], 95)
+            self.assertEqual(candidate["evidence"]["source_pr_url"], "https://github.com/Chef-Code/agentic-cadence/pull/95")
+            self.assertEqual(candidate["evidence"]["thread_id"], "thread-1")
+            self.assertEqual(candidate["evidence"]["comment_id"], "comment-1")
+            self.assertEqual(candidate["evidence"]["author"], "coderabbitai")
+            self.assertEqual(candidate["evidence"]["freshness"], "saved_input")
+            self.assertFalse(candidate["evidence"]["live"])
+            self.assertFalse(candidate["evidence"]["stale"])
+            self.assertEqual(candidate["evidence"]["captured_at"], "2026-06-11T10:00:00Z")
+            self.assertEqual(candidate["evidence"]["suggested_target_files"], ["codex_cadence/candidates.py"])
+            self.assertEqual(candidate["evidence"]["target_files"], ["codex_cadence/candidates.py"])
+
+    def test_incomplete_review_threads_file_blocks_candidate_discovery(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            init_repo(tmp)
+            threads = Path(tmp, "review-threads.json")
+            threads.write_text(
+                json.dumps(
+                    review_threads_payload(
+                        [
+                            {
+                                "id": "thread-1",
+                                "isResolved": False,
+                                "isOutdated": False,
+                                "path": "codex_cadence/candidates.py",
+                                "line": 448,
+                                "comments": {
+                                    "pageInfo": {"hasNextPage": True, "endCursor": "cursor-1"},
+                                    "nodes": [
+                                        {
+                                            "id": "comment-1",
+                                            "body": "Validate PR thread pagination before creating candidates.",
+                                            "outdated": False,
+                                        }
+                                    ],
+                                },
+                            }
+                        ]
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            result = discover_candidates(cwd=Path(tmp), intent="merge_readiness", review_threads_file=threads)
+
+            self.assertEqual(result["candidates"], [])
+            self.assertEqual(result["elected_next"], [])
+            self.assertFalse(result["valid"])
+            self.assertEqual(result["recommended_next_action"], "refresh_review_thread_evidence")
+            self.assertIn(
+                "review thread 1 comments payload is incomplete; more comments are available",
+                result["warnings"],
+            )
+            self.assertEqual(
+                {blocker["code"] for blocker in result["blockers"]},
+                {"review_thread_evidence_incomplete"},
+            )
+
+    def test_review_threads_file_blocks_missing_comment_nodes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            init_repo(tmp)
+            threads = Path(tmp, "review-threads.json")
+            threads.write_text(
+                json.dumps(review_threads_payload([
+                    {
+                        "id": "thread-1",
+                        "isResolved": False,
+                        "isOutdated": False,
+                        "path": "codex_cadence/candidates.py",
+                        "line": 448,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        },
+                    },
+                ])),
+                encoding="utf-8",
+            )
+
+            result = discover_candidates(cwd=Path(tmp), intent="merge_readiness", review_threads_file=threads)
+
+            self.assertEqual(result["candidates"], [])
+            self.assertFalse(result["valid"])
+            self.assertEqual(result["recommended_next_action"], "refresh_review_thread_evidence")
+            self.assertIn("review thread 1 comments.nodes must be a list", result["warnings"])
+            self.assertEqual(
+                {blocker["code"] for blocker in result["blockers"]},
+                {"review_thread_evidence_incomplete"},
+            )
+
+    def test_review_threads_file_blocks_non_object_comment_nodes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            init_repo(tmp)
+            threads = Path(tmp, "review-threads.json")
+            threads.write_text(
+                json.dumps(review_threads_payload([
+                    {
+                        "id": "thread-1",
+                        "isResolved": False,
+                        "isOutdated": False,
+                        "path": "codex_cadence/candidates.py",
+                        "line": 448,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": ["not-a-comment"],
+                        },
+                    },
+                ])),
+                encoding="utf-8",
+            )
+
+            result = discover_candidates(cwd=Path(tmp), intent="merge_readiness", review_threads_file=threads)
+
+            self.assertEqual(result["candidates"], [])
+            self.assertFalse(result["valid"])
+            self.assertIn("review thread 1 comment 1 is not an object", result["warnings"])
+            self.assertEqual(
+                {blocker["code"] for blocker in result["blockers"]},
+                {"review_thread_evidence_incomplete"},
+            )
+
     def test_review_threads_file_rejects_non_repo_relative_paths(self):
         with tempfile.TemporaryDirectory() as tmp:
             init_repo(tmp)
@@ -1159,6 +1348,49 @@ class CandidateDiscoveryBudgetTests(unittest.TestCase):
                     "review-finding:comment-1:codex_cadence/candidates.py:40",
                     "review-finding:comment-2:codex_cadence/candidates.py:41",
                 },
+            )
+
+    def test_review_threads_file_groups_duplicate_comments_by_follow_up_target(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            init_repo(tmp)
+            threads = Path(tmp, "review-threads.json")
+            threads.write_text(
+                json.dumps(review_threads_payload([
+                    {
+                        "id": "thread-1",
+                        "isResolved": False,
+                        "isOutdated": False,
+                        "path": "codex_cadence/candidates.py",
+                        "line": 40,
+                        "comments": {
+                            "nodes": [
+                                {
+                                    "id": "comment-1",
+                                    "body": "Validate duplicate review follow-up targets.",
+                                    "outdated": False,
+                                },
+                                {
+                                    "id": "comment-2",
+                                    "body": "Also validate duplicate review follow-up targets.",
+                                    "outdated": False,
+                                },
+                            ]
+                        },
+                    },
+                ])),
+                encoding="utf-8",
+            )
+
+            result = discover_candidates(cwd=Path(tmp), intent="merge_readiness", review_threads_file=threads)
+
+            review_candidates = [item for item in result["candidates"] if item["source"] == "review_finding"]
+            self.assertEqual(len(review_candidates), 1)
+            candidate = review_candidates[0]
+            self.assertEqual(candidate["evidence"]["occurrences"], 2)
+            self.assertEqual(candidate["evidence"]["comment_ids"], ["comment-1", "comment-2"])
+            self.assertEqual(
+                candidate["fingerprint"],
+                "review-finding:thread-1:codex_cadence/candidates.py:40",
             )
 
     def test_review_threads_file_ids_continue_after_skipped_normalized_findings(self):

@@ -288,6 +288,31 @@ class PrReadinessTests(unittest.TestCase):
         self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
         self.assertEqual({blocker["code"] for blocker in packet["blockers"]}, {"review_thread_evidence_invalid"})
 
+    def test_review_response_plan_blocks_review_threads_missing_comment_nodes(self):
+        packet = evaluate_review_response_plan(
+            base_pr(),
+            review_threads=review_threads_payload(
+                [
+                    {
+                        "id": "thread-1",
+                        "path": "codex_cadence/cli.py",
+                        "line": 42,
+                        "isResolved": False,
+                        "isOutdated": False,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                        },
+                    }
+                ]
+            ),
+        )
+
+        self.assertFalse(packet["valid"])
+        self.assertFalse(packet["plan_ready"])
+        self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
+        self.assertEqual({blocker["code"] for blocker in packet["blockers"]}, {"review_thread_evidence_invalid"})
+        self.assertIn("review thread 1 comments.nodes must be a list", packet["blockers"][0]["message"])
+
     def test_cli_review_response_plan_reads_saved_files_without_side_effects(self):
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)

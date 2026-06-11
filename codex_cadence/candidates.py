@@ -11,11 +11,12 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .epochs import elect_candidates
-from .github_evidence import pr_check_failure_findings
+from .github_evidence import pr_check_failure_findings, review_thread_findings_from_payload
 
 DISCOVERY_INTENTS = ("merge_readiness", "repo_health", "product_evolution", "hybrid")
 DISCOVERY_MODES = ("off", "local", "expanded")
 PROPOSAL_ALLOWANCES = ("none", "surface", "elect")
+DISCOVERY_BLOCKED_ACTION = "refresh_review_thread_evidence"
 DEPENDENCY_FAN_OUT_VALUES = ("low", "medium", "high")
 RUN_SIGNAL_VALUES = ("low", "medium", "high")
 BUSINESS_VALUE_VALUES = ("low", "medium", "high")
@@ -255,6 +256,12 @@ def candidate_record(
     if extra:
         candidate.update(extra)
     return candidate
+
+
+def candidate_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
 
 
 def run_git(cwd: Path, *args: str) -> str:
@@ -569,10 +576,31 @@ def review_finding_candidate_items(
             evidence["line"] = finding["line"]
         if body:
             evidence["body"] = str(body)
-        for optional_field in ("thread_id", "author", "source"):
-            if finding.get(optional_field):
-                evidence[optional_field] = str(finding[optional_field])
+        for optional_field in (
+            "thread_id",
+            "comment_id",
+            "author",
+            "source",
+            "evidence_source",
+            "source_pr_number",
+            "source_pr_url",
+            "freshness",
+            "live",
+            "stale",
+            "captured_at",
+            "original_evidence_source",
+            "limitations",
+        ):
+            if optional_field in finding and finding[optional_field] is not None:
+                evidence[optional_field] = finding[optional_field]
+        if finding.get("source") == "review_thread":
+            comment_id = str(evidence.get("comment_id") or finding_id)
+            evidence["comment_id"] = comment_id
+            evidence["comment_ids"] = [comment_id]
+            evidence["suggested_target_files"] = [normalized_file]
+            evidence["target_files"] = [normalized_file]
         finding_line = str(finding.get("line", "unknown-line"))
+        fingerprint_id = finding.get("fingerprint_id") or finding_id
         candidates.append(
             candidate_record(
                 candidate_id=f"review-finding-{index:03d}",
@@ -584,7 +612,7 @@ def review_finding_candidate_items(
                 uncertainty="low",
                 dependency_fan_out="low",
                 source="review_finding",
-                fingerprint=f"review-finding:{finding_id}:{normalized_file}:{finding_line}",
+                fingerprint=f"review-finding:{fingerprint_id}:{normalized_file}:{finding_line}",
                 risk_surface=[risk_surface_for_path(normalized_file)],
                 evidence=evidence,
             )
@@ -617,6 +645,46 @@ def review_threads_nodes(payload: Any) -> list[Any] | None:
     if isinstance(current, list):
         return current
     return None
+
+
+def review_threads_pull_request(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    current: Any = payload
+    for key in ("data", "repository", "pullRequest"):
+        if not isinstance(current, dict) or key not in current:
+            return {}
+        current = current[key]
+    return current if isinstance(current, dict) else {}
+
+
+def saved_review_threads_evidence(payload: Any) -> dict[str, Any]:
+    metadata = payload.get("github_evidence") if isinstance(payload, dict) else None
+    if not isinstance(metadata, dict):
+        metadata = {}
+    stale = metadata.get("stale") is True or metadata.get("freshness") == "stale"
+    freshness = "stale" if stale else "saved_input"
+    evidence: dict[str, Any] = {
+        "evidence_source": "saved_review_threads_json",
+        "freshness": freshness,
+        "live": False,
+        "stale": stale,
+        "limitations": [
+            "does_not_call_github",
+            "depends_on_saved_review_threads",
+        ],
+    }
+    if isinstance(metadata.get("source"), str) and metadata["source"].strip():
+        evidence["original_evidence_source"] = metadata["source"]
+    if isinstance(metadata.get("captured_at"), str) and metadata["captured_at"].strip():
+        evidence["captured_at"] = metadata["captured_at"]
+    return evidence
+
+
+def review_target_key_part(value: Any) -> Any:
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return json.dumps(value, sort_keys=True, default=str)
 
 
 def review_thread_comment_nodes(thread: dict[str, Any]) -> list[Any]:
@@ -652,50 +720,46 @@ def review_thread_findings(path: Path) -> tuple[list[dict[str, Any]], list[str]]
     except json.JSONDecodeError as exc:
         return [], [f"could not parse review threads file {path}: {exc}"]
 
-    nodes = review_threads_nodes(payload)
-    if nodes is None:
-        return [], [f"review threads file {path} must contain a GitHub reviewThreads JSON object"]
+    findings, warnings = review_thread_findings_from_payload(payload)
+    if warnings:
+        return [], warnings
 
-    warnings = []
-    findings: list[dict[str, Any]] = []
-    for index, thread in enumerate(nodes, start=1):
-        if not isinstance(thread, dict):
-            warnings.append(f"review thread {index} is not an object")
+    pull_request = review_threads_pull_request(payload)
+    evidence = saved_review_threads_evidence(payload)
+    pr_number = pull_request.get("number")
+    pr_url = pull_request.get("url")
+    enriched: list[dict[str, Any]] = []
+    for finding in findings:
+        enriched_finding = dict(finding)
+        if enriched_finding.get("source") == "review_thread":
+            enriched_finding["comment_id"] = str(enriched_finding.get("id"))
+        if isinstance(pr_number, int) or (isinstance(pr_number, str) and pr_number.strip()):
+            enriched_finding["source_pr_number"] = pr_number
+        if isinstance(pr_url, str) and pr_url.strip():
+            enriched_finding["source_pr_url"] = pr_url
+        enriched_finding.update(evidence)
+        enriched.append(enriched_finding)
+    target_counts: dict[tuple[str, Any, Any], int] = {}
+    for finding in enriched:
+        if finding.get("source") != "review_thread":
             continue
-        if not review_thread_is_current(thread, index, warnings):
+        key = (
+            str(finding.get("thread_id") or ""),
+            review_target_key_part(finding.get("file")),
+            review_target_key_part(finding.get("line", "unknown-line")),
+        )
+        target_counts[key] = target_counts.get(key, 0) + 1
+    for finding in enriched:
+        if finding.get("source") != "review_thread":
             continue
-        thread_id = str(thread.get("id") or f"thread-{index}")
-        thread_file = thread.get("path")
-        thread_line = thread.get("line") or thread.get("originalLine")
-        for comment_index, comment in enumerate(review_thread_comment_nodes(thread), start=1):
-            if not isinstance(comment, dict):
-                continue
-            comment_outdated = comment.get("outdated")
-            if not isinstance(comment_outdated, bool):
-                warnings.append(f"review thread {index} comment {comment_index} missing outdated status")
-                continue
-            if comment_outdated:
-                continue
-            body = actionable_review_body(comment.get("body"))
-            if body is None:
-                continue
-            finding_file = comment.get("path") or thread_file
-            finding_id = comment.get("id") or thread_id
-            finding: dict[str, Any] = {
-                "id": str(finding_id),
-                "file": finding_file,
-                "body": body,
-                "thread_id": thread_id,
-                "source": "review_thread",
-            }
-            finding_line = comment.get("line") or comment.get("originalLine") or thread_line
-            if finding_line is not None:
-                finding["line"] = finding_line
-            author = review_thread_author(comment)
-            if author is not None:
-                finding["author"] = author
-            findings.append(finding)
-    return findings, warnings
+        key = (
+            str(finding.get("thread_id") or ""),
+            review_target_key_part(finding.get("file")),
+            review_target_key_part(finding.get("line", "unknown-line")),
+        )
+        if target_counts.get(key, 0) > 1 and finding.get("thread_id"):
+            finding["fingerprint_id"] = str(finding["thread_id"])
+    return enriched, warnings
 
 
 def review_thread_candidates(path: Path, cwd: Path, *, start_index: int = 1) -> tuple[list[dict[str, Any]], list[str]]:
@@ -1220,6 +1284,16 @@ def deduplicate_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, A
         existing = by_fingerprint[fingerprint]
         existing["score"] = max(existing["score"], candidate["score"])
         existing["evidence"]["occurrences"] = existing["evidence"].get("occurrences", 1) + 1
+        for field in ("comment_ids", "suggested_target_files", "target_files"):
+            values = candidate.get("evidence", {}).get(field)
+            if not isinstance(values, list):
+                continue
+            existing_values = existing["evidence"].setdefault(field, [])
+            if not isinstance(existing_values, list):
+                continue
+            for value in values:
+                if value not in existing_values:
+                    existing_values.append(value)
     return deduplicated
 
 
@@ -1367,6 +1441,7 @@ def discover_candidates(
     sources = empty_sources()
     if discovery_mode == "off":
         return {
+            "valid": True,
             "intent": intent,
             "proposal_allowance": proposal_allowance,
             "discovery_mode": discovery_mode,
@@ -1376,6 +1451,8 @@ def discover_candidates(
             "run_signals": run_signals([], "high", "none"),
             "sources": sources,
             "warnings": ["discovery disabled by policy"],
+            "blockers": [],
+            "recommended_next_action": "discovery_disabled",
         }
     if discovery_mode == "expanded":
         raise ValueError("expanded discovery mode is reserved for v2")
@@ -1384,6 +1461,7 @@ def discover_candidates(
 
     active_budget = validate_budget(budget or CandidateBudget())
     warnings = []
+    blockers: list[dict[str, Any]] = []
     failures = known_failures or []
     repo_root = git_top_level(cwd)
     failure_candidates = known_failure_candidates(failures)
@@ -1403,8 +1481,18 @@ def discover_candidates(
             repo_root,
             start_index=next_review_finding_index,
         )
-        review_candidates.extend(thread_candidates)
         warnings.extend(thread_warnings)
+        if thread_warnings:
+            blockers.append(
+                candidate_blocker(
+                    "review_thread_evidence_incomplete",
+                    "saved review-thread evidence is incomplete or malformed",
+                    path=str(review_threads_file),
+                    warnings=thread_warnings,
+                )
+            )
+        else:
+            review_candidates.extend(thread_candidates)
     marker_candidates, marker_warnings = text_marker_candidates(
         repo_root,
         active_budget.max_text_marker_candidates,
@@ -1418,15 +1506,17 @@ def discover_candidates(
     )
     warnings.extend(memory_warnings)
     proposal_items = proposal_candidates(intent, proposal_allowance, active_budget)
-    raw_candidates = (
-        failure_candidates
-        + check_candidates
-        + status_candidates
-        + review_candidates
-        + marker_candidates
-        + memory_candidates
-        + proposal_items
-    )
+    raw_candidates = []
+    if not blockers:
+        raw_candidates = (
+            failure_candidates
+            + check_candidates
+            + status_candidates
+            + review_candidates
+            + marker_candidates
+            + memory_candidates
+            + proposal_items
+        )
     candidates = apply_budget(apply_intent_scoring(deduplicate_candidates(raw_candidates), intent), active_budget)
     pool, intent_drift = election_pool(candidates, intent, proposal_allowance, active_budget)
     elected_next = elect_candidates(pool, max_tasks=max_tasks) if elect else []
@@ -1440,6 +1530,7 @@ def discover_candidates(
     repo_confidence = "low" if status_candidates or failure_candidates or check_candidates else "high"
 
     return {
+        "valid": not blockers,
         "intent": intent,
         "proposal_allowance": proposal_allowance,
         "discovery_mode": discovery_mode,
@@ -1449,4 +1540,6 @@ def discover_candidates(
         "run_signals": run_signals(candidates, repo_confidence, intent_drift, raw_candidate_count=len(raw_candidates)),
         "sources": sources,
         "warnings": warnings,
+        "blockers": blockers,
+        "recommended_next_action": DISCOVERY_BLOCKED_ACTION if blockers else "select_candidate",
     }

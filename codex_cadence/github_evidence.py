@@ -15,6 +15,7 @@ GITHUB_EVIDENCE_SYNC_SCHEMA_VERSION = "github-evidence-sync.v1"
 DEFAULT_GH_TIMEOUT_SECONDS = 60
 PR_VIEW_FIELDS = (
     "number",
+    "url",
     "title",
     "state",
     "isDraft",
@@ -547,6 +548,20 @@ def sync_github_evidence(
     captured_at = _utc_now()
     pr_payload = dict(pr_payload or {})
     threads_payload = dict(threads_payload or {})
+    pull_request = None
+    current: Any = threads_payload
+    for key in ("data", "repository", "pullRequest"):
+        if not isinstance(current, dict):
+            current = None
+            break
+        current = current.get(key)
+    if isinstance(current, dict):
+        pull_request = current
+    if pull_request is not None:
+        if pr_payload.get("number") is not None:
+            pull_request.setdefault("number", pr_payload.get("number"))
+        if isinstance(pr_payload.get("url"), str) and pr_payload["url"].strip():
+            pull_request.setdefault("url", pr_payload["url"])
     pr_payload["github_evidence"] = _metadata("gh_pr_view", captured_at)
     threads_payload["github_evidence"] = _metadata("gh_graphql_review_threads", captured_at)
     pr_file = out_dir / f"pr-{pr_number}.json"
@@ -724,6 +739,13 @@ def _pagination_warnings(review_threads: dict[str, Any], nodes: list[Any]) -> li
         if not isinstance(comments, dict):
             warnings.append(f"review thread {index} comments must be an object with nodes and pageInfo")
             continue
+        comment_nodes = comments.get("nodes")
+        if not isinstance(comment_nodes, list):
+            warnings.append(f"review thread {index} comments.nodes must be a list")
+        else:
+            for comment_index, comment in enumerate(comment_nodes, start=1):
+                if not isinstance(comment, dict):
+                    warnings.append(f"review thread {index} comment {comment_index} is not an object")
         comment_page_info = comments.get("pageInfo")
         if not isinstance(comment_page_info, dict) or not isinstance(comment_page_info.get("hasNextPage"), bool):
             warnings.append(f"review thread {index} comments pageInfo.hasNextPage is required")

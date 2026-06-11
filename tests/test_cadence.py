@@ -2176,6 +2176,7 @@ class CadenceCliTests(unittest.TestCase):
                         "repository": {
                             "pullRequest": {
                                 "reviewThreads": {
+                                    "pageInfo": {"hasNextPage": False, "endCursor": None},
                                     "nodes": [
                                         {
                                             "id": "thread-1",
@@ -2184,6 +2185,7 @@ class CadenceCliTests(unittest.TestCase):
                                             "path": "codex_cadence/candidates.py",
                                             "line": 448,
                                             "comments": {
+                                                "pageInfo": {"hasNextPage": False, "endCursor": None},
                                                 "nodes": [
                                                     {
                                                         "id": "comment-1",
@@ -2234,6 +2236,7 @@ class CadenceCliTests(unittest.TestCase):
                 json.dumps(
                     {
                         "number": 67,
+                        "url": "https://github.com/Chef-Code/agentic-cadence/pull/67",
                         "title": "[codex] Add local branch policy gates",
                         "state": "OPEN",
                         "isDraft": False,
@@ -2334,6 +2337,9 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(saved_pr["number"], 67)
             self.assertEqual(saved_pr["github_evidence"]["freshness"], "live")
             self.assertEqual(saved_threads["github_evidence"]["freshness"], "live")
+            saved_pull_request = saved_threads["data"]["repository"]["pullRequest"]
+            self.assertEqual(saved_pull_request["number"], 67)
+            self.assertEqual(saved_pull_request["url"], "https://github.com/Chef-Code/agentic-cadence/pull/67")
             gh_calls = gh_log.read_text(encoding="utf-8").splitlines()
             self.assertEqual(len(gh_calls), 2)
             self.assertTrue(gh_calls[0].startswith("pr view 67 "))
