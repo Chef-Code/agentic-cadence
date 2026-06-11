@@ -682,6 +682,41 @@ def validate_work_ownership_mutation_audit_record(record: dict[str, Any], line: 
                 line,
             )
         )
+    closeout_anchor_fields = ("epoch_id", "executor_closeout_file", "executor_closeout_checksum", "executor_closeout_status")
+    executor_closeout_anchor_fields = (
+        "executor_closeout_file",
+        "executor_closeout_checksum",
+        "executor_closeout_status",
+    )
+    has_closeout_anchor = any(record.get(field) not in (None, "") for field in executor_closeout_anchor_fields)
+    if has_closeout_anchor:
+        for field in closeout_anchor_fields:
+            blockers.extend(required_string(record, field, line))
+        blockers.extend(required_checksum_present(record, "executor_closeout_checksum", line))
+        if record.get("action") != "close_work_ownership":
+            blockers.append(
+                audit_replay_blocker(
+                    "audit_work_ownership_closeout_action_invalid",
+                    "closeout-bound work ownership audit records must use close_work_ownership",
+                    line,
+                )
+            )
+        if record.get("executor_closeout_status") != "completed":
+            blockers.append(
+                audit_replay_blocker(
+                    "audit_work_ownership_closeout_status_invalid",
+                    "closeout-bound work ownership audit records must reference completed executor closeout evidence",
+                    line,
+                )
+            )
+        if not all(record.get(field) not in (None, "") for field in closeout_anchor_fields):
+            blockers.append(
+                audit_replay_blocker(
+                    "audit_work_ownership_closeout_anchor_incomplete",
+                    "epoch_id, executor_closeout_file, executor_closeout_checksum, and executor_closeout_status must be present together",
+                    line,
+                )
+            )
     return blockers
 
 
@@ -1303,6 +1338,10 @@ def work_ownership_mutation_audit_record(payload: dict[str, Any]) -> dict[str, A
         "branch": record_summary.get("branch") or request.get("branch"),
         "head": record_summary.get("head") or request.get("head"),
         "record_file": record_summary.get("path"),
+        "epoch_id": record_summary.get("epoch_id"),
+        "executor_closeout_file": record_summary.get("executor_closeout_file"),
+        "executor_closeout_checksum": record_summary.get("executor_closeout_checksum"),
+        "executor_closeout_status": record_summary.get("executor_closeout_status"),
         "payload_checksum": checksum_json(payload),
         "ownership_record_checksum": checksum_json(record_summary),
     }

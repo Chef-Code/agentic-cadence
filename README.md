@@ -578,6 +578,7 @@ agentic-cadence --root <runtime-root> work-ownership-status --cwd . --repo owner
 agentic-cadence --root <runtime-root> validate-work-ownership ownership-1 --cwd . --repo owner/repo --task-id task-1 --require-active
 agentic-cadence --root <runtime-root> claim-work-ownership --cwd . --repo owner/repo --branch feature --head <sha> --task-id task-1 --candidate-id candidate-1 --role implementer --claimer local-agent
 agentic-cadence --root <runtime-root> close-work-ownership ownership-1 --cwd . --repo owner/repo --branch feature --head <sha> --task-id task-1 --claimer local-agent --summary "completed locally"
+agentic-cadence --root <runtime-root> complete-work-ownership-from-closeout ownership-1 --cwd . --closeout-file executor-closeout.json --closeout-checksum sha256:<hex> --candidate-id candidate-1 --role implementer --claimer local-agent --summary "completed by executor closeout"
 agentic-cadence --root <runtime-root> fail-work-ownership ownership-1 --cwd . --repo owner/repo --branch feature --head <sha> --task-id task-1 --claimer local-agent --summary "blocked locally"
 ```
 
@@ -598,6 +599,20 @@ evidence, and registry path safety. `close-work-ownership` and
 `fail-work-ownership` emit `work-ownership-closeout.v1`, move a targeted active
 record to `closed` or `failed`, and append compact `work_ownership_mutation`
 audit evidence for accepted mutations.
+`complete-work-ownership-from-closeout` also emits
+`work-ownership-closeout.v1`, but only closes a targeted active record after a
+saved `executor_epoch_closeout` packet is valid, has
+`closeout_status: completed`, matches the supplied closeout checksum, and its
+task packet checksum rebinds the ownership task, candidate id, role, claimer,
+repo, branch, `HEAD`, and epoch id. Failed executor closeout evidence is not
+converted into ownership failure by this command; use the explicit
+`fail-work-ownership` path when the operator wants local ownership marked
+failed. Closeout-bound audit records add `epoch_id`,
+`executor_closeout_file`, `executor_closeout_checksum`, and
+`executor_closeout_status`. Stable blockers include
+`ownership_closeout_not_completed`, `ownership_closeout_checksum_mismatch`,
+`ownership_closeout_task_checksum_mismatch`, `ownership_candidate_mismatch`,
+`ownership_role_mismatch`, and `ownership_epoch_mismatch`.
 
 These commands do not assign roles, schedule agents, write GitHub issues,
 claim distributed locks, invoke executors, create branches, commit, push, open

@@ -132,6 +132,10 @@ def ownership_record_summary(record: Any, path: Path | None = None, state: str |
         "created_at": record.get("created_at") if isinstance(record, dict) else None,
         "updated_at": record.get("updated_at") if isinstance(record, dict) else None,
     }
+    closeout = record.get("closeout") if isinstance(record, dict) and isinstance(record.get("closeout"), dict) else {}
+    for field in ("executor_closeout_file", "executor_closeout_checksum", "executor_closeout_status"):
+        if closeout.get(field) is not None:
+            summary[field] = closeout.get(field)
     return summary
 
 
@@ -955,6 +959,12 @@ def _closeout_packet(
     head: str,
     task_id: str,
     claimer: str,
+    candidate_id: str | None = None,
+    role: str | None = None,
+    epoch_id: str | None = None,
+    executor_closeout_file: str | None = None,
+    executor_closeout_checksum: str | None = None,
+    executor_closeout_status: str | None = None,
     repository: dict[str, Any],
     blockers: list[dict[str, Any]],
     record: Any | None = None,
@@ -987,6 +997,12 @@ def _closeout_packet(
             "head": head,
             "task_id": task_id,
             "claimer": claimer,
+            **({"candidate_id": candidate_id} if candidate_id is not None else {}),
+            **({"role": role} if role is not None else {}),
+            **({"epoch_id": epoch_id} if epoch_id is not None else {}),
+            **({"executor_closeout_file": executor_closeout_file} if executor_closeout_file is not None else {}),
+            **({"executor_closeout_checksum": executor_closeout_checksum} if executor_closeout_checksum is not None else {}),
+            **({"executor_closeout_status": executor_closeout_status} if executor_closeout_status is not None else {}),
         },
         "source_record": str(source_path) if source_path else None,
         "record": ownership_record_summary(record, record_path, closeout_status.lower()) if record is not None else None,
@@ -1017,12 +1033,19 @@ def closeout_work_ownership(
     task_id: str,
     claimer: str,
     summary: str | None = None,
+    candidate_id: str | None = None,
+    role: str | None = None,
+    epoch_id: str | None = None,
+    executor_closeout_file: str | None = None,
+    executor_closeout_checksum: str | None = None,
+    executor_closeout_status: str | None = None,
+    pre_blockers: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if closeout_status not in ("CLOSED", "FAILED"):
         raise ValueError("closeout_status must be CLOSED or FAILED")
     destination_state = "closed" if closeout_status == "CLOSED" else "failed"
     repository, repo_blockers = _repo_evidence(cwd)
-    blockers: list[dict[str, Any]] = []
+    blockers: list[dict[str, Any]] = list(pre_blockers or [])
     blockers.extend(repo_blockers)
     if not repo_blockers:
         blockers.extend(_repo_anchor_blockers(repository, branch=branch, head=head))
@@ -1030,6 +1053,20 @@ def closeout_work_ownership(
         blockers.extend(_validate_required_text_field(value, field))
     blockers.extend(_validate_record_id_field(task_id, "task_id", "task"))
     blockers.extend(_validate_label_field(claimer, "claimer", "ownership_claimer_invalid"))
+    if candidate_id is not None:
+        blockers.extend(_validate_record_id_field(candidate_id, "candidate_id", "candidate"))
+    if role is not None:
+        blockers.extend(_validate_label_field(role, "role", "ownership_role_invalid"))
+    if epoch_id is not None:
+        blockers.extend(_validate_record_id_field(epoch_id, "epoch_id", "epoch"))
+    closeout_anchor_values = {
+        "executor_closeout_file": executor_closeout_file,
+        "executor_closeout_checksum": executor_closeout_checksum,
+        "executor_closeout_status": executor_closeout_status,
+    }
+    if any(value is not None for value in closeout_anchor_values.values()):
+        for field, value in closeout_anchor_values.items():
+            blockers.extend(_validate_required_text_field(value, field))
 
     path: Path | None = None
     state: str | None = None
@@ -1077,13 +1114,47 @@ def closeout_work_ownership(
                                     path=str(path),
                                 )
                             )
-                        if record.get("head") is not None and record.get("head") != head:
+                        require_closeout_bound_head = executor_closeout_checksum is not None
+                        if (
+                            (require_closeout_bound_head and record.get("head") != head)
+                            or (not require_closeout_bound_head and record.get("head") is not None and record.get("head") != head)
+                        ):
                             blockers.append(
                                 ownership_blocker(
                                     "ownership_head_mismatch",
                                     "work ownership head does not match requested head",
                                     expected_head=record.get("head"),
                                     actual_head=head,
+                                    path=str(path),
+                                )
+                            )
+                        if candidate_id is not None and record.get("candidate_id") != candidate_id:
+                            blockers.append(
+                                ownership_blocker(
+                                    "ownership_candidate_mismatch",
+                                    "work ownership candidate does not match closeout candidate",
+                                    expected_candidate_id=record.get("candidate_id"),
+                                    actual_candidate_id=candidate_id,
+                                    path=str(path),
+                                )
+                            )
+                        if role is not None and record.get("role") != role:
+                            blockers.append(
+                                ownership_blocker(
+                                    "ownership_role_mismatch",
+                                    "work ownership role does not match closeout role",
+                                    expected_role=record.get("role"),
+                                    actual_role=role,
+                                    path=str(path),
+                                )
+                            )
+                        if epoch_id is not None and record.get("epoch_id") != epoch_id:
+                            blockers.append(
+                                ownership_blocker(
+                                    "ownership_epoch_mismatch",
+                                    "work ownership epoch does not match executor closeout epoch",
+                                    expected_epoch_id=record.get("epoch_id"),
+                                    actual_epoch_id=epoch_id,
                                     path=str(path),
                                 )
                             )
@@ -1119,6 +1190,14 @@ def closeout_work_ownership(
             "head": head,
             "recorded_at": now,
         }
+        if epoch_id is not None:
+            updated_record["closeout"]["epoch_id"] = epoch_id
+        if executor_closeout_file is not None:
+            updated_record["closeout"]["executor_closeout_file"] = executor_closeout_file
+        if executor_closeout_checksum is not None:
+            updated_record["closeout"]["executor_closeout_checksum"] = executor_closeout_checksum
+        if executor_closeout_status is not None:
+            updated_record["closeout"]["executor_closeout_status"] = executor_closeout_status
         if closeout_status == "CLOSED":
             updated_record["closed_at"] = now
         else:
@@ -1171,6 +1250,12 @@ def closeout_work_ownership(
         head=head,
         task_id=task_id,
         claimer=claimer,
+        candidate_id=candidate_id,
+        role=role,
+        epoch_id=epoch_id,
+        executor_closeout_file=executor_closeout_file,
+        executor_closeout_checksum=executor_closeout_checksum,
+        executor_closeout_status=executor_closeout_status,
         repository=repository,
         blockers=blockers,
         record=updated_record,

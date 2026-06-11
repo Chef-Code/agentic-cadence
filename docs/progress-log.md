@@ -33,6 +33,46 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-11 - Add closeout-bound ownership completion evidence
+
+Summary:
+- Added `complete-work-ownership-from-closeout`, which closes an active local
+  `work-ownership.v1` record only after saved valid
+  `executor_epoch_closeout` evidence is completed and its supplied checksum,
+  saved task checksum, task id, candidate id, role, claimer, repo, branch,
+  `HEAD`, and epoch id all match.
+- Extended `work_ownership_mutation` audit evidence with optional
+  closeout-bound anchors: `epoch_id`, `executor_closeout_file`,
+  `executor_closeout_checksum`, and `executor_closeout_status`.
+- Preserved manual `close-work-ownership` and `fail-work-ownership` behavior;
+  failed executor closeout evidence still requires explicit
+  `fail-work-ownership` if the operator wants local ownership marked failed.
+
+Completed slices:
+- Task 24: Add Closeout-Bound Ownership Completion Evidence.
+
+Confidence change:
+- Previous: 25%
+- New: 25%
+- Reason: Cadence can now close local ownership from accepted executor
+  closeout evidence, but it still does not assign roles, schedule agents,
+  claim distributed locks, create branches, commit, push, open PRs, merge,
+  release, publish packages, or run a continuous autonomous loop.
+
+Evidence:
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_complete_work_ownership_from_closeout_closes_matching_active_record_with_audit tests.test_cadence.CadenceCliTests.test_complete_work_ownership_from_closeout_blocks_mismatched_anchors_before_move tests.test_cadence.CadenceCliTests.test_complete_work_ownership_from_closeout_blocks_failed_closeout_without_move tests.test_cadence.CadenceCliTests.test_complete_work_ownership_from_closeout_rolls_back_move_when_audit_append_fails tests.test_audit_replay.AuditReplayCliTests.test_work_ownership_audit_accepts_closeout_bound_executor_anchors tests.test_audit_replay.AuditReplayCliTests.test_work_ownership_audit_rejects_malformed_closeout_bound_executor_anchors -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_complete_work_ownership_from_closeout_blocks_mutated_task_file_before_move tests.test_audit_replay.AuditReplayCliTests.test_work_ownership_audit_rejects_closeout_anchors_on_non_close_actions -v`
+
+New risks or blockers:
+- Ownership completion remains local evidence only. It does not create remote
+  locks or infer review authority from executor closeout packets.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+
 ## 2026-06-11 - Add controlled single-tick run packet
 
 Summary:

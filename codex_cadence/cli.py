@@ -1684,6 +1684,235 @@ def append_work_ownership_mutation_audit(
     return packet
 
 
+def _ownership_closeout_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def _closeout_context_path(context_file: Path, value: Any) -> Any:
+    if not isinstance(value, str) or not value.strip():
+        return value
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        path = context_file.parent / path
+    return path
+
+
+def _load_closeout_bound_ownership_inputs(args: argparse.Namespace) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    closeout_file = Path(args.closeout_file)
+    blockers: list[dict[str, Any]] = []
+    closeout: Any = None
+    task_packet: Any = None
+    task_file: Path | None = None
+    closeout_checksum = None
+    try:
+        closeout = read_json(closeout_file)
+        closeout_checksum = checksum_json(closeout)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        blockers.append(
+            _ownership_closeout_blocker(
+                "ownership_closeout_unreadable",
+                f"executor closeout evidence could not be read: {exc}",
+                path=str(closeout_file),
+            )
+        )
+    if closeout_checksum is not None and args.closeout_checksum != closeout_checksum:
+        blockers.append(
+            _ownership_closeout_blocker(
+                "ownership_closeout_checksum_mismatch",
+                "executor closeout checksum does not match supplied closeout evidence",
+                expected_checksum=args.closeout_checksum,
+                actual_checksum=closeout_checksum,
+                path=str(closeout_file),
+            )
+        )
+    if not isinstance(closeout, dict):
+        if closeout is not None:
+            blockers.append(
+                _ownership_closeout_blocker(
+                    "ownership_closeout_invalid",
+                    "executor closeout evidence must be a JSON object",
+                    path=str(closeout_file),
+                )
+            )
+        return (
+            {
+                "repo": "",
+                "branch": "",
+                "head": "",
+                "task_id": "",
+                "epoch_id": None,
+                "executor_closeout_status": None,
+                "executor_closeout_file": str(closeout_file),
+                "executor_closeout_checksum": args.closeout_checksum,
+                "summary": args.summary,
+            },
+            blockers,
+        )
+
+    if closeout.get("schema_version") != EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION:
+        blockers.append(
+            _ownership_closeout_blocker(
+                "ownership_closeout_schema_unsupported",
+                "executor closeout evidence schema is unsupported",
+                expected_schema=EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION,
+                actual_schema=closeout.get("schema_version"),
+                path=str(closeout_file),
+            )
+        )
+    if closeout.get("packet") != "executor_epoch_closeout":
+        blockers.append(
+            _ownership_closeout_blocker(
+                "ownership_closeout_packet_invalid",
+                "executor closeout evidence packet is invalid",
+                expected_packet="executor_epoch_closeout",
+                actual_packet=closeout.get("packet"),
+                path=str(closeout_file),
+            )
+        )
+    if closeout.get("valid") is not True:
+        blockers.append(
+            _ownership_closeout_blocker(
+                "ownership_closeout_invalid",
+                "executor closeout evidence must be a valid accepted packet",
+                path=str(closeout_file),
+            )
+        )
+    epoch_id = closeout.get("epoch_id") if isinstance(closeout.get("epoch_id"), str) else None
+    if epoch_id is None:
+        blockers.append(
+            _ownership_closeout_blocker(
+                "ownership_closeout_epoch_missing",
+                "executor closeout evidence must include epoch_id",
+                path=str(closeout_file),
+            )
+        )
+    executor_closeout_status = closeout.get("closeout_status")
+    if executor_closeout_status != "completed":
+        blockers.append(
+            _ownership_closeout_blocker(
+                "ownership_closeout_not_completed",
+                "work ownership completion requires completed executor closeout evidence",
+                expected_closeout_status="completed",
+                actual_closeout_status=executor_closeout_status,
+                path=str(closeout_file),
+            )
+        )
+
+    task_file_value = closeout.get("task_file")
+    if isinstance(task_file_value, str) and task_file_value.strip():
+        task_file = _closeout_context_path(closeout_file, task_file_value)
+        try:
+            task_packet = read_json(task_file)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            blockers.append(
+                _ownership_closeout_blocker(
+                    "ownership_closeout_task_unreadable",
+                    f"executor closeout task file could not be read: {exc}",
+                    path=str(task_file),
+                )
+            )
+    else:
+        blockers.append(
+            _ownership_closeout_blocker(
+                "ownership_closeout_task_missing",
+                "executor closeout evidence must include task_file",
+                path=str(closeout_file),
+            )
+        )
+
+    task_id = ""
+    repo_name = ""
+    branch = ""
+    head = ""
+    if task_packet is not None:
+        task_valid, task_reason = validate_executor_task_packet(task_packet)
+        if not task_valid:
+            blockers.append(
+                _ownership_closeout_blocker(
+                    "ownership_closeout_task_invalid",
+                    task_reason,
+                    path=str(task_file) if task_file is not None else None,
+                )
+            )
+        elif isinstance(task_packet, dict):
+            task_checksum = checksum_json(task_packet)
+            closeout_task_checksum = closeout.get("task_checksum")
+            if closeout_task_checksum != task_checksum:
+                blockers.append(
+                    _ownership_closeout_blocker(
+                        "ownership_closeout_task_checksum_mismatch",
+                        "executor closeout task checksum does not match reread task file",
+                        expected_checksum=closeout_task_checksum,
+                        actual_checksum=task_checksum,
+                        path=str(task_file) if task_file is not None else None,
+                    )
+                )
+            task = task_packet["task"]
+            repo = task_packet["repo"]
+            task_id = task["id"]
+            repo_name = repo["name"]
+            branch = repo["branch"]
+            head = repo["head"]
+            if args.candidate_id != task_id:
+                blockers.append(
+                    _ownership_closeout_blocker(
+                        "ownership_candidate_mismatch",
+                        "work ownership candidate_id must match executor task id",
+                        expected_candidate_id=task_id,
+                        actual_candidate_id=args.candidate_id,
+                        path=str(task_file) if task_file is not None else None,
+                    )
+                )
+
+    summary = args.summary
+    if summary is None and isinstance(closeout.get("reason"), str):
+        summary = closeout["reason"]
+    return (
+        {
+            "repo": repo_name,
+            "branch": branch,
+            "head": head,
+            "task_id": task_id,
+            "epoch_id": epoch_id,
+            "executor_closeout_status": executor_closeout_status if isinstance(executor_closeout_status, str) else None,
+            "executor_closeout_file": str(closeout_file),
+            "executor_closeout_checksum": args.closeout_checksum,
+            "summary": summary,
+        },
+        blockers,
+    )
+
+
+def complete_work_ownership_from_closeout_command(args: argparse.Namespace) -> int:
+    with exclusive_lock(lock_path(args.root, "work-ownership")):
+        rollback_record = read_work_ownership_rollback_record(args.root, args.target)
+        closeout_inputs, closeout_blockers = _load_closeout_bound_ownership_inputs(args)
+        packet = closeout_work_ownership(
+            root=args.root,
+            cwd=Path(args.cwd),
+            target=args.target,
+            closeout_status="CLOSED",
+            repo=closeout_inputs["repo"],
+            branch=closeout_inputs["branch"],
+            head=closeout_inputs["head"],
+            task_id=closeout_inputs["task_id"],
+            claimer=args.claimer,
+            summary=closeout_inputs["summary"],
+            candidate_id=args.candidate_id,
+            role=args.role,
+            epoch_id=closeout_inputs["epoch_id"],
+            executor_closeout_file=closeout_inputs["executor_closeout_file"],
+            executor_closeout_checksum=closeout_inputs["executor_closeout_checksum"],
+            executor_closeout_status=closeout_inputs["executor_closeout_status"],
+            pre_blockers=closeout_blockers,
+        )
+        packet = append_work_ownership_mutation_audit(args.root, packet, rollback_record=rollback_record)
+    emit(packet)
+    return 0 if packet["valid"] else 2
+
+
 def claim_work_ownership_command(args: argparse.Namespace) -> int:
     with exclusive_lock(lock_path(args.root, "work-ownership")):
         packet = claim_work_ownership(
@@ -3456,6 +3685,7 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
         "failure_reason": closeout["failure_reason"],
         "blockers": closeout["blockers"],
         "task_file": str(task_file),
+        "task_checksum": checksum_json(task_packet),
         "result_file": str(result_file),
         "snapshot_after_file": str(snapshot_after_file),
         "snapshot_after_checksum": checksum_epoch_json(snapshot_after),
@@ -4583,6 +4813,20 @@ def build_parser() -> argparse.ArgumentParser:
     close_ownership_parser.add_argument("--claimer", required=True)
     close_ownership_parser.add_argument("--summary", required=True)
     close_ownership_parser.set_defaults(func=close_work_ownership_command)
+
+    complete_ownership_from_closeout_parser = subparsers.add_parser(
+        "complete-work-ownership-from-closeout",
+        help="Move one active work ownership record to closed after completed executor closeout evidence matches",
+    )
+    complete_ownership_from_closeout_parser.add_argument("target")
+    complete_ownership_from_closeout_parser.add_argument("--cwd", default=".")
+    complete_ownership_from_closeout_parser.add_argument("--closeout-file", required=True)
+    complete_ownership_from_closeout_parser.add_argument("--closeout-checksum", required=True)
+    complete_ownership_from_closeout_parser.add_argument("--candidate-id", required=True)
+    complete_ownership_from_closeout_parser.add_argument("--role", required=True)
+    complete_ownership_from_closeout_parser.add_argument("--claimer", required=True)
+    complete_ownership_from_closeout_parser.add_argument("--summary")
+    complete_ownership_from_closeout_parser.set_defaults(func=complete_work_ownership_from_closeout_command)
 
     fail_ownership_parser = subparsers.add_parser(
         "fail-work-ownership",
