@@ -943,12 +943,53 @@ def _result_evidence(
     return result, []
 
 
+def _local_branch_refs(cwd: Path) -> dict[str, str]:
+    result = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname:short)%00%(objectname)", "refs/heads"],
+        cwd=cwd,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip() or "git for-each-ref failed"
+        raise RuntimeError(detail)
+    refs: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        if not line:
+            continue
+        name, separator, object_id = line.partition("\0")
+        if separator and name and object_id:
+            refs[name] = object_id
+    return dict(sorted(refs.items()))
+
+
+def _branch_ref_changes(before: dict[str, str], after: dict[str, str]) -> dict[str, Any]:
+    return {
+        "added": {name: after[name] for name in sorted(after.keys() - before.keys())},
+        "removed": {name: before[name] for name in sorted(before.keys() - after.keys())},
+        "changed": {
+            name: {"before": before[name], "after": after[name]}
+            for name in sorted(before.keys() & after.keys())
+            if before[name] != after[name]
+        },
+    }
+
+
 def _repo_evidence_or_blocker(cwd: Path, *, code: str, message: str) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     try:
-        return current_repo_evidence(cwd), []
+        evidence = current_repo_evidence(cwd)
+        evidence["local_branch_refs"] = _local_branch_refs(cwd)
+        return evidence, []
     except (OSError, RuntimeError, ValueError) as exc:
         return (
-            {"cwd": str(cwd), "branch": None, "head": None, "dirty_worktree": None},
+            {
+                "cwd": str(cwd),
+                "branch": None,
+                "head": None,
+                "dirty_worktree": None,
+                "local_branch_refs": None,
+            },
             [invocation_blocker(code, message, error=str(exc), path=str(cwd))],
         )
 
@@ -1097,6 +1138,7 @@ def invoke_real_executor(
     plan_file: Path,
     approval_secret: str | bytes | None,
     side_effect_mode: str,
+    allow_repo_local_root: bool = False,
     max_plan_age_seconds: int = MAX_INVOCATION_PLAN_AGE_SECONDS,
     now: datetime | None = None,
 ) -> dict[str, Any]:
@@ -1147,8 +1189,8 @@ def invoke_real_executor(
         )
 
     inputs = _plan_recheck_inputs(plan)
-    safety_issue = runtime_root_safety_issue(root, inputs["cwd"])
-    if safety_issue:
+    safety_issue = None if allow_repo_local_root else runtime_root_safety_issue(root, inputs["cwd"])
+    if safety_issue is not None:
         return _blocked_invocation_payload(
             plan_file=plan_path,
             side_effect_mode=side_effect_mode,
@@ -1254,6 +1296,7 @@ def invoke_real_executor(
             capture_output=True,
             timeout=timeout_seconds,
             check=False,
+            shell=False,
         )
         process_started = True
         exit_code = completed.returncode
@@ -1306,6 +1349,14 @@ def invoke_real_executor(
 
     head_changed = repository_after.get("head") != repository_before.get("head")
     branch_changed = repository_after.get("branch") != repository_before.get("branch")
+    before_branch_refs = (
+        repository_before.get("local_branch_refs") if isinstance(repository_before.get("local_branch_refs"), dict) else {}
+    )
+    after_branch_refs = (
+        repository_after.get("local_branch_refs") if isinstance(repository_after.get("local_branch_refs"), dict) else {}
+    )
+    branch_ref_changes = _branch_ref_changes(before_branch_refs, after_branch_refs)
+    branch_refs_changed = any(branch_ref_changes.values())
     dirty_after = repository_after.get("dirty_worktree") is True
     dirty_files: set[str] | None = None
     if dirty_after:
@@ -1319,15 +1370,16 @@ def invoke_real_executor(
         dirty_files=dirty_files,
         observed_head=repository_after.get("head"),
     )
-    if head_changed or branch_changed:
+    if head_changed or branch_changed or branch_refs_changed:
         process_blockers.append(
             invocation_blocker(
                 "unexpected_repo_modification",
-                "real executor changed the repository branch or HEAD",
+                "real executor changed the repository branch, HEAD, or local branch refs",
                 before_branch=repository_before.get("branch"),
                 after_branch=repository_after.get("branch"),
                 before_head=repository_before.get("head"),
                 after_head=repository_after.get("head"),
+                local_branch_ref_changes=branch_ref_changes,
             )
         )
     elif side_effect_mode == "evidence_only" and dirty_after:

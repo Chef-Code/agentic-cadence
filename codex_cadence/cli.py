@@ -2362,6 +2362,7 @@ def invoke_real_executor_command(args: argparse.Namespace) -> int:
         plan_file=Path(args.plan_file),
         approval_secret=operator_approval_secret_from_args(args),
         side_effect_mode=args.side_effect_mode,
+        allow_repo_local_root=args.allow_repo_local_root,
         max_plan_age_seconds=args.max_plan_age_minutes * 60,
     )
     emit(payload)

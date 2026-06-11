@@ -100,10 +100,10 @@ Last updated: 2026-06-10
 - `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
 - `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
 - Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete in `main` via PR #84.
-- This branch implements Task 20 from
+- This branch implements Task 21 from
   `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`; the PR for this branch
-  should review read-only real executor invocation planning and approval
-  binding evidence.
+  should review controlled real executor invocation evidence and side-effect
+  enforcement.
 
 ## Important Boundaries
 

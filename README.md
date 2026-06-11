@@ -692,9 +692,9 @@ The command starts exactly one approved command with `shell=False`, explicit
 cwd, bounded environment allowlist, timeout, and stdout/stderr logs. It writes a
 `real-executor-invocation.v1` record under
 `<runtime-root>/real-executor-invocations/` with the invocation id, plan
-checksum, process exit and timeout status, before/after repository snapshots,
-rollback evidence checksum, expected result path, output log paths, and
-audit-chain head.
+checksum, process exit and timeout status, before/after repository snapshots
+including `local_branch_refs`, rollback evidence checksum, expected result path,
+output log paths, and audit-chain head.
 
 `--side-effect-mode evidence_only` requires the target repository to remain
 clean after invocation. `--side-effect-mode materialized_changes` allows a

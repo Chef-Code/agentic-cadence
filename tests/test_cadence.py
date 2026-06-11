@@ -476,6 +476,7 @@ def real_executor_script(path: Path) -> Path:
     path.write_text(
         """
 import json
+import subprocess
 import sys
 import time
 from datetime import datetime, timezone
@@ -499,6 +500,8 @@ if config.get("sleep_seconds"):
 if config.get("touch_repo"):
     readme = repo_path / "README.md"
     readme.write_text(readme.read_text(encoding="utf-8") + "real executor change\\n", encoding="utf-8")
+if config.get("create_branch"):
+    subprocess.run(["git", "branch", config["create_branch"]], cwd=repo_path, check=True)
 if config.get("delete_git"):
     import shutil
 
@@ -4265,6 +4268,7 @@ class CadenceCliTests(unittest.TestCase):
         materialized_change_evidence=None,
         sleep_seconds=None,
         delete_git=False,
+        create_branch=None,
         resulting_head=None,
         stdout_text=None,
         stderr_text=None,
@@ -4280,6 +4284,7 @@ class CadenceCliTests(unittest.TestCase):
         )
         config = {
             "command": command,
+            "create_branch": create_branch,
             "exit_code": 0,
             "include_materialized_change_evidence": include_materialized_change_evidence,
             "materialized_change_evidence": materialized_change_evidence,
@@ -4669,6 +4674,44 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["side_effects"], [])
             self.assertIn("runtime_root_unsafe", {blocker["code"] for blocker in output["blockers"]})
 
+    def test_invoke_real_executor_honors_repo_local_runtime_root_override(self):
+        with tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            runtime_root = Path(repo) / ".cadence-runtime"
+            (Path(repo) / ".gitignore").write_text(".cadence-runtime/\n", encoding="utf-8")
+            git(repo, "add", ".gitignore")
+            git(repo, "commit", "-m", "ignore runtime root")
+            _inputs, plan_path, _plan = self.write_real_executor_invocation_plan(runtime_root, repo)
+            (Path(repo) / ".gitignore").write_text("", encoding="utf-8")
+            git(repo, "add", ".gitignore")
+            git(repo, "commit", "-m", "unignore runtime root")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(runtime_root),
+                    "--allow-repo-local-root",
+                    "invoke-real-executor",
+                    "--plan-file",
+                    str(plan_path),
+                    "--approval-secret",
+                    OPERATOR_APPROVAL_SECRET,
+                    "--side-effect-mode",
+                    "evidence_only",
+                ],
+                cwd=repo,
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            output = json.loads(result.stdout) if result.stdout.strip() else None
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertNotIn("runtime_root_unsafe", {blocker["code"] for blocker in output["blockers"]})
+
     def test_invoke_real_executor_enforces_result_and_side_effect_modes(self):
         bogus_head = "0" * 40
         bogus_materialized_evidence = {
@@ -4699,8 +4742,8 @@ class CadenceCliTests(unittest.TestCase):
             (
                 "timeout",
                 {
-                    "timeout_seconds": 1,
-                    "sleep_seconds": 2,
+                    "timeout_seconds": 3,
+                    "sleep_seconds": 10,
                     "stdout_text": "stdout before timeout\n",
                     "stderr_text": "stderr before timeout\n",
                 },
@@ -4792,6 +4835,32 @@ class CadenceCliTests(unittest.TestCase):
                     else:
                         self.assertFalse(output["valid"])
                         self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+
+    def test_invoke_real_executor_blocks_hidden_branch_ref_creation(self):
+        for side_effect_mode in ("evidence_only", "materialized_changes"):
+            with self.subTest(side_effect_mode=side_effect_mode):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    _inputs, plan_path, _plan = self.write_real_executor_invocation_plan(
+                        tmp,
+                        repo,
+                        create_branch="codex/hidden-side-effect",
+                    )
+
+                    result, output = self.run_invoke_real_executor_cli(
+                        tmp,
+                        plan_path,
+                        side_effect_mode=side_effect_mode,
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertTrue(output["executor_started"])
+                    self.assertFalse(output["repository_after"]["dirty_worktree"])
+                    self.assertEqual(output["repository_after"]["head"], output["repository_before"]["head"])
+                    self.assertEqual(output["repository_after"]["branch"], output["repository_before"]["branch"])
+                    self.assertIn("unexpected_repo_modification", {blocker["code"] for blocker in output["blockers"]})
+                    self.assertIn("codex/hidden-side-effect", output["repository_after"]["local_branch_refs"])
 
     def test_executor_invocation_plan_blocks_stale_and_mismatched_anchors(self):
         now = datetime.now(timezone.utc)

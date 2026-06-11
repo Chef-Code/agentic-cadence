@@ -39,11 +39,13 @@ the Phase 1 read-only `loop-tick` command for the first slice and a generic
 executor task/result contract, plus read-only GitHub evidence sync,
 operator-approved Git/PR materialization, read-only resume verification,
 read-only review-response planning, local work ownership status, validation,
-claim, closeout, and failure packets, and a governed execution-start gate. It
-still does not add autonomous live GitHub synchronization, dirty-worktree
-commit materialization, real executor invocation, automatic resume
-orchestration, agent-role assignment, agent-pool coordination, distributed
-ownership locks, or enforced review separation.
+claim, closeout, and failure packets, a governed execution-start gate,
+read-only real executor invocation planning, and controlled one-command real
+executor invocation evidence. It still does not add autonomous live GitHub
+synchronization, closeout binding from real executor runs, dirty-worktree commit
+materialization, automatic resume orchestration, agent-role assignment,
+agent-pool coordination, distributed ownership locks, or enforced review
+separation.
 The first local policy/audit controls can bound
 emitted executor task packets, append decision/result-validation audit records,
 append hash-chain metadata to new audit records, and replay local audit history
@@ -92,11 +94,13 @@ supplied active ownership evidence for the resumed handoff/task, role, claimer,
 repo, branch, and `HEAD` before recommending governed execution start.
 `role-readiness` can consume `role-policy.v1`, local ownership records, saved
 PR JSON, and saved review-thread evidence to verify allowed ownership roles and
-builder/reviewer separation without GitHub writes. Real executor invocation,
+builder/reviewer separation without GitHub writes. Controlled real executor
+invocation now exists for one approved local command with
+`real-executor-invocation.v1` evidence. Closeout binding from those run records,
 autonomous branch/commit/push or PR creation, automatic session launch,
 distributed work ownership, role assignment, and continuous loop orchestration
 remain missing.
-Current unattended-operation confidence remains 10%.
+Current unattended-operation confidence remains 15%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
 complete, Tasks 8-12 from
@@ -106,10 +110,11 @@ the current tree. Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
 added read-only real-executor invocation readiness. Task 18 from
 `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` adds local audit hash-chain
 integrity evidence before any real executor process start. Task 19 adds
-authenticated operator approval identity evidence. Task 20 adds read-only real
-executor invocation plan and approval binding in the current branch. The next
-bounded implementation slice is Task 21: controlled real executor invocation
-runner.
+authenticated operator approval identity evidence. Task 20 added read-only real
+executor invocation plan and approval binding in `main` via PR #88.
+Task 21: controlled real executor invocation adds the runner in the current
+branch. The next bounded implementation slice is Task 22: real executor run
+closeout binding.
 
 ## Vision Framing
 
@@ -524,8 +529,9 @@ Current evidence:
   current commit without switching the checkout, pushes with Git hook
   verification disabled for that push, and creates or updates a PR through
   `gh`;
-- no autonomous branch, dirty-worktree commit, push, PR creation, merge,
-  release, package publication, or real executor invocation exists.
+- controlled real executor invocation exists, but no autonomous branch,
+  dirty-worktree commit, push, PR creation, merge, release, package publication,
+  or closeout-bound real-run automation exists.
 
 Why it matters: the autonomous build loop needs to reach PR state before review
 feedback can become useful loop input.

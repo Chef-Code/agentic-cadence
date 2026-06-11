@@ -705,8 +705,16 @@ It emits and writes a `real-executor-invocation.v1` packet shaped as:
   "stdout_log": "<runtime-root>/real-executor-invocations/<id>.stdout.log",
   "stderr_log": "<runtime-root>/real-executor-invocations/<id>.stderr.log",
   "record_file": "<runtime-root>/real-executor-invocations/<id>.json",
-  "repository_before": {"head": "abc...", "dirty_worktree": false},
-  "repository_after": {"head": "abc...", "dirty_worktree": false},
+  "repository_before": {
+    "head": "abc...",
+    "dirty_worktree": false,
+    "local_branch_refs": {"main": "abc..."}
+  },
+  "repository_after": {
+    "head": "abc...",
+    "dirty_worktree": false,
+    "local_branch_refs": {"main": "abc..."}
+  },
   "rollback": {"checksum": "sha256:..."},
   "audit_chain": {"chain_head": "sha256:..."},
   "blockers": [{"code": "executor_result_missing", "message": "human readable"}],
@@ -717,9 +725,9 @@ It emits and writes a `real-executor-invocation.v1` packet shaped as:
 The command starts exactly one approved command with `shell=False`, explicit
 cwd, bounded environment allowlist, approved timeout, and stdout/stderr capture
 to runtime-owned log files. It records process exit status, timeout status,
-before/after repository snapshots, rollback evidence checksum, result path,
-output log paths, plan checksum, and the audit-chain head used by the immediate
-pre-start recheck.
+before/after repository snapshots including `local_branch_refs`, rollback
+evidence checksum, result path, output log paths, plan checksum, and the
+audit-chain head used by the immediate pre-start recheck.
 
 `--side-effect-mode evidence_only` requires the target repository to remain
 clean after invocation. `--side-effect-mode materialized_changes` allows a
