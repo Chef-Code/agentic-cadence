@@ -1473,6 +1473,32 @@ requests, merge, release, publish packages, spend paid review, or invoke review
 agents. Its limitations should include
 `does_not_invoke_review_agents_or_paid_review`.
 
+`review-response-materialization-plan` is the read-only approval-target boundary
+for later review-response GitHub writes. It must consume a saved
+`review-response-plan.v1`, saved PR JSON, optional saved review-thread JSON,
+optional candidate discovery output, and an exact intended write list. Allowed
+write kinds are limited to `update_pr_body` and `post_review_comment`; review
+thread resolution is explicitly unsupported in this slice. Each intended write
+must carry the exact body text and a matching body checksum. The packet must
+recheck PR number, head branch, base branch, head SHA, saved evidence checksums,
+review-thread pagination/completeness, unresolved actionable comment targets,
+PR body preflight for body updates, response-plan checksum, and target text
+checksums before setting `plan_ready`. Stale or future saved PR JSON must block
+approval targeting. Unknown write kinds, missing or mismatched text checksums,
+non-actionable comment targets, incomplete review-thread evidence, changed PR
+head, or PR body preflight failure must emit stable blockers.
+
+When valid, the command must emit a
+`review-response-materialization-plan.v1` packet with
+`operator_confirmation_required: true`, `approval_state: not_approved`,
+`execution_authority: none`, `github_write_started: false`, a target payload,
+and `target_checksum` suitable for a later operator approval. Duplicate
+same-target review-comment writes must be grouped without duplicating write
+actions. The command must not call GitHub, post comments, update PR bodies,
+resolve review threads, create branches, commit, push, merge, release, publish
+packages, spend paid review, invoke review agents, or claim that feedback has
+been resolved.
+
 PR body preflight covers the pre-publish side of the same template contract. `pr-body-preflight --body-file <path> --pr-template-file <path>` must read a draft PR body and a local Markdown pull request template, derive required template sections from template headings, and report missing template sections before PR creation or update. It must reuse the same heading parser as PR readiness, match draft body headings by normalized section label, ignore headings inside HTML comments or fenced code blocks without creating false setext headings across skipped blocks, stay repo-agnostic, and must not hard-code target-specific labels, call GitHub, rewrite the body file, create a PR, update a PR, spend paid review, or merge the PR. If no template file or `--required-body-section` is supplied, it must fail closed and recommend `provide_template_or_sections`.
 
 ## Release Dry Run

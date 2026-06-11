@@ -672,6 +672,13 @@ Current evidence:
   review-thread comments, missing PR body sections, and optional candidate
   matches into a read-only `review-response-plan.v1` packet with bounded next
   actions;
+- `review-response-materialization-plan` can bind a reviewed response plan,
+  saved PR/review-thread/candidate evidence, and exact intended PR body or
+  review-comment write text into a read-only
+  `review-response-materialization-plan.v1` packet with target checksums,
+  PR/head/evidence rechecks, body preflight, actionable-comment target checks,
+  duplicate same-target comment write grouping, and
+  `github_write_started: false`;
 - no GitHub write sync, branch creation, commit, push, PR edit, merge, release,
   package publication, continuous reconciliation, or automatic response
   execution exists.
