@@ -13154,6 +13154,66 @@ class CadenceCliTests(unittest.TestCase):
             self.assertTrue(active_path.exists())
             self.assertFalse((Path(tmp) / "work-ownership" / "closed" / "ownership-1.json").exists())
 
+    def test_closeout_work_ownership_rejects_invalid_executor_closeout_anchor_contract(self):
+        cases = [
+            (
+                "ownership_closeout_packet_invalid",
+                {"closeout_status": "FAILED"},
+            ),
+            (
+                "ownership_required_field_missing",
+                {"epoch_id": None},
+            ),
+            (
+                "ownership_closeout_not_completed",
+                {"executor_closeout_status": "failed"},
+            ),
+        ]
+        for expected_code, overrides in cases:
+            with self.subTest(expected_code=expected_code):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    import codex_cadence.ownership as ownership
+
+                    init_committed_repo(repo)
+                    branch = current_branch(repo)
+                    head = current_head(repo)
+                    active_path, _data = write_work_ownership(
+                        tmp,
+                        "ownership-1",
+                        task_id="candidate-1",
+                        candidate_id="candidate-1",
+                        branch=branch,
+                        head=head,
+                        epoch_id="epoch-1",
+                    )
+                    args = {
+                        "root": Path(tmp),
+                        "cwd": Path(repo),
+                        "target": "ownership-1",
+                        "closeout_status": "CLOSED",
+                        "repo": "local/test",
+                        "branch": branch,
+                        "head": head,
+                        "task_id": "candidate-1",
+                        "claimer": "test-agent",
+                        "summary": "done locally",
+                        "candidate_id": "candidate-1",
+                        "role": "implementer",
+                        "epoch_id": "epoch-1",
+                        "executor_closeout_file": str(Path(tmp) / "executor-closeout.json"),
+                        "executor_closeout_checksum": "sha256:" + "a" * 64,
+                        "executor_closeout_status": "completed",
+                    }
+                    args.update(overrides)
+
+                    packet = ownership.closeout_work_ownership(**args)
+
+                    self.assertFalse(packet["valid"])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in packet["blockers"]})
+                    self.assertTrue(active_path.exists())
+                    self.assertFalse((Path(tmp) / "work-ownership" / "closed" / "ownership-1.json").exists())
+                    self.assertFalse((Path(tmp) / "work-ownership" / "failed" / "ownership-1.json").exists())
+
     def test_close_work_ownership_blocks_missing_mismatched_closed_and_malformed_records(self):
         cases = [
             (

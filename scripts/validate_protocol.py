@@ -885,7 +885,7 @@ REQUIRED_TOKENS = {
         "does_not_retry_executor",
         "does_not_rewrite_invocation_or_closeout_records",
         "Task 24: Add Closeout-Bound Ownership Completion Evidence",
-        "Implemented in current branch",
+        "Implemented in current branch (Task 24)",
         "complete-work-ownership-from-closeout",
         "executor_closeout_checksum",
         "Task 25: Add Dirty-Worktree Git/PR Materialization Plan Binding",

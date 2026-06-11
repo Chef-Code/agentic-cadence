@@ -1065,8 +1065,26 @@ def closeout_work_ownership(
         "executor_closeout_status": executor_closeout_status,
     }
     if any(value is not None for value in closeout_anchor_values.values()):
+        if closeout_status != "CLOSED":
+            blockers.append(
+                ownership_blocker(
+                    "ownership_closeout_packet_invalid",
+                    "executor closeout anchors are only valid for closed ownership closeout",
+                )
+            )
+        if epoch_id is None:
+            blockers.extend(_validate_required_text_field(epoch_id, "epoch_id"))
         for field, value in closeout_anchor_values.items():
             blockers.extend(_validate_required_text_field(value, field))
+        if executor_closeout_status != "completed":
+            blockers.append(
+                ownership_blocker(
+                    "ownership_closeout_not_completed",
+                    "executor closeout status must be completed for ownership completion",
+                    field="executor_closeout_status",
+                    actual_closeout_status=executor_closeout_status,
+                )
+            )
 
     path: Path | None = None
     state: str | None = None

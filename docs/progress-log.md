@@ -72,6 +72,7 @@ Docs updated:
 - `docs/protocol.md`
 - `docs/implementation-slices.md`
 - `docs/progress-log.md`
+- `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`
 
 ## 2026-06-11 - Add controlled single-tick run packet
 
