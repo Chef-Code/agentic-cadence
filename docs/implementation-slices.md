@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-11
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 18-22 complete in main, and the Tasks 23-27 roadmap current branch
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 18-22 complete in main, and the Tasks 23-27 roadmap current tree
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -40,8 +40,10 @@ executor task/result contract, plus read-only GitHub evidence sync,
 operator-approved Git/PR materialization, read-only resume verification,
 read-only review-response planning, local work ownership status, validation,
 claim, closeout, and failure packets, a governed execution-start gate,
-read-only real executor invocation planning, and controlled one-command real
-executor invocation evidence with real-invocation closeout binding. It still
+read-only real executor invocation planning, controlled one-command real
+executor invocation evidence with real-invocation closeout binding, and a
+controlled single-tick packet that composes saved local evidence after
+closeout. It still
 does not add autonomous live GitHub synchronization, dirty-worktree commit
 materialization, automatic resume orchestration, agent-role assignment,
 agent-pool coordination, distributed ownership locks, or enforced review
@@ -99,12 +101,15 @@ repo, branch, and `HEAD` before recommending governed execution start.
 PR JSON, and saved review-thread evidence to verify allowed ownership roles and
 builder/reviewer separation without GitHub writes. Controlled real executor
 invocation now exists for one approved local command with
-`real-executor-invocation.v1` evidence, and closeout can bind accepted real
-invocation records to epoch decisions and dry-run Git/PR planning. Autonomous
+`real-executor-invocation.v1` evidence, closeout can bind accepted real
+invocation records to epoch decisions and dry-run Git/PR planning, and
+`controlled-loop-tick` can compose the saved loop/task/start/readiness/plan/
+invocation/result/snapshot/closeout chain into `controlled-loop-tick.v1` with
+success-only `controlled_loop_tick` audit evidence. Autonomous
 branch/commit/push or PR creation, automatic session launch,
 distributed work ownership, role assignment, and continuous loop orchestration
 remain missing.
-Current unattended-operation confidence is 20%.
+Current unattended-operation confidence is 25%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
 complete, Tasks 8-12 from
@@ -118,8 +123,9 @@ authenticated operator approval identity evidence. Task 20 added read-only real
 executor invocation plan and approval binding in `main` via PR #88.
 Task 21 added controlled real executor invocation in `main` via PR #89.
 Task 22 added real executor run closeout binding in `main` via PR #90.
-`docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` is the current roadmap
-handoff branch after Task 22.
+Task 23 adds controlled single-tick run packet evidence in the current tree.
+`docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` is the current roadmap after
+Task 22.
 
 ## Vision Framing
 
@@ -203,7 +209,14 @@ Current evidence:
   and choose continue, stop, handoff, validate-more-evidence, or dry-run Git/PR
   planning as the next decision;
 - controlled real executor invocation and real-invocation closeout binding now
-  exist, but no command runs the full governed loop tick end to end.
+  exist;
+- `controlled-loop-tick` reads saved `loop-tick`, task, execution-start,
+  readiness, invocation-plan, real-invocation, result, snapshot-after,
+  closeout, and optional dry-run Git/PR plan files, rechecks their path and
+  checksum anchors, emits `controlled-loop-tick.v1`, and appends
+  `controlled_loop_tick` audit evidence only after a completed composition;
+- no command runs a continuous governed loop tick end to end or retries failed
+  real executor invocations.
 
 Why it matters: this moves Cadence from advisor to controller without requiring
 full autonomy.
@@ -234,6 +247,9 @@ Validation needed:
 - loop-tick decision audit record: complete for Phase 1;
 - active epoch conflict: complete for governed execution start;
 - stale snapshot rejection: complete for governed execution start.
+- controlled-loop-tick matching saved evidence: complete for Task 23;
+- controlled-loop-tick mismatched evidence blocks without audit append:
+  complete for Task 23.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.
@@ -659,7 +675,7 @@ paid review, and permission changes require operator approval.
 
 ## Expected Confidence Impact
 
-The current confidence rating is 20%.
+The current confidence rating is 25%.
 
 If all five slices are complete with evidence, expected confidence for
 low-risk constrained operation with pre-approved unattended ticks is 45% to

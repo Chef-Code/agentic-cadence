@@ -894,7 +894,8 @@ Supported events are `loop_tick_decision`, `executor_fixture_invocation`,
 `execution_run_record`, `executor_result_validation`,
 `executor_epoch_closeout`, `execution_start_decision`,
 `git_pr_materialization_intent`, `git_pr_materialization_result`,
-`operator_approval_verification`, and `work_ownership_mutation`. It does not
+`operator_approval_verification`, `controlled_loop_tick`, and
+`work_ownership_mutation`. It does not
 recompute `payload_checksum`,
 `run_record_checksum`,
 `task_packet_checksum`, `result_evidence_checksum`,
@@ -1099,6 +1100,62 @@ Already-terminal reruns report `closeout_status: already_closed` without
 appending another closeout audit record. It must not start an executor, create a
 branch, commit, push, call GitHub, open a pull request, merge, release, or
 publish packages.
+
+`controlled-loop-tick` is the controlled single-tick composition boundary after
+the individual local gates have already produced evidence. It reads saved
+`loop-tick`, `generic-executor-task.v1`, `execution-start.v1`,
+`executor-invocation-readiness.v1`, `executor-invocation-plan.v1`,
+`real-executor-invocation.v1`, `generic-executor-result.v1`, snapshot-after,
+`executor-epoch-closeout.v1`, and optional `git-pr-plan.v1` files. It does not
+rediscover mutable state mid-flow; it rechecks packet shape, schema where
+available, task id/checksum, execution-start task anchors, readiness epoch and
+task anchors, invocation-plan readiness anchors, real-invocation plan/result
+anchors and invocation id, result task id, closeout epoch/task/result/snapshot anchors,
+closeout-to-real-invocation checksums, closeout validation status, and optional
+Git/PR plan checksum agreement.
+
+The command emits `controlled-loop-tick.v1` with
+`packet: controlled_loop_tick`, `controlled_tick_status` of `completed` or
+`blocked`, step status/checksum evidence, files, checksums, blockers,
+`next_decision`, and stable limitations including
+`composes_existing_local_evidence_only`, `does_not_retry_executor`, and
+`does_not_rewrite_invocation_or_closeout_records`. A completed packet appends a
+compact `controlled_loop_tick` audit record with the source tick id, task id,
+epoch id, invocation id, local file anchors, optional Git/PR plan file/checksum,
+packet checksums, and payload checksum, then records
+`controlled_loop_tick_audit_appended`. Blocked packets
+append no audit evidence. If the post-validation audit append fails, the
+command emits `controlled_loop_tick_audit_append_failed`, recommends
+`recover_controlled_tick_audit`, and leaves the packet blocked.
+
+Stable blocker codes include `loop_tick_evidence_missing`,
+`task_evidence_missing`, `execution_start_evidence_missing`,
+`readiness_evidence_missing`, `invocation_plan_evidence_missing`,
+`real_invocation_evidence_missing`, `result_evidence_missing`,
+`snapshot_after_evidence_missing`, `closeout_evidence_missing`,
+`git_pr_plan_evidence_missing`, `controlled_tick_packet_mismatch`,
+`executor_task_invalid`, `loop_tick_identity_missing`,
+`loop_tick_task_mismatch`, `loop_tick_not_ready`, `execution_start_invalid`,
+`execution_start_task_mismatch`,
+`snapshot_after_invalid`, `readiness_not_invocable`,
+`readiness_task_mismatch`, `readiness_epoch_mismatch`,
+`invocation_plan_not_invocable`, `invocation_plan_readiness_mismatch`,
+`real_invocation_invalid`, `real_invocation_identity_missing`,
+`real_invocation_plan_mismatch`,
+`real_invocation_record_mismatch`, `real_invocation_result_mismatch`,
+`real_invocation_closeout_mismatch`, `result_task_mismatch`,
+`closeout_invalid`, `closeout_epoch_mismatch`, `closeout_task_mismatch`,
+`closeout_result_mismatch`, `closeout_snapshot_mismatch`,
+`closeout_invocation_mismatch`, `closeout_validation_mismatch`,
+`git_pr_plan_unanchored`, and `git_pr_plan_mismatch`.
+
+`controlled-loop-tick` may report `executor_started: true` only because the
+accepted supplied `real-executor-invocation.v1` record says a prior controlled
+process started. The command itself must not start or retry an executor, rewrite
+invocation records, rewrite closeout records, execute Git commands, call
+GitHub, create branches, commit, push, create or update pull requests, resolve
+review threads, merge, release, publish packages, assign roles, schedule
+agents, or claim distributed locks.
 
 ## Git/PR Dry-Run Planning
 

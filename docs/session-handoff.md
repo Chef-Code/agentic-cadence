@@ -6,16 +6,17 @@ Last updated: 2026-06-11
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `4079cc033023ac7026c585a14b25b77f38452733` after PR #90 merged.
-- Working branch intent: prepare the Tasks 23-27 roadmap and post-Task-22 handoff docs.
-- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence; PR #88 merged read-only real executor invocation plan evidence; PR #89 merged controlled real executor invocation evidence; PR #90 merged real executor invocation closeout binding.
+- Current base: `origin/main` at `0395185d720d2518a82524d7503faa86165cf615` after PR #91 merged.
+- Working branch intent: implement Task 23, controlled single-tick run packet.
+- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence; PR #88 merged read-only real executor invocation plan evidence; PR #89 merged controlled real executor invocation evidence; PR #90 merged real executor invocation closeout binding; PR #91 merged the Tasks 23-27 roadmap.
 - Completed roadmap marker: Tasks 18-22 from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` are complete in `main`, including local audit hash-chain integrity, authenticated operator approval identity evidence, real executor invocation planning, controlled real executor invocation, and real executor invocation closeout binding.
-- Current branch scope: `codex/tasks-23-27-roadmap-handoff` adds
-  `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` and refreshes the living
-  docs after PR #90. It is documentation and planning only; it must not add a
-  continuous loop, dirty-worktree commit path, GitHub PR/review writes, merge,
-  release, package publication, role assignment, agent scheduling, shared
-  runtime, or distributed lock authority.
+- Current branch scope: `codex/task-23-controlled-single-tick-run-packet` adds
+  `controlled-loop-tick`, `controlled-loop-tick.v1`, and
+  `controlled_loop_tick` audit replay support. It composes saved local
+  evidence only; it must not add a continuous loop, executor retry,
+  dirty-worktree commit path, GitHub PR/review writes, merge, release, package
+  publication, role assignment, agent scheduling, shared runtime, or
+  distributed lock authority.
 
 ## Current Capability Baseline
 
@@ -41,6 +42,14 @@ Last updated: 2026-06-11
   mismatched, or audit-chain mismatched real invocation evidence before epoch
   mutation, then update accepted invocation records with closeout status and
   checksum anchors.
+- `controlled-loop-tick` can read saved `loop-tick`, `generic-executor-task.v1`,
+  `execution-start.v1`, `executor-invocation-readiness.v1`,
+  `executor-invocation-plan.v1`, `real-executor-invocation.v1`,
+  `generic-executor-result.v1`, snapshot-after,
+  `executor-epoch-closeout.v1`, and optional `git-pr-plan.v1` files, then
+  emit `controlled-loop-tick.v1` after rechecking their path and checksum
+  anchors. Completed packets append success-only `controlled_loop_tick` audit
+  evidence with `controlled_loop_tick_audit_appended`.
 - `github-evidence-sync` can explicitly fetch read-only PR metadata, status checks, and review threads through `gh`, then save local PR JSON, review-thread JSON, and a summary packet for deterministic follow-on commands.
 - `git-pr-materialize` can consume a reviewed `git-pr-plan.v1` packet and matching target-bound HMAC operator approval token backed by `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`, re-run the local plan gates, create the proposed branch from the already-materialized current commit without switching the checkout, push it with Git hook verification disabled for that push, create or update a PR through `gh`, and append `git_pr_materialization_intent` plus `git_pr_materialization_result` audit records.
 - `verify-resume` can emit a read-only `resume-verification.v1` packet that checks handoff signature and claimed state, clean-square evidence, persisted resume snapshot binding, repo branch/head, dirty-worktree state, active brake, active epoch state, and pickup-policy evidence before a fresh session continues.
@@ -162,6 +171,11 @@ Last updated: 2026-06-11
   invocation evidence into local closeout and dry-run planning decisions, but
   it is not authority to materialize Git/PR writes or close ownership records
   without the existing explicit commands.
+- `controlled-loop-tick` composes existing local evidence only. It may report
+  `executor_started: true` from the supplied prior real-invocation record, but
+  it does not start or retry executors, rewrite invocation or closeout records,
+  execute Git commands, call GitHub, create or update PRs, merge, release,
+  publish packages, assign roles, schedule agents, or claim distributed locks.
 - The active business-memory backlog entry is discovery input only. It does not authorize executor invocation, code modification, branch creation, commits, pushes, PR creation, merges, releases, package publication, or paid review spending.
 - The controlled fake executor fixture remains only a tests/examples component.
   The real invocation runner is separate local process-start evidence and still
@@ -177,19 +191,24 @@ Last updated: 2026-06-11
 
 ```powershell
 git status -sb
-python -m py_compile scripts/validate_protocol.py tests/test_ci_checks.py
-python -m unittest tests.test_ci_checks -v
+python -m py_compile codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py tests/test_audit_replay.py
+python -m unittest tests.test_cadence tests.test_audit_replay -v
+python -m unittest tests.test_executor_contract tests.test_epochs tests.test_ci_checks -v
 python scripts/validate_protocol.py
+python scripts/ci_smoke.py
 git diff --check
 ```
 
 The Task 22 real-invocation closeout validation block remains recorded in
 `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` for the merged PR #90 slice.
+The Task 23 full validation evidence is recorded in `docs/progress-log.md` for
+this branch.
 
 ## Next Action
 
-Open and review the Tasks 23-27 roadmap PR for
-`codex/tasks-23-27-roadmap-handoff`, address any new findings, and merge only
-after checks and review are clean. The next implementation branch should start
-with Task 23, controlled single-tick run packet, from
+Open and review the Task 23 PR for
+`codex/task-23-controlled-single-tick-run-packet`, address any new bot or
+review findings, and merge only after checks and review are clean. If the merge
+is clean, the next implementation branch should start Task 24,
+closeout-bound ownership completion evidence, from
 `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`.
