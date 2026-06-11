@@ -33,6 +33,52 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-11 - Add approved review response materialization
+
+Summary:
+- Added `review-response-materialize` as the write-side bridge from a reviewed
+  `review-response-materialization-plan.v1` to approved PR body updates and
+  review-thread reply posts.
+- The command verifies an HMAC approval token bound to the plan checksum and
+  target checksum, then rechecks saved PR freshness, PR/head anchors, evidence
+  checksums, review-thread completeness, allowed write kinds, PR body preflight,
+  actionable comment targets, and target text checksums before any `gh` write.
+- Materialization packets preserve `command_trace`, GitHub write URLs/ids when
+  returned by `gh`, `github_write_started`, partial-failure blockers, and
+  replayable `review_response_materialization_intent` /
+  `review_response_materialization_result` audit events.
+- Review-thread resolution remains unsupported; the command does not claim
+  reviews are resolved and does not merge, release, publish packages, edit
+  labels, invoke paid review, assign roles, schedule agents, or continue a loop.
+
+Completed slices:
+- Task 31: operator-approved review response materialization.
+
+Confidence change:
+- Previous: 25%
+- New: 25%
+- Reason: Cadence now has a bounded approved GitHub review-response write path,
+  but still needs post-write evidence refresh, role assignment, agent
+  scheduling, distributed locks, merge, release, package publication, and
+  continuous loop execution.
+
+Evidence:
+- `python -m unittest tests.test_pr_readiness.PrReadinessTests.test_review_response_materialize_updates_body_posts_review_reply_and_audits tests.test_pr_readiness.PrReadinessTests.test_review_response_materialize_blocks_missing_approval_without_github_or_audit_writes tests.test_pr_readiness.PrReadinessTests.test_review_response_materialize_rechecks_fresh_pr_threads_and_target_text_before_writes tests.test_pr_readiness.PrReadinessTests.test_review_response_materialize_failed_comment_reports_partial_write_and_result_audit tests.test_pr_readiness.PrReadinessTests.test_review_response_materialize_audit_append_failure_blocks_before_github_writes tests.test_audit_replay.AuditReplayCliTests.test_valid_records_are_counted_by_event_type tests.test_audit_replay.AuditReplayCliTests.test_materialization_audit_records_require_consistent_action_and_status -v`
+- `python -m py_compile codex_cadence/review_response.py codex_cadence/github_evidence.py codex_cadence/cli.py codex_cadence/policy_audit.py`
+- `python -m unittest tests.test_pr_readiness tests.test_cadence tests.test_audit_replay -v`
+- `python scripts/validate_protocol.py`
+- `git diff --check`
+
+New risks or blockers:
+- A post-write evidence refresh gate is still needed before future automation
+  can rely on materialized GitHub state.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+
 ## 2026-06-11 - Add review response materialization planning
 
 Summary:

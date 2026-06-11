@@ -110,7 +110,11 @@ from codex_cadence.pr_readiness import (
     load_pr_json,
     load_template_sections,
 )
-from codex_cadence.review_response import evaluate_review_response_materialization_plan, evaluate_review_response_plan
+from codex_cadence.review_response import (
+    evaluate_review_response_materialization_plan,
+    evaluate_review_response_plan,
+    materialize_review_response_plan,
+)
 from codex_cadence.roles import evaluate_role_readiness
 from codex_cadence.release import evaluate_release_dry_run
 from codex_cadence.repo_state import (
@@ -4730,6 +4734,34 @@ def review_response_materialization_plan_command(args: argparse.Namespace) -> in
     return 0 if payload["valid"] else 1
 
 
+def review_response_materialize_command(args: argparse.Namespace) -> int:
+    plan_file = Path(args.plan_file)
+    pr_json_file = Path(args.pr_json_file)
+    plan_packet = read_json(plan_file)
+    pr = load_pr_json(pr_json_file)
+    review_threads = read_json(Path(args.review_threads_file)) if args.review_threads_file else None
+    candidate_discovery = read_json(Path(args.candidate_discovery_file)) if args.candidate_discovery_file else None
+    required_body_sections = list(args.required_body_section or [])
+    if args.pr_template_file:
+        required_body_sections.extend(load_template_sections(Path(args.pr_template_file)))
+    evidence_captured_at = datetime.fromtimestamp(pr_json_file.stat().st_mtime, timezone.utc)
+    payload = materialize_review_response_plan(
+        cwd=Path(args.cwd),
+        plan_packet=plan_packet,
+        plan_file=plan_file,
+        approval_token=args.approval_token,
+        runtime_root=args.root,
+        pr=pr,
+        review_threads=review_threads,
+        candidate_discovery=candidate_discovery,
+        required_body_sections=required_body_sections or None,
+        pr_evidence_captured_at=evidence_captured_at,
+        max_pr_evidence_age_minutes=args.max_pr_json_age_minutes,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def role_readiness_command(args: argparse.Namespace) -> int:
     payload = evaluate_role_readiness(
         root=args.root,
@@ -5381,6 +5413,24 @@ def build_parser() -> argparse.ArgumentParser:
     review_response_materialization_parser.set_defaults(
         func=review_response_materialization_plan_command,
         requires_root=False,
+    )
+
+    review_response_materialize_parser = subparsers.add_parser(
+        "review-response-materialize",
+        help="Materialize approved PR body/comment review responses after freshness rechecks",
+    )
+    review_response_materialize_parser.add_argument("--cwd", default=".")
+    review_response_materialize_parser.add_argument("--plan-file", required=True)
+    review_response_materialize_parser.add_argument("--pr-json-file", required=True)
+    review_response_materialize_parser.add_argument("--review-threads-file")
+    review_response_materialize_parser.add_argument("--candidate-discovery-file")
+    review_response_materialize_parser.add_argument("--approval-token")
+    review_response_materialize_parser.add_argument("--required-body-section", action="append", default=[])
+    review_response_materialize_parser.add_argument("--pr-template-file")
+    review_response_materialize_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
+    review_response_materialize_parser.set_defaults(
+        func=review_response_materialize_command,
+        requires_root=True,
     )
 
     role_readiness_parser = subparsers.add_parser(

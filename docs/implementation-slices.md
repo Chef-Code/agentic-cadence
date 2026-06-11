@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-11
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 23-27 complete in main, and the Tasks 28-32 roadmap current branch
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 23-27 complete in main, and the Tasks 28-32 roadmap current branch
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -679,8 +679,13 @@ Current evidence:
   PR/head/evidence rechecks, body preflight, actionable-comment target checks,
   duplicate same-target comment write grouping, and
   `github_write_started: false`;
-- no GitHub write sync, branch creation, commit, push, PR edit, merge, release,
-  package publication, continuous reconciliation, or automatic response
+- `review-response-materialize` can consume an approved
+  `review-response-materialization-plan.v1`, recheck saved PR/thread evidence,
+  update only approved PR body text and post approved review-thread replies,
+  and append replayable review-response materialization intent/result audit
+  records;
+- no branch creation, commit, push, merge, release, package publication,
+  continuous reconciliation, thread resolution, or automatic response loop
   execution exists.
 
 Why it matters: unattended operation fails quickly if Cadence cannot react to

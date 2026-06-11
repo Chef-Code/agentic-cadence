@@ -5,12 +5,21 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from codex_cadence.pr_readiness import evaluate_pr_body_preflight, evaluate_pr_readiness, required_sections_from_template
-from codex_cadence.review_response import evaluate_review_response_materialization_plan, evaluate_review_response_plan
+import codex_cadence.review_response as review_response_module
+from codex_cadence.review_response import (
+    evaluate_review_response_materialization_plan,
+    evaluate_review_response_plan,
+    materialize_review_response_plan,
+    review_response_materialization_approval_token,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "cadence.py"
+REVIEW_RESPONSE_APPROVAL_SECRET_ENV = "CADENCE_REVIEW_RESPONSE_MATERIALIZATION_APPROVAL_SECRET"
+REVIEW_RESPONSE_APPROVAL_SECRET = "unit-test-review-response-materialization-secret"
 
 
 def checksum_json(data):
@@ -79,6 +88,133 @@ def review_threads_payload(nodes):
             }
         }
     }
+
+
+def write_fake_review_response_gh(fake_bin, log_path):
+    script = Path(fake_bin) / "fake_gh_review_response.py"
+    script.write_text(
+        """
+import json
+import os
+import sys
+
+args = sys.argv[1:]
+event = {"argv": args}
+if "--body-file" in args:
+    body_file = args[args.index("--body-file") + 1]
+    with open(body_file, encoding="utf-8") as handle:
+        event["body"] = handle.read()
+if "-F" in args:
+    fields = []
+    for index, value in enumerate(args):
+        if value == "-F" and index + 1 < len(args):
+            fields.append(args[index + 1])
+    event["fields"] = fields
+    for field in fields:
+        if field.startswith("body=@"):
+            with open(field.removeprefix("body=@"), encoding="utf-8") as handle:
+                event["body"] = handle.read()
+
+with open(os.environ["GH_FAKE_LOG"], "a", encoding="utf-8") as handle:
+    handle.write(json.dumps(event, sort_keys=True) + "\\n")
+
+if args[:2] == ["pr", "edit"]:
+    if os.environ.get("GH_FAKE_FAIL_EDIT"):
+        print("edit failed", file=sys.stderr)
+        sys.exit(1)
+    print(os.environ.get("GH_FAKE_PR_URL", "https://github.example/local/test/pull/330"))
+    sys.exit(0)
+
+if args[:2] == ["api", "graphql"]:
+    if os.environ.get("GH_FAKE_FAIL_COMMENT"):
+        print("comment failed", file=sys.stderr)
+        sys.exit(1)
+    print(json.dumps({
+        "data": {
+            "addPullRequestReviewThreadReply": {
+                "comment": {
+                    "id": os.environ.get("GH_FAKE_REPLY_ID", "reply-1"),
+                    "url": os.environ.get("GH_FAKE_REPLY_URL", "https://github.example/local/test/pull/330#discussion_r1")
+                }
+            }
+        }
+    }))
+    sys.exit(0)
+
+print("unexpected gh invocation", file=sys.stderr)
+sys.exit(99)
+""".lstrip(),
+        encoding="utf-8",
+    )
+    fake_gh = Path(fake_bin) / ("gh.cmd" if os.name == "nt" else "gh")
+    if os.name == "nt":
+        fake_gh.write_text(f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
+    else:
+        fake_gh.write_text(f'#!/bin/sh\nexec "{sys.executable}" "{script}" "$@"\n', encoding="utf-8")
+        fake_gh.chmod(0o755)
+    return fake_gh
+
+
+def review_response_materialization_inputs():
+    pr = base_pr(body="## Summary\nReady slice.\n")
+    threads = review_threads_payload(
+        [
+            {
+                "id": "thread-1",
+                "path": "codex_cadence/cli.py",
+                "line": 42,
+                "isResolved": False,
+                "isOutdated": False,
+                "comments": {
+                    "pageInfo": {"hasNextPage": False, "endCursor": None},
+                    "nodes": [
+                        {
+                            "id": "comment-1",
+                            "path": "codex_cadence/cli.py",
+                            "line": 42,
+                            "outdated": False,
+                            "body": "Please address this current review finding before merge.",
+                            "author": {"login": "coderabbitai"},
+                        }
+                    ],
+                },
+            }
+        ]
+    )
+    response_plan = evaluate_review_response_plan(
+        pr,
+        review_threads=threads,
+        required_body_sections=["Summary", "Testing"],
+        evidence_captured_at="2026-06-11T18:00:00Z",
+        now="2026-06-11T18:05:00Z",
+        max_evidence_age_minutes=30,
+    )
+    updated_body = "## Summary\nReady slice.\n\n## Testing\n- unit tests\n"
+    comment_body = "Addressed in the latest push; tests now cover this path."
+    writes = [
+        {
+            "kind": "update_pr_body",
+            "body": updated_body,
+            "body_checksum": checksum_json(updated_body),
+        },
+        {
+            "kind": "post_review_comment",
+            "comment_id": "comment-1",
+            "body": comment_body,
+            "body_checksum": checksum_json(comment_body),
+        },
+    ]
+    plan = evaluate_review_response_materialization_plan(
+        response_plan,
+        pr=pr,
+        review_threads=threads,
+        intended_writes=writes,
+        required_body_sections=["Summary", "Testing"],
+        evidence_captured_at="2026-06-11T18:00:00Z",
+        now="2026-06-11T18:05:00Z",
+        max_evidence_age_minutes=30,
+    )
+    return pr, threads, response_plan, plan, updated_body, comment_body
 
 
 class PrReadinessTests(unittest.TestCase):
@@ -808,6 +944,354 @@ class PrReadinessTests(unittest.TestCase):
         self.assertEqual(len(packet["write_plan"]), 1)
         self.assertEqual(packet["write_plan"][0]["comment_ids"], ["comment-1", "comment-2"])
         self.assertEqual(len(packet["target"]["writes"]), 1)
+
+    def test_review_response_materialize_updates_body_posts_review_reply_and_audits(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            runtime_root = tmp_path / "runtime"
+            pr, threads, _response_plan, plan, updated_body, comment_body = review_response_materialization_inputs()
+            pr_path = tmp_path / "pr.json"
+            threads_path = tmp_path / "review-threads.json"
+            plan_path = tmp_path / "review-response-materialization-plan.json"
+            pr_path.write_text(json.dumps(pr), encoding="utf-8")
+            threads_path.write_text(json.dumps(threads), encoding="utf-8")
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+            token = review_response_materialization_approval_token(
+                plan,
+                approval_secret=REVIEW_RESPONSE_APPROVAL_SECRET,
+            )
+            fake_bin = tmp_path / "bin"
+            fake_bin.mkdir()
+            gh_log = tmp_path / "gh.log"
+            write_fake_review_response_gh(fake_bin, gh_log)
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env[REVIEW_RESPONSE_APPROVAL_SECRET_ENV] = REVIEW_RESPONSE_APPROVAL_SECRET
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(runtime_root),
+                    "review-response-materialize",
+                    "--cwd",
+                    str(tmp_path),
+                    "--plan-file",
+                    str(plan_path),
+                    "--pr-json-file",
+                    str(pr_path),
+                    "--review-threads-file",
+                    str(threads_path),
+                    "--approval-token",
+                    token,
+                    "--max-pr-json-age-minutes",
+                    "30",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            packet = json.loads(result.stdout)
+            self.assertEqual(packet["schema_version"], "review-response-materialization.v1")
+            self.assertEqual(packet["packet"], "review_response_materialization")
+            self.assertTrue(packet["valid"])
+            self.assertEqual(packet["decision"], "materialized")
+            self.assertEqual(packet["approval_state"], "approved")
+            self.assertTrue(packet["github_write_started"])
+            self.assertEqual(packet["execution_authority"], "operator_approved_review_response_materialization")
+            self.assertEqual(packet["plan_checksum"], checksum_json(plan))
+            self.assertEqual(packet["target_checksum"], plan["target_checksum"])
+            self.assertEqual(
+                packet["side_effects"],
+                [
+                    "audit_intent_record_appended",
+                    "updated_pr_body",
+                    "posted_review_comment",
+                    "audit_result_record_appended",
+                ],
+            )
+            self.assertEqual([trace["label"] for trace in packet["command_trace"]], ["update_pr_body", "post_review_comment"])
+            self.assertEqual([write["kind"] for write in packet["github_writes"]], ["update_pr_body", "post_review_comment"])
+            self.assertEqual(packet["github_writes"][0]["url"], "https://github.example/local/test/pull/330")
+            self.assertEqual(packet["github_writes"][1]["comment_ids"], ["comment-1"])
+            self.assertEqual(packet["github_writes"][1]["thread_id"], "thread-1")
+            self.assertEqual(packet["github_writes"][1]["github_comment_id"], "reply-1")
+            gh_events = [json.loads(line) for line in gh_log.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(gh_events[0]["argv"][:3], ["pr", "edit", "330"])
+            self.assertEqual(gh_events[0]["body"], updated_body)
+            self.assertEqual(gh_events[1]["argv"][:2], ["api", "graphql"])
+            self.assertEqual(gh_events[1]["body"], comment_body)
+
+            replay_result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--root", str(runtime_root), "audit-replay"],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            replay = json.loads(replay_result.stdout)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["events_by_type"]["review_response_materialization_intent"], 1)
+            self.assertEqual(replay["events_by_type"]["review_response_materialization_result"], 1)
+
+    def test_review_response_materialize_blocks_missing_approval_without_github_or_audit_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            runtime_root = tmp_path / "runtime"
+            pr, threads, _response_plan, plan, _updated_body, _comment_body = review_response_materialization_inputs()
+            pr_path = tmp_path / "pr.json"
+            threads_path = tmp_path / "review-threads.json"
+            plan_path = tmp_path / "review-response-materialization-plan.json"
+            pr_path.write_text(json.dumps(pr), encoding="utf-8")
+            threads_path.write_text(json.dumps(threads), encoding="utf-8")
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+            fake_bin = tmp_path / "bin"
+            fake_bin.mkdir()
+            gh_log = tmp_path / "gh.log"
+            write_fake_review_response_gh(fake_bin, gh_log)
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env[REVIEW_RESPONSE_APPROVAL_SECRET_ENV] = REVIEW_RESPONSE_APPROVAL_SECRET
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(runtime_root),
+                    "review-response-materialize",
+                    "--cwd",
+                    str(tmp_path),
+                    "--plan-file",
+                    str(plan_path),
+                    "--pr-json-file",
+                    str(pr_path),
+                    "--review-threads-file",
+                    str(threads_path),
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            packet = json.loads(result.stdout)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["decision"], "blocked")
+            self.assertEqual(packet["approval_state"], "not_approved")
+            self.assertFalse(packet["github_write_started"])
+            self.assertEqual(packet["side_effects"], [])
+            self.assertIn("operator_approval_missing", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertFalse(gh_log.exists())
+            self.assertFalse((runtime_root / "audit" / "events.jsonl").exists())
+
+    def test_review_response_materialize_rechecks_fresh_pr_threads_and_target_text_before_writes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            pr, threads, _response_plan, plan, _updated_body, _comment_body = review_response_materialization_inputs()
+            changed_pr = dict(pr)
+            changed_pr["number"] = 331
+            tampered_plan = json.loads(json.dumps(plan))
+            tampered_plan["write_plan"][0]["body"] = "tampered body"
+            token = review_response_materialization_approval_token(
+                tampered_plan,
+                approval_secret=REVIEW_RESPONSE_APPROVAL_SECRET,
+            )
+
+            packet = materialize_review_response_plan(
+                cwd=tmp_path,
+                plan_packet=tampered_plan,
+                plan_file=tmp_path / "review-response-materialization-plan.json",
+                approval_token=token,
+                runtime_root=tmp_path / "runtime",
+                pr=changed_pr,
+                review_threads=threads,
+                pr_evidence_captured_at="2026-06-11T18:00:00Z",
+                max_pr_evidence_age_minutes=30,
+                now="2026-06-11T19:00:00Z",
+            )
+
+            self.assertFalse(packet["valid"])
+            self.assertFalse(packet["github_write_started"])
+            self.assertEqual(packet["side_effects"], [])
+            blocker_codes = {blocker["code"] for blocker in packet["blockers"]}
+            self.assertIn("pr_evidence_stale", blocker_codes)
+            self.assertIn("review_response_pr_target_mismatch", blocker_codes)
+            self.assertIn("review_response_write_body_checksum_mismatch", blocker_codes)
+            self.assertIn("review_response_materialization_target_checksum_mismatch", blocker_codes)
+
+    def test_review_response_materialize_failed_comment_reports_partial_write_and_result_audit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            runtime_root = tmp_path / "runtime"
+            pr, threads, _response_plan, plan, _updated_body, _comment_body = review_response_materialization_inputs()
+            pr_path = tmp_path / "pr.json"
+            threads_path = tmp_path / "review-threads.json"
+            plan_path = tmp_path / "review-response-materialization-plan.json"
+            pr_path.write_text(json.dumps(pr), encoding="utf-8")
+            threads_path.write_text(json.dumps(threads), encoding="utf-8")
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+            token = review_response_materialization_approval_token(plan, approval_secret=REVIEW_RESPONSE_APPROVAL_SECRET)
+            fake_bin = tmp_path / "bin"
+            fake_bin.mkdir()
+            gh_log = tmp_path / "gh.log"
+            write_fake_review_response_gh(fake_bin, gh_log)
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env["GH_FAKE_FAIL_COMMENT"] = "1"
+            env[REVIEW_RESPONSE_APPROVAL_SECRET_ENV] = REVIEW_RESPONSE_APPROVAL_SECRET
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(runtime_root),
+                    "review-response-materialize",
+                    "--cwd",
+                    str(tmp_path),
+                    "--plan-file",
+                    str(plan_path),
+                    "--pr-json-file",
+                    str(pr_path),
+                    "--review-threads-file",
+                    str(threads_path),
+                    "--approval-token",
+                    token,
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+            self.assertEqual(result.returncode, 1, result.stderr)
+            packet = json.loads(result.stdout)
+            self.assertFalse(packet["valid"])
+            self.assertEqual(packet["decision"], "blocked")
+            self.assertTrue(packet["github_write_started"])
+            self.assertIn("updated_pr_body", packet["side_effects"])
+            self.assertNotIn("posted_review_comment", packet["side_effects"])
+            self.assertIn("audit_result_record_appended", packet["side_effects"])
+            self.assertIn("review_response_materialization_command_failed", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertNotEqual(packet["recommended_next_action"], "inspect_resolved_review")
+            replay_result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--root", str(runtime_root), "audit-replay"],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            replay = json.loads(replay_result.stdout)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["events_by_type"]["review_response_materialization_result"], 1)
+
+    def test_review_response_materialize_audit_append_failure_blocks_before_github_writes(self):
+        pr, threads, _response_plan, plan, _updated_body, _comment_body = review_response_materialization_inputs()
+        token = review_response_materialization_approval_token(plan, approval_secret=REVIEW_RESPONSE_APPROVAL_SECRET)
+
+        with tempfile.TemporaryDirectory() as tmp, mock.patch.object(
+            review_response_module,
+            "append_audit_record",
+            side_effect=OSError("audit unavailable"),
+        ):
+            tmp_path = Path(tmp)
+            original_secret = os.environ.get(REVIEW_RESPONSE_APPROVAL_SECRET_ENV)
+            os.environ[REVIEW_RESPONSE_APPROVAL_SECRET_ENV] = REVIEW_RESPONSE_APPROVAL_SECRET
+            try:
+                packet = materialize_review_response_plan(
+                    cwd=tmp_path,
+                    plan_packet=plan,
+                    plan_file=tmp_path / "review-response-materialization-plan.json",
+                    approval_token=token,
+                    runtime_root=tmp_path / "runtime",
+                    pr=pr,
+                    review_threads=threads,
+                    pr_evidence_captured_at="2026-06-11T18:00:00Z",
+                    max_pr_evidence_age_minutes=30,
+                    now="2026-06-11T18:05:00Z",
+                )
+            finally:
+                if original_secret is None:
+                    os.environ.pop(REVIEW_RESPONSE_APPROVAL_SECRET_ENV, None)
+                else:
+                    os.environ[REVIEW_RESPONSE_APPROVAL_SECRET_ENV] = original_secret
+
+        self.assertFalse(packet["valid"])
+        self.assertFalse(packet["github_write_started"])
+        self.assertEqual(packet["side_effects"], [])
+        self.assertEqual(packet["recommended_next_action"], "repair_audit_materialization")
+        self.assertIn("audit_write_failed", {blocker["code"] for blocker in packet["blockers"]})
+
+    def test_review_response_materialize_result_audit_failure_after_partial_write_is_blocking(self):
+        pr, threads, _response_plan, plan, _updated_body, _comment_body = review_response_materialization_inputs()
+        token = review_response_materialization_approval_token(plan, approval_secret=REVIEW_RESPONSE_APPROVAL_SECRET)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            fake_bin = tmp_path / "bin"
+            fake_bin.mkdir()
+            gh_log = tmp_path / "gh.log"
+            write_fake_review_response_gh(fake_bin, gh_log)
+            original_path = os.environ.get("PATH", "")
+            original_log = os.environ.get("GH_FAKE_LOG")
+            original_fail_comment = os.environ.get("GH_FAKE_FAIL_COMMENT")
+            original_secret = os.environ.get(REVIEW_RESPONSE_APPROVAL_SECRET_ENV)
+            os.environ["PATH"] = str(fake_bin) + os.pathsep + original_path
+            os.environ["GH_FAKE_LOG"] = str(gh_log)
+            os.environ["GH_FAKE_FAIL_COMMENT"] = "1"
+            os.environ[REVIEW_RESPONSE_APPROVAL_SECRET_ENV] = REVIEW_RESPONSE_APPROVAL_SECRET
+            try:
+                with mock.patch.object(
+                    review_response_module,
+                    "append_audit_record",
+                    side_effect=[{"event": "intent"}, OSError("result audit unavailable")],
+                ):
+                    packet = materialize_review_response_plan(
+                        cwd=tmp_path,
+                        plan_packet=plan,
+                        plan_file=tmp_path / "review-response-materialization-plan.json",
+                        approval_token=token,
+                        runtime_root=tmp_path / "runtime",
+                        pr=pr,
+                        review_threads=threads,
+                        pr_evidence_captured_at="2026-06-11T18:00:00Z",
+                        max_pr_evidence_age_minutes=30,
+                        now="2026-06-11T18:05:00Z",
+                    )
+            finally:
+                os.environ["PATH"] = original_path
+                if original_log is None:
+                    os.environ.pop("GH_FAKE_LOG", None)
+                else:
+                    os.environ["GH_FAKE_LOG"] = original_log
+                if original_fail_comment is None:
+                    os.environ.pop("GH_FAKE_FAIL_COMMENT", None)
+                else:
+                    os.environ["GH_FAKE_FAIL_COMMENT"] = original_fail_comment
+                if original_secret is None:
+                    os.environ.pop(REVIEW_RESPONSE_APPROVAL_SECRET_ENV, None)
+                else:
+                    os.environ[REVIEW_RESPONSE_APPROVAL_SECRET_ENV] = original_secret
+
+        self.assertFalse(packet["valid"])
+        self.assertTrue(packet["github_write_started"])
+        self.assertEqual(packet["recommended_next_action"], "repair_audit_materialization")
+        self.assertIn("updated_pr_body", packet["side_effects"])
+        self.assertNotIn("posted_review_comment", packet["side_effects"])
+        blocker_codes = {blocker["code"] for blocker in packet["blockers"]}
+        warning_codes = {warning["code"] for warning in packet["warnings"]}
+        self.assertIn("review_response_materialization_command_failed", blocker_codes)
+        self.assertIn("audit_write_failed", blocker_codes)
+        self.assertNotIn("audit_write_failed", warning_codes)
 
     def test_body_preflight_reports_ready_draft_body(self):
         packet = evaluate_pr_body_preflight(

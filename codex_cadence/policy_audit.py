@@ -480,6 +480,72 @@ def validate_git_pr_dirty_commit_materialization_result_audit_record(record: dic
     return blockers
 
 
+def validate_review_response_materialization_intent_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate operator-approved review response materialization intent fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in ("action", "reason", "plan_file", "pr_number", "head_ref", "base_ref", "head_sha"):
+        blockers.extend(required_string(record, field, line))
+    for field in ("payload_checksum", "plan_checksum", "target_checksum", "intended_side_effects_checksum"):
+        blockers.extend(required_checksum_present(record, field, line))
+    if record.get("action") not in (None, "materialize_review_response_plan"):
+        blockers.append(
+            audit_replay_blocker(
+                "audit_materialization_action_invalid",
+                "review_response_materialization_intent action must be materialize_review_response_plan",
+                line,
+            )
+        )
+    return blockers
+
+
+def validate_review_response_materialization_result_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate operator-approved review response materialization result fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in (
+        "action",
+        "reason",
+        "materialization_status",
+        "plan_file",
+        "pr_number",
+        "head_ref",
+        "base_ref",
+        "head_sha",
+    ):
+        blockers.extend(required_string(record, field, line))
+    blockers.extend(required_bool(record, "valid", line))
+    for field in (
+        "payload_checksum",
+        "plan_checksum",
+        "target_checksum",
+        "side_effects_checksum",
+        "command_trace_checksum",
+        "github_writes_checksum",
+    ):
+        blockers.extend(required_checksum_present(record, field, line))
+    valid = record.get("valid")
+    action = record.get("action")
+    status = record.get("materialization_status")
+    expected_action = "materialized" if valid is True else "blocked" if valid is False else None
+    expected_status = "completed" if valid is True else "blocked" if valid is False else None
+    if expected_action is not None and action != expected_action:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_materialization_action_invalid",
+                f"review_response_materialization_result action must be {expected_action} when valid is {valid}",
+                line,
+            )
+        )
+    if expected_status is not None and status != expected_status:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_materialization_status_invalid",
+                f"review_response_materialization_result materialization_status must be {expected_status} when valid is {valid}",
+                line,
+            )
+        )
+    return blockers
+
+
 def validate_operator_approval_verification_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
     """Validate accepted operator approval identity verification audit fields."""
     blockers: list[dict[str, Any]] = []
@@ -846,6 +912,10 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
         blockers.extend(validate_git_pr_dirty_commit_materialization_intent_audit_record(record, line))
     elif event == "git_pr_dirty_commit_materialization_result":
         blockers.extend(validate_git_pr_dirty_commit_materialization_result_audit_record(record, line))
+    elif event == "review_response_materialization_intent":
+        blockers.extend(validate_review_response_materialization_intent_audit_record(record, line))
+    elif event == "review_response_materialization_result":
+        blockers.extend(validate_review_response_materialization_result_audit_record(record, line))
     elif event == "operator_approval_verification":
         blockers.extend(validate_operator_approval_verification_audit_record(record, line))
     elif event == "execution_start_decision":
@@ -1527,6 +1597,48 @@ def git_pr_dirty_commit_materialization_result_audit_record(payload: dict[str, A
         "target_checksum": payload.get("target_checksum"),
         "side_effects_checksum": checksum_json(payload.get("side_effects", [])),
         "command_trace_checksum": checksum_json(payload.get("command_trace", [])),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def review_response_materialization_intent_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
+    pr = payload.get("pr") if isinstance(payload.get("pr"), dict) else {}
+    record = {
+        "event": "review_response_materialization_intent",
+        "action": "materialize_review_response_plan",
+        "reason": "operator_approved_review_response_materialization_intent",
+        "pr_number": pr.get("number"),
+        "head_ref": pr.get("head_ref"),
+        "base_ref": pr.get("base_ref"),
+        "head_sha": pr.get("head_sha"),
+        "plan_file": payload.get("plan_file"),
+        "payload_checksum": checksum_json(payload),
+        "plan_checksum": payload.get("plan_checksum"),
+        "target_checksum": payload.get("target_checksum"),
+        "intended_side_effects_checksum": checksum_json(payload.get("intended_side_effects", [])),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def review_response_materialization_result_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
+    pr = payload.get("pr") if isinstance(payload.get("pr"), dict) else {}
+    record = {
+        "event": "review_response_materialization_result",
+        "action": payload.get("decision"),
+        "reason": "operator_approved_review_response_materialization_result",
+        "valid": payload.get("valid"),
+        "materialization_status": "completed" if payload.get("valid") is True else "blocked",
+        "pr_number": pr.get("number"),
+        "head_ref": pr.get("head_ref"),
+        "base_ref": pr.get("base_ref"),
+        "head_sha": pr.get("head_sha"),
+        "plan_file": payload.get("plan_file"),
+        "payload_checksum": checksum_json(payload),
+        "plan_checksum": payload.get("plan_checksum"),
+        "target_checksum": payload.get("target_checksum"),
+        "side_effects_checksum": checksum_json(payload.get("side_effects", [])),
+        "command_trace_checksum": checksum_json(payload.get("command_trace", [])),
+        "github_writes_checksum": checksum_json(payload.get("github_writes", [])),
     }
     return {key: value for key, value in record.items() if value is not None}
 

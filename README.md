@@ -869,6 +869,28 @@ targets, PR body preflight, and target text checksums, then emits
 still does not call GitHub, update PR bodies, post comments, resolve threads,
 merge, release, publish packages, spend paid review, or invoke review agents.
 
+`review-response-materialize` consumes that reviewed
+`review-response-materialization-plan.v1` plus an HMAC approval token bound to
+the plan checksum and write target. The token uses
+`CADENCE_REVIEW_RESPONSE_MATERIALIZATION_APPROVAL_SECRET` and the
+`approve-review-response:hmac-sha256:<digest>` prefix:
+
+```bash
+agentic-cadence --root <runtime-root> review-response-materialize --cwd . --plan-file review-response-materialization-plan.json --pr-json-file pr.json --review-threads-file review-threads.json --approval-token approve-review-response:hmac-sha256:<review-response-target-hmac> --max-pr-json-age-minutes 30
+```
+
+Immediately before any `gh` write, Cadence rechecks saved PR freshness, PR
+number, head/base/head SHA anchors, evidence checksums, review-thread
+completeness, actionable comment targets, PR body preflight, allowed write
+kinds, and target text checksums. It appends
+`review_response_materialization_intent` before writing, updates only approved
+PR bodies and review-thread replies, then appends
+`review_response_materialization_result` after success or partial failure. The
+result packet is `review-response-materialization.v1` and preserves command
+trace plus GitHub URLs/ids when `gh` returns them. It does not resolve review
+threads, claim reviews are resolved, invoke paid review, edit labels, merge,
+release, publish packages, assign roles, schedule agents, or continue a loop.
+
 ## PR Body Preflight
 
 `pr-body-preflight` checks a draft PR body before publishing or updating a pull request. It reads local files only, uses the same Markdown heading parser as `pr-readiness`, and never rewrites the body.
