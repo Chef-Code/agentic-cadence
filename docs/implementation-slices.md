@@ -654,7 +654,7 @@ paid review, and permission changes require operator approval.
 
 ## Expected Confidence Impact
 
-The current confidence rating is 10%.
+The current confidence rating is 15%.
 
 If all five slices are complete with evidence, expected confidence for
 low-risk constrained operation with pre-approved unattended ticks is 45% to

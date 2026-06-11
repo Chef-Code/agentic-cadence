@@ -2,8 +2,8 @@
 
 Status: living document
 Last updated: 2026-06-10
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
-Current unattended-operation confidence: 10%
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Current unattended-operation confidence: 15%
 
 This document answers how close Agentic Cadence is to the "press start and
 build continuously" experience. The first usable path is a governed
@@ -262,17 +262,20 @@ an executor task packet. At `approve_executor_task`, a human or external agent
 still has to approve the exact task packet before Cadence starts one governed
 epoch. A successful `execution-start.v1` packet does not start a real executor;
 it only creates local epoch state and recommends external executor handoff. The
-read-only `executor-invocation-readiness.v1` packet can now prove whether a
-future real invocation is locally ready, and `executor-invocation-plan` can bind
-that readiness to operator approval, adapter metadata, rollback evidence, a
-command, environment allowlist, timeout, result path, and the current
-audit-chain head. The success recommendation is still only
-`invoke_real_executor` for an external orchestrator and it keeps
-`executor_started: false`. The
-controlled fixture path can prove policy, timeout, audit, run-record, and
-result-evidence behavior with fake local evidence, and local closeout can record
-task completion or terminally complete/fail the active epoch from that evidence,
-but it does not implement product changes. The
+read-only `executor-invocation-readiness.v1` packet can prove whether a real
+invocation is locally ready, and `executor-invocation-plan` binds that
+readiness to operator approval, adapter metadata, rollback evidence, a command,
+environment allowlist, timeout, result path, and the current audit-chain head.
+Matching plans still use `recommended_next_action: invoke_real_executor`;
+process start only happens when an operator runs `invoke-real-executor`.
+`invoke-real-executor` can now start exactly one approved command and write
+`real-executor-invocation.v1` evidence, but real-run closeout binding remains
+Task 22 and the command still does not commit, push, open PRs, resolve threads,
+merge, release, publish packages, assign roles, schedule agents, or write
+GitHub state. The controlled fixture path can prove policy, timeout, audit,
+run-record, and result-evidence behavior with fake local evidence, and local
+closeout can record task completion or terminally complete/fail the active epoch
+from that evidence, but it does not implement product changes. The
 dry-run `git-pr-plan` handoff remains
 review-only until an operator invokes `git-pr-materialize` with a matching plan
 approval token. Real code changes, autonomous Git/PR materialization,
@@ -364,16 +367,18 @@ constraints and pre-approved unattended ticks, not production-autonomous work.
 
 ## Current Confidence Rating
 
-Current rating: 10%.
+Current rating: 15%.
 
 Reasoning:
 
 - Safety and governance primitives are real.
 - A read-only `loop-tick` now stitches snapshot, candidate election, Cadence
   state, and next-action reporting into one packet.
-- The generic executor task/result contract is now explicit and testable, but
-  it is only wired to read-only executor invocation readiness and a fake
-  controlled executor fixture, not a real executor.
+- The generic executor task/result contract is now explicit and testable, and
+  is wired through read-only executor invocation readiness, read-only invocation
+  planning, fake controlled executor fixtures, and controlled one-command real
+  executor invocation, but not real-run closeout-bound unattended
+  implementation.
 - Executor task packets now fail closed on malformed local snapshots, missing
   repo identity, relative or unnormalizable cwd/path anchors, repo/cwd/branch/head
   mismatches, dirty worktrees, and low-confidence repo state.

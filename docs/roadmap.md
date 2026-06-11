@@ -2,8 +2,8 @@
 
 Status: living document
 Last updated: 2026-06-10
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
-Current unattended-operation confidence: 10%
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Current unattended-operation confidence: 15%
 
 This document tracks the practical path from the current Agentic Cadence
 protocol toolkit toward GitHub-native orchestration for autonomous software
@@ -76,20 +76,22 @@ epoch gating, local execution-run evidence, operator-approved Git/PR
 materialization, read-only resume verification, ownership-aware read-only
 resume continuation, read-only review-response planning, local work ownership
 claim/closeout evidence, read-only role-readiness evidence, read-only
-executor-invocation-readiness and invocation-plan evidence, and local audit
-hash-chain integrity evidence. It can
+executor-invocation-readiness and invocation-plan evidence, controlled real
+executor invocation evidence, and local audit hash-chain integrity evidence. It can
 materialize a reviewed Git/PR plan only through exact target-bound operator
 approval, and it can verify handoff pickup state before a fresh session
-continues, but it still cannot independently implement code, invoke a real
-executor, autonomously push branches, autonomously open pull requests, assign
+continues. It can also start one approved real executor command with local
+invocation evidence, but it still cannot independently implement code outside
+that approved command, bind real-run evidence into closeout and Git/PR
+planning, autonomously push branches, autonomously open pull requests, assign
 agent roles, resolve review feedback, launch fresh sessions, coordinate an
 agent pool, or continue in an unattended loop.
 
-Current confidence for unattended continuous operation is 10%.
+Current confidence for unattended continuous operation is 15%.
 
 The rating is low because the safety primitives are real, but the central
 autonomous build loop is not implemented. The first real unattended run would
-stop at implementation or PR/review integration.
+stop at real-run closeout binding or PR/review integration.
 
 See `docs/autonomous-loop-readiness.md` for the direct readiness assessment.
 

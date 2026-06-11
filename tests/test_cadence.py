@@ -502,6 +502,11 @@ if config.get("touch_repo"):
     readme.write_text(readme.read_text(encoding="utf-8") + "real executor change\\n", encoding="utf-8")
 if config.get("create_branch"):
     subprocess.run(["git", "branch", config["create_branch"]], cwd=repo_path, check=True)
+if config.get("delete_branch"):
+    subprocess.run(["git", "branch", "-D", config["delete_branch"]], cwd=repo_path, check=True)
+if config.get("retarget_branch"):
+    branch = config["retarget_branch"]
+    subprocess.run(["git", "branch", "-f", branch, "HEAD~1"], cwd=repo_path, check=True)
 if config.get("delete_git"):
     import shutil
 
@@ -4269,6 +4274,8 @@ class CadenceCliTests(unittest.TestCase):
         sleep_seconds=None,
         delete_git=False,
         create_branch=None,
+        delete_branch=None,
+        retarget_branch=None,
         resulting_head=None,
         stdout_text=None,
         stderr_text=None,
@@ -4285,6 +4292,7 @@ class CadenceCliTests(unittest.TestCase):
         config = {
             "command": command,
             "create_branch": create_branch,
+            "delete_branch": delete_branch,
             "exit_code": 0,
             "include_materialized_change_evidence": include_materialized_change_evidence,
             "materialized_change_evidence": materialized_change_evidence,
@@ -4292,6 +4300,7 @@ class CadenceCliTests(unittest.TestCase):
             "repo_path": str(Path(repo).resolve()),
             "result_path": inputs["task_packet"]["expected_output"]["evidence_path"],
             "resulting_head": resulting_head,
+            "retarget_branch": retarget_branch,
             "sleep_seconds": sleep_seconds,
             "status": "succeeded",
             "stderr_text": stderr_text,
@@ -4710,6 +4719,9 @@ class CadenceCliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertFalse(output["valid"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertIn("repo_head_mismatch", {blocker["code"] for blocker in output["blockers"]})
             self.assertNotIn("runtime_root_unsafe", {blocker["code"] for blocker in output["blockers"]})
 
     def test_invoke_real_executor_enforces_result_and_side_effect_modes(self):
@@ -4836,7 +4848,67 @@ class CadenceCliTests(unittest.TestCase):
                         self.assertFalse(output["valid"])
                         self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
 
-    def test_invoke_real_executor_blocks_hidden_branch_ref_creation(self):
+    def test_invoke_real_executor_blocks_hidden_branch_ref_changes(self):
+        cases = (
+            (
+                "added",
+                {"create_branch": "codex/hidden-side-effect"},
+                lambda repo: None,
+                lambda changes: self.assertIn("codex/hidden-side-effect", changes["added"]),
+            ),
+            (
+                "removed",
+                {"delete_branch": "codex/preexisting-side-effect"},
+                lambda repo: git(repo, "branch", "codex/preexisting-side-effect"),
+                lambda changes: self.assertIn("codex/preexisting-side-effect", changes["removed"]),
+            ),
+            (
+                "changed",
+                {"retarget_branch": "codex/retargeted-side-effect"},
+                lambda repo: (
+                    (Path(repo) / "second.txt").write_text("second\n", encoding="utf-8"),
+                    git(repo, "add", "second.txt"),
+                    git(repo, "commit", "-m", "second"),
+                    git(repo, "branch", "codex/retargeted-side-effect"),
+                ),
+                lambda changes: self.assertIn("codex/retargeted-side-effect", changes["changed"]),
+            ),
+        )
+        for change_kind, plan_options, arrange, assert_change in cases:
+            for side_effect_mode in ("evidence_only", "materialized_changes"):
+                with self.subTest(change_kind=change_kind, side_effect_mode=side_effect_mode):
+                    with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                        init_committed_repo(repo)
+                        arrange(repo)
+                        _inputs, plan_path, _plan = self.write_real_executor_invocation_plan(
+                            tmp,
+                            repo,
+                            **plan_options,
+                        )
+
+                        result, output = self.run_invoke_real_executor_cli(
+                            tmp,
+                            plan_path,
+                            side_effect_mode=side_effect_mode,
+                        )
+
+                        self.assertEqual(result.returncode, 2, result.stderr)
+                        self.assertFalse(output["valid"])
+                        self.assertTrue(output["executor_started"])
+                        self.assertFalse(output["repository_after"]["dirty_worktree"])
+                        self.assertEqual(output["repository_after"]["head"], output["repository_before"]["head"])
+                        self.assertEqual(output["repository_after"]["branch"], output["repository_before"]["branch"])
+                        blockers = output["blockers"]
+                        self.assertIn("unexpected_repo_modification", {blocker["code"] for blocker in blockers})
+                        branch_ref_blocker = next(
+                            blocker
+                            for blocker in blockers
+                            if blocker["code"] == "unexpected_repo_modification"
+                            and "local_branch_ref_changes" in blocker
+                        )
+                        assert_change(branch_ref_blocker["local_branch_ref_changes"])
+
+    def test_invoke_real_executor_records_created_branch_ref_in_repository_evidence(self):
         for side_effect_mode in ("evidence_only", "materialized_changes"):
             with self.subTest(side_effect_mode=side_effect_mode):
                 with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

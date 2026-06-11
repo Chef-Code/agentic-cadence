@@ -57,7 +57,7 @@ Confidence change:
 
 Evidence:
 - `python -m unittest tests.test_cadence.CadenceCliTests.test_invoke_real_executor_runs_approved_plan_and_writes_invocation_record tests.test_cadence.CadenceCliTests.test_invoke_real_executor_blocks_stale_or_uninvocable_plan_before_start tests.test_cadence.CadenceCliTests.test_invoke_real_executor_enforces_result_and_side_effect_modes -v`
-- `python -m unittest tests.test_cadence.CadenceCliTests.test_invoke_real_executor_blocks_hidden_branch_ref_creation tests.test_cadence.CadenceCliTests.test_invoke_real_executor_honors_repo_local_runtime_root_override -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_invoke_real_executor_blocks_hidden_branch_ref_changes tests.test_cadence.CadenceCliTests.test_invoke_real_executor_honors_repo_local_runtime_root_override -v`
 
 New risks or blockers:
 - `real-executor-invocation.v1` is invocation evidence only until Task 22 binds

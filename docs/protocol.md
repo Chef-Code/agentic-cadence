@@ -736,6 +736,9 @@ dirty worktree only when the executor result includes verified
 does not commit, push, open PRs, resolve threads, merge, release, publish
 packages, assign roles, schedule agents, claim distributed locks, or write
 GitHub state.
+Added, removed, or retargeted local branch refs are recorded in
+`local_branch_refs` and fail as `unexpected_repo_modification` in both
+side-effect modes.
 
 Stable blockers include `plan_packet_stale`, `plan_not_invocable`,
 `approval_recheck_failed`, `rollback_evidence_missing`,
