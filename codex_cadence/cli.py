@@ -52,7 +52,7 @@ from codex_cadence.git_pr_plan import (
     materialize_git_pr_plan,
     validate_git_pr_plan_dry_run_packet,
 )
-from codex_cadence.github_evidence import sync_github_evidence
+from codex_cadence.github_evidence import evaluate_post_write_pr_evidence_gate, sync_github_evidence
 from codex_cadence.epochs import complete_epoch as complete_epoch_record
 from codex_cadence.epochs import CONTINUE, ASK_APPROVAL
 from codex_cadence.epochs import EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION
@@ -4906,6 +4906,30 @@ def github_evidence_sync_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 1
 
 
+def post_write_pr_evidence_gate_command(args: argparse.Namespace) -> int:
+    materialization_file = Path(args.materialization_file)
+    github_evidence_file = Path(args.github_evidence_file)
+    materialization_result = read_json(materialization_file)
+    github_evidence_sync = read_json(github_evidence_file)
+    required_body_sections = list(args.required_body_section or [])
+    if args.pr_template_file:
+        required_body_sections.extend(load_template_sections(Path(args.pr_template_file)))
+    payload = evaluate_post_write_pr_evidence_gate(
+        cwd=Path(args.cwd),
+        materialization_result=materialization_result,
+        github_evidence_sync=github_evidence_sync,
+        github_evidence_file=github_evidence_file,
+        required_checks=args.required_check or [],
+        required_body_sections=required_body_sections,
+        max_pr_evidence_age_minutes=args.max_pr_json_age_minutes,
+        discovery_mode=args.discovery_mode,
+        proposal_allowance=args.proposal_allowance,
+        max_tasks=args.max_tasks,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def pr_body_preflight_command(args: argparse.Namespace) -> int:
     body = load_pr_body(Path(args.body_file))
     required_body_sections = list(args.required_body_section or [])
@@ -5508,6 +5532,22 @@ def build_parser() -> argparse.ArgumentParser:
     github_evidence_parser.add_argument("--pr-number", type=positive_int, required=True)
     github_evidence_parser.add_argument("--out-dir", required=True)
     github_evidence_parser.set_defaults(func=github_evidence_sync_command, requires_root=False)
+
+    post_write_gate_parser = subparsers.add_parser(
+        "post-write-pr-evidence-gate",
+        help="Evaluate fresh saved GitHub evidence after approved PR writes",
+    )
+    post_write_gate_parser.add_argument("--cwd", default=".")
+    post_write_gate_parser.add_argument("--materialization-file", required=True)
+    post_write_gate_parser.add_argument("--github-evidence-file", required=True)
+    post_write_gate_parser.add_argument("--required-check", action="append", default=[])
+    post_write_gate_parser.add_argument("--required-body-section", action="append", default=[])
+    post_write_gate_parser.add_argument("--pr-template-file")
+    post_write_gate_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
+    post_write_gate_parser.add_argument("--discovery-mode", choices=DISCOVERY_MODES, default="local")
+    post_write_gate_parser.add_argument("--proposal-allowance", choices=PROPOSAL_ALLOWANCES, default="none")
+    post_write_gate_parser.add_argument("--max-tasks", type=positive_int, default=1)
+    post_write_gate_parser.set_defaults(func=post_write_pr_evidence_gate_command, requires_root=False)
 
     body_preflight_parser = subparsers.add_parser("pr-body-preflight", help="Evaluate a draft PR body before publishing")
     body_preflight_parser.add_argument("--body-file", required=True)

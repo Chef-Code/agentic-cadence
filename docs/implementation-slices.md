@@ -684,6 +684,12 @@ Current evidence:
   update only approved PR body text and post approved review-thread replies,
   and append replayable review-response materialization intent/result audit
   records;
+- `post-write-pr-evidence-gate` can consume an approved Git/PR or
+  review-response materialization result plus fresh `github-evidence-sync`
+  output, verify refreshed PR number/branch/base/head anchors, re-run PR
+  readiness and candidate discovery, and recommend only `ready_for_review`,
+  `refresh_required`, `follow_up_candidates`, `wait_for_checks`,
+  `respond_to_review`, or `operator_review`;
 - no branch creation, commit, push, merge, release, package publication,
   continuous reconciliation, thread resolution, or automatic response loop
   execution exists.

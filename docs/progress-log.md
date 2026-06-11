@@ -33,6 +33,49 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-11 - Add post-write PR evidence gate
+
+Summary:
+- Added `post-write-pr-evidence-gate` as a read-only bridge after approved
+  Git/PR or review-response materialization results.
+- The gate consumes fresh `github-evidence-sync` output, loads refreshed saved
+  PR and review-thread evidence, verifies PR number, branch, base, and head SHA
+  against the materialized target, then re-runs PR readiness and candidate
+  discovery.
+- It emits `post-write-pr-evidence-gate.v1` with bounded recommendations for
+  `ready_for_review`, `refresh_required`, `follow_up_candidates`,
+  `wait_for_checks`, `respond_to_review`, or `operator_review`, without GitHub
+  writes or loop continuation.
+
+Completed slices:
+- Task 32: post-write PR evidence refresh and next-action gate.
+
+Confidence change:
+- Previous: 25%
+- New: 25%
+- Reason: Cadence can now refresh and triage live PR state after approved
+  writes, but still lacks autonomous scheduling, distributed locks, merge,
+  release, package publication, and continuous loop execution.
+
+Evidence:
+- `python -m unittest tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_accepts_fresh_matching_review_response_evidence tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_accepts_git_pr_materialization_with_pr_url_number tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_requires_github_evidence_sync_after_materialization tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_requires_fresh_github_evidence_sync tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_blocks_changed_pr_head_before_follow_up tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_recommends_review_response_from_refreshed_threads tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_feeds_failed_checks_back_to_candidate_discovery tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_routes_pr_body_gaps_to_operator_review -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_post_write_pr_evidence_gate_cli_reads_materialization_and_sync_summary -v`
+- `python -m py_compile codex_cadence/github_evidence.py codex_cadence/review_response.py codex_cadence/candidates.py codex_cadence/cli.py`
+- `python -m unittest tests.test_cadence tests.test_pr_readiness tests.test_candidates -v`
+- `python scripts/validate_protocol.py`
+- `git diff --check`
+
+New risks or blockers:
+- Future automation must invoke `github-evidence-sync` after approved writes and
+  feed that fresh summary into the gate before acting on PR state.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+
 ## 2026-06-11 - Add approved review response materialization
 
 Summary:
