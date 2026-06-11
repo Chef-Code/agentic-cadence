@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-11
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, and the Tasks 18-22 roadmap current tree
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, read-only GitHub evidence sync, branch policy, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 18-22 complete in main, and the Tasks 23-27 roadmap current branch
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -117,8 +117,9 @@ integrity evidence before any real executor process start. Task 19 adds
 authenticated operator approval identity evidence. Task 20 added read-only real
 executor invocation plan and approval binding in `main` via PR #88.
 Task 21 added controlled real executor invocation in `main` via PR #89.
-Task 22: real executor run closeout binding is implemented in the current
-branch.
+Task 22 added real executor run closeout binding in `main` via PR #90.
+`docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` is the current roadmap
+handoff branch after Task 22.
 
 ## Vision Framing
 
