@@ -48,6 +48,16 @@ Summary:
   status and checksum anchors, can complete the governed epoch, and can embed a
   dry-run Git/PR plan without committing, pushing, opening PRs, or writing
   GitHub state.
+- Review follow-up added dirty-worktree fingerprint checks for materialized
+  changes, a dedicated `update_real_executor_invocation_closeout` audit event,
+  stricter active ownership anchor revalidation, and structured failure output
+  when post-run invocation audit append fails.
+- Bot review follow-up also persists absolute invocation plan/evidence file
+  anchors plus `invocation_cwd`, so real invocation closeout can replay records
+  from a different operator cwd.
+- Local review follow-up added action/status validation for
+  `real_executor_invocation_record` replay and structured recovery payloads for
+  closeout-time audit append failures.
 
 Completed slices:
 - Task 22: Bind Real Executor Run Evidence To Closeout And Git/PR Planning.
@@ -106,8 +116,8 @@ Evidence:
 
 New risks or blockers:
 - `real-executor-invocation.v1` is invocation evidence only until Task 22 binds
-  it to result validation, epoch closeout, ownership closeout, and Git/PR
-  planning gates.
+  it to result validation, epoch closeout, active ownership revalidation, and
+  Git/PR planning gates.
 
 Docs updated:
 - `README.md`, `docs/protocol.md`, `docs/autonomous-loop-readiness.md`,

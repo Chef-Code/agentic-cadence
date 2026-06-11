@@ -218,6 +218,31 @@ def execution_run_record(**overrides):
     return record
 
 
+def real_executor_invocation_record(**overrides):
+    record = {
+        "schema_version": "cadence-audit.v1",
+        "recorded_at": "2999-05-22T00:00:00Z",
+        "event": "real_executor_invocation_record",
+        "action": "record_real_executor_invocation",
+        "reason": "real executor invocation record written",
+        "invocation_id": "real-executor-invocation-1",
+        "side_effect_mode": "evidence_only",
+        "invocation_record_file": "C:/tmp/real-executor-invocations/real-executor-invocation-1.json",
+        "closeout_status": "pending",
+        "plan_file": "C:/tmp/executor-invocation-plan.json",
+        "result_file": "C:/tmp/executor-result.json",
+        "valid": True,
+        "executor_started": True,
+        "payload_checksum": GOOD_CHECKSUM,
+        "invocation_record_checksum": GOOD_CHECKSUM,
+        "plan_checksum": GOOD_CHECKSUM,
+        "plan_target_checksum": GOOD_CHECKSUM,
+        "result_evidence_checksum": GOOD_CHECKSUM,
+    }
+    record.update(overrides)
+    return record
+
+
 def git_pr_materialization_intent_record(**overrides):
     record = {
         "schema_version": "cadence-audit.v1",
@@ -798,6 +823,77 @@ class AuditReplayCliTests(unittest.TestCase):
             self.assertTrue(output["valid"])
             self.assertEqual(output["records_valid"], 1)
             self.assertEqual(output["events_by_type"]["execution_run_record"], 1)
+
+    def test_real_executor_invocation_audit_record_rejects_invalid_closeout_status(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_audit_records(root, real_executor_invocation_record(closeout_status="bogus"))
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 1)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["records_valid"], 0)
+            self.assertEqual(output["records_invalid"], 1)
+            self.assertEqual(blocker_codes(output), ["audit_real_executor_closeout_invalid"])
+
+    def test_real_executor_invocation_audit_record_accepts_closeout_update_record(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_audit_records(
+                root,
+                real_executor_invocation_record(
+                    action="update_real_executor_invocation_closeout",
+                    reason="real executor invocation closeout status updated",
+                    closeout_status="completed",
+                    epoch_id="epoch-1",
+                    epoch_status="COMPLETED",
+                    epoch_closeout_checksum=GOOD_CHECKSUM,
+                    validation_packet_checksum=GOOD_CHECKSUM,
+                    snapshot_after_checksum=GOOD_CHECKSUM,
+                ),
+            )
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 0, output)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["records_valid"], 1)
+            self.assertEqual(output["events_by_type"]["real_executor_invocation_record"], 1)
+
+    def test_real_executor_invocation_audit_record_rejects_action_status_mismatch(self):
+        cases = [
+            real_executor_invocation_record(closeout_status="completed"),
+            real_executor_invocation_record(
+                action="record_real_executor_invocation_blocked",
+                reason="real executor invocation blocked due to audit write failure",
+                closeout_status="pending",
+                valid=False,
+            ),
+            real_executor_invocation_record(
+                action="update_real_executor_invocation_closeout",
+                reason="real executor invocation closeout status updated",
+                closeout_status="pending",
+                epoch_id="epoch-1",
+                epoch_status="ACTIVE",
+                epoch_closeout_checksum=GOOD_CHECKSUM,
+                validation_packet_checksum=GOOD_CHECKSUM,
+                snapshot_after_checksum=GOOD_CHECKSUM,
+            ),
+        ]
+        for record in cases:
+            with self.subTest(action=record["action"], closeout_status=record["closeout_status"]):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    write_audit_records(root, record)
+
+                    result, output = run_cli(root, "audit-replay")
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["records_valid"], 0)
+                    self.assertEqual(output["records_invalid"], 1)
+                    self.assertIn("audit_real_executor_closeout_action_mismatch", blocker_codes(output))
 
     def test_materialization_audit_records_require_consistent_action_and_status(self):
         cases = [

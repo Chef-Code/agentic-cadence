@@ -28,9 +28,11 @@ from codex_cadence.executor_contract import (
     validate_executor_task_packet,
 )
 from codex_cadence.executor_invocation import (
+    DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION,
     REAL_EXECUTOR_INVOCATION_SCHEMA_VERSION,
     REAL_EXECUTOR_SIDE_EFFECT_MODES,
     _branch_ref_changes,
+    _dirty_worktree_fingerprint,
     _local_branch_refs,
     _local_dirty_files,
     build_executor_invocation_plan,
@@ -2065,6 +2067,8 @@ def real_invocation_blocker(code: str, message: str, **extra: Any) -> dict[str, 
 
 
 def _closeout_path_value(value: Any) -> str | None:
+    if isinstance(value, Path):
+        value = str(value)
     if not isinstance(value, str) or not value.strip() or "\0" in value:
         return None
     try:
@@ -2111,6 +2115,45 @@ def _closeout_dirty_files(cwd: Path) -> tuple[set[str] | None, dict[str, Any] | 
             path=str(cwd),
         )
     return dirty_files, None
+
+
+def _closeout_dirty_fingerprint(cwd: Path, dirty_files: set[str]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    fingerprint, blocker = _dirty_worktree_fingerprint(cwd, dirty_files)
+    if blocker is not None:
+        return None, real_invocation_blocker(
+            "materialized_change_mismatch",
+            "current dirty worktree could not be fingerprinted for real executor closeout",
+            invocation_blocker=blocker,
+            path=str(cwd),
+        )
+    return fingerprint, None
+
+
+def _materialized_evidence_public_fields(evidence: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in evidence.items()
+        if key not in {"worktree_fingerprint_schema_version", "worktree_fingerprint_checksum"}
+    }
+
+
+def _invocation_context_path(invocation: dict[str, Any], value: str) -> Path:
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return path
+    invocation_cwd = invocation.get("invocation_cwd")
+    if isinstance(invocation_cwd, str) and invocation_cwd.strip():
+        return (Path(invocation_cwd).expanduser() / path).resolve(strict=False)
+    return path
+
+
+def _readiness_context_path(readiness_path: Path | None, value: Any) -> Any:
+    if not isinstance(value, str) or not value.strip():
+        return value
+    path = Path(value).expanduser()
+    if path.is_absolute() or readiness_path is None:
+        return path
+    return (readiness_path.parent / path).resolve(strict=False)
 
 
 def load_closeout_real_invocation(
@@ -2268,23 +2311,25 @@ def _closeout_real_invocation_audit_blockers(
 
 def _invocation_plan_and_readiness(
     invocation: dict[str, Any],
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, list[dict[str, Any]]]:
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, Path | None, list[dict[str, Any]]]:
     blockers: list[dict[str, Any]] = []
     plan_file = invocation.get("plan_file")
     if not isinstance(plan_file, str) or not plan_file.strip():
-        return None, None, [
+        return None, None, None, [
             real_invocation_blocker(
                 "invocation_checksum_mismatch",
                 "real executor invocation plan_file is required",
             )
         ]
+    plan_path = _invocation_context_path(invocation, plan_file)
     plan, plan_blockers = _read_closeout_invocation_object(
-        Path(plan_file),
+        plan_path,
         code="invocation_checksum_mismatch",
         label="real executor invocation plan",
     )
     blockers.extend(plan_blockers)
     readiness: dict[str, Any] | None = None
+    readiness_path: Path | None = None
     if plan is not None:
         if invocation.get("plan_checksum") != checksum_json(plan):
             blockers.append(
@@ -2314,8 +2359,9 @@ def _invocation_plan_and_readiness(
                 )
             )
         else:
+            readiness_path = _invocation_context_path(invocation, readiness_file)
             readiness, readiness_blockers = _read_closeout_invocation_object(
-                Path(readiness_file),
+                readiness_path,
                 code="invocation_epoch_mismatch",
                 label="real executor invocation readiness evidence",
             )
@@ -2329,7 +2375,7 @@ def _invocation_plan_and_readiness(
                         actual=checksum_json(readiness),
                     )
                 )
-    return plan, readiness, blockers
+    return plan, readiness, readiness_path, blockers
 
 
 def validate_closeout_real_invocation(
@@ -2440,11 +2486,12 @@ def validate_closeout_real_invocation(
             )
         )
 
-    _plan, readiness, plan_blockers = _invocation_plan_and_readiness(invocation)
+    _plan, readiness, readiness_path, plan_blockers = _invocation_plan_and_readiness(invocation)
     blockers.extend(plan_blockers)
     if readiness is not None:
         readiness_task = readiness.get("task") if isinstance(readiness.get("task"), dict) else {}
-        if readiness_task.get("file") != str(task_file):
+        readiness_task_file = _readiness_context_path(readiness_path, readiness_task.get("file"))
+        if not _closeout_paths_match(readiness_task_file, task_file):
             blockers.append(
                 real_invocation_blocker(
                     "invocation_checksum_mismatch",
@@ -2507,6 +2554,30 @@ def validate_closeout_real_invocation(
                         ),
                     )
                 )
+            else:
+                for field in ("id", "task_id", "candidate_id", "role", "claimer", "repo", "branch", "head", "epoch_id"):
+                    expected = ownership.get(field)
+                    actual = ownership_record.get(field)
+                    if expected is not None and actual != expected:
+                        blockers.append(
+                            real_invocation_blocker(
+                                "ownership_closeout_blocked",
+                                f"active work ownership {field} no longer matches readiness evidence",
+                                field=field,
+                                expected=expected,
+                                actual=actual,
+                            )
+                        )
+                        break
+                if "path" in ownership and not _closeout_paths_match(ownership.get("path"), ownership_record.get("path")):
+                    blockers.append(
+                        real_invocation_blocker(
+                            "ownership_closeout_blocked",
+                            "active work ownership path no longer matches readiness evidence",
+                            expected=ownership.get("path"),
+                            actual=ownership_record.get("path"),
+                        )
+                    )
 
     repo_packet = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
     repository_before = invocation.get("repository_before") if isinstance(invocation.get("repository_before"), dict) else {}
@@ -2611,7 +2682,10 @@ def validate_closeout_real_invocation(
             if isinstance(result_evidence, dict) and isinstance(result_evidence.get("materialized_change_evidence"), dict)
             else {}
         )
-        if invocation_materialized.get("status") != "verified" or checksum_json(invocation_materialized) != checksum_json(result_materialized):
+        if (
+            invocation_materialized.get("status") != "verified"
+            or checksum_json(_materialized_evidence_public_fields(invocation_materialized)) != checksum_json(result_materialized)
+        ):
             blockers.append(
                 real_invocation_blocker(
                     "materialized_change_mismatch",
@@ -2634,6 +2708,28 @@ def validate_closeout_real_invocation(
                             actual_files=sorted(current_dirty_files),
                         )
                     )
+                elif invocation_materialized.get("worktree_fingerprint_schema_version") != DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION:
+                    blockers.append(
+                        real_invocation_blocker(
+                            "materialized_change_mismatch",
+                            "real executor invocation materialized-change evidence is missing a dirty-worktree fingerprint",
+                            expected_schema=DIRTY_WORKTREE_FINGERPRINT_SCHEMA_VERSION,
+                            actual_schema=invocation_materialized.get("worktree_fingerprint_schema_version"),
+                        )
+                    )
+                else:
+                    fingerprint, fingerprint_blocker = _closeout_dirty_fingerprint(cwd, current_dirty_files)
+                    if fingerprint_blocker is not None:
+                        blockers.append(fingerprint_blocker)
+                    elif invocation_materialized.get("worktree_fingerprint_checksum") != checksum_json(fingerprint):
+                        blockers.append(
+                            real_invocation_blocker(
+                                "materialized_change_mismatch",
+                                "current dirty worktree fingerprint does not match the real executor invocation",
+                                expected=invocation_materialized.get("worktree_fingerprint_checksum"),
+                                actual=checksum_json(fingerprint),
+                            )
+                        )
 
     audit_chain = invocation.get("audit_chain") if isinstance(invocation.get("audit_chain"), dict) else {}
     audit_replay = replay_audit_log(root)
@@ -2821,7 +2917,7 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
             "closeout_status": real_invocation.get("closeout_status"),
         }
         if closeout["valid"]:
-            side_effects.append("real_executor_invocation_record_updated")
+            side_effects.extend(["real_executor_invocation_record_updated", "real_executor_invocation_audit_appended"])
     if append_closeout_audit:
         side_effects.append("audit_record_appended")
     payload = {
@@ -2920,18 +3016,107 @@ def closeout_executor_result_command(args: argparse.Namespace) -> int:
             }
         )
         atomic_write_json(real_invocation_file, updated_invocation)
+        try:
+            invocation_update_audit = append_audit_record(
+                args.root,
+                real_executor_invocation_audit_record(
+                    updated_invocation,
+                    invocation_record_file=str(real_invocation_file),
+                    action="update_real_executor_invocation_closeout",
+                    reason="real executor invocation closeout status updated",
+                ),
+            )
+        except Exception as exc:
+            rollback_restored = False
+            rollback_error = None
+            try:
+                atomic_write_json(real_invocation_file, valid_real_invocation)
+                rollback_restored = True
+            except Exception as rollback_exc:
+                rollback_error = str(rollback_exc)
+            current_invocation = valid_real_invocation if rollback_restored else updated_invocation
+            payload["valid"] = False
+            payload["reason"] = "real executor invocation closeout audit record could not be written"
+            payload["blockers"] = [
+                *payload["blockers"],
+                {
+                    "code": "real_invocation_audit_append_failed",
+                    "message": "real executor invocation closeout audit record could not be written",
+                    "error": str(exc),
+                },
+            ]
+            payload["next_decision"] = {
+                "decision": "operator_review",
+                "recommended_next_action": "recover_closeout_audit",
+                "reason": "real executor invocation closeout audit append failed after epoch closeout",
+            }
+            payload["operator_confirmation_required"] = True
+            payload["side_effects"] = [
+                effect
+                for effect in payload["side_effects"]
+                if effect
+                not in {
+                    "real_executor_invocation_record_updated",
+                    "real_executor_invocation_audit_appended",
+                    "audit_record_appended",
+                }
+            ]
+            payload["side_effects"].append("real_executor_invocation_audit_append_failed")
+            payload["side_effects"].append(
+                "real_executor_invocation_record_update_rolled_back"
+                if rollback_restored
+                else "real_executor_invocation_record_update_unreconciled"
+            )
+            payload["real_invocation"].update(
+                {
+                    "after_checksum": checksum_json(current_invocation),
+                    "closeout_status": current_invocation.get("closeout_status"),
+                    "epoch_closeout_checksum": epoch_closeout_checksum,
+                    "audit_record_error": str(exc),
+                    "rollback_record_restored": rollback_restored,
+                }
+            )
+            if rollback_error is not None:
+                payload["real_invocation"]["rollback_error"] = rollback_error
+            emit(payload)
+            return 2
         payload["real_invocation"].update(
             {
                 "after_checksum": checksum_json(updated_invocation),
                 "closeout_status": updated_invocation.get("closeout_status"),
                 "epoch_closeout_checksum": epoch_closeout_checksum,
+                "audit_record": invocation_update_audit,
             }
         )
     if append_closeout_audit:
-        payload["audit_record"] = append_audit_record(
-            args.root,
-            executor_epoch_closeout_audit_record(payload, task_packet, result_evidence),
-        )
+        try:
+            payload["audit_record"] = append_audit_record(
+                args.root,
+                executor_epoch_closeout_audit_record(payload, task_packet, result_evidence),
+            )
+        except Exception as exc:
+            payload["valid"] = False
+            payload["reason"] = "executor epoch closeout audit record could not be written"
+            payload["blockers"] = [
+                *payload["blockers"],
+                {
+                    "code": "closeout_audit_append_failed",
+                    "message": "executor epoch closeout audit record could not be written",
+                    "error": str(exc),
+                },
+            ]
+            payload["next_decision"] = {
+                "decision": "operator_review",
+                "recommended_next_action": "recover_closeout_audit",
+                "reason": "executor epoch closeout audit append failed after local closeout state changed",
+            }
+            payload["operator_confirmation_required"] = True
+            payload["side_effects"] = [
+                effect for effect in payload["side_effects"] if effect != "audit_record_appended"
+            ]
+            payload["side_effects"].append("closeout_audit_append_failed")
+            emit(payload)
+            return 2
     emit(payload)
     return 0 if payload["valid"] else 1
 
@@ -3056,15 +3241,54 @@ def invoke_real_executor_command(args: argparse.Namespace) -> int:
     )
     record_file = payload.get("record_file") if isinstance(payload, dict) else None
     if isinstance(record_file, str) and record_file.strip():
-        append_audit_record(
-            args.root,
-            real_executor_invocation_audit_record(
-                payload,
-                invocation_record_file=record_file,
-                action="record_real_executor_invocation",
-                reason="real executor invocation record written",
-            ),
-        )
+        try:
+            append_audit_record(
+                args.root,
+                real_executor_invocation_audit_record(
+                    payload,
+                    invocation_record_file=record_file,
+                    action="record_real_executor_invocation",
+                    reason="real executor invocation record written",
+                ),
+            )
+        except Exception as exc:
+            payload = dict(payload)
+            payload["valid"] = False
+            payload["closeout_status"] = "blocked"
+            payload.setdefault("blockers", []).append(
+                {
+                    "code": "audit_append_failed",
+                    "message": "real executor invocation audit record could not be written",
+                    "error": str(exc),
+                }
+            )
+            payload["recommended_next_action"] = "inspect_runtime_state"
+            payload["reason"] = "real executor invocation blocked because audit record append failed"
+            payload.setdefault("side_effects", []).append("real_executor_invocation_audit_append_failed")
+            try:
+                atomic_write_json(Path(record_file), payload)
+            except Exception as write_exc:
+                payload["blockers"].append(
+                    {
+                        "code": "invocation_record_write_failed",
+                        "message": "blocked real executor invocation record could not be written",
+                        "error": str(write_exc),
+                    }
+                )
+            try:
+                append_audit_record(
+                    args.root,
+                    real_executor_invocation_audit_record(
+                        payload,
+                        invocation_record_file=record_file,
+                        action="record_real_executor_invocation_blocked",
+                        reason="real executor invocation blocked due to audit write failure",
+                    ),
+                )
+            except Exception as blocked_audit_exc:
+                payload["audit_record_error"] = str(blocked_audit_exc)
+            emit(payload)
+            return 2
     emit(payload)
     return 0 if payload["valid"] else 2
 
@@ -3387,7 +3611,7 @@ def build_parser() -> argparse.ArgumentParser:
     closeout_parser.add_argument("--task-file", required=True)
     closeout_parser.add_argument("--result-file", required=True)
     closeout_parser.add_argument("--snapshot-after-file", required=True)
-    closeout_evidence_group = closeout_parser.add_mutually_exclusive_group()
+    closeout_evidence_group = closeout_parser.add_mutually_exclusive_group(required=True)
     closeout_evidence_group.add_argument("--run-record-file")
     closeout_evidence_group.add_argument("--real-invocation-file")
     closeout_parser.add_argument("--cwd", default=".")

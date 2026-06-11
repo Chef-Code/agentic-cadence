@@ -354,7 +354,8 @@ agentic-cadence --root examples/first-run/work/runtime validate-executor-result 
 
 After an active epoch exists and a fresh `snapshot-repo` packet has been saved,
 `closeout-executor-result` can consume the local task packet, result evidence,
-snapshot-after packet, and optional `--run-record-file`. It validates the same
+snapshot-after packet, and exactly one evidence artifact (`--run-record-file` or
+`--real-invocation-file`). It validates the same
 executor evidence gates, rejects supplied run records whose task checksum,
 result checksum, validation checksum, repo branch/head anchors, or closeout
 status no longer match, records a successful task result while keeping the epoch
@@ -655,7 +656,9 @@ agentic-cadence --root <runtime-root> executor-invocation-plan --cwd . --readine
 The command emits `executor-invocation-plan.v1` with `read_only: true`,
 `executor_started: false`, `side_effects: []`, and
 `recommended_next_action: invoke_real_executor` only when all anchors still
-match. Stable blockers include `readiness_packet_stale`,
+match. File anchors written into the plan are persisted as absolute local paths
+so later invocation and closeout can replay them from any operator cwd. Stable
+blockers include `readiness_packet_stale`,
 `readiness_not_invocable`, `task_file_unreadable`,
 `executor_task_invalid`, `task_checksum_mismatch`, `approval_missing`,
 `approval_invalid`, `approval_schema_invalid`, `approval_target_invalid`,
@@ -694,9 +697,10 @@ The command starts exactly one approved command with `shell=False`, explicit
 cwd, bounded environment allowlist, timeout, and stdout/stderr logs. It writes a
 `real-executor-invocation.v1` record under
 `<runtime-root>/real-executor-invocations/` with the invocation id, plan
-checksum, process exit and timeout status, before/after repository snapshots
-including `local_branch_refs`, rollback evidence checksum, expected result path,
-output log paths, and audit-chain head.
+checksum, invocation cwd, absolute plan file path, process exit and timeout
+status, before/after repository snapshots including `local_branch_refs`,
+rollback evidence checksum, expected result path, output log paths, and
+audit-chain head.
 
 `--side-effect-mode evidence_only` requires the target repository to remain
 clean after invocation. `--side-effect-mode materialized_changes` allows a
@@ -722,17 +726,21 @@ blockers such as `repo_head_mismatch`, `active_epoch_missing`, and
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can
 bind an accepted real invocation record to result validation, active ownership
-revalidation, epoch closeout, and dry-run Git/PR planning. Closeout rechecks
-the invocation-time result evidence checksum, the audit-anchored invocation
-record checksum (`real_executor_invocation_record` /
-`invocation_record_checksum`), and snapshot-after repo state before epoch
-mutation, then updates the local invocation record with closeout checksum anchors. It still
-does not commit, push, call GitHub, open PRs, merge, release, publish packages,
-assign roles, or claim distributed locks. Stable closeout blockers include
+revalidation, epoch closeout, and dry-run Git/PR planning. Closeout requires
+exactly one evidence artifact (`--run-record-file` or `--real-invocation-file`),
+rechecks the invocation-time result evidence checksum, the audit-anchored
+invocation record checksum (`real_executor_invocation_record` /
+`invocation_record_checksum`), active ownership anchors, snapshot-after repo
+state, and materialized dirty-worktree `worktree_fingerprint_checksum` before epoch
+mutation, then updates the local invocation record with closeout checksum
+anchors and appends an `update_real_executor_invocation_closeout` audit event.
+It still does not commit, push, call GitHub, open PRs, merge, release, publish
+packages, assign roles, or claim distributed locks. Stable closeout blockers include
 `invocation_record_missing`, `invocation_checksum_mismatch`,
 `invocation_epoch_mismatch`, `invocation_result_missing`,
 `invocation_result_invalid`, `materialized_change_mismatch`,
-`audit_chain_mismatch`, and `ownership_closeout_blocked`.
+`audit_chain_mismatch`, `ownership_closeout_blocked`,
+`real_invocation_audit_append_failed`, and `closeout_audit_append_failed`.
 
 ## GitHub Evidence Sync
 
