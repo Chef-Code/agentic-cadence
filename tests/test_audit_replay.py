@@ -802,6 +802,99 @@ class AuditReplayCliTests(unittest.TestCase):
                     self.assertFalse(output["valid"])
                     self.assertIn("audit_work_ownership_status_invalid", blocker_codes(output))
 
+    def test_work_ownership_audit_accepts_closeout_bound_executor_anchors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_audit_records(
+                root,
+                work_ownership_mutation_record(
+                    action="close_work_ownership",
+                    epoch_id="epoch-1",
+                    executor_closeout_file="C:/tmp/epoch-closeout.json",
+                    executor_closeout_checksum=GOOD_CHECKSUM,
+                    executor_closeout_status="completed",
+                ),
+            )
+
+            result, output = run_cli(root, "audit-replay")
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["records_valid"], 1)
+            self.assertEqual(output["events_by_type"], {"work_ownership_mutation": 1})
+
+    def test_work_ownership_audit_rejects_malformed_closeout_bound_executor_anchors(self):
+        cases = [
+            (
+                "missing checksum",
+                {"executor_closeout_file": "C:/tmp/epoch-closeout.json", "executor_closeout_status": "completed"},
+                ["audit_work_ownership_closeout_anchor_incomplete", "audit_required_field_missing"],
+            ),
+            (
+                "bad checksum",
+                {
+                    "executor_closeout_file": "C:/tmp/epoch-closeout.json",
+                    "executor_closeout_checksum": "sha256:bad",
+                    "executor_closeout_status": "completed",
+                },
+                ["audit_checksum_invalid"],
+            ),
+            (
+                "bad status",
+                {
+                    "executor_closeout_file": "C:/tmp/epoch-closeout.json",
+                    "executor_closeout_checksum": GOOD_CHECKSUM,
+                    "executor_closeout_status": "failed",
+                },
+                ["audit_work_ownership_closeout_status_invalid"],
+            ),
+        ]
+        for name, overrides, expected_codes in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    write_audit_records(
+                        root,
+                        work_ownership_mutation_record(
+                            action="close_work_ownership",
+                            epoch_id="epoch-1",
+                            **overrides,
+                        ),
+                    )
+
+                    result, output = run_cli(root, "audit-replay")
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["records_valid"], 0)
+                    self.assertEqual(output["records_invalid"], 1)
+                    for expected_code in expected_codes:
+                        self.assertIn(expected_code, blocker_codes(output))
+
+    def test_work_ownership_audit_rejects_closeout_anchors_on_non_close_actions(self):
+        for action in ("claim_work_ownership", "fail_work_ownership"):
+            with self.subTest(action=action):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    write_audit_records(
+                        root,
+                        work_ownership_mutation_record(
+                            action=action,
+                            epoch_id="epoch-1",
+                            executor_closeout_file="C:/tmp/epoch-closeout.json",
+                            executor_closeout_checksum=GOOD_CHECKSUM,
+                            executor_closeout_status="completed",
+                        ),
+                    )
+
+                    result, output = run_cli(root, "audit-replay")
+
+                    self.assertEqual(result.returncode, 1)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["records_valid"], 0)
+                    self.assertEqual(output["records_invalid"], 1)
+                    self.assertIn("audit_work_ownership_closeout_action_invalid", blocker_codes(output))
+
     def test_execution_run_audit_record_requires_run_anchors(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

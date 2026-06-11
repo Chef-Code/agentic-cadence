@@ -421,20 +421,60 @@ agentic-cadence --root <runtime-root> close-work-ownership ownership-1 \
 agentic-cadence --root <runtime-root> fail-work-ownership ownership-1 \
   --cwd . --repo owner/repo --branch feature/task-1 --head <current-head-sha> \
   --task-id task-1 --claimer local-agent --summary "blocked locally"
+agentic-cadence --root <runtime-root> complete-work-ownership-from-closeout ownership-1 \
+  --cwd . \
+  --closeout-file executor-closeout.json \
+  --closeout-checksum sha256:<hex> \
+  --candidate-id candidate-1 \
+  --role implementer \
+  --claimer local-agent \
+  --summary "completed by executor closeout"
 ```
 
-Both emit `work-ownership-closeout.v1`, move the active record to `closed` or
-`failed`, write closeout evidence onto the record, and append
-`work_ownership_mutation` audit evidence. Missing records, mismatched repo,
-branch, head, task, or claimer, already closed/failed records, malformed
+Manual close/fail commands emit `work-ownership-closeout.v1`, move the active
+record to `closed` or `failed`, write closeout evidence onto the record, and
+append `work_ownership_mutation` audit evidence. Missing records, mismatched
+repo, branch, head, task, or claimer, already closed/failed records, malformed
 records, dirty worktrees, stale repo heads, and unsafe registry paths block
 before mutation.
+
+`complete-work-ownership-from-closeout` is the closeout-bound completion mode.
+It consumes a saved `executor_epoch_closeout` packet and supplied closeout
+checksum before moving ownership. The packet must be valid, have
+`closeout_status: completed`, expose a readable valid `executor_task`, and
+match the supplied closeout checksum. The closeout-bound gate also rereads the
+referenced `result_file` and `snapshot_after_file`, revalidates the result
+packet, checks the saved snapshot checksum, and compares the saved validation
+and next-decision anchors with the reread task/result evidence. Completed
+closeout-bound completion also requires exactly one bound execution record
+(`run_record` or `real_invocation`) with matching path, invocation, status,
+epoch, validation, and evidence checksums, plus a referenced
+`executor_epoch_closeout` audit-log line whose hash-chain metadata and payload
+checksum match the supplied closeout packet. The closeout, task, result,
+snapshot, execution record, and audit evidence bind task id, task checksum,
+candidate id, repo, branch, `HEAD`, and epoch id; the command separately checks
+the targeted ownership id, role, claimer, and candidate id against the active
+ownership record before any active record moves to `closed`.
+Failed executor closeout evidence is deliberately not treated as an ownership
+failure by this mode; `fail-work-ownership` remains the explicit local failure
+path. Accepted closeout-bound mutations append replayable
+`work_ownership_mutation` audit records with `epoch_id`,
+`executor_closeout_file`, `executor_closeout_checksum`, and
+`executor_closeout_status: completed`.
 
 Additional mutation blocker codes include `repo_branch_mismatch`,
 `repo_head_mismatch`, `dirty_worktree`, `ownership_role_invalid`,
 `ownership_claimer_invalid`, `ownership_claimer_mismatch`,
 `ownership_head_mismatch`, `ownership_record_exists`,
-`ownership_record_write_failed`, and `audit_append_failed`. Bounded mutation
+`ownership_record_write_failed`, `ownership_closeout_unreadable`,
+`ownership_closeout_invalid`, `ownership_closeout_schema_unsupported`,
+`ownership_closeout_packet_invalid`, `ownership_closeout_epoch_missing`,
+`ownership_closeout_not_completed`, `ownership_closeout_checksum_mismatch`,
+`ownership_closeout_task_missing`, `ownership_closeout_task_unreadable`,
+`ownership_closeout_task_invalid`,
+`ownership_closeout_task_checksum_mismatch`,
+`ownership_candidate_mismatch`, `ownership_role_mismatch`,
+`ownership_epoch_mismatch`, and `audit_append_failed`. Bounded mutation
 recommendations include `use_work_ownership_record`,
 `close_or_fail_active_ownership`, `clean_worktree`, `inspect_repo_state`,
 `fix_ownership_request`, `provide_ownership_record`, `repair_ownership_record`,

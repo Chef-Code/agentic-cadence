@@ -92,7 +92,13 @@ repo-mismatched target records. `claim-work-ownership`,
 `close-work-ownership`, and `fail-work-ownership` can create or move local
 ownership records after branch, `HEAD`, dirty-worktree, duplicate/stale
 ownership, malformed-record, and registry path-safety rechecks, then append
-replayable `work_ownership_mutation` audit evidence. Execution-start can bind
+replayable `work_ownership_mutation` audit evidence.
+`complete-work-ownership-from-closeout` can close active ownership only after
+valid completed `executor_epoch_closeout` evidence, a supplied closeout
+checksum, saved task checksum,
+task/candidate/role/claimer/repo/branch/`HEAD`/epoch anchors, and audit append
+all match, while failed executor closeout still requires the explicit
+`fail-work-ownership` path. Execution-start can bind
 matching active ownership records and append ownership checksums to
 `execution_start_decision` audit evidence. Resume-continuation can recheck
 supplied active ownership evidence for the resumed handoff/task, role, claimer,
