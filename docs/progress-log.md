@@ -41,10 +41,12 @@ Summary:
   review-thread resolution approval targets.
 - The packet binds explicit target thread ids to PR number, branch, base, head
   SHA, refreshed review-thread evidence checksum, prior response materialization
-  checksum, and post-write gate checksum.
+  checksum, full materialization result checksum, and post-write gate checksum.
 - Planning blocks stale or mismatched evidence, incomplete pagination, already
   resolved or outdated threads, non-actionable summary-only threads, missing
-  targets, and threads that were not part of approved response materialization.
+  targets, disallowed post-write gate blockers, wrong-PR review-thread evidence,
+  threads that were not part of approved response materialization, and current
+  actionable comments not covered by approved response materialization.
 
 Completed slices:
 - Task 33: read-only review-thread resolution planning.
@@ -59,8 +61,10 @@ Confidence change:
 
 Evidence:
 - `python -m unittest tests.test_pr_readiness.PrReadinessTests.test_review_thread_resolution_plan_binds_fresh_unresolved_thread_targets tests.test_pr_readiness.PrReadinessTests.test_review_thread_resolution_plan_blocks_ineligible_targets tests.test_pr_readiness.PrReadinessTests.test_review_thread_resolution_plan_blocks_stale_incomplete_mismatched_or_missing_evidence tests.test_pr_readiness.PrReadinessTests.test_cli_review_thread_resolution_plan_reads_saved_files_without_side_effects -v`
+- `python -m unittest tests.test_pr_readiness.PrReadinessTests.test_review_thread_resolution_plan_blocks_unresponded_current_comment_in_responded_thread tests.test_pr_readiness.PrReadinessTests.test_cli_review_thread_resolution_plan_uses_gate_refresh_timestamp_for_freshness -v`
 - `python -m py_compile codex_cadence/review_response.py codex_cadence/github_evidence.py codex_cadence/cli.py`
-- `python -m unittest tests.test_pr_readiness tests.test_cadence -v`
+- `python -m unittest tests.test_pr_readiness -v`
+- `python -m unittest tests.test_cadence -v`
 - `python scripts/validate_protocol.py`
 - `git diff --check`
 

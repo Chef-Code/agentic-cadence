@@ -81,6 +81,7 @@ def review_threads_payload(nodes):
         "data": {
             "repository": {
                 "pullRequest": {
+                    "number": 330,
                     "reviewThreads": {
                         "pageInfo": {"hasNextPage": False, "endCursor": None},
                         "nodes": nodes,
@@ -637,6 +638,53 @@ class PrReadinessTests(unittest.TestCase):
                 post_write_gate=mismatched_gate,
                 target_thread_ids=["thread-1"],
             )
+            wrong_pr_threads = json.loads(json.dumps(threads))
+            wrong_pr_threads["data"]["repository"]["pullRequest"]["number"] = 331
+            wrong_pr_gate = json.loads(json.dumps(post_write_gate))
+            wrong_pr_gate["refresh"]["review_threads_checksum"] = checksum_json(wrong_pr_threads)
+            wrong_pr_packet = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=wrong_pr_threads,
+                response_materialization=response_materialization,
+                post_write_gate=wrong_pr_gate,
+                target_thread_ids=["thread-1"],
+            )
+            missing_gate_packet = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=threads,
+                response_materialization=response_materialization,
+                post_write_gate=None,
+                target_thread_ids=["thread-1"],
+            )
+            blocked_gate = json.loads(json.dumps(post_write_gate))
+            blocked_gate["valid"] = False
+            blocked_gate["decision"] = "blocked"
+            blocked_gate["recommended_next_action"] = "operator_review"
+            blocked_gate["blockers"] = [{"code": "check_failed", "message": "required check failed"}]
+            blocked_gate_packet = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=threads,
+                response_materialization=response_materialization,
+                post_write_gate=blocked_gate,
+                target_thread_ids=["thread-1"],
+            )
+            tampered_materialization = json.loads(json.dumps(response_materialization))
+            tampered_materialization["github_writes"].append(
+                {
+                    "kind": "post_review_comment",
+                    "pr_number": str(pr["number"]),
+                    "thread_id": "thread-2",
+                    "comment_ids": ["comment-2"],
+                    "body_checksum": checksum_json("tampered"),
+                }
+            )
+            tampered_packet = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=threads,
+                response_materialization=tampered_materialization,
+                post_write_gate=post_write_gate,
+                target_thread_ids=["thread-1"],
+            )
             missing_materialization_packet = evaluate_review_thread_resolution_plan(
                 pr=pr,
                 review_threads=threads,
@@ -653,6 +701,18 @@ class PrReadinessTests(unittest.TestCase):
         self.assertIn("review_thread_evidence_invalid", {blocker["code"] for blocker in incomplete_packet["blockers"]})
         self.assertFalse(mismatch_packet["valid"])
         self.assertIn("post_write_gate_refresh_mismatch", {blocker["code"] for blocker in mismatch_packet["blockers"]})
+        self.assertFalse(wrong_pr_packet["valid"])
+        self.assertIn("review_thread_resolution_pr_target_mismatch", {blocker["code"] for blocker in wrong_pr_packet["blockers"]})
+        self.assertFalse(missing_gate_packet["valid"])
+        self.assertIn("post_write_gate_missing", {blocker["code"] for blocker in missing_gate_packet["blockers"]})
+        self.assertFalse(blocked_gate_packet["valid"])
+        self.assertIn("post_write_gate_not_ready", {blocker["code"] for blocker in blocked_gate_packet["blockers"]})
+        self.assertIn("check_failed", {blocker["code"] for blocker in blocked_gate_packet["blockers"]})
+        self.assertFalse(tampered_packet["valid"])
+        self.assertIn(
+            "post_write_gate_materialization_checksum_mismatch",
+            {blocker["code"] for blocker in tampered_packet["blockers"]},
+        )
         self.assertFalse(missing_materialization_packet["valid"])
         self.assertEqual(
             missing_materialization_packet["recommended_next_action"],
@@ -661,6 +721,41 @@ class PrReadinessTests(unittest.TestCase):
         self.assertIn(
             "review_response_materialization_missing",
             {blocker["code"] for blocker in missing_materialization_packet["blockers"]},
+        )
+
+    def test_review_thread_resolution_plan_blocks_unresponded_current_comment_in_responded_thread(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
+            changed_threads = json.loads(json.dumps(threads))
+            comments = changed_threads["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"][0]["comments"][
+                "nodes"
+            ]
+            comments.append(
+                {
+                    "id": "comment-2",
+                    "path": "codex_cadence/cli.py",
+                    "line": 43,
+                    "outdated": False,
+                    "body": "Please also address this newer actionable review finding.",
+                    "author": {"login": "coderabbitai"},
+                }
+            )
+            changed_gate = json.loads(json.dumps(post_write_gate))
+            changed_gate["refresh"]["review_threads_checksum"] = checksum_json(changed_threads)
+
+            packet = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=changed_threads,
+                response_materialization=response_materialization,
+                post_write_gate=changed_gate,
+                target_thread_ids=["thread-1"],
+            )
+
+        self.assertFalse(packet["valid"])
+        self.assertFalse(packet["plan_ready"])
+        self.assertIn(
+            "review_thread_resolution_target_comment_unresponded",
+            {blocker["code"] for blocker in packet["blockers"]},
         )
 
     def test_cli_review_thread_resolution_plan_reads_saved_files_without_side_effects(self):
@@ -711,6 +806,49 @@ class PrReadinessTests(unittest.TestCase):
             self.assertEqual(packet["target"]["thread_ids"], ["thread-1"])
             self.assertEqual(packet["side_effects"], [])
             self.assertEqual({path: path.read_text(encoding="utf-8") for path in before}, before)
+
+    def test_cli_review_thread_resolution_plan_uses_gate_refresh_timestamp_for_freshness(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
+            tmp_path = Path(tmp)
+            pr_path = tmp_path / "pr.json"
+            threads_path = tmp_path / "review-threads.json"
+            materialization_path = tmp_path / "review-response-materialization.json"
+            gate_path = tmp_path / "post-write-gate.json"
+            pr_path.write_text(json.dumps(pr), encoding="utf-8")
+            threads_path.write_text(json.dumps(threads), encoding="utf-8")
+            materialization_path.write_text(json.dumps(response_materialization), encoding="utf-8")
+            gate_path.write_text(json.dumps(post_write_gate), encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "review-thread-resolution-plan",
+                    "--pr-json-file",
+                    str(pr_path),
+                    "--review-threads-file",
+                    str(threads_path),
+                    "--response-materialization-file",
+                    str(materialization_path),
+                    "--post-write-gate-file",
+                    str(gate_path),
+                    "--thread-id",
+                    "thread-1",
+                    "--max-pr-json-age-minutes",
+                    "30",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            packet = json.loads(result.stdout)
+
+        self.assertEqual(result.returncode, 1)
+        self.assertFalse(packet["valid"])
+        self.assertEqual(packet["recommended_next_action"], "refresh_pr_evidence")
+        self.assertIn("pr_evidence_stale", {blocker["code"] for blocker in packet["blockers"]})
 
     def test_post_write_gate_accepts_fresh_matching_review_response_evidence(self):
         from codex_cadence.github_evidence import evaluate_post_write_pr_evidence_gate

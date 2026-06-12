@@ -906,6 +906,7 @@ POST_WRITE_FRESHNESS_BLOCKER_CODES = {
     "refreshed_review_threads_invalid_json",
     "refreshed_review_threads_invalid",
 }
+POST_WRITE_GATE_ALLOWED_RESOLUTION_BLOCKER_CODES = {"unresolved_review_comment"}
 
 
 def _dedupe_target_thread_ids(target_thread_ids: Any) -> tuple[list[str], list[dict[str, Any]]]:
@@ -944,15 +945,47 @@ def _pr_resolution_anchors(pr: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _review_thread_parent_pr_blockers(review_threads: Any, anchors: dict[str, Any]) -> list[dict[str, Any]]:
+    current: Any = review_threads
+    for key in ("data", "repository", "pullRequest"):
+        if not isinstance(current, dict) or key not in current:
+            return []
+        current = current[key]
+    if not isinstance(current, dict):
+        return []
+    thread_pr_number = current.get("number")
+    if not _anchor_present(thread_pr_number):
+        return [
+            _issue(
+                "review_thread_resolution_pr_target_anchor_missing",
+                "review-thread evidence must identify the parent PR number before resolution can be planned",
+                field="pr_number",
+            )
+        ]
+    if str(thread_pr_number) != str(anchors.get("pr_number")):
+        return [
+            _issue(
+                "review_thread_resolution_pr_target_mismatch",
+                "review-thread evidence parent PR does not match the saved PR target",
+                field="pr_number",
+                expected=anchors.get("pr_number"),
+                actual=thread_pr_number,
+            )
+        ]
+    return []
+
+
 def _review_response_materialization_resolution_summary(
     response_materialization: Any,
-) -> tuple[dict[str, Any], set[str], list[dict[str, Any]]]:
+) -> tuple[dict[str, Any], set[str], dict[str, set[str]], list[dict[str, Any]]]:
     blockers: list[dict[str, Any]] = []
     approved_thread_ids: set[str] = set()
+    approved_comment_ids_by_thread: dict[str, set[str]] = {}
     if not isinstance(response_materialization, dict):
         return (
             {},
             approved_thread_ids,
+            approved_comment_ids_by_thread,
             [_issue("review_response_materialization_missing", "review-response materialization evidence is required")],
         )
     if response_materialization.get("schema_version") != REVIEW_RESPONSE_MATERIALIZATION_SCHEMA_VERSION:
@@ -1000,7 +1033,9 @@ def _review_response_materialization_resolution_summary(
             continue
         thread_id = write.get("thread_id")
         if isinstance(thread_id, str) and thread_id.strip():
-            approved_thread_ids.add(thread_id.strip())
+            normalized_thread_id = thread_id.strip()
+            approved_thread_ids.add(normalized_thread_id)
+            approved_comment_ids_by_thread.setdefault(normalized_thread_id, set()).update(_comment_ids_from_write(write))
     pr = response_materialization.get("pr") if isinstance(response_materialization.get("pr"), dict) else {}
     summary = {
         "generated_at": response_materialization.get("generated_at"),
@@ -1011,8 +1046,11 @@ def _review_response_materialization_resolution_summary(
         "base_ref": pr.get("base_ref"),
         "head_sha": pr.get("head_sha"),
         "approved_thread_ids": sorted(approved_thread_ids),
+        "approved_comment_ids_by_thread": {
+            thread_id: sorted(comment_ids) for thread_id, comment_ids in sorted(approved_comment_ids_by_thread.items())
+        },
     }
-    return summary, approved_thread_ids, blockers
+    return summary, approved_thread_ids, approved_comment_ids_by_thread, blockers
 
 
 def _post_write_gate_resolution_blockers(
@@ -1041,9 +1079,31 @@ def _post_write_gate_resolution_blockers(
     if post_write_gate.get("refresh_required") is True:
         blockers.append(_issue("post_write_gate_refresh_required", "post-write gate requires refreshed PR evidence"))
 
+    gate_blockers = [blocker for blocker in post_write_gate.get("blockers", []) if isinstance(blocker, dict)]
     for blocker in post_write_gate.get("blockers", []):
         if isinstance(blocker, dict) and blocker.get("code") in POST_WRITE_FRESHNESS_BLOCKER_CODES:
             blockers.append(blocker)
+    disallowed_gate_blockers = [
+        blocker
+        for blocker in gate_blockers
+        if blocker.get("code") not in POST_WRITE_GATE_ALLOWED_RESOLUTION_BLOCKER_CODES
+        and blocker.get("code") not in POST_WRITE_FRESHNESS_BLOCKER_CODES
+    ]
+    blockers.extend(disallowed_gate_blockers)
+    if post_write_gate.get("valid") is not True:
+        all_gate_blockers_allowed = bool(gate_blockers) and not disallowed_gate_blockers and not any(
+            blocker.get("code") in POST_WRITE_FRESHNESS_BLOCKER_CODES for blocker in gate_blockers
+        )
+        if not all_gate_blockers_allowed or post_write_gate.get("recommended_next_action") != "respond_to_review":
+            blockers.append(
+                _issue(
+                    "post_write_gate_not_ready",
+                    "post-write gate must be ready or blocked only by unresolved review comments before resolution planning",
+                    decision=post_write_gate.get("decision"),
+                    recommended_next_action=post_write_gate.get("recommended_next_action"),
+                    valid=post_write_gate.get("valid"),
+                )
+            )
 
     anchors = _pr_resolution_anchors(pr)
     materialization = post_write_gate.get("materialization") if isinstance(post_write_gate.get("materialization"), dict) else {}
@@ -1056,6 +1116,7 @@ def _post_write_gate_resolution_blockers(
         "head_ref": response_pr.get("head_ref"),
         "base_ref": response_pr.get("base_ref"),
         "head_sha": response_pr.get("head_sha"),
+        "result_checksum": _checksum_json(response_materialization),
     }
     for field, expected in expected_materialization.items():
         actual = materialization.get(field)
@@ -1071,9 +1132,14 @@ def _post_write_gate_resolution_blockers(
             )
             continue
         if str(expected) != str(actual):
+            code = (
+                "post_write_gate_materialization_checksum_mismatch"
+                if field == "result_checksum"
+                else "post_write_gate_materialization_mismatch"
+            )
             blockers.append(
                 _issue(
-                    "post_write_gate_materialization_mismatch",
+                    code,
                     "post-write gate materialization summary does not match the supplied response materialization",
                     field=field,
                     expected=expected,
@@ -1135,6 +1201,7 @@ def _review_thread_resolution_actions(
     review_threads: Any,
     target_thread_ids: list[str],
     approved_thread_ids: set[str],
+    approved_comment_ids_by_thread: dict[str, set[str]],
     anchors: dict[str, Any],
     review_threads_checksum: str,
     response_materialization_checksum: str,
@@ -1183,8 +1250,8 @@ def _review_thread_resolution_actions(
             )
             continue
         actionable_findings = findings_by_thread.get(thread_id, [])
+        current_actionable_comments: list[dict[str, Any]] = []
         if not actionable_findings:
-            current_actionable_comments = []
             for comment in review_thread_comment_nodes(thread):
                 if not isinstance(comment, dict) or comment.get("outdated") is not False:
                     continue
@@ -1209,6 +1276,21 @@ def _review_thread_resolution_actions(
             )
             continue
         comment_ids = sorted({str(finding["id"]) for finding in actionable_findings if finding.get("id")})
+        if not comment_ids:
+            comment_ids = sorted({str(comment["id"]) for comment in current_actionable_comments if comment.get("id")})
+        approved_comment_ids = approved_comment_ids_by_thread.get(thread_id, set())
+        missing_comment_ids = [comment_id for comment_id in comment_ids if comment_id not in approved_comment_ids]
+        if missing_comment_ids:
+            blockers.append(
+                _issue(
+                    "review_thread_resolution_target_comment_unresponded",
+                    "target review thread has current actionable comments not covered by approved response materialization evidence",
+                    thread_id=thread_id,
+                    comment_ids=missing_comment_ids,
+                    approved_comment_ids=sorted(approved_comment_ids),
+                )
+            )
+            continue
         first = actionable_findings[0] if actionable_findings else {}
         action = {
             "kind": "resolve_review_thread",
@@ -1254,9 +1336,12 @@ def evaluate_review_thread_resolution_plan(
         now=now,
     )
     blockers.extend(freshness_blockers)
-    response_summary, approved_thread_ids, materialization_blockers = _review_response_materialization_resolution_summary(
-        response_materialization
-    )
+    (
+        response_summary,
+        approved_thread_ids,
+        approved_comment_ids_by_thread,
+        materialization_blockers,
+    ) = _review_response_materialization_resolution_summary(response_materialization)
     blockers.extend(materialization_blockers)
     for field, current in anchors.items():
         if not _anchor_present(current):
@@ -1279,6 +1364,7 @@ def evaluate_review_thread_resolution_plan(
                     actual=current,
                 )
             )
+    blockers.extend(_review_thread_parent_pr_blockers(review_threads, anchors))
     blockers.extend(
         _post_write_gate_resolution_blockers(
             post_write_gate=post_write_gate,
@@ -1295,6 +1381,7 @@ def evaluate_review_thread_resolution_plan(
         review_threads=review_threads,
         target_thread_ids=thread_ids,
         approved_thread_ids=approved_thread_ids,
+        approved_comment_ids_by_thread=approved_comment_ids_by_thread,
         anchors=anchors,
         review_threads_checksum=review_threads_checksum,
         response_materialization_checksum=response_materialization_checksum,

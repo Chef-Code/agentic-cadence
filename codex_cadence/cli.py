@@ -4769,7 +4769,14 @@ def review_thread_resolution_plan_command(args: argparse.Namespace) -> int:
     review_threads = read_json(Path(args.review_threads_file))
     response_materialization = read_json(Path(args.response_materialization_file))
     post_write_gate = read_json(Path(args.post_write_gate_file))
-    evidence_captured_at = datetime.fromtimestamp(pr_json_file.stat().st_mtime, timezone.utc)
+    gate_refresh = (
+        post_write_gate.get("refresh")
+        if isinstance(post_write_gate, dict) and isinstance(post_write_gate.get("refresh"), dict)
+        else {}
+    )
+    evidence_captured_at = gate_refresh.get("captured_at") or datetime.fromtimestamp(
+        pr_json_file.stat().st_mtime, timezone.utc
+    )
     payload = evaluate_review_thread_resolution_plan(
         pr=pr,
         review_threads=review_threads,

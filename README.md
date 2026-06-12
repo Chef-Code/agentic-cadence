@@ -927,9 +927,12 @@ The command requires explicit `--thread-id` values and emits
 `github_write_started: false`, and a `target_checksum` for later approval. It
 deduplicates duplicate target ids, binds each target to PR number, branch, base,
 head SHA, refreshed review-thread evidence checksum, response materialization
-checksum, and post-write gate checksum, and blocks stale or mismatched evidence,
-incomplete pagination, resolved or outdated threads, non-actionable summary
-threads, and threads that were not part of the approved response materialization.
+checksum, full materialization result checksum, and post-write gate checksum,
+and blocks stale or mismatched evidence, wrong-PR review-thread evidence,
+disallowed post-write gate blockers, incomplete pagination, resolved or outdated
+threads, non-actionable summary threads, threads that were not part of the
+approved response materialization, and current actionable comments not covered
+by that materialization.
 It does not call GitHub, resolve review threads, post comments, update PR
 bodies, merge, release, publish packages, spend paid review, or continue a loop.
 

@@ -1557,8 +1557,10 @@ GraphQL `reviewThreads` JSON, a successful
 ids. The post-write gate may still be blocked by unresolved actionable review
 comments, but it must prove post-materialization freshness for the same PR
 number, head branch, base branch, head SHA, PR evidence checksum, and
-review-thread evidence checksum. Missing, stale, malformed, incomplete,
-pre-materialization, wrong-PR, wrong-head, or mismatched gate evidence must
+review-thread evidence checksum, and it must bind the full response
+materialization result checksum before any resolution target can be planned.
+Missing, stale, malformed, incomplete, pre-materialization, wrong-PR,
+wrong-head, failed-check, operator-review, or mismatched gate evidence must
 block before approval targeting.
 
 When valid, the command must emit `review-thread-resolution-plan.v1` with
@@ -1570,12 +1572,13 @@ planned action must bind the thread id to PR number, head branch, base branch,
 head SHA, the refreshed review-thread evidence checksum, and the prior response
 materialization checksum. Already resolved threads, outdated threads,
 non-actionable summary-only threads, absent target threads, incomplete
-pagination, missing response materialization evidence, and target threads that
-were not part of the approved review-response materialization must emit stable
-blockers. The command must not call GitHub, resolve review threads, post
-comments, update PR bodies, create branches, commit, push, merge, release,
-publish packages, spend paid review, assign roles, schedule agents, or continue
-a loop automatically.
+pagination, missing response materialization evidence, target threads that were
+not part of the approved review-response materialization, and current
+actionable comments that were not covered by the approved response
+materialization must emit stable blockers. The command must not call GitHub,
+resolve review threads, post comments, update PR bodies, create branches,
+commit, push, merge, release, publish packages, spend paid review, assign
+roles, schedule agents, or continue a loop automatically.
 
 PR body preflight covers the pre-publish side of the same template contract. `pr-body-preflight --body-file <path> --pr-template-file <path>` must read a draft PR body and a local Markdown pull request template, derive required template sections from template headings, and report missing template sections before PR creation or update. It must reuse the same heading parser as PR readiness, match draft body headings by normalized section label, ignore headings inside HTML comments or fenced code blocks without creating false setext headings across skipped blocks, stay repo-agnostic, and must not hard-code target-specific labels, call GitHub, rewrite the body file, create a PR, update a PR, spend paid review, or merge the PR. If no template file or `--required-body-section` is supplied, it must fail closed and recommend `provide_template_or_sections`.
 

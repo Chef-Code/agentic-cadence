@@ -705,6 +705,7 @@ def _materialization_target_summary(materialization_result: Any) -> tuple[dict[s
         "approval_state": materialization_result.get("approval_state"),
         "plan_checksum": materialization_result.get("plan_checksum"),
         "target_checksum": materialization_result.get("target_checksum"),
+        "result_checksum": _checksum_json(materialization_result),
     }
     if materialization_result.get("valid") is not True or materialization_result.get("decision") != "materialized":
         blockers.append(

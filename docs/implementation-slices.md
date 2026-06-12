@@ -696,10 +696,12 @@ Current evidence:
   review-thread JSON, a successful approved review-response materialization
   result, a matching post-write gate packet, and explicit thread ids to emit a
   read-only `review-thread-resolution-plan.v1` approval target with PR/head,
-  refreshed evidence, materialization, and post-write gate checksums;
+  refreshed evidence, full materialization, and post-write gate checksums;
 - review-thread resolution planning blocks stale or mismatched evidence,
-  incomplete pagination, resolved, outdated, non-actionable, missing, or
-  unresponded target threads before approval;
+  wrong-PR review-thread evidence, disallowed post-write gate blockers,
+  incomplete pagination, resolved, outdated, non-actionable, missing,
+  unresponded target threads, or current actionable comments not covered by the
+  approved response materialization before approval;
 - no branch creation, commit, push, merge, release, package publication,
   continuous reconciliation, approved thread-resolution materialization, or
   automatic response loop execution exists.
@@ -738,8 +740,8 @@ Validation needed:
   target for fresh unresolved responded-to thread ids and deduplicates duplicate
   target requests;
 - done: review-thread resolution planning blocks stale, incomplete, mismatched,
-  already resolved, outdated, non-actionable, missing, and unresponded target
-  evidence before approval;
+  wrong-PR, failed-gate, already resolved, outdated, non-actionable, missing,
+  unresponded target, and unresponded current-comment evidence before approval;
 - read-only live fetch failures block without partial local evidence files.
 
 Codex implementation rule: Codex can implement local ingestion and explicit
