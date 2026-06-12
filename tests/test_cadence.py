@@ -2309,6 +2309,7 @@ class CadenceCliTests(unittest.TestCase):
                         "protocol_version": "cadence.v1",
                         "schema_version": "review-response-materialization.v1",
                         "packet": "review_response_materialization",
+                        "generated_at": "2026-06-11T10:05:00Z",
                         "valid": True,
                         "decision": "materialized",
                         "approval_state": "approved",

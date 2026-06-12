@@ -662,10 +662,8 @@ def _resolve_packet_path(value: Any, *, base_dir: Path | None = None) -> Path | 
     if path.is_absolute():
         return path
     if base_dir is not None:
-        candidate = (base_dir / path).resolve(strict=False)
-        if candidate.exists():
-            return candidate
-    return path
+        return (base_dir / path).resolve(strict=False)
+    return path.resolve(strict=False)
 
 
 def _pr_number_from_url(value: Any) -> str | None:
@@ -702,6 +700,7 @@ def _materialization_target_summary(materialization_result: Any) -> tuple[dict[s
     summary: dict[str, Any] = {
         "type": packet,
         "schema_version": schema_version,
+        "generated_at": materialization_result.get("generated_at"),
         "decision": materialization_result.get("decision"),
         "approval_state": materialization_result.get("approval_state"),
         "plan_checksum": materialization_result.get("plan_checksum"),
@@ -917,6 +916,7 @@ def _post_write_recommendation(
                 "github_evidence_sync_timestamp_missing",
                 "github_evidence_sync_from_future",
                 "github_evidence_sync_stale",
+                "github_evidence_sync_before_materialization",
                 "post_write_pr_target_mismatch",
                 "post_write_pr_target_anchor_missing",
                 "refreshed_pr_evidence_unreadable",
@@ -1014,6 +1014,37 @@ def evaluate_post_write_pr_evidence_gate(
         )
         refresh.update(freshness)
         gate_blockers.extend(freshness_blockers)
+        try:
+            captured_at = _parse_utc(github_evidence_sync.get("captured_at"))
+        except (TypeError, ValueError):
+            captured_at = None
+        try:
+            materialized_at = _parse_utc(materialization.get("generated_at"))
+        except (TypeError, ValueError) as exc:
+            gate_blockers.append(
+                _issue(
+                    "materialization_result_timestamp_invalid",
+                    f"materialization result generated_at is invalid: {exc}",
+                    generated_at=materialization.get("generated_at"),
+                )
+            )
+            materialized_at = None
+        if materialized_at is None:
+            gate_blockers.append(
+                _issue(
+                    "materialization_result_timestamp_missing",
+                    "materialization result generated_at is required before accepting refreshed evidence",
+                )
+            )
+        elif captured_at is not None and captured_at < materialized_at:
+            gate_blockers.append(
+                _issue(
+                    "github_evidence_sync_before_materialization",
+                    "github evidence sync was captured before the materialization result; refresh PR evidence after writes",
+                    captured_at=_format_utc(captured_at),
+                    materialization_generated_at=_format_utc(materialized_at),
+                )
+            )
         files = github_evidence_sync.get("files") if isinstance(github_evidence_sync.get("files"), dict) else {}
         pr_json_path = _resolve_packet_path(files.get("pr_json"), base_dir=base_dir)
         review_threads_path = _resolve_packet_path(files.get("review_threads_json"), base_dir=base_dir)
@@ -1099,7 +1130,7 @@ def evaluate_post_write_pr_evidence_gate(
                 elect=True,
                 max_tasks=max_tasks,
             )
-        except Exception as exc:
+        except (RuntimeError, ValueError) as exc:
             candidate_discovery = {
                 "valid": False,
                 "candidates": [],

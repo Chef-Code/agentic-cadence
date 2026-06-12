@@ -255,7 +255,8 @@ session continues or external orchestration starts governed execution. It can
 evaluate saved PR evidence, fetch read-only live PR/check/review-thread
 evidence into saved files, turn saved failed-check, review-thread, and PR-body
 evidence into response-plan items, write only approved PR body/comment
-responses, and run a read-only post-write evidence gate before recommending
+responses, and run the read-only post-write evidence gate in
+`codex_cadence/github_evidence.py` before recommending `ready_for_review`,
 review response, follow-up candidates, waiting, or operator review. It still
 lacks autonomous scheduling and merge authority. It can validate, claim,
 close, and fail local `work-ownership.v1` records, detect duplicate active
