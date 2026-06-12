@@ -33,6 +33,36 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-12 - Prepare Tasks 33-37 roadmap after post-write gate
+
+Summary:
+- Refreshed stale post-Task-32 handoff and business-memory state after PR #103 merged.
+- Added `docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md` to sequence review-thread resolution planning, approved resolution materialization, post-resolution evidence refresh, controlled PR-cycle evidence composition, and read-only merge decision planning.
+- Kept the next work focused on review-loop closure and evidence composition before any merge, release, package publication, paid review, role assignment, distributed lock, named host adapter, or continuous-loop authority.
+
+Completed slices:
+- Documentation and handoff preparation after Task 32.
+
+Confidence change:
+- Previous: 25%
+- New: 25%
+- Reason: The next roadmap is clearer, but no implementation capability changed in this docs-only refresh.
+
+Evidence:
+- Local `main` is aligned with `origin/main` at `430fb5bb9ef22dd8aac62d662fac6cffda60df69`.
+- `gh pr list --state open --limit 10` returned no open PRs.
+
+New risks or blockers:
+- Review-thread resolution, controlled PR-cycle evidence composition, merge decision planning, role assignment, distributed locking, merge, release, package publication, and continuous loop execution remain future work.
+
+Docs updated:
+- `docs/session-handoff.md`
+- `docs/cadence/business-memory.md`
+- `docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md`
+- `docs/roadmap.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+
 ## 2026-06-11 - Add post-write PR evidence gate
 
 Summary:

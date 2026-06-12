@@ -1,220 +1,74 @@
 # Current Session Handoff
 
-Last updated: 2026-06-11
+Last updated: 2026-06-12
 
 ## Current State
 
 - Repository: `Chef-Code/agentic-cadence`
 - Local checkout: use a clean clone of `Chef-Code/agentic-cadence`; do not rely on a machine-specific path.
-- Current base: `origin/main` at `5cde90024c21671e7be49d5521e0f90aba243df3` after PR #100 merged.
-- Working branch intent: refresh the post-Task-30 handoff and backlog hygiene before starting Task 31.
-- Recent merged PRs: PR #72 merged governed execution start; PR #73 merged execution-run evidence binding to closeout; PR #74 merged read-only review response planning; PR #75 merged GitHub Actions cost controls; PR #76 merged read-only resume continuation; PR #77 merged local work ownership status and validation; PR #78 prepared the Tasks 13-17 roadmap and post-Task-12 handoff docs; PR #79 merged local work ownership claim and closeout; PR #80 merged ownership-bound governed execution start; PR #81 merged ownership-bound resume continuation; PR #82 merged read-only role-readiness and review-separation evidence; PR #83 refreshed living docs for Task 17 handoff; PR #84 merged read-only executor invocation readiness evidence; PR #85 merged the Tasks 18-22 roadmap; PR #86 merged audit hash-chain integrity evidence; PR #87 merged authenticated operator approval identity evidence; PR #88 merged read-only real executor invocation plan evidence; PR #89 merged controlled real executor invocation evidence; PR #90 merged real executor invocation closeout binding; PR #91 merged the Tasks 23-27 roadmap; PR #92 merged controlled single-tick run packet evidence; PR #93 merged closeout-bound ownership completion evidence; PR #94 merged dirty-worktree Git/PR materialization planning; PR #95 merged PR evidence freshness in write-side planning; PR #96 merged review follow-up candidates from saved threads; PR #97 merged the Tasks 28-32 roadmap; PR #98 merged approved dirty commit materialization; PR #99 merged dirty commit evidence binding to PR materialization; PR #100 merged review response materialization planning.
-- Completed roadmap marker: Tasks 28-30 from `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md` are complete in `main`, including approved dirty commit materialization, dirty commit evidence binding to PR materialization, and read-only review-response materialization planning.
-- Current branch scope: this hygiene pass refreshes stale handoff and business
-  memory state after PR #100, removes a local Ruff blocker, and documents
-  local validation sharding before Task 31. It must not add review-response
-  write execution, resolve review threads, invoke paid review, merge, release,
-  publish packages, assign roles, schedule agents, create distributed locks, or
-  run a continuous loop.
+- Current base: `origin/main` at `430fb5bb9ef22dd8aac62d662fac6cffda60df69` after PR #103 merged.
+- Working branch intent: prepare the Tasks 33-37 roadmap and refresh stale post-Task-32 handoff/backlog hygiene.
+- Recent merged PRs: PR #97 prepared the Tasks 28-32 roadmap; PR #98 merged approved dirty commit materialization; PR #99 merged dirty commit evidence binding to PR materialization; PR #100 merged review response materialization planning; PR #101 merged post-Task-30 handoff hygiene; PR #102 merged approved review response materialization; PR #103 merged the post-write PR evidence refresh gate.
+- Completed roadmap marker: Tasks 28-32 from `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md` are complete in `main`, including approved dirty commit materialization, dirty commit evidence binding to PR materialization, read-only review-response materialization planning, approved review-response materialization, and post-write PR evidence refresh.
+- Current branch scope: docs-only roadmap and handoff refresh after Task 32. It must not add review-thread resolution implementation, merge, release, package publication, paid review, role assignment, scheduling, distributed locks, named host adapters, or continuous looping.
 
 ## Current Capability Baseline
 
-- Local `cadence-loop-policy.v1` handling can bound emitted executor task packets with allowed and denied paths, commands, required checks, runtime limits, stop conditions, and dry-run branch policy.
-- Executor task packets carry `command_policy`, and executor result validation rejects commands that match the denylist or fall outside a non-empty allowlist.
-- Executor task packets can carry `branch_policy`, and `git-pr-plan` can block dry-run plans that violate allowed base branches, denied target branches, required branch prefixes, or a current `main` checkout when `allow_current_branch_main` is false.
-- `start-governed-execution` can consume a reviewed `generic-executor-task.v1`
-  packet with exact checksum approval, recheck repo path, branch, `HEAD`,
-  clean worktree, task-carried command and branch policy shape, active brake,
-  active epoch state, and supplied local ownership evidence, bind matching
-  active ownership to the started epoch, emit `execution-start.v1`, and append
-  `execution_start_decision` audit evidence while reporting
-  `executor_started: false`.
-- `run-controlled-executor-fixture` writes a local `execution-run.v1` record
-  under `<root>/execution-runs/` that binds task checksum, invocation id, result
-  evidence checksum, validation packet checksum, repo path/branch/head anchors,
-  and pending closeout status.
-- `closeout-executor-result --run-record-file` can reject mismatched or partial
-  run records before epoch mutation and update accepted records with closeout
-  status, epoch id/status, and closeout checksum.
-- `closeout-executor-result --real-invocation-file` can reject mismatched,
-  stale, missing, invalid, wrong-epoch, ownership-blocked, materialized-change
-  mismatched, or audit-chain mismatched real invocation evidence before epoch
-  mutation, then update accepted invocation records with closeout status and
-  checksum anchors.
-- `controlled-loop-tick` can read saved `loop-tick`, `generic-executor-task.v1`,
-  `execution-start.v1`, `executor-invocation-readiness.v1`,
-  `executor-invocation-plan.v1`, `real-executor-invocation.v1`,
-  `generic-executor-result.v1`, snapshot-after,
-  `executor-epoch-closeout.v1`, and optional `git-pr-plan.v1` files, then
-  emit `controlled-loop-tick.v1` after rechecking their path and checksum
-  anchors. Completed packets append success-only `controlled_loop_tick` audit
-  evidence with `controlled_loop_tick_audit_appended`.
-- `github-evidence-sync` can explicitly fetch read-only PR metadata, status checks, and review threads through `gh`, then save local PR JSON, review-thread JSON, and a summary packet for deterministic follow-on commands.
-- `git-pr-materialize` can consume a reviewed `git-pr-plan.v1` packet and matching target-bound HMAC operator approval token backed by `CADENCE_GIT_PR_MATERIALIZATION_APPROVAL_SECRET`, re-run the local plan gates, create the proposed branch from the already-materialized current commit without switching the checkout, push it with Git hook verification disabled for that push, create or update a PR through `gh`, and append `git_pr_materialization_intent` plus `git_pr_materialization_result` audit records.
-- `verify-resume` can emit a read-only `resume-verification.v1` packet that checks handoff signature and claimed state, clean-square evidence, persisted resume snapshot binding, repo branch/head, dirty-worktree state, active brake, active epoch state, and pickup-policy evidence before a fresh session continues.
-- `resume-continuation` can consume a saved `resume-verification.v1` packet,
-  recheck handoff id, claimer, repo branch/head, dirty-worktree state, active
-  brake, active epoch state, clean-square evidence, pickup-policy evidence,
-  packet freshness, and supplied active ownership evidence, then emit a
-  read-only `resume-continuation.v1` packet that recommends
-  `start_governed_execution` only when anchors still match.
-- `work-ownership-status` and `validate-work-ownership` can read local
-  `work-ownership.v1` records under
-  `<root>/work-ownership/{active,closed,failed}`, validate task/candidate/role,
-  claimer, repo, branch, optional PR/epoch/handoff, status, and timestamp
-  fields, emit `work-ownership-status.v1` and
-  `work-ownership-validation.v1` packets, and report stable blockers for
-  duplicate active ownership, stale active ownership, closed evidence,
-  malformed records, and repo/branch/task mismatches.
-- Candidate discovery can ingest saved PR JSON through `--pr-json-file` and convert failing checks into stable `pr_check_failure` execution candidates.
-- `pr-readiness --review-threads-file` can block unresolved actionable current review comments plus malformed or incomplete saved GraphQL `reviewThreads` JSON while ignoring resolved, outdated, and non-actionable feedback.
-- `review-response-plan` can emit read-only `review-response-plan.v1` packets
-  from saved PR JSON, saved review-thread JSON,
-  optional candidate discovery output, and PR-body evidence, then group failed
-  checks, unresolved actionable current review comments, missing PR body
-  sections, and candidate matches into bounded read-only next-action
-  recommendations.
-- `role-readiness` can emit read-only `role-readiness.v1` packets from
-  `role-policy.v1`, local ownership status, saved PR JSON, and saved
-  review-thread evidence, then verify allowed ownership role labels and
-  builder/reviewer separation without calling GitHub or mutating PR state.
-- `executor-invocation-readiness` can emit read-only
-  `executor-invocation-readiness.v1` packets from a reviewed executor task,
-  active epoch, active ownership evidence, expected result path, and optional
-  role-readiness evidence, then recheck repo path, branch, `HEAD`, dirty
-  worktree, active brake, task checksum, ownership epoch binding, policy shape,
-  required checks, and result-path boundaries while reporting
-  `executor_started: false`.
-- `validate-executor-result` checks the current brake before recording completion evidence; when `brake_not_drive` is a task stop condition and the brake is not `DRIVE`, non-`stopped` result evidence is invalid and recommends `stop_active_loop`.
-- Command policy is hardened around shell grouping, Bash brace grouping, command substitutions, shell-wrapper payloads, Git aliases, and null top-level command-policy packets.
-- `audit-replay` emits a read-only local packet for `cadence-audit.v1` JSONL history, reports chain head/count evidence for `cadence-audit-chain.v1` records, treats older unchained records as explicit legacy roots, and reports stable blockers for corrupt, unsupported, or hash-chain-invalid records, including execution-run and materialization intent/result audit events.
-- `verify-operator-approval` verifies local `operator-approval.v1` packets for
-  target checksum, purpose, operator id, key id, timestamps, and HMAC signature,
-  emits `operator-approval-verification.v1`, appends
-  `operator_approval_verification` audit evidence when accepted, and reports
-  `executor_started: false`.
-- `executor-invocation-plan` emits read-only
-  `executor-invocation-plan.v1` packets that consume fresh successful
-  `executor-invocation-readiness.v1`, purpose-scoped `operator-approval.v1`,
-  clean audit replay, adapter metadata, rollback evidence, command,
-  environment allowlist, timeout, cwd, active epoch, active ownership, and
-  expected result path evidence, then recommend `invoke_real_executor` only
-  when all anchors still match while reporting `executor_started: false`.
-- `invoke-real-executor` consumes a fresh successful
-  `executor-invocation-plan.v1`, re-runs the plan gates immediately before
-  process start, starts one approved command with `shell=False`, captures
-  stdout/stderr, writes `real-executor-invocation.v1` records under
-  `<root>/real-executor-invocations/`, and enforces `evidence_only` versus
-  `materialized_changes` side-effect modes.
-- `run-controlled-executor-fixture` can launch the bundled fake external executor fixture from an explicit current-Python, absolute-script command template in tests/examples, validate its task packet and command before start, require expected result evidence under the runtime root, reject stale result files, and append `executor_fixture_invocation` plus `executor_result_validation` audit records.
-- Disabled executor permissions now also reject merge, release, and package-publication command forms, including `gh pr merge`, `gh release create`, `gh release upload`, mutating `git tag` forms while allowing read-only tag listing/verification, `twine upload`, Python launcher `-m twine upload` forms including versioned `python3.x`, `npm publish`, `pnpm publish`, `yarn publish`, `yarn npm publish`, `poetry publish`, `uv publish`, `hatch publish`, and `flit publish`.
-- Dry-run-only `git-pr-plan` is merged. It turns validated executor evidence into proposed branch, commit, PR title, and PR body text without creating a branch, committing, pushing, calling GitHub, opening a pull request, merging, releasing, or publishing packages.
-- `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` is complete for Tasks 1-7.
-- `docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` is complete through Task 12.
-- Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` is complete in `main` via PR #84.
-- Tasks 18-22 from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` are complete in `main` via PRs #86-#90.
-- This branch prepares `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`; the
-  PR for this branch should review task ordering, boundaries, validation
-  commands, and consistency with the living roadmap docs.
+- `controlled-loop-tick` composes saved loop, task, execution-start, readiness, invocation-plan, real-invocation, result, snapshot-after, closeout, and optional dry-run Git/PR plan evidence into `controlled-loop-tick.v1` without rerunning executors or rewriting records.
+- Completed packets append `controlled_loop_tick` audit evidence with `controlled_loop_tick_audit_appended`.
+- Command policy hardening still covers shell grouping, command substitutions, shell-wrapper payloads, and the `provide_runtime_root` path for brake-gated result validation.
+- `git-pr-dirty-commit-materialize` can turn a reviewed dirty-worktree materialization plan into exactly one approved local branch commit after target-bound HMAC approval, dirty fingerprint rechecks, PR body checks, clean/process filter safeguards, and audit evidence.
+- `git-pr-materialize` can consume either a standard `git-pr-plan.v1` or a dirty materialization plan plus `git-pr-dirty-commit-materialization.v1`, then push and create/update the approved PR only after exact target-bound approval, local rechecks, optional saved PR freshness checks, and `git_pr_materialization_intent` / `git_pr_materialization_result` audit evidence.
+- `review-response-plan.v1` remains read-only response planning from saved PR/check/review-thread/body evidence, including saved PR JSON supplied with `--pr-json-file`.
+- `review-response-materialization-plan` turns a reviewed response plan into exact PR body/comment write targets with `github_write_started: false`.
+- `review-response-materialize` can update approved PR body text and post approved review-thread replies after exact target-bound approval, saved PR/thread freshness rechecks, PR body preflight, target text checksum checks, and replayable audit records.
+- `github-evidence-sync` explicitly fetches read-only PR metadata, checks, and review threads into saved local JSON evidence.
+- `post-write-pr-evidence-gate` consumes approved Git/PR or review-response materialization results plus fresh `github-evidence-sync` output, verifies PR number, branch, base, and head anchors, then recommends only `ready_for_review`, `refresh_required`, `follow_up_candidates`, `wait_for_checks`, `respond_to_review`, or `operator_review`.
+- `start-governed-execution` emits `execution-start.v1`, appends `execution_start_decision`, binds supplied ownership evidence when requested, and still reports `executor_started: false`.
+- `verify-operator-approval` verifies `operator-approval.v1` identity evidence and appends `operator_approval_verification` without granting executor, GitHub, merge, release, or package-publication authority.
+- `run-controlled-executor-fixture` remains test/example-only; it appends `executor_fixture_invocation` evidence, must reject stale result files, and must not be treated as real executor or named-host adapter support.
+- `work-ownership-status`, `validate-work-ownership`, `claim-work-ownership`, `close-work-ownership`, `fail-work-ownership`, and `complete-work-ownership-from-closeout` provide `work-ownership.v1`, `work-ownership-status.v1`, and `work-ownership-validation.v1` local evidence only. They are not distributed locks or role assignment.
+- `role-readiness.v1` verifies local role policy and saved builder/reviewer separation evidence without assigning roles, scheduling agents, invoking paid review, or mutating GitHub state.
+- `executor-invocation-readiness.v1` and `executor-invocation-plan.v1` remain the read-only gates before `invoke-real-executor` can start one approved command and write `real-executor-invocation.v1` evidence.
+- `verify-resume` and `resume-continuation.v1` provide read-only pickup and continuation gates. They do not claim handoffs, launch sessions, start epochs, invoke executors, or write Git/GitHub state.
+- `release-dry-run` remains a read-only release preflight and does not create tags, releases, uploads, or package publications.
+
+## Historical Validation Anchors
+
+- PR #74 merged read-only review response planning.
+- PR #87 merged authenticated operator approval identity evidence.
+- PR #88 merged read-only real executor invocation plan evidence.
+- PR #89 merged controlled real executor invocation evidence.
+- PR #90 merged real executor invocation closeout binding.
+- PR #91 merged the Tasks 23-27 roadmap.
+- PR #96 merged review follow-up candidates from saved threads.
+- PR #100 merged review response materialization planning.
+- Tasks 18-22 from `docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` are complete.
+- Historical post-Task-30 handoff instruction was: Start Task 31. Current next action is Task 33.
+- Task-carried `branch_policy` remains part of the executor/Git planning boundary.
+- The controlled fake executor fixture remains only a tests/examples component.
 
 ## Important Boundaries
 
-- Command policy is carried in task packets so result validation checks the approved bounds, not a later mutable policy file.
-- Branch policy is carried in task packets so dry-run Git/PR planning checks the approved branch bounds; an extra local `git-pr-plan --policy-file` may add restrictions but does not perform live Git/PR actions.
-- The governed execution-start gate validates task-carried command and branch
-  policy fields from the reviewed packet and carries them into the epoch; it
-  does not reread a mutable policy file. Its approval token is checksum review
-  evidence only; it remains backward compatible until a later migration consumes
-  `operator-approval.v1` evidence.
-- `verify-operator-approval` is identity evidence only. Accepted approval
-  verification is not executor authority, Git/PR materialization authority,
-  merge authority, release authority, or package-publication authority.
-- Active stop handling rejects completion evidence after the brake changes, but it still allows `status: stopped` evidence to report that the executor honored the stop.
-- Non-`stopped` evidence for tasks with `brake_not_drive` needs a runtime root to check the current brake; without one, validation recommends `provide_runtime_root`.
-- `git-pr-plan` remains dry-run only: suggested commands are never executed by Cadence, and the executor that produced result evidence is not the final authority for Git/PR approval.
-- `git-pr-plan` readiness preserves fail-closed gates: brake-gated success needs the current brake check, `files_changed` alone is not materialized-change evidence, `materialized_change_evidence` must be explicit, and absent materialized evidence blocks Git/PR readiness.
-- `git-pr-materialize` is the only Task 6 write-side Git/PR path. Missing, mismatched, or unverifiable target-bound HMAC operator approval, stale plan evidence, dirty worktree state, branch-policy blockers, incomplete materialized evidence, or PR body preflight blockers must stop before branch creation, push, PR create/update, or audit records. After approval gates pass, intended and completed side effects must be audit replayable.
-- `github-evidence-sync` is read-only live evidence capture. It may write local evidence files only as a complete set, but it must not start GitHub writes, create or edit pull requests, create branches, commit, push, merge, release, or publish packages.
-- `review-response-plan` is local response planning only. It must not resolve
-  review threads, post comments, update PR bodies, invoke review agents, spend
-  paid review, start executors, create branches, commit, push, merge, release,
-  or publish packages.
-- `resume-continuation` is local read-only continuation planning only. It must
-  not claim handoffs, launch sessions, start epochs, invoke executors, create
-  branches, commit, push, merge, release, or publish packages.
-- Local work ownership is evidence only. Execution-start and
-  resume-continuation can consume supplied active ownership records, but those
-  records are not distributed locks and do not assign roles, schedule agents,
-  or write GitHub issues.
-- `role-readiness` is evidence only. It verifies local role policy and saved
-  review-thread separation evidence, but it does not assign roles, schedule
-  agents, call GitHub, invoke paid review, resolve review threads, or mutate
-  PR state.
-- `executor-invocation-readiness` is evidence only. It can recommend
-  `invoke_real_executor`, but it does not start a process, emit process
-  metadata, modify code, create branches, commit, push, write PRs, merge,
-  release, publish packages, assign roles, schedule agents, or write GitHub
-  state.
-- `executor-invocation-plan` is evidence only. It can recommend
-  `invoke_real_executor` after binding fresh readiness, approval, audit,
-  adapter, rollback, command, timeout, epoch, ownership, and result-path
-  evidence, but it does not start a process, append audit records, modify code,
-  create branches, commit, push, write PRs, merge, release, publish packages,
-  assign roles, schedule agents, or write GitHub state.
-- `invoke-real-executor` is process-start evidence only. It can start one
-  approved local process from a fresh plan and write local runtime evidence,
-  but it is not authority to commit, push, open or update PRs, resolve review
-  threads, merge, release, publish packages, assign roles, schedule agents,
-  claim distributed locks, or write GitHub state.
-- `closeout-executor-result --real-invocation-file` can bind accepted real
-  invocation evidence into local closeout and dry-run planning decisions, but
-  it is not authority to materialize Git/PR writes or close ownership records
-  without the existing explicit commands.
-- `controlled-loop-tick` composes existing local evidence only. It may report
-  `executor_started: true` from the supplied prior real-invocation record, but
-  it does not start or retry executors, rewrite invocation or closeout records,
-  execute Git commands, call GitHub, create or update PRs, merge, release,
-  publish packages, assign roles, schedule agents, or claim distributed locks.
-- The active business-memory backlog entry is discovery input only. It does not authorize executor invocation, code modification, branch creation, commits, pushes, PR creation, merges, releases, package publication, or paid review spending.
-- The controlled fake executor fixture remains only a tests/examples component.
-  The real invocation runner is separate local process-start evidence and still
-  does not provide named host adapter support, autonomous branch/PR automation,
-  merge authority, release behavior, or package-publication authority.
-- Real executor invocation records are acceptable local closeout evidence only
-  after the closeout command revalidates their task, epoch, ownership, result,
-  repo, materialized-change, and audit-chain anchors; they are not named host
-  adapter support or GitHub write authority.
+- Business-memory and roadmap entries are discovery/planning input only. They do not authorize executor invocation, code modification, branch creation, commits, pushes, PR writes, review-thread resolution, merge, release, package publication, paid review spending, or continuous looping.
+- Approved Git/PR and review-response write commands are exact target-bound bridges, not autonomous GitHub authority.
+- Review-thread resolution remains unsupported until a later explicit slice defines planning, approval, materialization, audit, and post-write refresh contracts.
+- Post-write refreshed evidence can recommend a bounded next action, but it is not permission to keep looping continuously.
+- Local ownership and role-readiness evidence do not assign roles, schedule agents, write GitHub issues, or claim distributed locks.
 - Keep public docs free of private machine paths and private repository assumptions.
 
 ## Validation To Re-run
 
+For this docs-only roadmap refresh:
+
 ```powershell
 git status -sb
-python -m py_compile codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py tests/test_audit_replay.py
-python -m unittest tests.test_audit_replay tests.test_executor_contract tests.test_epochs -v
-python -m unittest tests.test_pr_readiness tests.test_candidates -v
-python -m unittest tests.test_git_pr_plan -v
-python -m unittest tests.test_handoff_loop -v
-python -m unittest tests.test_external_host_binding_conformance -v
-python -m unittest tests.test_ci_checks -v
-python -m ruff check codex_cadence tests
-python scripts/validate_protocol.py
-python scripts/ci_smoke.py
+python scripts\validate_protocol.py
 git diff --check
 ```
 
-The Task 30 review-response materialization planning validation block is
-recorded in `docs/progress-log.md` for the merged PR #100 slice. Full
-`python -m unittest discover -s tests -v` remains the CI entrypoint, but local
-Windows runs should prefer module shards when iterating because
-`tests.test_cadence`, `tests.test_git_pr_plan`,
-`tests.test_handoff_loop`, and external host-binding tests are slow enough to
-hit short ad hoc timeouts.
+For the first implementation task from the new roadmap, run the task-specific validation block in `docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md` plus the relevant focused unit shards.
 
 ## Next Action
 
-Start Task 31 from `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`:
-add operator-approved review-response materialization for exact PR body and
-review-comment writes, while preserving the existing boundaries around review
-thread resolution, paid review, merge, release, package publication, role
-assignment, scheduling, distributed locks, and continuous looping.
+Start Task 33 from `docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md`: add read-only review-thread resolution planning while preserving the existing boundaries around GitHub writes, review-thread resolution materialization, paid review, merge, release, package publication, role assignment, scheduling, distributed locks, and continuous looping.
