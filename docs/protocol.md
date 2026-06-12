@@ -1605,9 +1605,9 @@ When valid, the command must emit
 `github_write_started`, `command_trace`, GitHub thread ids, resolution status,
 blockers, approval target evidence, and `github_writes`. It must append
 `review_thread_resolution_intent` before the first GitHub write and append
-`review_thread_resolution_result` after success or after a started-write
-failure. Audit append failure before the intent record must block before GitHub
-writes and recommend audit repair. Failed `gh` commands must emit stable
+`review_thread_resolution_result` after success, approved pre-write blockers,
+or after a started-write failure. Audit append failure before the intent record
+must block before GitHub writes and recommend audit repair. Failed `gh` commands must emit stable
 blockers and recovery evidence without claiming merge readiness. The command
 must not post comments, update PR bodies, invoke paid review, edit labels,
 merge, release, publish packages, assign roles, schedule agents, or continue a

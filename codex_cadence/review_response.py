@@ -3061,6 +3061,23 @@ def materialize_review_thread_resolution_plan(
         warnings.extend(recheck_warnings)
 
     if blockers:
+        if approval_state == "approved":
+            return _failed_review_thread_resolution_materialization(
+                runtime_path=runtime_path,
+                approval_state=approval_state,
+                plan_path=plan_path,
+                plan_checksum=plan_checksum,
+                target_checksum=target_checksum if isinstance(target_checksum, str) else None,
+                approval_target=approval_target,
+                pr=pr,
+                evidence=evidence,
+                intended_side_effects=intended_side_effects,
+                side_effects=side_effects,
+                command_trace=command_trace,
+                github_writes=github_writes,
+                blockers=blockers,
+                warnings=warnings,
+            )
         return _review_thread_resolution_materialization_packet(
             valid=False,
             decision="blocked",

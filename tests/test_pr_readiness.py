@@ -126,8 +126,12 @@ def review_response_materialization_result(pr, **overrides):
         "review_resolution": "not_claimed",
         "merge_readiness": "not_evaluated",
         "plan_file": "review-response-materialization-plan.json",
-        "plan_checksum": checksum_json("review-response-materialization-plan"),
-        "target_checksum": checksum_json("review-response-materialization-target"),
+        "plan_checksum": checksum_json(
+            {"packet": "review_response_materialization_plan", "mock": "plan"}
+        ),
+        "target_checksum": checksum_json(
+            {"packet": "review_response_target", "mock": "target"}
+        ),
         "pr": {
             "number": str(pr.get("number")),
             "head_ref": pr.get("headRefName"),
@@ -1133,7 +1137,7 @@ class PrReadinessTests(unittest.TestCase):
 
         self.assertFalse(packet["valid"])
         self.assertFalse(packet["github_write_started"])
-        self.assertEqual(packet["side_effects"], [])
+        self.assertEqual(packet["side_effects"], ["audit_result_record_appended"])
         blocker_codes = {blocker["code"] for blocker in packet["blockers"]}
         self.assertIn("pr_evidence_stale", blocker_codes)
         self.assertIn("review_thread_resolution_pr_target_mismatch", blocker_codes)
@@ -1179,7 +1183,7 @@ class PrReadinessTests(unittest.TestCase):
 
         self.assertFalse(packet["valid"])
         self.assertFalse(packet["github_write_started"])
-        self.assertEqual(packet["side_effects"], [])
+        self.assertEqual(packet["side_effects"], ["audit_result_record_appended"])
         self.assertIn(
             "review_thread_resolution_plan_target_mismatch",
             {blocker["code"] for blocker in packet["blockers"]},
@@ -1241,7 +1245,7 @@ class PrReadinessTests(unittest.TestCase):
         for packet in (payload_drift_packet, checksum_drift_packet):
             self.assertFalse(packet["valid"])
             self.assertFalse(packet["github_write_started"])
-            self.assertEqual(packet["side_effects"], [])
+            self.assertEqual(packet["side_effects"], ["audit_result_record_appended"])
             self.assertIn(
                 "review_thread_resolution_target_checksum_mismatch",
                 {blocker["code"] for blocker in packet["blockers"]},
@@ -1251,6 +1255,7 @@ class PrReadinessTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
             pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
             tmp_path = Path(tmp)
+            runtime_root = Path(evidence_tmp) / "runtime"
             plan = evaluate_review_thread_resolution_plan(
                 pr=pr,
                 review_threads=threads,
@@ -1272,7 +1277,7 @@ class PrReadinessTests(unittest.TestCase):
                     plan_packet=plan,
                     plan_file=tmp_path / "review-thread-resolution-plan.json",
                     approval_token=token,
-                    runtime_root=tmp_path / "runtime",
+                    runtime_root=runtime_root,
                     pr=pr,
                     review_threads=threads,
                     response_materialization=response_materialization,
@@ -1284,12 +1289,22 @@ class PrReadinessTests(unittest.TestCase):
                 else:
                     os.environ[REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV] = original_secret
 
-        self.assertFalse(packet["valid"])
-        self.assertFalse(packet["github_write_started"])
-        self.assertEqual(packet["side_effects"], [])
-        blocker_codes = {blocker["code"] for blocker in packet["blockers"]}
-        self.assertIn("post_write_gate_refresh_mismatch", blocker_codes)
-        self.assertIn("review_thread_resolution_target_checksum_mismatch", blocker_codes)
+            self.assertFalse(packet["valid"])
+            self.assertFalse(packet["github_write_started"])
+            self.assertEqual(packet["side_effects"], ["audit_result_record_appended"])
+            blocker_codes = {blocker["code"] for blocker in packet["blockers"]}
+            self.assertIn("post_write_gate_refresh_mismatch", blocker_codes)
+            self.assertIn("review_thread_resolution_target_checksum_mismatch", blocker_codes)
+            replay_result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--root", str(runtime_root), "audit-replay"],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            replay = json.loads(replay_result.stdout)
+            self.assertTrue(replay["valid"])
+            self.assertEqual(replay["events_by_type"]["review_thread_resolution_result"], 1)
 
     def test_cli_review_thread_resolution_materialize_uses_gate_refresh_timestamp_for_freshness(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
@@ -1365,10 +1380,9 @@ class PrReadinessTests(unittest.TestCase):
         packet = json.loads(result.stdout)
         self.assertFalse(packet["valid"])
         self.assertFalse(packet["github_write_started"])
-        self.assertEqual(packet["side_effects"], [])
+        self.assertEqual(packet["side_effects"], ["audit_result_record_appended"])
         self.assertIn("pr_evidence_stale", {blocker["code"] for blocker in packet["blockers"]})
         self.assertFalse(gh_log.exists())
-        self.assertFalse((runtime_root / "audit" / "events.jsonl").exists())
 
     def test_review_thread_resolution_materialize_blocks_prior_materialization_mismatch_or_missing(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
@@ -1420,13 +1434,13 @@ class PrReadinessTests(unittest.TestCase):
 
         self.assertFalse(mismatch_packet["valid"])
         self.assertFalse(mismatch_packet["github_write_started"])
-        self.assertEqual(mismatch_packet["side_effects"], [])
+        self.assertEqual(mismatch_packet["side_effects"], ["audit_result_record_appended"])
         mismatch_codes = {blocker["code"] for blocker in mismatch_packet["blockers"]}
         self.assertIn("review_thread_resolution_response_materialization_checksum_mismatch", mismatch_codes)
         self.assertIn("post_write_gate_materialization_checksum_mismatch", mismatch_codes)
         self.assertFalse(missing_packet["valid"])
         self.assertFalse(missing_packet["github_write_started"])
-        self.assertEqual(missing_packet["side_effects"], [])
+        self.assertEqual(missing_packet["side_effects"], ["audit_result_record_appended"])
         missing_codes = {blocker["code"] for blocker in missing_packet["blockers"]}
         self.assertIn("review_response_materialization_missing", missing_codes)
         self.assertIn("review_thread_resolution_response_materialization_checksum_mismatch", missing_codes)

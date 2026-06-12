@@ -951,7 +951,8 @@ PR/head/base anchors, review-thread completeness, unresolved state, target ids,
 post-write gate evidence, target checksum, and the supplied prior response
 materialization checksum. It appends `review_thread_resolution_intent` before writing, resolves only
 approved review thread ids through `resolveReviewThread`, then appends
-`review_thread_resolution_result` after success or started-write failure. The
+`review_thread_resolution_result` after success, approved pre-write blockers, or
+started-write failure. The
 result packet is `review-thread-resolution-materialization.v1` and preserves
 command trace, GitHub thread ids, resolution status, approval target evidence,
 and blockers. It does not post comments, update PR bodies, invoke paid review,
