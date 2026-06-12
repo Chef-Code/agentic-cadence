@@ -2291,7 +2291,7 @@ Risk: medium
             candidate = business_memory_candidates[0]
             self.assertEqual(
                 candidate["evidence"]["heading"],
-                "Review Response Writes Need Approval And Refresh",
+                "Review Loop Closure Needs Thread Resolution And Cycle Evidence",
             )
             self.assertEqual(candidate["classification"], "risk")
             self.assertEqual(candidate["classification_confidence"], "high")

@@ -301,7 +301,8 @@ Do not:
 
 ## Review Response Writes Need Approval And Refresh
 
-Status: active
+Status: fulfilled
+Fulfilled By: PR #102 approved review response materialization; PR #103 post-write PR evidence gate
 Kind: risk
 Workflow: Controlled executor loop governance
 Time Saved: high
@@ -312,7 +313,26 @@ Signals:
 - `git-pr-dirty-commit-materialization.v1` and dirty PR materialization are exact approval-bound bridges, not autonomous GitHub write authority.
 - `review-response-materialization-plan.v1` is read-only and does not update PR bodies, post review comments, or resolve threads.
 - Task 31 should add the smallest exact approval-bound review-response write execution path, and Task 32 should refresh PR/check/review evidence before any next recommendation.
+- PR #102 and PR #103 fulfilled the approved review-response write and post-write refresh portions of this entry.
 Do not:
 - Do not make review-response writes without exact target-bound operator approval and audit evidence.
 - Do not merge review-response writes, review-thread resolution, paid review, merge, release, or package publication into one slice.
 - Do not treat post-write refreshed PR or review evidence as permission to keep looping continuously.
+
+## Review Loop Closure Needs Thread Resolution And Cycle Evidence
+
+Status: active
+Kind: risk
+Workflow: Controlled executor loop governance
+Time Saved: high
+Risk: high
+Pain: Tasks 28-32 added exact approved Git/PR writes, exact approved review-response writes, and a post-write refresh gate, but Cadence still cannot plan or perform approved review-thread resolution, compose the full approved PR-cycle evidence chain, or produce a read-only merge decision plan.
+Signals:
+- PR #103 completed Task 32 by requiring fresh saved PR/check/review-thread evidence after approved GitHub writes before recommending the next action.
+- Review-thread resolution remains unsupported until a dedicated planning, approval, materialization, audit, and post-resolution refresh contract exists.
+- Operators need one composed PR-cycle evidence packet before merge planning or confidence changes.
+- `docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md` sequences review-thread resolution planning, approved resolution materialization, post-resolution refresh, controlled PR-cycle evidence, and read-only merge decision planning.
+Do not:
+- Do not resolve review threads without exact target-bound operator approval and audit evidence.
+- Do not treat resolved review threads as merge authority without fresh PR/check/review-thread evidence and a separate merge decision plan.
+- Do not merge, release, publish packages, invoke paid review, assign roles, schedule agents, claim distributed locks, or continue the loop automatically from this backlog entry.

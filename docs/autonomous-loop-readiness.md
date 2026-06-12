@@ -1,8 +1,8 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-06-11
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, Tasks 23-27 complete in main, and the Tasks 28-32 roadmap current branch
+Last updated: 2026-06-12
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, Tasks 28-32 complete in main, and the Tasks 33-37 roadmap prepared
 Current unattended-operation confidence: 25%
 
 This document answers how close Agentic Cadence is to the "press start and
@@ -197,10 +197,10 @@ Agentic Cadence cannot currently:
   Reviewer, QA, Documentation, Release, or Handoff agents;
 - assign or enforce authenticated reviewer identity separate from the builder;
 - autonomously create a branch;
-- commit dirty-worktree changes;
+- autonomously commit dirty-worktree changes;
 - autonomously push to a remote;
 - autonomously open or update a pull request;
-- resolve review feedback;
+- autonomously resolve review feedback or review threads;
 - autonomously create, edit, or resolve GitHub PRs or review comments;
 - trigger follow-up implementation from live CI or review failures;
 - infer context pressure without explicit host input;
@@ -228,8 +228,8 @@ Agentic Cadence cannot currently:
 | Autonomous implementation | Not built | Requires host/session orchestration, named adapter support, autonomous Git/PR flow, merge governance, and release governance |
 | Live GitHub sync | Partial, read-only evidence capture and post-write gate | `github-evidence-sync` fetches PR JSON and review threads into local files without GitHub writes; `post-write-pr-evidence-gate` binds fresh saved evidence to approved write results before the next recommendation |
 | Git/PR transition planning | Partial, dry-run plus approved materialization | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects; `git-pr-materialize` can create branch, push, and create/update PR only after exact target-bound operator approval and local rechecks |
-| Branch/commit/push/PR creation | Partial, operator-approved only | No autonomous branch/PR writes, no dirty-worktree commit path, no merge, release, or package publication |
-| Review response loop | Partial approved writes plus post-write refresh | Saved review files, synced review threads, failed checks, and PR-body evidence can become response-plan items; approved PR body/comment writes exist; post-write gate rechecks fresh evidence before the next bounded action; no automatic response loop |
+| Branch/commit/push/PR creation | Partial, operator-approved only | Exact approved dirty-worktree commit, push, and PR create/update bridges exist; no autonomous branch/PR writes, merge, release, or package publication |
+| Review response loop | Partial approved writes plus post-write refresh | Saved review files, synced review threads, failed checks, and PR-body evidence can become response-plan items; approved PR body/comment writes exist; post-write gate rechecks fresh evidence before the next bounded action; no review-thread resolution or automatic response loop |
 | Local work ownership | Partial, execution/resume-bound local evidence | `work-ownership-status` and `validate-work-ownership` validate local `work-ownership.v1` records; `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership` create/move local records with audit evidence; `start-governed-execution --ownership-target` can bind matching active ownership to the started epoch; `resume-continuation --ownership-target` can recheck matching active ownership before recommending execution start; no distributed lock, role assignment, or scheduler |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
 | New-session launch/resume | Partial read-only gates | `prepare-handoff`, clean-square evidence, `verify-resume`, and `resume-continuation.v1` packets exist; external orchestration still launches sessions and performs recommended actions |
@@ -309,8 +309,9 @@ evidence, but it does not implement product changes. The
 dry-run `git-pr-plan` handoff remains
 review-only until an operator invokes `git-pr-materialize` with a matching plan
 approval token. Real code changes, autonomous Git/PR materialization,
-dirty-worktree commits, review feedback response writes, and new-session launch
-remain external or future-approved slices. Resume verification and
+autonomous dirty-worktree commits, autonomous review feedback response writes,
+review-thread resolution, and new-session launch remain external or future
+governance slices. Resume verification and
 resume-continuation can block stale or mismatched pickup state, but they do not
 claim handoffs, start epochs, invoke executors, or launch sessions. Local
 `operator-approval.v1` evidence can now identify an approver for a target and
@@ -322,7 +323,8 @@ execution can be considered. Audit history is now locally inspectable through
 ## What Would Break First
 
 The first hard stop in a real unattended run is now autonomous Git/PR
-materialization and review-response writes after real-run closeout evidence.
+materialization and autonomous review-response writes after real-run closeout
+evidence.
 Cadence can emit a bounded
 executor task packet, reject malformed, dirty, low-confidence, relative-path,
 or mismatched snapshot anchors, start one approved active epoch through
@@ -335,9 +337,9 @@ close local fixture evidence into an epoch decision, and bind accepted
 revalidation, and dry-run Git/PR planning. It can also verify local
 authenticated operator approval identity evidence for a target checksum and
 purpose, then compose the saved evidence into a `controlled-loop-tick.v1`
-packet. It still does not materialize dirty worktree changes into commits, push
-autonomously, write PR/review responses, merge, release, or coordinate agent
-pools.
+packet. It still does not autonomously materialize dirty worktree changes into
+commits, push, write PR/review responses, resolve review threads, merge,
+release, or coordinate agent pools.
 
 The next likely failures are:
 

@@ -1,8 +1,8 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-11
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, Tasks 23-27 complete in main, and the Tasks 28-32 roadmap current branch
+Last updated: 2026-06-12
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, Tasks 28-32 complete in main, and the Tasks 33-37 roadmap prepared
 Current unattended-operation confidence: 25%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -74,8 +74,9 @@ enforcement, active-stop result-validation controls, dry-run Git/PR planning,
 local branch policy, read-only GitHub evidence sync, governed execution-start
 epoch gating, local execution-run evidence, operator-approved Git/PR
 materialization, read-only resume verification, ownership-aware read-only
-resume continuation, read-only review-response planning, local work ownership
-claim/closeout evidence, read-only role-readiness evidence, read-only
+resume continuation, read-only review-response planning, operator-approved
+review-response materialization, post-write PR evidence refresh, local work
+ownership claim/closeout evidence, read-only role-readiness evidence, read-only
 executor-invocation-readiness and invocation-plan evidence, controlled real
 executor invocation evidence, controlled single-tick run packet evidence, and
 local audit hash-chain integrity evidence. It can
@@ -84,10 +85,12 @@ approval, and it can verify handoff pickup state before a fresh session
 continues. It can also start one approved real executor command with local
 invocation evidence and bind accepted real-run evidence into epoch closeout and
 dry-run Git/PR planning, then compose the saved local chain into
-`controlled-loop-tick.v1`, but it still cannot independently implement code
+`controlled-loop-tick.v1`, and write exact approved PR body/comment responses
+before refreshing PR evidence. It still cannot independently implement code
 outside approved command evidence, autonomously push branches, autonomously open
-pull requests, assign agent roles, resolve review feedback, launch fresh
-sessions, coordinate an agent pool, or continue in an unattended loop.
+pull requests, resolve review threads, assign agent roles, launch fresh
+sessions, coordinate an agent pool, merge, release, publish packages, or
+continue in an unattended loop.
 
 Current confidence for unattended continuous operation is 25%.
 
@@ -577,8 +580,8 @@ evidence, PR body preflight, remote push URL, and optional PR update target,
 then create the branch without switching the checkout, push with Git hook
 verification disabled for that push, and create/update a PR. Controlled
 `invoke-real-executor` and `closeout-executor-result --real-invocation-file`
-evidence exist, but Cadence still does not create dirty-worktree commits,
-auto-merge, release, publish packages, or run autonomous Git/PR actions.
+evidence exist, but Cadence still does not autonomously create dirty-worktree
+commits, merge, release, publish packages, or run autonomous Git/PR actions.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/pr_readiness.py`,
 scripts, tests, docs.
