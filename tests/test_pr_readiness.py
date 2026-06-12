@@ -10,6 +10,7 @@ from unittest import mock
 from codex_cadence.pr_readiness import evaluate_pr_body_preflight, evaluate_pr_readiness, required_sections_from_template
 import codex_cadence.review_response as review_response_module
 from codex_cadence.review_response import (
+    evaluate_review_thread_resolution_plan,
     evaluate_review_response_materialization_plan,
     evaluate_review_response_plan,
     materialize_review_response_plan,
@@ -372,7 +373,345 @@ def review_response_materialization_inputs():
     return pr, threads, response_plan, plan, updated_body, comment_body
 
 
+def review_thread_resolution_inputs(tmp, evidence_tmp):
+    from codex_cadence.github_evidence import evaluate_post_write_pr_evidence_gate
+
+    init_pr_gate_repo(tmp)
+    pr, threads, _response_plan, _plan, _updated_body, comment_body = review_response_materialization_inputs()
+    response_materialization = review_response_materialization_result(
+        pr,
+        intended_side_effects=["post_review_comment"],
+        side_effects=["posted_review_comment"],
+        github_writes=[
+            {
+                "kind": "post_review_comment",
+                "pr_number": str(pr["number"]),
+                "thread_id": "thread-1",
+                "comment_ids": ["comment-1"],
+                "body_checksum": checksum_json(comment_body),
+                "github_comment_id": "reply-1",
+                "url": "https://github.example/local/test/pull/330#discussion_r1",
+            }
+        ],
+    )
+    sync_path, sync_packet = write_github_evidence_sync_files(
+        evidence_tmp,
+        pr,
+        threads,
+        captured_at="2026-06-11T18:10:00Z",
+    )
+    saved_pr = json.loads(Path(sync_packet["files"]["pr_json"]).read_text(encoding="utf-8"))
+    saved_threads = json.loads(Path(sync_packet["files"]["review_threads_json"]).read_text(encoding="utf-8"))
+    post_write_gate = evaluate_post_write_pr_evidence_gate(
+        cwd=Path(tmp),
+        materialization_result=response_materialization,
+        github_evidence_sync=sync_packet,
+        github_evidence_file=sync_path,
+        required_checks=["Python and protocol checks"],
+    )
+    return saved_pr, saved_threads, response_materialization, post_write_gate
+
+
 class PrReadinessTests(unittest.TestCase):
+    def test_review_thread_resolution_plan_binds_fresh_unresolved_thread_targets(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
+
+            packet = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=threads,
+                response_materialization=response_materialization,
+                post_write_gate=post_write_gate,
+                target_thread_ids=["thread-1", "thread-1"],
+                evidence_captured_at="2026-06-11T18:10:00Z",
+                now="2026-06-11T18:15:00Z",
+                max_evidence_age_minutes=30,
+            )
+
+        self.assertTrue(packet["valid"])
+        self.assertTrue(packet["plan_ready"])
+        self.assertEqual(packet["schema_version"], "review-thread-resolution-plan.v1")
+        self.assertEqual(packet["packet"], "review_thread_resolution_plan")
+        self.assertEqual(packet["recommended_next_action"], "approve_review_thread_resolution")
+        self.assertEqual(packet["approval_state"], "not_approved")
+        self.assertTrue(packet["operator_confirmation_required"])
+        self.assertFalse(packet["github_write_started"])
+        self.assertEqual(packet["side_effects"], [])
+        self.assertEqual(packet["target_checksum"], checksum_json(packet["target"]))
+        self.assertEqual(packet["target"]["response_materialization_checksum"], checksum_json(response_materialization))
+        self.assertEqual(packet["target"]["post_write_gate_checksum"], checksum_json(post_write_gate))
+        self.assertEqual(packet["target"]["review_threads_checksum"], checksum_json(threads))
+        self.assertEqual(packet["target"]["thread_ids"], ["thread-1"])
+        self.assertEqual(len(packet["resolution_plan"]), 1)
+        self.assertEqual(packet["resolution_plan"][0]["kind"], "resolve_review_thread")
+        self.assertEqual(packet["resolution_plan"][0]["thread_id"], "thread-1")
+        self.assertEqual(packet["resolution_plan"][0]["comment_ids"], ["comment-1"])
+        self.assertEqual(packet["command_trace"], [])
+        self.assertIn("does_not_call_github", packet["limitations"])
+
+    def test_review_thread_resolution_plan_blocks_ineligible_targets(self):
+        from codex_cadence.github_evidence import evaluate_post_write_pr_evidence_gate
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            init_pr_gate_repo(tmp)
+            pr = base_pr()
+            threads = review_threads_payload(
+                [
+                    {
+                        "id": "thread-responded",
+                        "path": "codex_cadence/cli.py",
+                        "line": 10,
+                        "isResolved": False,
+                        "isOutdated": False,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-responded",
+                                    "path": "codex_cadence/cli.py",
+                                    "line": 10,
+                                    "outdated": False,
+                                    "body": "Please address this current review finding.",
+                                }
+                            ],
+                        },
+                    },
+                    {
+                        "id": "thread-resolved",
+                        "path": "codex_cadence/cli.py",
+                        "line": 20,
+                        "isResolved": True,
+                        "isOutdated": False,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-resolved",
+                                    "path": "codex_cadence/cli.py",
+                                    "line": 20,
+                                    "outdated": False,
+                                    "body": "Resolved feedback should not be targeted.",
+                                }
+                            ],
+                        },
+                    },
+                    {
+                        "id": "thread-outdated",
+                        "path": "codex_cadence/cli.py",
+                        "line": 30,
+                        "isResolved": False,
+                        "isOutdated": True,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-outdated",
+                                    "path": "codex_cadence/cli.py",
+                                    "line": 30,
+                                    "outdated": False,
+                                    "body": "Outdated feedback should not be targeted.",
+                                }
+                            ],
+                        },
+                    },
+                    {
+                        "id": "thread-summary",
+                        "path": "codex_cadence/cli.py",
+                        "line": 40,
+                        "isResolved": False,
+                        "isOutdated": False,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-summary",
+                                    "path": "codex_cadence/cli.py",
+                                    "line": 40,
+                                    "outdated": False,
+                                    "body": "No actionable comments",
+                                }
+                            ],
+                        },
+                    },
+                    {
+                        "id": "thread-unresponded",
+                        "path": "codex_cadence/cli.py",
+                        "line": 50,
+                        "isResolved": False,
+                        "isOutdated": False,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-unresponded",
+                                    "path": "codex_cadence/cli.py",
+                                    "line": 50,
+                                    "outdated": False,
+                                    "body": "This needs a prior approved response before resolution.",
+                                }
+                            ],
+                        },
+                    },
+                ]
+            )
+            response_materialization = review_response_materialization_result(
+                pr,
+                intended_side_effects=["post_review_comment"],
+                side_effects=["posted_review_comment"],
+                github_writes=[
+                    {
+                        "kind": "post_review_comment",
+                        "pr_number": str(pr["number"]),
+                        "thread_id": "thread-responded",
+                        "comment_ids": ["comment-responded"],
+                        "body_checksum": checksum_json("responded"),
+                    }
+                ],
+            )
+            sync_path, sync_packet = write_github_evidence_sync_files(evidence_tmp, pr, threads)
+            saved_pr = json.loads(Path(sync_packet["files"]["pr_json"]).read_text(encoding="utf-8"))
+            saved_threads = json.loads(Path(sync_packet["files"]["review_threads_json"]).read_text(encoding="utf-8"))
+            post_write_gate = evaluate_post_write_pr_evidence_gate(
+                cwd=Path(tmp),
+                materialization_result=response_materialization,
+                github_evidence_sync=sync_packet,
+                github_evidence_file=sync_path,
+            )
+
+            packet = evaluate_review_thread_resolution_plan(
+                pr=saved_pr,
+                review_threads=saved_threads,
+                response_materialization=response_materialization,
+                post_write_gate=post_write_gate,
+                target_thread_ids=[
+                    "thread-resolved",
+                    "thread-outdated",
+                    "thread-summary",
+                    "thread-unresponded",
+                    "thread-missing",
+                ],
+            )
+
+        self.assertFalse(packet["valid"])
+        self.assertFalse(packet["plan_ready"])
+        self.assertFalse(packet["github_write_started"])
+        self.assertEqual(packet["side_effects"], [])
+        blocker_codes = {blocker["code"] for blocker in packet["blockers"]}
+        self.assertIn("review_thread_resolution_target_already_resolved", blocker_codes)
+        self.assertIn("review_thread_resolution_target_outdated", blocker_codes)
+        self.assertIn("review_thread_resolution_target_not_actionable", blocker_codes)
+        self.assertIn("review_thread_resolution_target_unresponded", blocker_codes)
+        self.assertIn("review_thread_resolution_target_missing", blocker_codes)
+
+    def test_review_thread_resolution_plan_blocks_stale_incomplete_mismatched_or_missing_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
+
+            stale_packet = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=threads,
+                response_materialization=response_materialization,
+                post_write_gate=post_write_gate,
+                target_thread_ids=["thread-1"],
+                evidence_captured_at="2026-06-11T18:10:00Z",
+                now="2026-06-11T19:00:00Z",
+                max_evidence_age_minutes=30,
+            )
+            incomplete_threads = json.loads(json.dumps(threads))
+            incomplete_threads["data"]["repository"]["pullRequest"]["reviewThreads"]["pageInfo"]["hasNextPage"] = True
+            incomplete_gate = json.loads(json.dumps(post_write_gate))
+            incomplete_gate["refresh"]["review_threads_checksum"] = checksum_json(incomplete_threads)
+            incomplete_packet = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=incomplete_threads,
+                response_materialization=response_materialization,
+                post_write_gate=incomplete_gate,
+                target_thread_ids=["thread-1"],
+            )
+            mismatched_gate = json.loads(json.dumps(post_write_gate))
+            mismatched_gate["refresh"]["head_sha"] = "def456"
+            mismatch_packet = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=threads,
+                response_materialization=response_materialization,
+                post_write_gate=mismatched_gate,
+                target_thread_ids=["thread-1"],
+            )
+            missing_materialization_packet = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=threads,
+                response_materialization=None,
+                post_write_gate=post_write_gate,
+                target_thread_ids=["thread-1"],
+            )
+
+        self.assertFalse(stale_packet["valid"])
+        self.assertEqual(stale_packet["recommended_next_action"], "refresh_pr_evidence")
+        self.assertIn("pr_evidence_stale", {blocker["code"] for blocker in stale_packet["blockers"]})
+        self.assertFalse(incomplete_packet["valid"])
+        self.assertEqual(incomplete_packet["recommended_next_action"], "refresh_pr_evidence")
+        self.assertIn("review_thread_evidence_invalid", {blocker["code"] for blocker in incomplete_packet["blockers"]})
+        self.assertFalse(mismatch_packet["valid"])
+        self.assertIn("post_write_gate_refresh_mismatch", {blocker["code"] for blocker in mismatch_packet["blockers"]})
+        self.assertFalse(missing_materialization_packet["valid"])
+        self.assertEqual(
+            missing_materialization_packet["recommended_next_action"],
+            "provide_review_response_materialization",
+        )
+        self.assertIn(
+            "review_response_materialization_missing",
+            {blocker["code"] for blocker in missing_materialization_packet["blockers"]},
+        )
+
+    def test_cli_review_thread_resolution_plan_reads_saved_files_without_side_effects(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
+            tmp_path = Path(tmp)
+            pr_path = tmp_path / "pr.json"
+            threads_path = tmp_path / "review-threads.json"
+            materialization_path = tmp_path / "review-response-materialization.json"
+            gate_path = tmp_path / "post-write-gate.json"
+            pr_path.write_text(json.dumps(pr), encoding="utf-8")
+            threads_path.write_text(json.dumps(threads), encoding="utf-8")
+            materialization_path.write_text(json.dumps(response_materialization), encoding="utf-8")
+            gate_path.write_text(json.dumps(post_write_gate), encoding="utf-8")
+            before = {
+                pr_path: pr_path.read_text(encoding="utf-8"),
+                threads_path: threads_path.read_text(encoding="utf-8"),
+                materialization_path: materialization_path.read_text(encoding="utf-8"),
+                gate_path: gate_path.read_text(encoding="utf-8"),
+            }
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "review-thread-resolution-plan",
+                    "--pr-json-file",
+                    str(pr_path),
+                    "--review-threads-file",
+                    str(threads_path),
+                    "--response-materialization-file",
+                    str(materialization_path),
+                    "--post-write-gate-file",
+                    str(gate_path),
+                    "--thread-id",
+                    "thread-1",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            packet = json.loads(result.stdout)
+            self.assertEqual(packet["schema_version"], "review-thread-resolution-plan.v1")
+            self.assertTrue(packet["plan_ready"])
+            self.assertFalse(packet["github_write_started"])
+            self.assertEqual(packet["target"]["thread_ids"], ["thread-1"])
+            self.assertEqual(packet["side_effects"], [])
+            self.assertEqual({path: path.read_text(encoding="utf-8") for path in before}, before)
+
     def test_post_write_gate_accepts_fresh_matching_review_response_evidence(self):
         from codex_cadence.github_evidence import evaluate_post_write_pr_evidence_gate
 

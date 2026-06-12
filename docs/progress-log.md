@@ -33,6 +33,47 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-12 - Add review-thread resolution planning
+
+Summary:
+- Added `review-thread-resolution-plan` as a read-only bridge from approved
+  review-response writes plus refreshed post-write evidence to exact future
+  review-thread resolution approval targets.
+- The packet binds explicit target thread ids to PR number, branch, base, head
+  SHA, refreshed review-thread evidence checksum, prior response materialization
+  checksum, and post-write gate checksum.
+- Planning blocks stale or mismatched evidence, incomplete pagination, already
+  resolved or outdated threads, non-actionable summary-only threads, missing
+  targets, and threads that were not part of approved response materialization.
+
+Completed slices:
+- Task 33: read-only review-thread resolution planning.
+
+Confidence change:
+- Previous: 25%
+- New: 25%
+- Reason: Cadence can now prepare exact review-thread resolution approval
+  targets after approved responses and fresh evidence, but that is still
+  read-only planning; Cadence still cannot resolve threads, merge, release,
+  publish packages, assign roles, or run continuously.
+
+Evidence:
+- `python -m unittest tests.test_pr_readiness.PrReadinessTests.test_review_thread_resolution_plan_binds_fresh_unresolved_thread_targets tests.test_pr_readiness.PrReadinessTests.test_review_thread_resolution_plan_blocks_ineligible_targets tests.test_pr_readiness.PrReadinessTests.test_review_thread_resolution_plan_blocks_stale_incomplete_mismatched_or_missing_evidence tests.test_pr_readiness.PrReadinessTests.test_cli_review_thread_resolution_plan_reads_saved_files_without_side_effects -v`
+- `python -m py_compile codex_cadence/review_response.py codex_cadence/github_evidence.py codex_cadence/cli.py`
+- `python -m unittest tests.test_pr_readiness tests.test_cadence -v`
+- `python scripts/validate_protocol.py`
+- `git diff --check`
+
+New risks or blockers:
+- Task 34 still needs the exact operator-approved write-side bridge before any
+  review thread can be resolved.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+
 ## 2026-06-12 - Prepare Tasks 33-37 roadmap after post-write gate
 
 Summary:

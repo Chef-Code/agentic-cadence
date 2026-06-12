@@ -35,8 +35,8 @@ execution-start epoch gating for approved generic executor task packets. It also
 local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for
 local generic executor task and result evidence, read-only
 `github-evidence-sync`, read-only `review-response-plan`, read-only
-`post-write-pr-evidence-gate`, read-only `role-readiness`,
-read-only `executor-invocation-readiness`, read-only `executor-invocation-plan`,
+`post-write-pr-evidence-gate`, read-only `review-thread-resolution-plan`,
+read-only `role-readiness`, read-only `executor-invocation-readiness`, read-only `executor-invocation-plan`,
 operator-approved `git-pr-dirty-commit-materialize`, operator-approved
 `git-pr-materialize`, operator-approved `review-response-materialize`,
 reusable `verify-operator-approval`,
@@ -912,6 +912,26 @@ result packet is `review-response-materialization.v1` and preserves command
 trace plus GitHub URLs/ids when `gh` returns them. It does not resolve review
 threads, claim reviews are resolved, invoke paid review, edit labels, merge,
 release, publish packages, assign roles, schedule agents, or continue a loop.
+
+`review-thread-resolution-plan` consumes saved PR JSON, saved review-thread
+JSON, a successful `review-response-materialization.v1` result, and the
+matching `post-write-pr-evidence-gate.v1` packet after fresh evidence has been
+captured:
+
+```bash
+agentic-cadence review-thread-resolution-plan --pr-json-file pr.json --review-threads-file review-threads.json --response-materialization-file review-response-materialization.json --post-write-gate-file post-write-gate.json --thread-id THREAD_ID
+```
+
+The command requires explicit `--thread-id` values and emits
+`review-thread-resolution-plan.v1` with `operator_confirmation_required: true`,
+`github_write_started: false`, and a `target_checksum` for later approval. It
+deduplicates duplicate target ids, binds each target to PR number, branch, base,
+head SHA, refreshed review-thread evidence checksum, response materialization
+checksum, and post-write gate checksum, and blocks stale or mismatched evidence,
+incomplete pagination, resolved or outdated threads, non-actionable summary
+threads, and threads that were not part of the approved response materialization.
+It does not call GitHub, resolve review threads, post comments, update PR
+bodies, merge, release, publish packages, spend paid review, or continue a loop.
 
 ## PR Body Preflight
 
