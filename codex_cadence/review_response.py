@@ -23,6 +23,8 @@ from codex_cadence.github_evidence import (
 )
 from codex_cadence.policy_audit import (
     append_audit_record,
+    review_thread_resolution_intent_audit_record,
+    review_thread_resolution_result_audit_record,
     review_response_materialization_intent_audit_record,
     review_response_materialization_result_audit_record,
 )
@@ -35,19 +37,36 @@ REVIEW_RESPONSE_MATERIALIZATION_TARGET_SCHEMA_VERSION = "review-response-materia
 REVIEW_RESPONSE_MATERIALIZATION_SCHEMA_VERSION = "review-response-materialization.v1"
 REVIEW_THREAD_RESOLUTION_PLAN_SCHEMA_VERSION = "review-thread-resolution-plan.v1"
 REVIEW_THREAD_RESOLUTION_TARGET_SCHEMA_VERSION = "review-thread-resolution-target.v1"
+REVIEW_THREAD_RESOLUTION_MATERIALIZATION_SCHEMA_VERSION = "review-thread-resolution-materialization.v1"
 REVIEW_RESPONSE_MATERIALIZATION_APPROVAL_PREFIX = "approve-review-response:"
 REVIEW_RESPONSE_MATERIALIZATION_APPROVAL_SECRET_ENV = "CADENCE_REVIEW_RESPONSE_MATERIALIZATION_APPROVAL_SECRET"
+REVIEW_THREAD_RESOLUTION_APPROVAL_PREFIX = "approve-review-thread-resolution:"
+REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV = "CADENCE_REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET"
 ALLOWED_REVIEW_RESPONSE_WRITE_KINDS = {"update_pr_body", "post_review_comment"}
 REVIEW_THREAD_REPLY_MUTATION = (
     "mutation($threadId:ID!,$body:String!){"
     "addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$threadId,body:$body}){"
     "comment{id url}}}"
 )
+REVIEW_THREAD_RESOLUTION_MUTATION = (
+    "mutation($threadId:ID!){"
+    "resolveReviewThread(input:{threadId:$threadId}){"
+    "thread{id isResolved}}}"
+)
 
 
 def _checksum_json(data: Any) -> str:
     payload = json.dumps(data, sort_keys=True, separators=(",", ":"))
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _sha256_checksum(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and len(value) == 71
+        and value.startswith("sha256:")
+        and all(char in "0123456789abcdef" for char in value.removeprefix("sha256:"))
+    )
 
 
 def _stable_id(prefix: str, payload: dict[str, Any]) -> str:
@@ -1519,6 +1538,49 @@ def review_response_materialization_approval_token(
     return REVIEW_RESPONSE_MATERIALIZATION_APPROVAL_PREFIX + "hmac-sha256:" + digest
 
 
+def review_thread_resolution_approval_payload(plan_packet: Any) -> dict[str, Any]:
+    target = plan_packet.get("target") if isinstance(plan_packet, dict) and isinstance(plan_packet.get("target"), dict) else {}
+    return {
+        "schema_version": "review-thread-resolution-approval.v1",
+        "packet": "review_thread_resolution_approval",
+        "plan_checksum": _checksum_json(plan_packet),
+        "target_checksum": plan_packet.get("target_checksum") if isinstance(plan_packet, dict) else None,
+        "pr_number": target.get("pr_number"),
+        "thread_ids": target.get("thread_ids") if isinstance(target.get("thread_ids"), list) else [],
+        "operation": "review_thread_resolution",
+    }
+
+
+def _review_thread_resolution_approval_secret(approval_secret: str | bytes | None = None) -> bytes | None:
+    secret = (
+        approval_secret
+        if approval_secret is not None
+        else os.environ.get(REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV)
+    )
+    if isinstance(secret, bytes):
+        return secret if secret else None
+    if isinstance(secret, str) and secret:
+        return secret.encode("utf-8")
+    return None
+
+
+def review_thread_resolution_approval_token(
+    plan_packet: Any,
+    *,
+    approval_secret: str | bytes | None = None,
+) -> str:
+    secret = _review_thread_resolution_approval_secret(approval_secret)
+    if secret is None:
+        raise ValueError(f"{REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV} is required for approval tokens")
+    payload = json.dumps(
+        review_thread_resolution_approval_payload(plan_packet),
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    digest = hmac.new(secret, payload, hashlib.sha256).hexdigest()
+    return REVIEW_THREAD_RESOLUTION_APPROVAL_PREFIX + "hmac-sha256:" + digest
+
+
 def _required_sections_from_materialization_plan(plan_packet: Any) -> list[str]:
     sections: list[str] = []
     if not isinstance(plan_packet, dict):
@@ -1848,6 +1910,354 @@ def _review_response_materialization_recheck(
             )
         )
     return blockers, warnings, current_writes, comment_targets, {key: value for key, value in evidence.items() if value is not None}
+
+
+def _review_thread_resolution_plan_structural_blockers(plan_packet: Any) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if not isinstance(plan_packet, dict):
+        return [_issue("review_thread_resolution_plan_invalid", "thread resolution plan must be a JSON object")]
+    if plan_packet.get("schema_version") != REVIEW_THREAD_RESOLUTION_PLAN_SCHEMA_VERSION:
+        blockers.append(
+            _issue(
+                "review_thread_resolution_plan_schema_invalid",
+                "thread resolution plan schema_version must be review-thread-resolution-plan.v1",
+            )
+        )
+    if plan_packet.get("packet") != "review_thread_resolution_plan":
+        blockers.append(
+            _issue(
+                "review_thread_resolution_plan_packet_invalid",
+                "thread resolution plan packet must be review_thread_resolution_plan",
+            )
+        )
+    if plan_packet.get("valid") is not True or plan_packet.get("plan_ready") is not True or plan_packet.get("decision") != "ready":
+        blockers.append(_issue("review_thread_resolution_plan_not_ready", "thread resolution plan must be valid and ready"))
+    if plan_packet.get("operator_confirmation_required") is not True:
+        blockers.append(
+            _issue(
+                "review_thread_resolution_plan_operator_confirmation_missing",
+                "thread resolution plan must require operator confirmation",
+            )
+        )
+    if plan_packet.get("approval_state") != "not_approved":
+        blockers.append(
+            _issue(
+                "review_thread_resolution_plan_approval_state_invalid",
+                "thread resolution plan must start as not_approved",
+            )
+        )
+    if plan_packet.get("execution_authority") != "none":
+        blockers.append(
+            _issue(
+                "review_thread_resolution_plan_execution_authority_invalid",
+                "thread resolution plan must not grant execution authority",
+            )
+        )
+    if plan_packet.get("github_write_started") is not False:
+        blockers.append(
+            _issue(
+                "review_thread_resolution_plan_github_write_started",
+                "thread resolution plan must not contain prior GitHub writes",
+            )
+        )
+    if plan_packet.get("side_effects") != []:
+        blockers.append(
+            _issue(
+                "review_thread_resolution_plan_side_effects_present",
+                "thread resolution plan must be side-effect free",
+            )
+        )
+
+    target = plan_packet.get("target") if isinstance(plan_packet.get("target"), dict) else None
+    if target is None:
+        blockers.append(_issue("review_thread_resolution_target_missing", "thread resolution plan target is required"))
+    else:
+        if target.get("schema_version") != REVIEW_THREAD_RESOLUTION_TARGET_SCHEMA_VERSION:
+            blockers.append(
+                _issue(
+                    "review_thread_resolution_target_schema_invalid",
+                    "thread resolution target schema_version must be review-thread-resolution-target.v1",
+                )
+            )
+        if target.get("operation") != "review_thread_resolution":
+            blockers.append(
+                _issue(
+                    "review_thread_resolution_target_operation_invalid",
+                    "thread resolution target operation must be review_thread_resolution",
+                )
+            )
+        if plan_packet.get("target_checksum") != _checksum_json(target):
+            blockers.append(
+                _issue(
+                    "review_thread_resolution_target_checksum_mismatch",
+                    "thread resolution target checksum does not match target payload",
+                )
+            )
+        if not isinstance(target.get("thread_ids"), list) or not target.get("thread_ids"):
+            blockers.append(
+                _issue(
+                    "review_thread_resolution_targets_missing",
+                    "thread resolution target must include at least one approved thread id",
+                )
+            )
+        for field in (
+            "review_threads_checksum",
+            "response_materialization_checksum",
+            "response_materialization_plan_checksum",
+            "response_materialization_target_checksum",
+            "post_write_gate_checksum",
+        ):
+            if not _sha256_checksum(target.get(field)):
+                blockers.append(
+                    _issue(
+                        "review_thread_resolution_target_checksum_invalid",
+                        "thread resolution target checksum fields must be sha256 checksums",
+                        field=field,
+                    )
+                )
+
+    resolution_plan = plan_packet.get("resolution_plan")
+    if not isinstance(resolution_plan, list) or not resolution_plan:
+        blockers.append(_issue("review_thread_resolution_plan_missing", "thread resolution plan requires resolution_plan actions"))
+    else:
+        for index, action in enumerate(resolution_plan, start=1):
+            if not isinstance(action, dict):
+                blockers.append(_issue("review_thread_resolution_action_invalid", "resolution action must be a JSON object", index=index))
+                continue
+            if action.get("kind") != "resolve_review_thread":
+                blockers.append(
+                    _issue(
+                        "review_thread_resolution_action_kind_invalid",
+                        "resolution action kind must be resolve_review_thread",
+                        index=index,
+                        kind=action.get("kind"),
+                    )
+                )
+            if not _non_empty_string(action.get("thread_id")):
+                blockers.append(_issue("review_thread_resolution_action_thread_id_missing", "resolution action thread_id is required", index=index))
+            if not isinstance(action.get("comment_ids"), list) or not action.get("comment_ids"):
+                blockers.append(
+                    _issue(
+                        "review_thread_resolution_action_comment_ids_missing",
+                        "resolution action comment_ids are required",
+                        index=index,
+                    )
+                )
+            for field in ("review_threads_checksum", "response_materialization_checksum"):
+                if not _sha256_checksum(action.get(field)):
+                    blockers.append(
+                        _issue(
+                            "review_thread_resolution_action_checksum_invalid",
+                            "resolution action checksum fields must be sha256 checksums",
+                            index=index,
+                            field=field,
+                        )
+                    )
+        if target is not None:
+            target_actions = target.get("actions") if isinstance(target.get("actions"), list) else []
+            resolution_target_actions = [
+                {
+                    "kind": action.get("kind"),
+                    "thread_id": action.get("thread_id"),
+                    "comment_ids": action.get("comment_ids"),
+                    "pr_number": action.get("pr_number"),
+                    "head_ref": action.get("head_ref"),
+                    "base_ref": action.get("base_ref"),
+                    "head_sha": action.get("head_sha"),
+                    "review_threads_checksum": action.get("review_threads_checksum"),
+                    "response_materialization_checksum": action.get("response_materialization_checksum"),
+                }
+                for action in resolution_plan
+                if isinstance(action, dict)
+            ]
+            if target_actions != resolution_target_actions:
+                blockers.append(
+                    _issue(
+                        "review_thread_resolution_plan_target_mismatch",
+                        "thread resolution plan actions must match the approved target actions",
+                    )
+                )
+    return blockers
+
+
+def _review_thread_resolution_recheck(
+    *,
+    plan_packet: dict[str, Any],
+    pr: dict[str, Any],
+    review_threads: Any,
+    response_materialization: Any,
+    pr_evidence_captured_at: datetime | str | None,
+    max_pr_evidence_age_minutes: int | None,
+    now: datetime | str | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    target = plan_packet.get("target") if isinstance(plan_packet.get("target"), dict) else {}
+    evidence, freshness_blockers = _evidence_summary(
+        pr=pr,
+        review_threads=review_threads,
+        candidate_discovery=None,
+        evidence_captured_at=pr_evidence_captured_at,
+        max_evidence_age_minutes=max_pr_evidence_age_minutes,
+        now=now,
+    )
+    blockers.extend(freshness_blockers)
+
+    anchors = _pr_resolution_anchors(pr)
+    (
+        response_summary,
+        approved_thread_ids,
+        approved_comment_ids_by_thread,
+        materialization_blockers,
+    ) = _review_response_materialization_resolution_summary(response_materialization)
+    blockers.extend(materialization_blockers)
+    current_response_materialization_checksum = (
+        _checksum_json(response_materialization) if isinstance(response_materialization, dict) else None
+    )
+    if current_response_materialization_checksum is not None:
+        evidence["response_materialization_checksum"] = current_response_materialization_checksum
+    planned_response_materialization_checksum = target.get("response_materialization_checksum")
+    if not _sha256_checksum(planned_response_materialization_checksum):
+        blockers.append(
+            _issue(
+                "review_thread_resolution_response_materialization_checksum_invalid",
+                "thread resolution target must bind a valid prior response materialization checksum",
+                field="response_materialization_checksum",
+            )
+        )
+    elif current_response_materialization_checksum != planned_response_materialization_checksum:
+        blockers.append(
+            _issue(
+                "review_thread_resolution_response_materialization_checksum_mismatch",
+                "current response materialization no longer matches the approved thread resolution target",
+                expected=planned_response_materialization_checksum,
+                actual=current_response_materialization_checksum,
+            )
+        )
+
+    for field, current in anchors.items():
+        planned = target.get(field)
+        if not _anchor_present(planned) or not _anchor_present(current):
+            blockers.append(
+                _issue(
+                    "review_thread_resolution_pr_target_anchor_missing",
+                    "approved thread resolution requires PR number, branch, base, and head anchors",
+                    field=field,
+                    expected=planned,
+                    actual=current,
+                )
+            )
+            continue
+        if str(planned) != str(current):
+            blockers.append(
+                _issue(
+                    "review_thread_resolution_pr_target_mismatch",
+                    "current PR target no longer matches the thread resolution target",
+                    field=field,
+                    expected=planned,
+                    actual=current,
+                )
+            )
+        expected_response_anchor = response_summary.get(field)
+        if _anchor_present(expected_response_anchor) and _anchor_present(current) and str(expected_response_anchor) != str(current):
+            blockers.append(
+                _issue(
+                    "review_thread_resolution_pr_target_mismatch",
+                    "current PR target no longer matches the response materialization target",
+                    field=field,
+                    expected=expected_response_anchor,
+                    actual=current,
+                )
+            )
+    blockers.extend(_review_thread_parent_pr_blockers(review_threads, anchors))
+
+    planned_evidence = plan_packet.get("evidence") if isinstance(plan_packet.get("evidence"), dict) else {}
+    current_pr_checksum = _checksum_json(pr)
+    current_review_threads_checksum = _checksum_json(review_threads)
+    if planned_evidence.get("pr_json_checksum") != current_pr_checksum:
+        blockers.append(
+            _issue(
+                "review_thread_resolution_plan_pr_checksum_mismatch",
+                "saved PR evidence no longer matches the approved thread resolution plan",
+                field="pr_json_checksum",
+                expected=planned_evidence.get("pr_json_checksum"),
+                actual=current_pr_checksum,
+            )
+        )
+    planned_review_threads_checksum = target.get("review_threads_checksum") or planned_evidence.get("review_threads_checksum")
+    if planned_review_threads_checksum != current_review_threads_checksum:
+        blockers.append(
+            _issue(
+                "review_thread_resolution_plan_review_threads_checksum_mismatch",
+                "saved review-thread evidence no longer matches the approved thread resolution plan",
+                field="review_threads_checksum",
+                expected=planned_review_threads_checksum,
+                actual=current_review_threads_checksum,
+            )
+        )
+
+    target_thread_ids = target.get("thread_ids") if isinstance(target.get("thread_ids"), list) else []
+    normalized_thread_ids = [str(thread_id) for thread_id in target_thread_ids if _non_empty_string(thread_id)]
+    actions, action_blockers = _review_thread_resolution_actions(
+        review_threads=review_threads,
+        target_thread_ids=normalized_thread_ids,
+        approved_thread_ids=approved_thread_ids,
+        approved_comment_ids_by_thread=approved_comment_ids_by_thread,
+        anchors=anchors,
+        review_threads_checksum=current_review_threads_checksum,
+        response_materialization_checksum=current_response_materialization_checksum or "",
+    )
+    blockers.extend(action_blockers)
+
+    current_target_actions = [
+        {
+            "kind": action["kind"],
+            "thread_id": action["thread_id"],
+            "comment_ids": action["comment_ids"],
+            "pr_number": action["pr_number"],
+            "head_ref": action["head_ref"],
+            "base_ref": action["base_ref"],
+            "head_sha": action["head_sha"],
+            "review_threads_checksum": action["review_threads_checksum"],
+            "response_materialization_checksum": action["response_materialization_checksum"],
+        }
+        for action in actions
+    ]
+    current_target = {
+        "schema_version": REVIEW_THREAD_RESOLUTION_TARGET_SCHEMA_VERSION,
+        "packet": "review_thread_resolution_target",
+        "operation": "review_thread_resolution",
+        "pr_number": anchors["pr_number"],
+        "head_ref": anchors["head_ref"],
+        "base_ref": anchors["base_ref"],
+        "head_sha": anchors["head_sha"],
+        "review_threads_checksum": current_review_threads_checksum,
+        "response_materialization_checksum": current_response_materialization_checksum,
+        "response_materialization_plan_checksum": target.get("response_materialization_plan_checksum"),
+        "response_materialization_target_checksum": target.get("response_materialization_target_checksum"),
+        "post_write_gate_checksum": target.get("post_write_gate_checksum"),
+        "thread_ids": [action["thread_id"] for action in actions],
+        "actions": current_target_actions,
+    }
+    if target != current_target:
+        blockers.append(
+            _issue(
+                "review_thread_resolution_target_checksum_mismatch",
+                "current thread resolution target no longer matches the approved target",
+                expected=plan_packet.get("target_checksum"),
+                actual=_checksum_json(current_target),
+            )
+        )
+    elif plan_packet.get("target_checksum") != _checksum_json(current_target):
+        blockers.append(
+            _issue(
+                "review_thread_resolution_target_checksum_mismatch",
+                "approved thread resolution target checksum does not match the current target payload",
+                expected=plan_packet.get("target_checksum"),
+                actual=_checksum_json(current_target),
+            )
+        )
+    return blockers, warnings, actions, {key: value for key, value in evidence.items() if value is not None}
 
 
 def _review_response_materialization_recommendation(
@@ -2356,6 +2766,476 @@ def materialize_review_response_plan(
         plan_file=plan_path,
         plan_checksum=plan_checksum,
         target_checksum=target_checksum if isinstance(target_checksum, str) else None,
+        pr=pr,
+        evidence=evidence,
+        intended_side_effects=intended_side_effects,
+        side_effects=side_effects,
+        command_trace=command_trace,
+        github_writes=github_writes,
+        blockers=[result_audit_blocker],
+        warnings=warnings,
+    )
+
+
+def _review_thread_resolution_materialization_recommendation(
+    blockers: list[dict[str, Any]],
+    *,
+    github_write_started: bool,
+) -> str:
+    codes = {blocker.get("code") for blocker in blockers}
+    if not blockers:
+        return "inspect_pull_request"
+    if "audit_write_failed" in codes:
+        return "repair_audit_materialization"
+    if codes & {"operator_approval_missing", "operator_approval_mismatch", "operator_approval_secret_missing"}:
+        return "provide_operator_approval"
+    if codes & {"pr_evidence_stale", "pr_evidence_from_future", "review_thread_evidence_invalid"}:
+        return "refresh_pr_evidence"
+    if github_write_started:
+        return "inspect_review_thread_resolution_materialization"
+    if codes & {
+        "review_thread_resolution_pr_target_mismatch",
+        "review_thread_resolution_plan_pr_checksum_mismatch",
+        "review_thread_resolution_plan_review_threads_checksum_mismatch",
+        "review_thread_resolution_target_checksum_mismatch",
+        "review_thread_resolution_target_already_resolved",
+        "review_thread_resolution_target_outdated",
+        "review_thread_resolution_target_not_actionable",
+        "review_thread_resolution_target_comment_unresponded",
+    }:
+        return "refresh_review_thread_resolution_plan"
+    return "address_blockers"
+
+
+def _review_thread_resolution_materialization_packet(
+    *,
+    valid: bool,
+    decision: str,
+    approval_state: str,
+    plan_file: Path,
+    plan_checksum: str | None,
+    target_checksum: str | None,
+    approval_target: dict[str, Any],
+    pr: dict[str, Any],
+    evidence: dict[str, Any] | None,
+    intended_side_effects: list[str],
+    side_effects: list[str],
+    command_trace: list[dict[str, Any]],
+    github_writes: list[dict[str, Any]],
+    blockers: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    github_write_started = bool(github_writes)
+    packet = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": REVIEW_THREAD_RESOLUTION_MATERIALIZATION_SCHEMA_VERSION,
+        "packet": "review_thread_resolution_materialization",
+        "generated_at": utc_now(),
+        "valid": valid,
+        "decision": decision,
+        "recommended_next_action": _review_thread_resolution_materialization_recommendation(
+            blockers,
+            github_write_started=github_write_started,
+        ),
+        "dry_run": False,
+        "operator_confirmation_required": True,
+        "approval_state": approval_state,
+        "execution_authority": (
+            "operator_approved_review_thread_resolution" if approval_state == "approved" else "none"
+        ),
+        "github_write_started": github_write_started,
+        "review_resolution": "resolved" if valid else "partial" if github_write_started else "not_resolved",
+        "resolution_status": "completed" if valid else "partial" if github_write_started else "blocked",
+        "merge_readiness": "not_evaluated",
+        "plan_file": str(plan_file),
+        "plan_checksum": plan_checksum,
+        "target_checksum": target_checksum,
+        "approval_target": approval_target,
+        "pr": {
+            "number": str(pr.get("number")) if pr.get("number") is not None else None,
+            "head_ref": pr.get("headRefName"),
+            "base_ref": pr.get("baseRefName"),
+            "head_sha": pr.get("headRefOid"),
+            "url": pr.get("url"),
+        },
+        "evidence": evidence or {},
+        "intended_side_effects": intended_side_effects,
+        "side_effects": side_effects,
+        "command_trace": command_trace,
+        "github_writes": github_writes,
+        "blockers": blockers,
+        "warnings": warnings,
+        "limitations": [
+            "operator_approved_review_thread_resolution_only",
+            "does_not_post_comments",
+            "does_not_update_pr_body",
+            "does_not_edit_labels",
+            "does_not_invoke_review_agents_or_paid_review",
+            "does_not_merge",
+            "does_not_release",
+            "does_not_publish_packages",
+            "does_not_assign_roles",
+            "does_not_schedule_agents",
+            "does_not_continue_loop",
+        ],
+    }
+    return packet
+
+
+def _append_review_thread_resolution_audit(root: Path, record: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    try:
+        return append_audit_record(root, record), None
+    except OSError as exc:
+        return None, _issue("audit_write_failed", f"could not write review thread resolution audit record: {exc}")
+
+
+def _parse_review_thread_resolution_response(result: subprocess.CompletedProcess[str]) -> tuple[str | None, bool | None]:
+    try:
+        payload = json.loads(result.stdout) if result.stdout.strip() else {}
+    except json.JSONDecodeError:
+        return None, None
+    if not isinstance(payload, dict):
+        return None, None
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    resolution = data.get("resolveReviewThread") if isinstance(data.get("resolveReviewThread"), dict) else {}
+    thread = resolution.get("thread") if isinstance(resolution.get("thread"), dict) else {}
+    thread_id = thread.get("id") if isinstance(thread.get("id"), str) else None
+    is_resolved = thread.get("isResolved") if isinstance(thread.get("isResolved"), bool) else None
+    return thread_id, is_resolved
+
+
+def _failed_review_thread_resolution_materialization(
+    *,
+    runtime_path: Path,
+    approval_state: str,
+    plan_path: Path,
+    plan_checksum: str | None,
+    target_checksum: str | None,
+    approval_target: dict[str, Any],
+    pr: dict[str, Any],
+    evidence: dict[str, Any],
+    intended_side_effects: list[str],
+    side_effects: list[str],
+    command_trace: list[dict[str, Any]],
+    github_writes: list[dict[str, Any]],
+    blockers: list[dict[str, Any]],
+    warnings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    failed_packet = _review_thread_resolution_materialization_packet(
+        valid=False,
+        decision="blocked",
+        approval_state=approval_state,
+        plan_file=plan_path,
+        plan_checksum=plan_checksum,
+        target_checksum=target_checksum,
+        approval_target=approval_target,
+        pr=pr,
+        evidence=evidence,
+        intended_side_effects=intended_side_effects,
+        side_effects=[*side_effects, "audit_result_record_appended"],
+        command_trace=command_trace,
+        github_writes=github_writes,
+        blockers=blockers,
+        warnings=warnings,
+    )
+    _record, audit_blocker = _append_review_thread_resolution_audit(
+        runtime_path,
+        review_thread_resolution_result_audit_record(failed_packet),
+    )
+    if audit_blocker is None:
+        return failed_packet
+    return _review_thread_resolution_materialization_packet(
+        valid=False,
+        decision="blocked",
+        approval_state=approval_state,
+        plan_file=plan_path,
+        plan_checksum=plan_checksum,
+        target_checksum=target_checksum,
+        approval_target=approval_target,
+        pr=pr,
+        evidence=evidence,
+        intended_side_effects=intended_side_effects,
+        side_effects=side_effects,
+        command_trace=command_trace,
+        github_writes=github_writes,
+        blockers=[*blockers, audit_blocker],
+        warnings=warnings,
+    )
+
+
+def materialize_review_thread_resolution_plan(
+    *,
+    cwd: str | Path,
+    plan_packet: Any,
+    plan_file: str | Path,
+    approval_token: str | None,
+    runtime_root: str | Path,
+    pr: dict[str, Any],
+    review_threads: Any,
+    response_materialization: Any,
+    pr_evidence_captured_at: datetime | str | None = None,
+    max_pr_evidence_age_minutes: int | None = None,
+    now: datetime | str | None = None,
+) -> dict[str, Any]:
+    repo_cwd = Path(cwd).expanduser().resolve(strict=False)
+    plan_path = Path(plan_file).expanduser().resolve(strict=False)
+    runtime_path = Path(runtime_root).expanduser().resolve()
+    plan_checksum = _checksum_json(plan_packet)
+    target_checksum = plan_packet.get("target_checksum") if isinstance(plan_packet, dict) else None
+    target = plan_packet.get("target") if isinstance(plan_packet, dict) and isinstance(plan_packet.get("target"), dict) else {}
+    approval_target = review_thread_resolution_approval_payload(plan_packet)
+    blockers: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    command_trace: list[dict[str, Any]] = []
+    side_effects: list[str] = []
+    github_writes: list[dict[str, Any]] = []
+    current_actions: list[dict[str, Any]] = []
+    evidence: dict[str, Any] = {}
+    intended_side_effects: list[str] = []
+    if isinstance(plan_packet, dict):
+        intended_side_effects = [
+            "resolve_review_thread"
+            for action in plan_packet.get("resolution_plan", [])
+            if isinstance(action, dict) and action.get("kind") == "resolve_review_thread"
+        ]
+
+    blockers.extend(_review_thread_resolution_plan_structural_blockers(plan_packet))
+
+    approval_secret = _review_thread_resolution_approval_secret()
+    expected_token = (
+        review_thread_resolution_approval_token(plan_packet, approval_secret=approval_secret)
+        if approval_secret is not None
+        else None
+    )
+    if not approval_token:
+        approval_state = "not_approved"
+        blockers.append(
+            _issue(
+                "operator_approval_missing",
+                "operator approval token is required before review thread resolution",
+            )
+        )
+    elif approval_secret is None:
+        approval_state = "approval_unresolved"
+        blockers.append(
+            _issue(
+                "operator_approval_secret_missing",
+                f"{REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV} is required to verify operator approval",
+            )
+        )
+    elif expected_token is None or not hmac.compare_digest(approval_token, expected_token):
+        approval_state = "approval_mismatch"
+        blockers.append(
+            _issue(
+                "operator_approval_mismatch",
+                "operator approval token does not match the approved review thread resolution plan",
+            )
+        )
+    else:
+        approval_state = "approved"
+
+    if isinstance(plan_packet, dict):
+        recheck_blockers, recheck_warnings, current_actions, evidence = _review_thread_resolution_recheck(
+            plan_packet=plan_packet,
+            pr=pr,
+            review_threads=review_threads,
+            response_materialization=response_materialization,
+            pr_evidence_captured_at=pr_evidence_captured_at,
+            max_pr_evidence_age_minutes=max_pr_evidence_age_minutes,
+            now=now,
+        )
+        blockers.extend(recheck_blockers)
+        warnings.extend(recheck_warnings)
+
+    if blockers:
+        return _review_thread_resolution_materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            target_checksum=target_checksum if isinstance(target_checksum, str) else None,
+            approval_target=approval_target,
+            pr=pr,
+            evidence=evidence,
+            intended_side_effects=intended_side_effects,
+            side_effects=side_effects,
+            command_trace=command_trace,
+            github_writes=github_writes,
+            blockers=blockers,
+            warnings=warnings,
+        )
+
+    intent_packet = _review_thread_resolution_materialization_packet(
+        valid=True,
+        decision="approved",
+        approval_state=approval_state,
+        plan_file=plan_path,
+        plan_checksum=plan_checksum,
+        target_checksum=target_checksum if isinstance(target_checksum, str) else None,
+        approval_target=approval_target,
+        pr=pr,
+        evidence=evidence,
+        intended_side_effects=intended_side_effects,
+        side_effects=[],
+        command_trace=[],
+        github_writes=[],
+        blockers=[],
+        warnings=warnings,
+    )
+    _record, audit_blocker = _append_review_thread_resolution_audit(
+        runtime_path,
+        review_thread_resolution_intent_audit_record(intent_packet),
+    )
+    if audit_blocker is not None:
+        return _review_thread_resolution_materialization_packet(
+            valid=False,
+            decision="blocked",
+            approval_state=approval_state,
+            plan_file=plan_path,
+            plan_checksum=plan_checksum,
+            target_checksum=target_checksum if isinstance(target_checksum, str) else None,
+            approval_target=approval_target,
+            pr=pr,
+            evidence=evidence,
+            intended_side_effects=intended_side_effects,
+            side_effects=[],
+            command_trace=[],
+            github_writes=[],
+            blockers=[audit_blocker],
+            warnings=warnings,
+        )
+    side_effects.append("audit_intent_record_appended")
+
+    pr_number = str(target.get("pr_number") or pr.get("number"))
+    for action in current_actions:
+        thread_id = action["thread_id"]
+        argv = [
+            "gh",
+            "api",
+            "graphql",
+            "-f",
+            f"query={REVIEW_THREAD_RESOLUTION_MUTATION}",
+            "-F",
+            f"threadId={thread_id}",
+        ]
+        result = _run_process(repo_cwd, argv)
+        command_trace.append(_materialization_command_trace(label="resolve_review_thread", argv=argv, result=result))
+        if result.returncode != 0:
+            github_writes.append(
+                {
+                    "kind": "resolve_review_thread",
+                    "pr_number": pr_number,
+                    "thread_id": thread_id,
+                    "comment_ids": action.get("comment_ids", []),
+                    "status": "command_failed",
+                    "returncode": result.returncode,
+                }
+            )
+            blockers.append(
+                _issue(
+                    "review_thread_resolution_command_failed",
+                    "resolve_review_thread failed during approved review thread resolution",
+                    command_label="resolve_review_thread",
+                    thread_id=thread_id,
+                    returncode=result.returncode,
+                    stderr=result.stderr.strip(),
+                )
+            )
+            return _failed_review_thread_resolution_materialization(
+                runtime_path=runtime_path,
+                approval_state=approval_state,
+                plan_path=plan_path,
+                plan_checksum=plan_checksum,
+                target_checksum=target_checksum if isinstance(target_checksum, str) else None,
+                approval_target=approval_target,
+                pr=pr,
+                evidence=evidence,
+                intended_side_effects=intended_side_effects,
+                side_effects=side_effects,
+                command_trace=command_trace,
+                github_writes=github_writes,
+                blockers=blockers,
+                warnings=warnings,
+            )
+        resolved_thread_id, is_resolved = _parse_review_thread_resolution_response(result)
+        write_record = {
+            "kind": "resolve_review_thread",
+            "pr_number": pr_number,
+            "thread_id": thread_id,
+            "comment_ids": action.get("comment_ids", []),
+            "github_thread_id": resolved_thread_id,
+            "is_resolved": is_resolved,
+            "status": "resolved" if resolved_thread_id == thread_id and is_resolved is True else "unconfirmed",
+        }
+        github_writes.append({key: value for key, value in write_record.items() if value is not None})
+        if resolved_thread_id is not None and resolved_thread_id != thread_id:
+            blockers.append(
+                _issue(
+                    "review_thread_resolution_response_mismatch",
+                    "resolveReviewThread returned a different thread id than the approved target",
+                    expected=thread_id,
+                    actual=resolved_thread_id,
+                )
+            )
+        if is_resolved is not True:
+            blockers.append(
+                _issue(
+                    "review_thread_resolution_unconfirmed",
+                    "resolveReviewThread response did not confirm the target thread is resolved",
+                    thread_id=thread_id,
+                )
+            )
+        if blockers:
+            return _failed_review_thread_resolution_materialization(
+                runtime_path=runtime_path,
+                approval_state=approval_state,
+                plan_path=plan_path,
+                plan_checksum=plan_checksum,
+                target_checksum=target_checksum if isinstance(target_checksum, str) else None,
+                approval_target=approval_target,
+                pr=pr,
+                evidence=evidence,
+                intended_side_effects=intended_side_effects,
+                side_effects=side_effects,
+                command_trace=command_trace,
+                github_writes=github_writes,
+                blockers=blockers,
+                warnings=warnings,
+            )
+        side_effects.append("resolved_review_thread")
+
+    success_packet = _review_thread_resolution_materialization_packet(
+        valid=True,
+        decision="materialized",
+        approval_state=approval_state,
+        plan_file=plan_path,
+        plan_checksum=plan_checksum,
+        target_checksum=target_checksum if isinstance(target_checksum, str) else None,
+        approval_target=approval_target,
+        pr=pr,
+        evidence=evidence,
+        intended_side_effects=intended_side_effects,
+        side_effects=[*side_effects, "audit_result_record_appended"],
+        command_trace=command_trace,
+        github_writes=github_writes,
+        blockers=[],
+        warnings=warnings,
+    )
+    _record, result_audit_blocker = _append_review_thread_resolution_audit(
+        runtime_path,
+        review_thread_resolution_result_audit_record(success_packet),
+    )
+    if result_audit_blocker is None:
+        return success_packet
+    return _review_thread_resolution_materialization_packet(
+        valid=False,
+        decision="blocked",
+        approval_state=approval_state,
+        plan_file=plan_path,
+        plan_checksum=plan_checksum,
+        target_checksum=target_checksum if isinstance(target_checksum, str) else None,
+        approval_target=approval_target,
         pr=pr,
         evidence=evidence,
         intended_side_effects=intended_side_effects,

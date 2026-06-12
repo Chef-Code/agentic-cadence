@@ -942,8 +942,10 @@ Supported events are `loop_tick_decision`, `executor_fixture_invocation`,
 `git_pr_dirty_commit_materialization_intent`,
 `git_pr_dirty_commit_materialization_result`,
 `review_response_materialization_intent`,
-`review_response_materialization_result`, `operator_approval_verification`,
-`controlled_loop_tick`, and `work_ownership_mutation`. It does not
+`review_response_materialization_result`,
+`review_thread_resolution_intent`, `review_thread_resolution_result`,
+`operator_approval_verification`, `controlled_loop_tick`, and
+`work_ownership_mutation`. It does not
 recompute `payload_checksum`,
 `run_record_checksum`,
 `task_packet_checksum`, `result_evidence_checksum`,
@@ -1579,6 +1581,35 @@ materialization must emit stable blockers. The command must not call GitHub,
 resolve review threads, post comments, update PR bodies, create branches,
 commit, push, merge, release, publish packages, spend paid review, assign
 roles, schedule agents, or continue a loop automatically.
+
+`review-thread-resolution-materialize` is the explicit write-side boundary for
+a reviewed `review-thread-resolution-plan.v1` packet. It must consume the saved
+plan, saved PR JSON, saved review-thread JSON, the prior successful
+`review-response-materialization.v1` result, and an exact HMAC approval token
+for the plan checksum, target checksum, PR number, and target thread ids using
+`CADENCE_REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET`. Missing, mismatched, or
+unverifiable approval must block before audit or GitHub writes. Immediately
+before any `gh` side effect it must recheck saved PR freshness, PR number, head
+branch, base branch, head SHA, review-thread completeness, target thread ids,
+unresolved state, target checksum, saved PR/review-thread checksums, and the
+actual checksum of the supplied prior response materialization packet. It must
+execute only approved
+`resolve_review_thread` actions through the narrow `resolveReviewThread`
+GitHub mutation.
+
+When valid, the command must emit
+`review-thread-resolution-materialization.v1` with `approval_state: approved`,
+`execution_authority: operator_approved_review_thread_resolution`,
+`github_write_started`, `command_trace`, GitHub thread ids, resolution status,
+blockers, approval target evidence, and `github_writes`. It must append
+`review_thread_resolution_intent` before the first GitHub write and append
+`review_thread_resolution_result` after success or after a started-write
+failure. Audit append failure before the intent record must block before GitHub
+writes and recommend audit repair. Failed `gh` commands must emit stable
+blockers and recovery evidence without claiming merge readiness. The command
+must not post comments, update PR bodies, invoke paid review, edit labels,
+merge, release, publish packages, assign roles, schedule agents, or continue a
+loop automatically.
 
 PR body preflight covers the pre-publish side of the same template contract. `pr-body-preflight --body-file <path> --pr-template-file <path>` must read a draft PR body and a local Markdown pull request template, derive required template sections from template headings, and report missing template sections before PR creation or update. It must reuse the same heading parser as PR readiness, match draft body headings by normalized section label, ignore headings inside HTML comments or fenced code blocks without creating false setext headings across skipped blocks, stay repo-agnostic, and must not hard-code target-specific labels, call GitHub, rewrite the body file, create a PR, update a PR, spend paid review, or merge the PR. If no template file or `--required-body-section` is supplied, it must fail closed and recommend `provide_template_or_sections`.
 

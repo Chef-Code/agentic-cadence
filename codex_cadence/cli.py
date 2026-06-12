@@ -114,6 +114,7 @@ from codex_cadence.review_response import (
     evaluate_review_thread_resolution_plan,
     evaluate_review_response_materialization_plan,
     evaluate_review_response_plan,
+    materialize_review_thread_resolution_plan,
     materialize_review_response_plan,
 )
 from codex_cadence.roles import evaluate_role_readiness
@@ -4790,6 +4791,30 @@ def review_thread_resolution_plan_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 1
 
 
+def review_thread_resolution_materialize_command(args: argparse.Namespace) -> int:
+    plan_file = Path(args.plan_file)
+    pr_json_file = Path(args.pr_json_file)
+    plan_packet = read_json(plan_file)
+    pr = load_pr_json(pr_json_file)
+    review_threads = read_json(Path(args.review_threads_file))
+    response_materialization = read_json(Path(args.response_materialization_file))
+    evidence_captured_at = datetime.fromtimestamp(pr_json_file.stat().st_mtime, timezone.utc)
+    payload = materialize_review_thread_resolution_plan(
+        cwd=Path(args.cwd),
+        plan_packet=plan_packet,
+        plan_file=plan_file,
+        approval_token=args.approval_token,
+        runtime_root=args.root,
+        pr=pr,
+        review_threads=review_threads,
+        response_materialization=response_materialization,
+        pr_evidence_captured_at=evidence_captured_at,
+        max_pr_evidence_age_minutes=args.max_pr_json_age_minutes,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def role_readiness_command(args: argparse.Namespace) -> int:
     payload = evaluate_role_readiness(
         root=args.root,
@@ -5498,6 +5523,22 @@ def build_parser() -> argparse.ArgumentParser:
     review_thread_resolution_parser.set_defaults(
         func=review_thread_resolution_plan_command,
         requires_root=False,
+    )
+
+    review_thread_resolution_materialize_parser = subparsers.add_parser(
+        "review-thread-resolution-materialize",
+        help="Resolve approved review threads after exact target and freshness rechecks",
+    )
+    review_thread_resolution_materialize_parser.add_argument("--cwd", default=".")
+    review_thread_resolution_materialize_parser.add_argument("--plan-file", required=True)
+    review_thread_resolution_materialize_parser.add_argument("--pr-json-file", required=True)
+    review_thread_resolution_materialize_parser.add_argument("--review-threads-file", required=True)
+    review_thread_resolution_materialize_parser.add_argument("--response-materialization-file", required=True)
+    review_thread_resolution_materialize_parser.add_argument("--approval-token")
+    review_thread_resolution_materialize_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
+    review_thread_resolution_materialize_parser.set_defaults(
+        func=review_thread_resolution_materialize_command,
+        requires_root=True,
     )
 
     role_readiness_parser = subparsers.add_parser(
