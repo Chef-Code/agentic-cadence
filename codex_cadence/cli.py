@@ -111,6 +111,7 @@ from codex_cadence.pr_readiness import (
     load_template_sections,
 )
 from codex_cadence.review_response import (
+    evaluate_review_thread_resolution_plan,
     evaluate_review_response_materialization_plan,
     evaluate_review_response_plan,
     materialize_review_response_plan,
@@ -4762,6 +4763,33 @@ def review_response_materialize_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 1
 
 
+def review_thread_resolution_plan_command(args: argparse.Namespace) -> int:
+    pr_json_file = Path(args.pr_json_file)
+    pr = load_pr_json(pr_json_file)
+    review_threads = read_json(Path(args.review_threads_file))
+    response_materialization = read_json(Path(args.response_materialization_file))
+    post_write_gate = read_json(Path(args.post_write_gate_file))
+    gate_refresh = (
+        post_write_gate.get("refresh")
+        if isinstance(post_write_gate, dict) and isinstance(post_write_gate.get("refresh"), dict)
+        else {}
+    )
+    evidence_captured_at = gate_refresh.get("captured_at") or datetime.fromtimestamp(
+        pr_json_file.stat().st_mtime, timezone.utc
+    )
+    payload = evaluate_review_thread_resolution_plan(
+        pr=pr,
+        review_threads=review_threads,
+        response_materialization=response_materialization,
+        post_write_gate=post_write_gate,
+        target_thread_ids=args.thread_id or [],
+        evidence_captured_at=evidence_captured_at,
+        max_evidence_age_minutes=args.max_pr_json_age_minutes,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def role_readiness_command(args: argparse.Namespace) -> int:
     payload = evaluate_role_readiness(
         root=args.root,
@@ -5455,6 +5483,21 @@ def build_parser() -> argparse.ArgumentParser:
     review_response_materialize_parser.set_defaults(
         func=review_response_materialize_command,
         requires_root=True,
+    )
+
+    review_thread_resolution_parser = subparsers.add_parser(
+        "review-thread-resolution-plan",
+        help="Plan exact operator-approved review thread resolutions from refreshed saved evidence",
+    )
+    review_thread_resolution_parser.add_argument("--pr-json-file", required=True)
+    review_thread_resolution_parser.add_argument("--review-threads-file", required=True)
+    review_thread_resolution_parser.add_argument("--response-materialization-file", required=True)
+    review_thread_resolution_parser.add_argument("--post-write-gate-file", required=True)
+    review_thread_resolution_parser.add_argument("--thread-id", action="append", default=[])
+    review_thread_resolution_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
+    review_thread_resolution_parser.set_defaults(
+        func=review_thread_resolution_plan_command,
+        requires_root=False,
     )
 
     role_readiness_parser = subparsers.add_parser(

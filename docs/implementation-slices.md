@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-12
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 28-32 complete in main, and the Tasks 33-37 roadmap prepared
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 28-32 complete in main, Task 33 implemented in the current tree, and the Tasks 34-37 roadmap prepared
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -692,9 +692,19 @@ Current evidence:
   readiness and candidate discovery, and recommend only `ready_for_review`,
   `refresh_required`, `follow_up_candidates`, `wait_for_checks`,
   `respond_to_review`, or `operator_review`;
+- `review-thread-resolution-plan` can consume saved PR JSON, saved
+  review-thread JSON, a successful approved review-response materialization
+  result, a matching post-write gate packet, and explicit thread ids to emit a
+  read-only `review-thread-resolution-plan.v1` approval target with PR/head,
+  refreshed evidence, full materialization, and post-write gate checksums;
+- review-thread resolution planning blocks stale or mismatched evidence,
+  wrong-PR review-thread evidence, disallowed post-write gate blockers,
+  incomplete pagination, resolved, outdated, non-actionable, missing,
+  unresponded target threads, or current actionable comments not covered by the
+  approved response materialization before approval;
 - no branch creation, commit, push, merge, release, package publication,
-  continuous reconciliation, thread resolution, or automatic response loop
-  execution exists.
+  continuous reconciliation, approved thread-resolution materialization, or
+  automatic response loop execution exists.
 
 Why it matters: unattended operation fails quickly if Cadence cannot react to
 CI failures or review comments.
@@ -726,6 +736,12 @@ Validation needed:
 - stale saved PR evidence recommends `refresh_pr_evidence` before response
   items are emitted;
 - missing PR body sections recommend `update_pr_body` without editing the PR;
+- done: read-only review-thread resolution planning emits an exact approval
+  target for fresh unresolved responded-to thread ids and deduplicates duplicate
+  target requests;
+- done: review-thread resolution planning blocks stale, incomplete, mismatched,
+  wrong-PR, failed-gate, already resolved, outdated, non-actionable, missing,
+  unresponded target, and unresponded current-comment evidence before approval;
 - read-only live fetch failures block without partial local evidence files.
 
 Codex implementation rule: Codex can implement local ingestion and explicit
