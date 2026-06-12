@@ -580,8 +580,8 @@ evidence, PR body preflight, remote push URL, and optional PR update target,
 then create the branch without switching the checkout, push with Git hook
 verification disabled for that push, and create/update a PR. Controlled
 `invoke-real-executor` and `closeout-executor-result --real-invocation-file`
-evidence exist, but Cadence still does not create dirty-worktree commits,
-auto-merge, release, publish packages, or run autonomous Git/PR actions.
+evidence exist, but Cadence still does not autonomously create dirty-worktree
+commits, merge, release, publish packages, or run autonomous Git/PR actions.
 
 Likely files: `codex_cadence/cli.py`, `codex_cadence/pr_readiness.py`,
 scripts, tests, docs.

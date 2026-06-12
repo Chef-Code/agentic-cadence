@@ -197,10 +197,10 @@ Agentic Cadence cannot currently:
   Reviewer, QA, Documentation, Release, or Handoff agents;
 - assign or enforce authenticated reviewer identity separate from the builder;
 - autonomously create a branch;
-- commit dirty-worktree changes;
+- autonomously commit dirty-worktree changes;
 - autonomously push to a remote;
 - autonomously open or update a pull request;
-- resolve review feedback;
+- autonomously resolve review feedback or review threads;
 - autonomously create, edit, or resolve GitHub PRs or review comments;
 - trigger follow-up implementation from live CI or review failures;
 - infer context pressure without explicit host input;
@@ -309,8 +309,9 @@ evidence, but it does not implement product changes. The
 dry-run `git-pr-plan` handoff remains
 review-only until an operator invokes `git-pr-materialize` with a matching plan
 approval token. Real code changes, autonomous Git/PR materialization,
-dirty-worktree commits, review feedback response writes, and new-session launch
-remain external or future-approved slices. Resume verification and
+autonomous dirty-worktree commits, autonomous review feedback response writes,
+review-thread resolution, and new-session launch remain external or future
+governance slices. Resume verification and
 resume-continuation can block stale or mismatched pickup state, but they do not
 claim handoffs, start epochs, invoke executors, or launch sessions. Local
 `operator-approval.v1` evidence can now identify an approver for a target and
@@ -322,7 +323,8 @@ execution can be considered. Audit history is now locally inspectable through
 ## What Would Break First
 
 The first hard stop in a real unattended run is now autonomous Git/PR
-materialization and review-response writes after real-run closeout evidence.
+materialization and autonomous review-response writes after real-run closeout
+evidence.
 Cadence can emit a bounded
 executor task packet, reject malformed, dirty, low-confidence, relative-path,
 or mismatched snapshot anchors, start one approved active epoch through
@@ -335,9 +337,9 @@ close local fixture evidence into an epoch decision, and bind accepted
 revalidation, and dry-run Git/PR planning. It can also verify local
 authenticated operator approval identity evidence for a target checksum and
 purpose, then compose the saved evidence into a `controlled-loop-tick.v1`
-packet. It still does not materialize dirty worktree changes into commits, push
-autonomously, write PR/review responses, merge, release, or coordinate agent
-pools.
+packet. It still does not autonomously materialize dirty worktree changes into
+commits, push, write PR/review responses, resolve review threads, merge,
+release, or coordinate agent pools.
 
 The next likely failures are:
 
