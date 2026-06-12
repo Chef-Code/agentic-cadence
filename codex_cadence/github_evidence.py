@@ -12,6 +12,7 @@ from typing import Any
 
 from codex_cadence import PROTOCOL_VERSION
 GITHUB_EVIDENCE_SYNC_SCHEMA_VERSION = "github-evidence-sync.v1"
+POST_WRITE_PR_EVIDENCE_GATE_SCHEMA_VERSION = "post-write-pr-evidence-gate.v1"
 DEFAULT_GH_TIMEOUT_SECONDS = 60
 PR_VIEW_FIELDS = (
     "number",
@@ -77,6 +78,32 @@ NON_ACTIONABLE_REVIEW_BODIES = {
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _parse_utc(value: datetime | str | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        text = value.strip()
+        if not text:
+            return None
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _format_utc(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _checksum_json(data: Any) -> str:
+    payload = json.dumps(data, sort_keys=True, separators=(",", ":"))
+    return "sha256:" + sha256(payload.encode("utf-8")).hexdigest()
 
 
 def _issue(code: str, message: str, **extra: Any) -> dict[str, Any]:
@@ -614,6 +641,567 @@ def sync_github_evidence(
             command_trace=command_trace,
         )
     return packet
+
+
+def _load_json_object(path: Path, label: str) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8-sig"))
+    except OSError as exc:
+        return None, _issue(f"{label}_unreadable", f"could not read {label.replace('_', ' ')}: {exc}", path=str(path))
+    except json.JSONDecodeError as exc:
+        return None, _issue(f"{label}_invalid_json", f"could not parse {label.replace('_', ' ')}: {exc}", path=str(path))
+    if not isinstance(payload, dict):
+        return None, _issue(f"{label}_invalid", f"{label.replace('_', ' ')} must be a JSON object", path=str(path))
+    return payload, None
+
+
+def _resolve_packet_path(value: Any, *, base_dir: Path | None = None) -> Path | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    path = Path(value).expanduser()
+    if path.is_absolute():
+        return path
+    if base_dir is not None:
+        return (base_dir / path).resolve(strict=False)
+    return path.resolve(strict=False)
+
+
+def _pr_number_from_url(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    marker = "/pull/"
+    if marker not in value:
+        return None
+    suffix = value.rsplit(marker, 1)[-1]
+    digits = []
+    for char in suffix:
+        if not char.isdigit():
+            break
+        digits.append(char)
+    return "".join(digits) or None
+
+
+def _present(value: Any) -> bool:
+    return value is not None and not (isinstance(value, str) and not value.strip())
+
+
+def _materialization_target_summary(materialization_result: Any) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    blockers: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
+    if not isinstance(materialization_result, dict):
+        return (
+            {"type": None},
+            [_issue("materialization_result_invalid", "materialization result must be a JSON object")],
+            warnings,
+        )
+
+    packet = materialization_result.get("packet")
+    schema_version = materialization_result.get("schema_version")
+    summary: dict[str, Any] = {
+        "type": packet,
+        "schema_version": schema_version,
+        "generated_at": materialization_result.get("generated_at"),
+        "decision": materialization_result.get("decision"),
+        "approval_state": materialization_result.get("approval_state"),
+        "plan_checksum": materialization_result.get("plan_checksum"),
+        "target_checksum": materialization_result.get("target_checksum"),
+    }
+    if materialization_result.get("valid") is not True or materialization_result.get("decision") != "materialized":
+        blockers.append(
+            _issue(
+                "materialization_result_not_materialized",
+                "post-write PR evidence gate requires a successful materialization result",
+                decision=materialization_result.get("decision"),
+                valid=materialization_result.get("valid"),
+            )
+        )
+    if materialization_result.get("approval_state") != "approved":
+        blockers.append(
+            _issue(
+                "materialization_result_not_approved",
+                "post-write PR evidence gate requires an operator-approved materialization result",
+                approval_state=materialization_result.get("approval_state"),
+            )
+        )
+
+    if packet == "review_response_materialization":
+        if schema_version != "review-response-materialization.v1":
+            blockers.append(
+                _issue(
+                    "materialization_result_schema_invalid",
+                    "review response materialization schema_version is unsupported",
+                    expected="review-response-materialization.v1",
+                    actual=schema_version,
+                )
+            )
+        if materialization_result.get("github_write_started") is not True:
+            blockers.append(
+                _issue(
+                    "materialization_result_write_missing",
+                    "review response materialization result must show a GitHub write started",
+                )
+            )
+        pr = materialization_result.get("pr") if isinstance(materialization_result.get("pr"), dict) else {}
+        summary.update(
+            {
+                "pr_number": str(pr.get("number")) if pr.get("number") is not None else None,
+                "head_ref": pr.get("head_ref"),
+                "base_ref": pr.get("base_ref"),
+                "head_sha": pr.get("head_sha"),
+                "pr_url": pr.get("url"),
+            }
+        )
+    elif packet == "git_pr_materialization":
+        if schema_version != "git-pr-materialization.v1":
+            blockers.append(
+                _issue(
+                    "materialization_result_schema_invalid",
+                    "Git/PR materialization schema_version is unsupported",
+                    expected="git-pr-materialization.v1",
+                    actual=schema_version,
+                )
+            )
+        if not materialization_result.get("side_effects"):
+            blockers.append(
+                _issue(
+                    "materialization_result_write_missing",
+                    "Git/PR materialization result must include materialized side effects",
+                )
+            )
+        repository = materialization_result.get("repository") if isinstance(materialization_result.get("repository"), dict) else {}
+        pr_number = materialization_result.get("pr_number")
+        if pr_number is None:
+            pr_number = _pr_number_from_url(materialization_result.get("pr_url"))
+        summary.update(
+            {
+                "pr_number": str(pr_number) if pr_number is not None else None,
+                "head_ref": materialization_result.get("proposed_branch"),
+                "base_ref": repository.get("base_branch"),
+                "head_sha": repository.get("current_head"),
+                "pr_url": materialization_result.get("pr_url"),
+            }
+        )
+    else:
+        blockers.append(
+            _issue(
+                "materialization_result_packet_unsupported",
+                "post-write PR evidence gate only accepts Git/PR or review response materialization results",
+                packet=packet,
+            )
+        )
+
+    for field in ("pr_number", "head_ref", "base_ref", "head_sha"):
+        if not _present(summary.get(field)):
+            blockers.append(
+                _issue(
+                    "materialization_target_anchor_missing",
+                    "materialization result must identify PR number, branch, base, and head before evidence can be reused",
+                    field=field,
+                )
+            )
+    return summary, blockers, warnings
+
+
+def _sync_summary_blockers(sync_packet: Any) -> list[dict[str, Any]]:
+    if not isinstance(sync_packet, dict):
+        return [_issue("github_evidence_sync_missing", "fresh github-evidence-sync output is required after materialization")]
+    blockers: list[dict[str, Any]] = []
+    if sync_packet.get("schema_version") != GITHUB_EVIDENCE_SYNC_SCHEMA_VERSION:
+        blockers.append(
+            _issue(
+                "github_evidence_sync_schema_invalid",
+                "github evidence sync schema_version is unsupported",
+                expected=GITHUB_EVIDENCE_SYNC_SCHEMA_VERSION,
+                actual=sync_packet.get("schema_version"),
+            )
+        )
+    if sync_packet.get("packet") != "github_evidence_sync":
+        blockers.append(
+            _issue("github_evidence_sync_packet_invalid", "github evidence sync packet must be github_evidence_sync")
+        )
+    if sync_packet.get("valid") is not True or sync_packet.get("decision") != "saved":
+        blockers.append(
+            _issue(
+                "github_evidence_sync_not_saved",
+                "github evidence sync must be a successful saved read-only packet",
+                decision=sync_packet.get("decision"),
+                valid=sync_packet.get("valid"),
+            )
+        )
+    return blockers
+
+
+def _freshness_blockers(
+    captured_at: Any,
+    *,
+    max_age_minutes: int | None,
+    now: datetime | str | None,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    blockers: list[dict[str, Any]] = []
+    captured = None
+    checked = None
+    age_minutes = None
+    stale = False
+    try:
+        captured = _parse_utc(captured_at)
+        checked = _parse_utc(now) or datetime.now(timezone.utc)
+    except (TypeError, ValueError) as exc:
+        blockers.append(
+            _issue(
+                "github_evidence_sync_timestamp_invalid",
+                f"github evidence sync captured_at is invalid: {exc}",
+                captured_at=captured_at,
+            )
+        )
+    if captured is None:
+        stale = True
+        blockers.append(
+            _issue(
+                "github_evidence_sync_timestamp_missing",
+                "github evidence sync captured_at is required before post-write decisions",
+            )
+        )
+    elif checked is not None:
+        age_minutes = (checked - captured).total_seconds() / 60
+        if age_minutes < 0:
+            stale = True
+            blockers.append(
+                _issue(
+                    "github_evidence_sync_from_future",
+                    "github evidence sync timestamp is in the future; refresh evidence before acting",
+                    captured_at=_format_utc(captured),
+                    checked_at=_format_utc(checked),
+                    age_minutes=round(age_minutes, 2),
+                )
+            )
+        elif max_age_minutes is not None and age_minutes > max_age_minutes:
+            stale = True
+            blockers.append(
+                _issue(
+                    "github_evidence_sync_stale",
+                    "github evidence sync is stale; refresh PR evidence before acting",
+                    captured_at=_format_utc(captured),
+                    age_minutes=round(age_minutes, 2),
+                    max_age_minutes=max_age_minutes,
+                )
+            )
+    return (
+        {
+            "captured_at": _format_utc(captured),
+            "checked_at": _format_utc(checked),
+            "age_minutes": round(age_minutes, 2) if age_minutes is not None else None,
+            "stale": stale,
+        },
+        blockers,
+    )
+
+
+def _post_write_recommendation(
+    *,
+    gate_blockers: list[dict[str, Any]],
+    pr_readiness: dict[str, Any] | None,
+    candidate_discovery: dict[str, Any] | None,
+    follow_up_candidates: list[dict[str, Any]],
+) -> tuple[str, str]:
+    gate_codes = {blocker.get("code") for blocker in gate_blockers}
+    if gate_codes:
+        if any(
+            code in gate_codes
+            for code in (
+                "github_evidence_sync_missing",
+                "github_evidence_sync_schema_invalid",
+                "github_evidence_sync_packet_invalid",
+                "github_evidence_sync_not_saved",
+                "github_evidence_sync_timestamp_invalid",
+                "github_evidence_sync_timestamp_missing",
+                "github_evidence_sync_from_future",
+                "github_evidence_sync_stale",
+                "github_evidence_sync_before_materialization",
+                "post_write_pr_target_mismatch",
+                "post_write_pr_target_anchor_missing",
+                "refreshed_pr_evidence_unreadable",
+                "refreshed_pr_evidence_invalid_json",
+                "refreshed_pr_evidence_invalid",
+                "refreshed_review_threads_unreadable",
+                "refreshed_review_threads_invalid_json",
+                "refreshed_review_threads_invalid",
+            )
+        ):
+            return "blocked", "refresh_required"
+        return "blocked", "operator_review"
+
+    if candidate_discovery is not None and candidate_discovery.get("blockers"):
+        candidate_codes = {
+            item.get("code")
+            for item in candidate_discovery.get("blockers", [])
+            if isinstance(item, dict)
+        }
+        if candidate_codes & {"review_thread_evidence_incomplete"}:
+            return "blocked", "refresh_required"
+        return "blocked", "operator_review"
+
+    if pr_readiness is None:
+        return "blocked", "operator_review"
+
+    readiness_action = pr_readiness.get("recommended_next_action")
+    readiness_blockers = pr_readiness.get("blockers") if isinstance(pr_readiness.get("blockers"), list) else []
+    readiness_waiting = pr_readiness.get("waiting") if isinstance(pr_readiness.get("waiting"), list) else []
+    readiness_codes = {
+        item.get("code")
+        for item in [*readiness_blockers, *readiness_waiting]
+        if isinstance(item, dict)
+    }
+    if readiness_action == "refresh_pr_evidence" or "review_thread_evidence_invalid" in readiness_codes:
+        return "blocked", "refresh_required"
+    if readiness_action == "wait_for_checks":
+        return "waiting", "wait_for_checks"
+    if "unresolved_review_comment" in readiness_codes:
+        return "blocked", "respond_to_review"
+    if readiness_action == "address_blockers":
+        if follow_up_candidates or "check_failed" in readiness_codes:
+            return "blocked", "follow_up_candidates"
+        return "blocked", "operator_review"
+    if pr_readiness.get("ready_to_merge") is True:
+        return "ready", "ready_for_review"
+    return "blocked", "operator_review"
+
+
+def evaluate_post_write_pr_evidence_gate(
+    *,
+    materialization_result: Any,
+    github_evidence_sync: Any,
+    cwd: Path,
+    github_evidence_file: Path | None = None,
+    required_checks: list[str] | None = None,
+    required_body_sections: list[str] | None = None,
+    max_pr_evidence_age_minutes: int | None = None,
+    now: datetime | str | None = None,
+    discovery_mode: str = "local",
+    proposal_allowance: str = "none",
+    max_tasks: int = 1,
+) -> dict[str, Any]:
+    """Gate post-write PR actions on fresh saved GitHub evidence."""
+    from codex_cadence.candidates import discover_candidates
+    from codex_cadence.pr_readiness import evaluate_pr_readiness
+
+    materialization, materialization_blockers, materialization_warnings = _materialization_target_summary(
+        materialization_result
+    )
+    gate_blockers = list(materialization_blockers)
+    warnings = list(materialization_warnings)
+    sync_blockers = _sync_summary_blockers(github_evidence_sync)
+    gate_blockers.extend(sync_blockers)
+    refresh: dict[str, Any] = {
+        "source": "github_evidence_sync",
+        "summary_file": str(github_evidence_file) if github_evidence_file is not None else None,
+        "pr_number": github_evidence_sync.get("pr_number") if isinstance(github_evidence_sync, dict) else None,
+        "captured_at": github_evidence_sync.get("captured_at") if isinstance(github_evidence_sync, dict) else None,
+    }
+    pr_readiness = None
+    candidate_discovery = None
+    follow_up_candidates: list[dict[str, Any]] = []
+    pr_payload = None
+    review_threads_payload = None
+
+    base_dir = Path(github_evidence_file).expanduser().resolve(strict=False).parent if github_evidence_file else None
+    pr_json_path = None
+    review_threads_path = None
+    if isinstance(github_evidence_sync, dict):
+        freshness, freshness_blockers = _freshness_blockers(
+            github_evidence_sync.get("captured_at"),
+            max_age_minutes=max_pr_evidence_age_minutes,
+            now=now,
+        )
+        refresh.update(freshness)
+        gate_blockers.extend(freshness_blockers)
+        try:
+            captured_at = _parse_utc(github_evidence_sync.get("captured_at"))
+        except (TypeError, ValueError):
+            captured_at = None
+        try:
+            materialized_at = _parse_utc(materialization.get("generated_at"))
+        except (TypeError, ValueError) as exc:
+            gate_blockers.append(
+                _issue(
+                    "materialization_result_timestamp_invalid",
+                    f"materialization result generated_at is invalid: {exc}",
+                    generated_at=materialization.get("generated_at"),
+                )
+            )
+            materialized_at = None
+        if materialized_at is None:
+            gate_blockers.append(
+                _issue(
+                    "materialization_result_timestamp_missing",
+                    "materialization result generated_at is required before accepting refreshed evidence",
+                )
+            )
+        elif captured_at is not None and captured_at < materialized_at:
+            gate_blockers.append(
+                _issue(
+                    "github_evidence_sync_before_materialization",
+                    "github evidence sync was captured before the materialization result; refresh PR evidence after writes",
+                    captured_at=_format_utc(captured_at),
+                    materialization_generated_at=_format_utc(materialized_at),
+                )
+            )
+        files = github_evidence_sync.get("files") if isinstance(github_evidence_sync.get("files"), dict) else {}
+        pr_json_path = _resolve_packet_path(files.get("pr_json"), base_dir=base_dir)
+        review_threads_path = _resolve_packet_path(files.get("review_threads_json"), base_dir=base_dir)
+        if pr_json_path is None:
+            gate_blockers.append(
+                _issue("refreshed_pr_evidence_unreadable", "github evidence sync did not provide a PR JSON file path")
+            )
+        if review_threads_path is None:
+            gate_blockers.append(
+                _issue(
+                    "refreshed_review_threads_unreadable",
+                    "github evidence sync did not provide a review-thread JSON file path",
+                )
+            )
+
+    if pr_json_path is not None:
+        pr_payload, blocker = _load_json_object(pr_json_path, "refreshed_pr_evidence")
+        if blocker is not None:
+            gate_blockers.append(blocker)
+        elif pr_payload is not None:
+            refresh["pr_json_file"] = str(pr_json_path)
+            refresh["pr_json_checksum"] = _checksum_json(pr_payload)
+            refresh["pr_number"] = pr_payload.get("number")
+    if review_threads_path is not None:
+        review_threads_payload, blocker = _load_json_object(review_threads_path, "refreshed_review_threads")
+        if blocker is not None:
+            gate_blockers.append(blocker)
+        elif review_threads_payload is not None:
+            refresh["review_threads_file"] = str(review_threads_path)
+            refresh["review_threads_checksum"] = _checksum_json(review_threads_payload)
+
+    if pr_payload is not None:
+        compared = {
+            "pr_number": pr_payload.get("number"),
+            "head_ref": pr_payload.get("headRefName"),
+            "base_ref": pr_payload.get("baseRefName"),
+            "head_sha": pr_payload.get("headRefOid"),
+        }
+        refresh.update(compared)
+        for field, actual in compared.items():
+            expected = materialization.get(field)
+            if not _present(expected) or not _present(actual):
+                gate_blockers.append(
+                    _issue(
+                        "post_write_pr_target_anchor_missing",
+                        "refreshed PR evidence must include PR number, branch, base, and head anchors",
+                        field=field,
+                        expected=expected,
+                        actual=actual,
+                    )
+                )
+                continue
+            if str(expected) != str(actual):
+                gate_blockers.append(
+                    _issue(
+                        "post_write_pr_target_mismatch",
+                        "refreshed PR evidence no longer matches the materialization target",
+                        field=field,
+                        expected=expected,
+                        actual=actual,
+                    )
+                )
+
+    if not gate_blockers and pr_payload is not None and review_threads_payload is not None:
+        pr_readiness = evaluate_pr_readiness(
+            pr_payload,
+            required_checks=required_checks or [],
+            required_body_sections=required_body_sections or [],
+            review_threads=review_threads_payload,
+            evidence_source="saved_pr_json",
+            evidence_captured_at=github_evidence_sync.get("captured_at") if isinstance(github_evidence_sync, dict) else None,
+            max_evidence_age_minutes=max_pr_evidence_age_minutes,
+            now=now,
+        )
+        try:
+            candidate_discovery = discover_candidates(
+                cwd=Path(cwd),
+                intent="merge_readiness",
+                discovery_mode=discovery_mode,
+                proposal_allowance=proposal_allowance,
+                pr_json_file=pr_json_path,
+                review_threads_file=review_threads_path,
+                elect=True,
+                max_tasks=max_tasks,
+            )
+        except (RuntimeError, ValueError) as exc:
+            candidate_discovery = {
+                "valid": False,
+                "candidates": [],
+                "elected_next": [],
+                "blockers": [
+                    _issue("candidate_discovery_failed", f"candidate discovery failed from refreshed evidence: {exc}")
+                ],
+                "warnings": [],
+                "recommended_next_action": "operator_review",
+            }
+        if isinstance(candidate_discovery, dict):
+            elected = candidate_discovery.get("elected_next")
+            candidates = candidate_discovery.get("candidates")
+            follow_up_candidates = (
+                list(elected)
+                if isinstance(elected, list) and elected
+                else list(candidates)
+                if isinstance(candidates, list)
+                else []
+            )
+
+    decision, recommended_next_action = _post_write_recommendation(
+        gate_blockers=gate_blockers,
+        pr_readiness=pr_readiness,
+        candidate_discovery=candidate_discovery,
+        follow_up_candidates=follow_up_candidates,
+    )
+    action_blockers: list[dict[str, Any]] = []
+    if pr_readiness is not None and isinstance(pr_readiness.get("blockers"), list):
+        action_blockers.extend(pr_readiness["blockers"])
+    if candidate_discovery is not None and isinstance(candidate_discovery.get("blockers"), list):
+        action_blockers.extend(candidate_discovery["blockers"])
+    blockers = [*gate_blockers, *action_blockers]
+
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": POST_WRITE_PR_EVIDENCE_GATE_SCHEMA_VERSION,
+        "packet": "post_write_pr_evidence_gate",
+        "generated_at": _utc_now(),
+        "valid": not blockers,
+        "decision": decision,
+        "recommended_next_action": recommended_next_action,
+        "refresh_required": recommended_next_action == "refresh_required",
+        "wait_for_checks": recommended_next_action == "wait_for_checks",
+        "respond_to_review": recommended_next_action == "respond_to_review",
+        "ready_for_review": recommended_next_action == "ready_for_review",
+        "operator_review_required": recommended_next_action == "operator_review",
+        "materialization": materialization,
+        "refresh": refresh,
+        "pr_readiness": pr_readiness or {},
+        "candidate_discovery": candidate_discovery or {},
+        "follow_up_candidates": follow_up_candidates,
+        "blockers": blockers,
+        "warnings": warnings,
+        "side_effects": [],
+        "github_write_started": False,
+        "limitations": [
+            "post_write_read_only_gate",
+            "requires_fresh_github_evidence_sync",
+            "does_not_post_comments",
+            "does_not_update_pr_body",
+            "does_not_resolve_review_threads",
+            "does_not_trigger_paid_review",
+            "does_not_merge",
+            "does_not_release",
+            "does_not_publish_packages",
+            "does_not_assign_roles",
+            "does_not_schedule_agents",
+            "does_not_continue_loop",
+        ],
+    }
 
 
 def _check_name(item: dict[str, Any]) -> str:

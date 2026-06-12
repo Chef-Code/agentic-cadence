@@ -1527,6 +1527,28 @@ resolution. The command must not resolve review threads, invoke paid review,
 edit labels, merge, release, publish packages, assign roles, schedule agents,
 or continue a loop automatically.
 
+`post-write-pr-evidence-gate` is the read-only boundary after approved Git/PR
+or review-response writes. It must consume a successful
+`git-pr-materialization.v1` or `review-response-materialization.v1` result and
+fresh `github-evidence-sync.v1` summary output. It must load the refreshed
+saved PR JSON and saved review-thread JSON named by the sync packet, verify the
+materialized PR number, head branch, base branch, and head SHA still match the
+refreshed PR evidence, and reject missing, stale, malformed, incomplete, or
+mismatched refreshed evidence before recommending any follow-up action.
+
+When the refreshed target matches, the gate must re-run PR readiness and
+merge-readiness candidate discovery from the refreshed saved PR and
+review-thread files. It emits `post-write-pr-evidence-gate.v1` with
+`recommended_next_action` limited to `ready_for_review`, `refresh_required`,
+`follow_up_candidates`, `wait_for_checks`, `respond_to_review`, or
+`operator_review`. Failing checks may become bounded `pr_check_failure`
+follow-up candidates; unresolved actionable review threads may become bounded
+`review_finding` follow-up candidates; PR body gaps block and require operator
+review unless another bounded candidate applies. The command must perform only
+one evaluation, must not call GitHub directly, and must not post comments,
+update PR bodies, resolve review threads, trigger paid review, merge, release,
+publish packages, assign roles, schedule agents, or continue a loop.
+
 PR body preflight covers the pre-publish side of the same template contract. `pr-body-preflight --body-file <path> --pr-template-file <path>` must read a draft PR body and a local Markdown pull request template, derive required template sections from template headings, and report missing template sections before PR creation or update. It must reuse the same heading parser as PR readiness, match draft body headings by normalized section label, ignore headings inside HTML comments or fenced code blocks without creating false setext headings across skipped blocks, stay repo-agnostic, and must not hard-code target-specific labels, call GitHub, rewrite the body file, create a PR, update a PR, spend paid review, or merge the PR. If no template file or `--required-body-section` is supplied, it must fail closed and recommend `provide_template_or_sections`.
 
 ## Release Dry Run

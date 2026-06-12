@@ -35,10 +35,11 @@ execution-start epoch gating for approved generic executor task packets. It also
 local executor epoch closeout, branch-policy-gated dry-run Git/PR planning for
 local generic executor task and result evidence, read-only
 `github-evidence-sync`, read-only `review-response-plan`, read-only
-`role-readiness`, read-only `executor-invocation-readiness`, read-only
-`executor-invocation-plan`,
-operator-approved `git-pr-dirty-commit-materialize`,
-operator-approved `git-pr-materialize`, reusable `verify-operator-approval`,
+`post-write-pr-evidence-gate`, read-only `role-readiness`,
+read-only `executor-invocation-readiness`, read-only `executor-invocation-plan`,
+operator-approved `git-pr-dirty-commit-materialize`, operator-approved
+`git-pr-materialize`, operator-approved `review-response-materialize`,
+reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
 `claim-work-ownership` / `close-work-ownership` / `fail-work-ownership`, a
@@ -817,6 +818,27 @@ malformed JSON returns a blocked packet and does not write partial evidence
 files. Incomplete paginated review-thread evidence also blocks instead of being
 saved as valid. The command does not create branches, commit, push, edit pull
 requests, merge, release, or publish packages.
+
+## Post-Write PR Evidence Gate
+
+`post-write-pr-evidence-gate` is the read-only bridge after an approved
+Git/PR or review-response materialization result. It consumes the
+materialization result plus fresh `github-evidence-sync` summary output, loads
+the refreshed saved PR and review-thread files, verifies PR number, branch,
+base, and head SHA still match the materialized target, then re-runs PR
+readiness and candidate discovery from the refreshed evidence:
+
+```bash
+agentic-cadence post-write-pr-evidence-gate --cwd . --materialization-file review-response-materialization.json --github-evidence-file .cadence/github-evidence/pr-9/pr-9-github-evidence.json --required-check "Python and protocol checks" --pr-template-file .github/pull_request_template.md
+```
+
+The packet is `post-write-pr-evidence-gate.v1` and recommends exactly one of
+`ready_for_review`, `refresh_required`, `follow_up_candidates`,
+`wait_for_checks`, `respond_to_review`, or `operator_review`. Missing, stale,
+incomplete, or mismatched refreshed evidence blocks before any follow-up
+recommendation. The gate does not post comments, update PR bodies, resolve
+review threads, trigger paid review, merge, release, publish packages, assign
+roles, schedule agents, or continue a loop.
 
 ## PR Readiness
 

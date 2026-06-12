@@ -226,10 +226,10 @@ Agentic Cadence cannot currently:
 | Continuous loop runner | Not built | Planned slice |
 | Executor adapter contract | Partial generic contract | Task/result packet validation, a fake controlled fixture runner, supplied-run-record closeout binding, read-only `executor-invocation-readiness` preflight, read-only `executor-invocation-plan` approval/adapter/rollback binding, controlled `invoke-real-executor` local process-start records, and real-invocation closeout binding exist, but no named host adapter or autonomous GitHub/merge authority |
 | Autonomous implementation | Not built | Requires host/session orchestration, named adapter support, autonomous Git/PR flow, merge governance, and release governance |
-| Live GitHub sync | Partial, read-only evidence capture | `github-evidence-sync` fetches PR JSON and review threads into local files without GitHub writes |
+| Live GitHub sync | Partial, read-only evidence capture and post-write gate | `github-evidence-sync` fetches PR JSON and review threads into local files without GitHub writes; `post-write-pr-evidence-gate` binds fresh saved evidence to approved write results before the next recommendation |
 | Git/PR transition planning | Partial, dry-run plus approved materialization | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects; `git-pr-materialize` can create branch, push, and create/update PR only after exact target-bound operator approval and local rechecks |
 | Branch/commit/push/PR creation | Partial, operator-approved only | No autonomous branch/PR writes, no dirty-worktree commit path, no merge, release, or package publication |
-| Review response loop | Partial read-only planning | Saved review files, synced review threads, failed checks, and PR-body evidence can become response-plan items; no automatic response writes |
+| Review response loop | Partial approved writes plus post-write refresh | Saved review files, synced review threads, failed checks, and PR-body evidence can become response-plan items; approved PR body/comment writes exist; post-write gate rechecks fresh evidence before the next bounded action; no automatic response loop |
 | Local work ownership | Partial, execution/resume-bound local evidence | `work-ownership-status` and `validate-work-ownership` validate local `work-ownership.v1` records; `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership` create/move local records with audit evidence; `start-governed-execution --ownership-target` can bind matching active ownership to the started epoch; `resume-continuation --ownership-target` can recheck matching active ownership before recommending execution start; no distributed lock, role assignment, or scheduler |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
 | New-session launch/resume | Partial read-only gates | `prepare-handoff`, clean-square evidence, `verify-resume`, and `resume-continuation.v1` packets exist; external orchestration still launches sessions and performs recommended actions |
@@ -252,9 +252,13 @@ rechecks. It can
 govern handoff and continuation decisions, including read-only resume and
 resume-continuation gates that return stable blocker codes before a fresh
 session continues or external orchestration starts governed execution. It can
-evaluate saved PR evidence and fetch read-only live PR/check/review-thread
-evidence into saved files, then turn saved failed-check, review-thread, and
-PR-body evidence into read-only response-plan items. It can validate, claim,
+evaluate saved PR evidence, fetch read-only live PR/check/review-thread
+evidence into saved files, turn saved failed-check, review-thread, and PR-body
+evidence into response-plan items, write only approved PR body/comment
+responses, and run the read-only post-write evidence gate in
+`codex_cadence/github_evidence.py` before recommending `ready_for_review`,
+review response, follow-up candidates, waiting, or operator review. It still
+lacks autonomous scheduling and merge authority. It can validate, claim,
 close, and fail local `work-ownership.v1` records, detect duplicate active
 ownership for the same repo, branch, and task, bind matching active ownership
 to a governed execution start, recheck matching active ownership at
