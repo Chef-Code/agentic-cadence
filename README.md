@@ -943,13 +943,13 @@ checksum, target checksum, PR number, and target thread ids. The token uses
 `approve-review-thread-resolution:hmac-sha256:<digest>` prefix:
 
 ```bash
-agentic-cadence --root <runtime-root> review-thread-resolution-materialize --cwd . --plan-file review-thread-resolution-plan.json --pr-json-file pr.json --review-threads-file review-threads.json --response-materialization-file review-response-materialization.json --approval-token approve-review-thread-resolution:hmac-sha256:<thread-resolution-target-hmac> --max-pr-json-age-minutes 30
+agentic-cadence --root <runtime-root> review-thread-resolution-materialize --cwd . --plan-file review-thread-resolution-plan.json --pr-json-file pr.json --review-threads-file review-threads.json --response-materialization-file review-response-materialization.json --post-write-gate-file post-write-gate.json --approval-token approve-review-thread-resolution:hmac-sha256:<thread-resolution-target-hmac> --max-pr-json-age-minutes 30
 ```
 
 Immediately before any `gh` write, Cadence rechecks saved PR freshness,
 PR/head/base anchors, review-thread completeness, unresolved state, target ids,
-target checksum, and the supplied prior response materialization checksum. It
-appends `review_thread_resolution_intent` before writing, resolves only
+post-write gate evidence, target checksum, and the supplied prior response
+materialization checksum. It appends `review_thread_resolution_intent` before writing, resolves only
 approved review thread ids through `resolveReviewThread`, then appends
 `review_thread_resolution_result` after success or started-write failure. The
 result packet is `review-thread-resolution-materialization.v1` and preserves

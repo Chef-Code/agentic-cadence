@@ -40,8 +40,9 @@ Summary:
   write-side bridge from `review-thread-resolution-plan.v1` to exact GitHub
   review-thread resolution writes.
 - The command requires a target-bound HMAC approval token using
-  `CADENCE_REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET`, rechecks saved PR and
-  review-thread evidence immediately before mutation, and only resolves
+  `CADENCE_REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET`, rechecks saved PR,
+  review-thread, response-materialization, and post-write gate evidence
+  immediately before mutation, and only resolves
   approved thread ids through `resolveReviewThread`.
 - The result packet is `review-thread-resolution-materialization.v1` and
   records approval target evidence, command trace, GitHub thread ids,

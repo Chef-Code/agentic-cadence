@@ -2086,6 +2086,7 @@ def _review_thread_resolution_recheck(
     pr: dict[str, Any],
     review_threads: Any,
     response_materialization: Any,
+    post_write_gate: Any,
     pr_evidence_captured_at: datetime | str | None,
     max_pr_evidence_age_minutes: int | None,
     now: datetime | str | None,
@@ -2116,6 +2117,16 @@ def _review_thread_resolution_recheck(
     )
     if current_response_materialization_checksum is not None:
         evidence["response_materialization_checksum"] = current_response_materialization_checksum
+    current_post_write_gate_checksum = _checksum_json(post_write_gate)
+    evidence["post_write_gate_checksum"] = current_post_write_gate_checksum
+    blockers.extend(
+        _post_write_gate_resolution_blockers(
+            post_write_gate=post_write_gate,
+            pr=pr,
+            review_threads=review_threads,
+            response_materialization=response_materialization,
+        )
+    )
     planned_response_materialization_checksum = target.get("response_materialization_checksum")
     if not _sha256_checksum(planned_response_materialization_checksum):
         blockers.append(
@@ -2235,7 +2246,7 @@ def _review_thread_resolution_recheck(
         "response_materialization_checksum": current_response_materialization_checksum,
         "response_materialization_plan_checksum": target.get("response_materialization_plan_checksum"),
         "response_materialization_target_checksum": target.get("response_materialization_target_checksum"),
-        "post_write_gate_checksum": target.get("post_write_gate_checksum"),
+        "post_write_gate_checksum": current_post_write_gate_checksum,
         "thread_ids": [action["thread_id"] for action in actions],
         "actions": current_target_actions,
     }
@@ -2973,6 +2984,7 @@ def materialize_review_thread_resolution_plan(
     pr: dict[str, Any],
     review_threads: Any,
     response_materialization: Any,
+    post_write_gate: Any,
     pr_evidence_captured_at: datetime | str | None = None,
     max_pr_evidence_age_minutes: int | None = None,
     now: datetime | str | None = None,
@@ -3040,6 +3052,7 @@ def materialize_review_thread_resolution_plan(
             pr=pr,
             review_threads=review_threads,
             response_materialization=response_materialization,
+            post_write_gate=post_write_gate,
             pr_evidence_captured_at=pr_evidence_captured_at,
             max_pr_evidence_age_minutes=max_pr_evidence_age_minutes,
             now=now,
@@ -3169,7 +3182,7 @@ def materialize_review_thread_resolution_plan(
             "status": "resolved" if resolved_thread_id == thread_id and is_resolved is True else "unconfirmed",
         }
         github_writes.append({key: value for key, value in write_record.items() if value is not None})
-        if resolved_thread_id is not None and resolved_thread_id != thread_id:
+        if resolved_thread_id != thread_id:
             blockers.append(
                 _issue(
                     "review_thread_resolution_response_mismatch",

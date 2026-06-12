@@ -703,9 +703,10 @@ Current evidence:
   unresponded target threads, or current actionable comments not covered by the
   approved response materialization before approval;
 - `review-thread-resolution-materialize` can consume an approved
-  `review-thread-resolution-plan.v1`, recheck saved PR/thread evidence,
-  resolve only approved review thread ids through `resolveReviewThread`, and
-  append replayable review-thread resolution intent/result audit records;
+  `review-thread-resolution-plan.v1`, recheck saved PR/thread,
+  response-materialization, and post-write gate evidence, resolve only approved
+  review thread ids through `resolveReviewThread`, and append replayable
+  review-thread resolution intent/result audit records;
 - no branch creation, commit, push, merge, release, package publication,
   continuous reconciliation, automatic response loop execution, paid review,
   label editing, role assignment, or agent scheduling exists.

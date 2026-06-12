@@ -300,13 +300,13 @@ if args[:2] == ["api", "graphql"]:
         if os.environ.get("GH_FAKE_RESOLVE_MISMATCH"):
             resolved_thread_id = "thread-other"
         resolved = os.environ.get("GH_FAKE_RESOLVE_UNCONFIRMED") != "1"
+        thread_payload = {"isResolved": resolved}
+        if not os.environ.get("GH_FAKE_RESOLVE_MISSING_ID"):
+            thread_payload["id"] = resolved_thread_id
         print(json.dumps({
             "data": {
                 "resolveReviewThread": {
-                    "thread": {
-                        "id": resolved_thread_id,
-                        "isResolved": resolved
-                    }
+                    "thread": thread_payload
                 }
             }
         }))
@@ -883,24 +883,29 @@ class PrReadinessTests(unittest.TestCase):
             pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
             tmp_path = Path(tmp)
             runtime_root = Path(evidence_tmp) / "runtime"
+            current_captured_at = review_response_module.utc_now()
+            post_write_gate = json.loads(json.dumps(post_write_gate))
+            post_write_gate["refresh"]["captured_at"] = current_captured_at
             plan = evaluate_review_thread_resolution_plan(
                 pr=pr,
                 review_threads=threads,
                 response_materialization=response_materialization,
                 post_write_gate=post_write_gate,
                 target_thread_ids=["thread-1"],
-                evidence_captured_at="2026-06-11T18:10:00Z",
-                now="2026-06-11T18:15:00Z",
+                evidence_captured_at=current_captured_at,
+                now=current_captured_at,
                 max_evidence_age_minutes=30,
             )
             pr_path = tmp_path / "pr.json"
             threads_path = tmp_path / "review-threads.json"
             plan_path = tmp_path / "review-thread-resolution-plan.json"
             materialization_path = tmp_path / "review-response-materialization.json"
+            gate_path = tmp_path / "post-write-gate.json"
             pr_path.write_text(json.dumps(pr), encoding="utf-8")
             threads_path.write_text(json.dumps(threads), encoding="utf-8")
             plan_path.write_text(json.dumps(plan), encoding="utf-8")
             materialization_path.write_text(json.dumps(response_materialization), encoding="utf-8")
+            gate_path.write_text(json.dumps(post_write_gate), encoding="utf-8")
             token = review_thread_resolution_approval_token(
                 plan,
                 approval_secret=REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET,
@@ -931,6 +936,8 @@ class PrReadinessTests(unittest.TestCase):
                     str(threads_path),
                     "--response-materialization-file",
                     str(materialization_path),
+                    "--post-write-gate-file",
+                    str(gate_path),
                     "--approval-token",
                     token,
                     "--max-pr-json-age-minutes",
@@ -1005,10 +1012,12 @@ class PrReadinessTests(unittest.TestCase):
             threads_path = tmp_path / "review-threads.json"
             plan_path = tmp_path / "review-thread-resolution-plan.json"
             materialization_path = tmp_path / "review-response-materialization.json"
+            gate_path = tmp_path / "post-write-gate.json"
             pr_path.write_text(json.dumps(pr), encoding="utf-8")
             threads_path.write_text(json.dumps(threads), encoding="utf-8")
             plan_path.write_text(json.dumps(plan), encoding="utf-8")
             materialization_path.write_text(json.dumps(response_materialization), encoding="utf-8")
+            gate_path.write_text(json.dumps(post_write_gate), encoding="utf-8")
             fake_bin = tmp_path / "bin"
             fake_bin.mkdir()
             gh_log = tmp_path / "gh.log"
@@ -1035,6 +1044,8 @@ class PrReadinessTests(unittest.TestCase):
                     str(threads_path),
                     "--response-materialization-file",
                     str(materialization_path),
+                    "--post-write-gate-file",
+                    str(gate_path),
                 ],
                 text=True,
                 capture_output=True,
@@ -1053,6 +1064,7 @@ class PrReadinessTests(unittest.TestCase):
                     pr=pr,
                     review_threads=threads,
                     response_materialization=response_materialization,
+                    post_write_gate=post_write_gate,
                 )
             finally:
                 if original_secret is None:
@@ -1108,6 +1120,7 @@ class PrReadinessTests(unittest.TestCase):
                     pr=changed_pr,
                     review_threads=changed_threads,
                     response_materialization=response_materialization,
+                    post_write_gate=post_write_gate,
                     pr_evidence_captured_at="2026-06-11T18:10:00Z",
                     max_pr_evidence_age_minutes=30,
                     now="2026-06-11T19:00:00Z",
@@ -1156,6 +1169,7 @@ class PrReadinessTests(unittest.TestCase):
                     pr=pr,
                     review_threads=threads,
                     response_materialization=response_materialization,
+                    post_write_gate=post_write_gate,
                 )
             finally:
                 if original_secret is None:
@@ -1170,6 +1184,252 @@ class PrReadinessTests(unittest.TestCase):
             "review_thread_resolution_plan_target_mismatch",
             {blocker["code"] for blocker in packet["blockers"]},
         )
+
+    def test_review_thread_resolution_materialize_blocks_target_payload_and_checksum_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
+            tmp_path = Path(tmp)
+            plan = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=threads,
+                response_materialization=response_materialization,
+                post_write_gate=post_write_gate,
+                target_thread_ids=["thread-1"],
+            )
+            target_payload_drift = json.loads(json.dumps(plan))
+            target_payload_drift["target"]["thread_ids"] = ["thread-1", "thread-other"]
+            target_payload_drift["target_checksum"] = checksum_json(target_payload_drift["target"])
+            target_checksum_drift = json.loads(json.dumps(plan))
+            target_checksum_drift["target_checksum"] = checksum_json({"unexpected": "target"})
+            original_secret = os.environ.get(REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV)
+            os.environ[REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV] = REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET
+            try:
+                payload_drift_packet = materialize_review_thread_resolution_plan(
+                    cwd=tmp_path,
+                    plan_packet=target_payload_drift,
+                    plan_file=tmp_path / "review-thread-resolution-plan.json",
+                    approval_token=review_thread_resolution_approval_token(
+                        target_payload_drift,
+                        approval_secret=REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET,
+                    ),
+                    runtime_root=tmp_path / "runtime-payload",
+                    pr=pr,
+                    review_threads=threads,
+                    response_materialization=response_materialization,
+                    post_write_gate=post_write_gate,
+                )
+                checksum_drift_packet = materialize_review_thread_resolution_plan(
+                    cwd=tmp_path,
+                    plan_packet=target_checksum_drift,
+                    plan_file=tmp_path / "review-thread-resolution-plan.json",
+                    approval_token=review_thread_resolution_approval_token(
+                        target_checksum_drift,
+                        approval_secret=REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET,
+                    ),
+                    runtime_root=tmp_path / "runtime-checksum",
+                    pr=pr,
+                    review_threads=threads,
+                    response_materialization=response_materialization,
+                    post_write_gate=post_write_gate,
+                )
+            finally:
+                if original_secret is None:
+                    os.environ.pop(REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV, None)
+                else:
+                    os.environ[REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV] = original_secret
+
+        for packet in (payload_drift_packet, checksum_drift_packet):
+            self.assertFalse(packet["valid"])
+            self.assertFalse(packet["github_write_started"])
+            self.assertEqual(packet["side_effects"], [])
+            self.assertIn(
+                "review_thread_resolution_target_checksum_mismatch",
+                {blocker["code"] for blocker in packet["blockers"]},
+            )
+
+    def test_review_thread_resolution_materialize_rechecks_post_write_gate_before_writes(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
+            tmp_path = Path(tmp)
+            plan = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=threads,
+                response_materialization=response_materialization,
+                post_write_gate=post_write_gate,
+                target_thread_ids=["thread-1"],
+            )
+            changed_gate = json.loads(json.dumps(post_write_gate))
+            changed_gate["refresh"]["head_sha"] = "def456"
+            token = review_thread_resolution_approval_token(
+                plan,
+                approval_secret=REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET,
+            )
+            original_secret = os.environ.get(REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV)
+            os.environ[REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV] = REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET
+            try:
+                packet = materialize_review_thread_resolution_plan(
+                    cwd=tmp_path,
+                    plan_packet=plan,
+                    plan_file=tmp_path / "review-thread-resolution-plan.json",
+                    approval_token=token,
+                    runtime_root=tmp_path / "runtime",
+                    pr=pr,
+                    review_threads=threads,
+                    response_materialization=response_materialization,
+                    post_write_gate=changed_gate,
+                )
+            finally:
+                if original_secret is None:
+                    os.environ.pop(REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV, None)
+                else:
+                    os.environ[REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV] = original_secret
+
+        self.assertFalse(packet["valid"])
+        self.assertFalse(packet["github_write_started"])
+        self.assertEqual(packet["side_effects"], [])
+        blocker_codes = {blocker["code"] for blocker in packet["blockers"]}
+        self.assertIn("post_write_gate_refresh_mismatch", blocker_codes)
+        self.assertIn("review_thread_resolution_target_checksum_mismatch", blocker_codes)
+
+    def test_cli_review_thread_resolution_materialize_uses_gate_refresh_timestamp_for_freshness(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
+            tmp_path = Path(tmp)
+            runtime_root = Path(evidence_tmp) / "runtime"
+            stale_gate = json.loads(json.dumps(post_write_gate))
+            stale_gate["refresh"]["captured_at"] = "2026-06-11T17:00:00Z"
+            plan = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=threads,
+                response_materialization=response_materialization,
+                post_write_gate=post_write_gate,
+                target_thread_ids=["thread-1"],
+                evidence_captured_at="2026-06-11T18:10:00Z",
+                now="2026-06-11T18:15:00Z",
+                max_evidence_age_minutes=30,
+            )
+            pr_path = tmp_path / "pr.json"
+            threads_path = tmp_path / "review-threads.json"
+            plan_path = tmp_path / "review-thread-resolution-plan.json"
+            materialization_path = tmp_path / "review-response-materialization.json"
+            gate_path = tmp_path / "post-write-gate.json"
+            pr_path.write_text(json.dumps(pr), encoding="utf-8")
+            threads_path.write_text(json.dumps(threads), encoding="utf-8")
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+            materialization_path.write_text(json.dumps(response_materialization), encoding="utf-8")
+            gate_path.write_text(json.dumps(stale_gate), encoding="utf-8")
+            token = review_thread_resolution_approval_token(
+                plan,
+                approval_secret=REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET,
+            )
+            fake_bin = tmp_path / "bin"
+            fake_bin.mkdir()
+            gh_log = tmp_path / "gh.log"
+            write_fake_review_response_gh(fake_bin, gh_log)
+            env = os.environ.copy()
+            env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+            env["GH_FAKE_LOG"] = str(gh_log)
+            env[REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV] = REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SCRIPT),
+                    "--root",
+                    str(runtime_root),
+                    "review-thread-resolution-materialize",
+                    "--cwd",
+                    str(tmp_path),
+                    "--plan-file",
+                    str(plan_path),
+                    "--pr-json-file",
+                    str(pr_path),
+                    "--review-threads-file",
+                    str(threads_path),
+                    "--response-materialization-file",
+                    str(materialization_path),
+                    "--post-write-gate-file",
+                    str(gate_path),
+                    "--approval-token",
+                    token,
+                    "--max-pr-json-age-minutes",
+                    "30",
+                ],
+                text=True,
+                capture_output=True,
+                check=False,
+                env=env,
+            )
+
+        self.assertEqual(result.returncode, 1, result.stderr)
+        packet = json.loads(result.stdout)
+        self.assertFalse(packet["valid"])
+        self.assertFalse(packet["github_write_started"])
+        self.assertEqual(packet["side_effects"], [])
+        self.assertIn("pr_evidence_stale", {blocker["code"] for blocker in packet["blockers"]})
+        self.assertFalse(gh_log.exists())
+        self.assertFalse((runtime_root / "audit" / "events.jsonl").exists())
+
+    def test_review_thread_resolution_materialize_blocks_prior_materialization_mismatch_or_missing(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
+            tmp_path = Path(tmp)
+            plan = evaluate_review_thread_resolution_plan(
+                pr=pr,
+                review_threads=threads,
+                response_materialization=response_materialization,
+                post_write_gate=post_write_gate,
+                target_thread_ids=["thread-1"],
+            )
+            changed_materialization = json.loads(json.dumps(response_materialization))
+            changed_materialization["github_writes"][0]["github_comment_id"] = "reply-other"
+            token = review_thread_resolution_approval_token(
+                plan,
+                approval_secret=REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET,
+            )
+            original_secret = os.environ.get(REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV)
+            os.environ[REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV] = REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET
+            try:
+                mismatch_packet = materialize_review_thread_resolution_plan(
+                    cwd=tmp_path,
+                    plan_packet=plan,
+                    plan_file=tmp_path / "review-thread-resolution-plan.json",
+                    approval_token=token,
+                    runtime_root=tmp_path / "runtime-mismatch",
+                    pr=pr,
+                    review_threads=threads,
+                    response_materialization=changed_materialization,
+                    post_write_gate=post_write_gate,
+                )
+                missing_packet = materialize_review_thread_resolution_plan(
+                    cwd=tmp_path,
+                    plan_packet=plan,
+                    plan_file=tmp_path / "review-thread-resolution-plan.json",
+                    approval_token=token,
+                    runtime_root=tmp_path / "runtime-missing",
+                    pr=pr,
+                    review_threads=threads,
+                    response_materialization=None,
+                    post_write_gate=post_write_gate,
+                )
+            finally:
+                if original_secret is None:
+                    os.environ.pop(REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV, None)
+                else:
+                    os.environ[REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV] = original_secret
+
+        self.assertFalse(mismatch_packet["valid"])
+        self.assertFalse(mismatch_packet["github_write_started"])
+        self.assertEqual(mismatch_packet["side_effects"], [])
+        mismatch_codes = {blocker["code"] for blocker in mismatch_packet["blockers"]}
+        self.assertIn("review_thread_resolution_response_materialization_checksum_mismatch", mismatch_codes)
+        self.assertIn("post_write_gate_materialization_checksum_mismatch", mismatch_codes)
+        self.assertFalse(missing_packet["valid"])
+        self.assertFalse(missing_packet["github_write_started"])
+        self.assertEqual(missing_packet["side_effects"], [])
+        missing_codes = {blocker["code"] for blocker in missing_packet["blockers"]}
+        self.assertIn("review_response_materialization_missing", missing_codes)
+        self.assertIn("review_thread_resolution_response_materialization_checksum_mismatch", missing_codes)
 
     def test_review_thread_resolution_materialize_blocks_blank_prior_materialization_checksum(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
@@ -1203,6 +1463,7 @@ class PrReadinessTests(unittest.TestCase):
                     pr=pr,
                     review_threads=threads,
                     response_materialization=response_materialization,
+                    post_write_gate=post_write_gate,
                 )
             finally:
                 if original_secret is None:
@@ -1233,10 +1494,12 @@ class PrReadinessTests(unittest.TestCase):
             threads_path = tmp_path / "review-threads.json"
             plan_path = tmp_path / "review-thread-resolution-plan.json"
             materialization_path = tmp_path / "review-response-materialization.json"
+            gate_path = tmp_path / "post-write-gate.json"
             pr_path.write_text(json.dumps(pr), encoding="utf-8")
             threads_path.write_text(json.dumps(threads), encoding="utf-8")
             plan_path.write_text(json.dumps(plan), encoding="utf-8")
             materialization_path.write_text(json.dumps(response_materialization), encoding="utf-8")
+            gate_path.write_text(json.dumps(post_write_gate), encoding="utf-8")
             token = review_thread_resolution_approval_token(plan, approval_secret=REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET)
             fake_bin = tmp_path / "bin"
             fake_bin.mkdir()
@@ -1265,6 +1528,8 @@ class PrReadinessTests(unittest.TestCase):
                     str(threads_path),
                     "--response-materialization-file",
                     str(materialization_path),
+                    "--post-write-gate-file",
+                    str(gate_path),
                     "--approval-token",
                     token,
                 ],
@@ -1285,6 +1550,99 @@ class PrReadinessTests(unittest.TestCase):
             self.assertNotIn("resolved_review_thread", packet["side_effects"])
             self.assertIn("review_thread_resolution_unconfirmed", {blocker["code"] for blocker in packet["blockers"]})
 
+    def test_review_thread_resolution_materialize_mismatched_or_malformed_response_records_result_audit(self):
+        cases = [
+            ("GH_FAKE_RESOLVE_MISMATCH", "review_thread_resolution_response_mismatch"),
+            ("GH_FAKE_RESOLVE_MISSING_ID", "review_thread_resolution_response_mismatch"),
+            ("GH_FAKE_MALFORMED_RESOLVE", "review_thread_resolution_unconfirmed"),
+        ]
+        for env_flag, expected_code in cases:
+            with self.subTest(env_flag=env_flag):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+                    pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
+                    tmp_path = Path(tmp)
+                    runtime_root = Path(evidence_tmp) / "runtime"
+                    plan = evaluate_review_thread_resolution_plan(
+                        pr=pr,
+                        review_threads=threads,
+                        response_materialization=response_materialization,
+                        post_write_gate=post_write_gate,
+                        target_thread_ids=["thread-1"],
+                    )
+                    pr_path = tmp_path / "pr.json"
+                    threads_path = tmp_path / "review-threads.json"
+                    plan_path = tmp_path / "review-thread-resolution-plan.json"
+                    materialization_path = tmp_path / "review-response-materialization.json"
+                    gate_path = tmp_path / "post-write-gate.json"
+                    pr_path.write_text(json.dumps(pr), encoding="utf-8")
+                    threads_path.write_text(json.dumps(threads), encoding="utf-8")
+                    plan_path.write_text(json.dumps(plan), encoding="utf-8")
+                    materialization_path.write_text(json.dumps(response_materialization), encoding="utf-8")
+                    gate_path.write_text(json.dumps(post_write_gate), encoding="utf-8")
+                    token = review_thread_resolution_approval_token(
+                        plan,
+                        approval_secret=REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET,
+                    )
+                    fake_bin = tmp_path / "bin"
+                    fake_bin.mkdir()
+                    gh_log = tmp_path / "gh.log"
+                    write_fake_review_response_gh(fake_bin, gh_log)
+                    env = os.environ.copy()
+                    env["PATH"] = str(fake_bin) + os.pathsep + env.get("PATH", "")
+                    env["GH_FAKE_LOG"] = str(gh_log)
+                    env[env_flag] = "1"
+                    env[REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET_ENV] = REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET
+
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            str(SCRIPT),
+                            "--root",
+                            str(runtime_root),
+                            "review-thread-resolution-materialize",
+                            "--cwd",
+                            str(tmp_path),
+                            "--plan-file",
+                            str(plan_path),
+                            "--pr-json-file",
+                            str(pr_path),
+                            "--review-threads-file",
+                            str(threads_path),
+                            "--response-materialization-file",
+                            str(materialization_path),
+                            "--post-write-gate-file",
+                            str(gate_path),
+                            "--approval-token",
+                            token,
+                        ],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                        env=env,
+                    )
+
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    packet = json.loads(result.stdout)
+                    self.assertFalse(packet["valid"])
+                    self.assertTrue(packet["github_write_started"])
+                    self.assertEqual(packet["review_resolution"], "partial")
+                    self.assertEqual(packet["github_writes"][0]["thread_id"], "thread-1")
+                    self.assertEqual(packet["github_writes"][0]["status"], "unconfirmed")
+                    self.assertNotIn("resolved_review_thread", packet["side_effects"])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in packet["blockers"]})
+
+                    replay_result = subprocess.run(
+                        [sys.executable, str(SCRIPT), "--root", str(runtime_root), "audit-replay"],
+                        text=True,
+                        capture_output=True,
+                        check=False,
+                    )
+                    self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+                    replay = json.loads(replay_result.stdout)
+                    self.assertTrue(replay["valid"])
+                    self.assertEqual(replay["events_by_type"]["review_thread_resolution_intent"], 1)
+                    self.assertEqual(replay["events_by_type"]["review_thread_resolution_result"], 1)
+
     def test_review_thread_resolution_materialize_failed_mutation_records_result_audit(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
             pr, threads, response_materialization, post_write_gate = review_thread_resolution_inputs(tmp, evidence_tmp)
@@ -1301,10 +1659,12 @@ class PrReadinessTests(unittest.TestCase):
             threads_path = tmp_path / "review-threads.json"
             plan_path = tmp_path / "review-thread-resolution-plan.json"
             materialization_path = tmp_path / "review-response-materialization.json"
+            gate_path = tmp_path / "post-write-gate.json"
             pr_path.write_text(json.dumps(pr), encoding="utf-8")
             threads_path.write_text(json.dumps(threads), encoding="utf-8")
             plan_path.write_text(json.dumps(plan), encoding="utf-8")
             materialization_path.write_text(json.dumps(response_materialization), encoding="utf-8")
+            gate_path.write_text(json.dumps(post_write_gate), encoding="utf-8")
             token = review_thread_resolution_approval_token(plan, approval_secret=REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET)
             fake_bin = tmp_path / "bin"
             fake_bin.mkdir()
@@ -1333,6 +1693,8 @@ class PrReadinessTests(unittest.TestCase):
                     str(threads_path),
                     "--response-materialization-file",
                     str(materialization_path),
+                    "--post-write-gate-file",
+                    str(gate_path),
                     "--approval-token",
                     token,
                 ],

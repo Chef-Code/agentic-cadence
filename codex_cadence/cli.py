@@ -4798,7 +4798,15 @@ def review_thread_resolution_materialize_command(args: argparse.Namespace) -> in
     pr = load_pr_json(pr_json_file)
     review_threads = read_json(Path(args.review_threads_file))
     response_materialization = read_json(Path(args.response_materialization_file))
-    evidence_captured_at = datetime.fromtimestamp(pr_json_file.stat().st_mtime, timezone.utc)
+    post_write_gate = read_json(Path(args.post_write_gate_file))
+    gate_refresh = (
+        post_write_gate.get("refresh")
+        if isinstance(post_write_gate, dict) and isinstance(post_write_gate.get("refresh"), dict)
+        else {}
+    )
+    evidence_captured_at = gate_refresh.get("captured_at") or datetime.fromtimestamp(
+        pr_json_file.stat().st_mtime, timezone.utc
+    )
     payload = materialize_review_thread_resolution_plan(
         cwd=Path(args.cwd),
         plan_packet=plan_packet,
@@ -4808,6 +4816,7 @@ def review_thread_resolution_materialize_command(args: argparse.Namespace) -> in
         pr=pr,
         review_threads=review_threads,
         response_materialization=response_materialization,
+        post_write_gate=post_write_gate,
         pr_evidence_captured_at=evidence_captured_at,
         max_pr_evidence_age_minutes=args.max_pr_json_age_minutes,
     )
@@ -5534,6 +5543,7 @@ def build_parser() -> argparse.ArgumentParser:
     review_thread_resolution_materialize_parser.add_argument("--pr-json-file", required=True)
     review_thread_resolution_materialize_parser.add_argument("--review-threads-file", required=True)
     review_thread_resolution_materialize_parser.add_argument("--response-materialization-file", required=True)
+    review_thread_resolution_materialize_parser.add_argument("--post-write-gate-file", required=True)
     review_thread_resolution_materialize_parser.add_argument("--approval-token")
     review_thread_resolution_materialize_parser.add_argument("--max-pr-json-age-minutes", type=non_negative_int)
     review_thread_resolution_materialize_parser.set_defaults(

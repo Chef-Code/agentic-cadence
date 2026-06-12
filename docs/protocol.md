@@ -1585,14 +1585,16 @@ roles, schedule agents, or continue a loop automatically.
 `review-thread-resolution-materialize` is the explicit write-side boundary for
 a reviewed `review-thread-resolution-plan.v1` packet. It must consume the saved
 plan, saved PR JSON, saved review-thread JSON, the prior successful
-`review-response-materialization.v1` result, and an exact HMAC approval token
-for the plan checksum, target checksum, PR number, and target thread ids using
+`review-response-materialization.v1` result, the saved post-write gate packet,
+and an exact HMAC approval token for the plan checksum, target checksum, PR
+number, and target thread ids using
 `CADENCE_REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET`. Missing, mismatched, or
 unverifiable approval must block before audit or GitHub writes. Immediately
 before any `gh` side effect it must recheck saved PR freshness, PR number, head
 branch, base branch, head SHA, review-thread completeness, target thread ids,
 unresolved state, target checksum, saved PR/review-thread checksums, and the
-actual checksum of the supplied prior response materialization packet. It must
+actual checksums of the supplied prior response materialization and post-write
+gate packets. It must
 execute only approved
 `resolve_review_thread` actions through the narrow `resolveReviewThread`
 GitHub mutation.
