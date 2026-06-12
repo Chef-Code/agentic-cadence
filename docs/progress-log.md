@@ -33,6 +33,66 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-12 - Materialize approved review-thread resolutions
+
+Summary:
+- Added `review-thread-resolution-materialize` as the operator-approved
+  write-side bridge from `review-thread-resolution-plan.v1` to exact GitHub
+  review-thread resolution writes.
+- The command requires a target-bound HMAC approval token using
+  `CADENCE_REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET`, rechecks saved PR,
+  review-thread, response-materialization, and post-write gate evidence
+  immediately before mutation, and only resolves
+  approved thread ids through `resolveReviewThread`.
+- The result packet is `review-thread-resolution-materialization.v1` and
+  records approval target evidence, command trace, GitHub thread ids,
+  resolution status, blockers, limitations, and replayable
+  `review_thread_resolution_intent` / `review_thread_resolution_result` audit
+  events.
+
+Completed slices:
+- Task 34: operator-approved review-thread resolution materialization.
+
+Confidence change:
+- Previous: 25%
+- New: 27%
+- Reason: Cadence can now close approved review threads after exact operator
+  approval and immediate evidence rechecks, but still needs post-resolution
+  evidence refresh, composed PR-cycle evidence, and read-only merge decision
+  planning before review-loop closure is complete.
+
+Evidence:
+- `python -m pytest tests/test_pr_readiness.py tests/test_audit_replay.py`
+- `python -m compileall scripts codex_cadence transmission_control tests`
+- `python scripts/validate_protocol.py`
+- `python -m ruff check codex_cadence\review_response.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_pr_readiness.py tests\test_audit_replay.py`
+- `python -m unittest tests.test_pr_readiness tests.test_cadence tests.test_audit_replay`
+- `python -m unittest tests.test_candidates tests.test_ci_checks tests.test_codex_review_preflight tests.test_epochs tests.test_executor_contract tests.test_git_pr_plan tests.test_handoff_loop tests.test_release_dry_run tests.test_repo_state tests.test_task_planning`
+- `python -m unittest tests.test_adapter_claim_verifier tests.test_adapter_contract_runner tests.test_adapter_smoke_example tests.test_adapter_template_example tests.test_external_host_binding_conformance tests.test_generic_host_signal_smoke_example tests.test_generic_shell_host_binding_example tests.test_host_signal_contract_schema`
+- `python scripts/ci_smoke.py`
+- `python scripts/verify_package.py`
+- `python -m pip install .`
+- Windows PowerShell first-run example with installed console script on `PATH`.
+- Package example commands: adapter smoke, host signal contract schema, generic
+  host-signal smoke, generic shell host-binding, generic shell replay, generic
+  host/shell parity, and external host-binding conformance.
+- Adapter contract evidence validation and adapter claim verifier against a temp
+  compact evidence file.
+- `git diff --check`
+
+New risks or blockers:
+- Task 35 still needs post-resolution GitHub evidence refresh before Cadence can
+  compose authoritative PR-cycle evidence after resolved threads.
+- Merge, release, package publication, paid review, label editing, role
+  assignment, agent scheduling, and continuous-loop execution remain out of
+  scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+
 ## 2026-06-12 - Add review-thread resolution planning
 
 Summary:

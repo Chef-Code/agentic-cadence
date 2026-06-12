@@ -936,6 +936,29 @@ by that materialization.
 It does not call GitHub, resolve review threads, post comments, update PR
 bodies, merge, release, publish packages, spend paid review, or continue a loop.
 
+`review-thread-resolution-materialize` consumes that reviewed
+`review-thread-resolution-plan.v1` plus an HMAC approval token bound to the plan
+checksum, target checksum, PR number, and target thread ids. The token uses
+`CADENCE_REVIEW_THREAD_RESOLUTION_APPROVAL_SECRET` and the
+`approve-review-thread-resolution:hmac-sha256:<digest>` prefix:
+
+```bash
+agentic-cadence --root <runtime-root> review-thread-resolution-materialize --cwd . --plan-file review-thread-resolution-plan.json --pr-json-file pr.json --review-threads-file review-threads.json --response-materialization-file review-response-materialization.json --post-write-gate-file post-write-gate.json --approval-token approve-review-thread-resolution:hmac-sha256:<thread-resolution-target-hmac> --max-pr-json-age-minutes 30
+```
+
+Immediately before any `gh` write, Cadence rechecks saved PR freshness,
+PR/head/base anchors, review-thread completeness, unresolved state, target ids,
+post-write gate evidence, target checksum, and the supplied prior response
+materialization checksum. It appends `review_thread_resolution_intent` before writing, resolves only
+approved review thread ids through `resolveReviewThread`, then appends
+`review_thread_resolution_result` after success, approved pre-write blockers, or
+started-write failure. The
+result packet is `review-thread-resolution-materialization.v1` and preserves
+command trace, GitHub thread ids, resolution status, approval target evidence,
+and blockers. It does not post comments, update PR bodies, invoke paid review,
+edit labels, merge, release, publish packages, assign roles, schedule agents,
+or continue a loop.
+
 ## PR Body Preflight
 
 `pr-body-preflight` checks a draft PR body before publishing or updating a pull request. It reads local files only, uses the same Markdown heading parser as `pr-readiness`, and never rewrites the body.

@@ -429,6 +429,52 @@ def review_response_materialization_result_record(valid: bool = True, **override
     return record
 
 
+def review_thread_resolution_intent_record(**overrides):
+    record = {
+        "schema_version": "cadence-audit.v1",
+        "recorded_at": "2999-05-22T00:00:00Z",
+        "event": "review_thread_resolution_intent",
+        "action": "materialize_review_thread_resolution_plan",
+        "reason": "operator_approved_review_thread_resolution_intent",
+        "pr_number": "330",
+        "head_ref": "codex/example-branch",
+        "base_ref": "main",
+        "head_sha": "abc123",
+        "plan_file": "C:/tmp/review-thread-resolution-plan.json",
+        "payload_checksum": GOOD_CHECKSUM,
+        "plan_checksum": GOOD_CHECKSUM,
+        "target_checksum": GOOD_CHECKSUM,
+        "intended_side_effects_checksum": GOOD_CHECKSUM,
+    }
+    record.update(overrides)
+    return record
+
+
+def review_thread_resolution_result_record(valid: bool = True, **overrides):
+    record = {
+        "schema_version": "cadence-audit.v1",
+        "recorded_at": "2999-05-22T00:00:00Z",
+        "event": "review_thread_resolution_result",
+        "action": "materialized" if valid else "blocked",
+        "reason": "operator_approved_review_thread_resolution_result",
+        "valid": valid,
+        "materialization_status": "completed" if valid else "blocked",
+        "pr_number": "330",
+        "head_ref": "codex/example-branch",
+        "base_ref": "main",
+        "head_sha": "abc123",
+        "plan_file": "C:/tmp/review-thread-resolution-plan.json",
+        "payload_checksum": GOOD_CHECKSUM,
+        "plan_checksum": GOOD_CHECKSUM,
+        "target_checksum": GOOD_CHECKSUM,
+        "side_effects_checksum": GOOD_CHECKSUM,
+        "command_trace_checksum": GOOD_CHECKSUM,
+        "github_writes_checksum": GOOD_CHECKSUM,
+    }
+    record.update(overrides)
+    return record
+
+
 def operator_approval_verification_record(**overrides):
     record = {
         "schema_version": "cadence-audit.v1",
@@ -800,6 +846,8 @@ class AuditReplayCliTests(unittest.TestCase):
                 git_pr_dirty_commit_materialization_result_record(),
                 review_response_materialization_intent_record(),
                 review_response_materialization_result_record(),
+                review_thread_resolution_intent_record(),
+                review_thread_resolution_result_record(),
                 operator_approval_verification_record(),
                 work_ownership_mutation_record(),
             )
@@ -808,13 +856,13 @@ class AuditReplayCliTests(unittest.TestCase):
 
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue(output["valid"])
-            self.assertEqual(output["lines_seen"], 13)
-            self.assertEqual(output["records_seen"], 13)
-            self.assertEqual(output["records_valid"], 13)
+            self.assertEqual(output["lines_seen"], 15)
+            self.assertEqual(output["records_seen"], 15)
+            self.assertEqual(output["records_valid"], 15)
             self.assertEqual(output["records_invalid"], 0)
             self.assertRegex(output["chain_head"], r"^sha256:[0-9a-f]{64}$")
             self.assertEqual(output["chain_records"], 0)
-            self.assertEqual(output["legacy_chain_roots"], 13)
+            self.assertEqual(output["legacy_chain_roots"], 15)
             self.assertEqual(
                 output["events_by_type"],
                 {
@@ -830,6 +878,8 @@ class AuditReplayCliTests(unittest.TestCase):
                     "operator_approval_verification": 1,
                     "review_response_materialization_intent": 1,
                     "review_response_materialization_result": 1,
+                    "review_thread_resolution_intent": 1,
+                    "review_thread_resolution_result": 1,
                     "work_ownership_mutation": 1,
                 },
             )
@@ -1272,6 +1322,22 @@ class AuditReplayCliTests(unittest.TestCase):
             ),
             (
                 review_response_materialization_result_record(valid=False, materialization_status="completed"),
+                "audit_materialization_status_invalid",
+            ),
+            (
+                review_thread_resolution_intent_record(action="other"),
+                "audit_materialization_action_invalid",
+            ),
+            (
+                review_thread_resolution_result_record(valid=True, action="blocked"),
+                "audit_materialization_action_invalid",
+            ),
+            (
+                review_thread_resolution_result_record(valid=True, materialization_status="blocked"),
+                "audit_materialization_status_invalid",
+            ),
+            (
+                review_thread_resolution_result_record(valid=False, materialization_status="completed"),
                 "audit_materialization_status_invalid",
             ),
         ]
