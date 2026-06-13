@@ -1,9 +1,9 @@
 # Autonomous Loop Readiness
 
 Status: living document
-Last updated: 2026-06-12
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, Tasks 28-36 complete in main or active review branches, and the remaining Task 37 roadmap prepared
-Current unattended-operation confidence: 25% (deliberately stable headline token; progress-log records Task 36 projected capability at 31%)
+Last updated: 2026-06-13
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-37 complete in main or active review branches
+Current unattended-operation confidence: 25% (deliberately stable headline token; progress-log records Task 37 projected capability at 33%)
 
 This document answers how close Agentic Cadence is to the "press start and
 build continuously" experience. The first usable path is a governed
@@ -175,6 +175,12 @@ runtime can do these things end-to-end:
   materialization, final post-write gate, PR target, checksum, and chronological
   anchors into one `controlled-pr-cycle.v1` packet and success-only
   `controlled_pr_cycle` audit record.
+- plan a merge decision with `merge-decision-plan` from saved PR JSON,
+  review-thread JSON, PR-readiness, audit-replay, required
+  `controlled-pr-cycle` evidence, and optional role-readiness evidence,
+  while keeping
+  `operator_confirmation_required: true`, `merge_started: false`, and no Git or
+  GitHub write side effects.
 
 These capabilities are still single-agent Phase 1 primitives, but they are not
 throwaway work. They are the same primitives a future orchestrator needs for
@@ -236,6 +242,7 @@ Agentic Cadence cannot currently:
 | Git/PR transition planning | Partial, dry-run plus approved materialization | `git-pr-plan` emits reviewable branch/commit/PR plans without side effects; `git-pr-materialize` can create branch, push, and create/update PR only after exact target-bound operator approval and local rechecks |
 | Branch/commit/push/PR creation | Partial, operator-approved only | Exact approved dirty-worktree commit, push, and PR create/update bridges exist; no autonomous branch/PR writes, merge, release, or package publication |
 | Review response loop | Partial approved writes plus post-write refresh | Saved review files, synced review threads, failed checks, and PR-body evidence can become response-plan items; approved PR body/comment writes and approved review-thread resolution writes exist; post-write gate rechecks fresh evidence before the next bounded action; `controlled-pr-cycle` can compose the saved PR/review/post-write chain before merge planning; no automatic response loop |
+| Merge decision | Partial read-only planning | `merge-decision-plan` can bind saved PR, review-thread, readiness, audit, controlled-cycle, and optional role-readiness evidence into an operator-confirmed plan; no merge authority, branch deletion, release, or package publication |
 | Local work ownership | Partial, execution/resume-bound local evidence | `work-ownership-status` and `validate-work-ownership` validate local `work-ownership.v1` records; `claim-work-ownership`, `close-work-ownership`, and `fail-work-ownership` create/move local records with audit evidence; `start-governed-execution --ownership-target` can bind matching active ownership to the started epoch; `resume-continuation --ownership-target` can recheck matching active ownership before recommending execution start; no distributed lock, role assignment, or scheduler |
 | Context-pressure monitor | Partial explicit signal only | Host/session signal required |
 | New-session launch/resume | Partial read-only gates | `prepare-handoff`, clean-square evidence, `verify-resume`, and `resume-continuation.v1` packets exist; external orchestration still launches sessions and performs recommended actions |
@@ -307,7 +314,12 @@ publish packages, assign roles, schedule agents, or write GitHub state.
 `controlled-loop-tick` can then recheck that saved local chain and emit one
 completed or blocked `controlled-loop-tick.v1` packet with success-only
 `controlled_loop_tick` audit evidence; it does not retry the executor or
-rewrite invocation or closeout records. The
+rewrite invocation or closeout records. `controlled-pr-cycle` can recheck the
+saved PR/review/post-write chain, and `merge-decision-plan` can bind that
+cycle to saved PR-readiness, review-thread, audit-replay, and optional
+role-readiness evidence before an operator considers merging. These packets
+still do not merge, delete branches, release, publish packages, assign roles,
+schedule agents, or continue the loop. The
 controlled fixture path can prove policy, timeout, audit, run-record, and
 result-evidence behavior with fake local evidence, and local closeout can
 record task completion or terminally complete/fail the active epoch from that
@@ -427,6 +439,9 @@ Reasoning:
   chain is internally consistent and append `controlled_loop_tick` audit
   evidence for the completed composition, but it depends on separately
   produced evidence files and does not retry or continue.
+- `controlled-pr-cycle` and `merge-decision-plan` can now prove saved
+  PR/review/post-write and merge-readiness evidence coherency before operator
+  merge consideration, but they still provide no merge authority.
 - Executor task packets now fail closed on malformed local snapshots, missing
   repo identity, relative or unnormalizable cwd/path anchors, repo/cwd/branch/head
   mismatches, dirty worktrees, and low-confidence repo state.
@@ -436,9 +451,9 @@ Reasoning:
   after the brake changes, run a controlled fixture, bind supplied run evidence
   to closeout, recheck real-executor invocation readiness without side effects,
   run one approved real executor command, bind audit-anchored real invocation
-  evidence into closeout, compose the saved local chain into a controlled tick
-  packet, and replay local audit history. Remaining gaps are
-  host/session orchestration, autonomous Git/PR flow, merge governance, release
+  evidence into closeout, compose the saved local and PR chains into controlled
+  packets, plan merge readiness, and replay local audit history. Remaining gaps are
+  host/session orchestration, autonomous Git/PR flow, merge authority, release
   governance, and package-publication governance.
 - The handoff and task/epoch model is useful.
 - Candidate discovery is deterministic and conservative.

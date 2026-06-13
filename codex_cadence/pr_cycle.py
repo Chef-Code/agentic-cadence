@@ -670,7 +670,9 @@ def compose_controlled_pr_cycle(
             audit_blockers = validate_controlled_pr_cycle_audit_record(audit_record, 0)
             if audit_blockers:
                 raise ValueError(f"controlled_pr_cycle audit record is invalid: {audit_blockers[0]['code']}")
-            payload["audit_record"] = append_audit_record(root, audit_record)
+            audit_ref = append_audit_record(root, audit_record)
+            audit_ref["payload_checksum"] = audit_record["payload_checksum"]
+            payload["audit_record"] = audit_ref
         except Exception as exc:
             payload["valid"] = False
             payload["controlled_pr_cycle_status"] = "blocked"

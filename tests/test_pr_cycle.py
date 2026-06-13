@@ -347,6 +347,7 @@ class PrCycleTests(unittest.TestCase):
             self.assertEqual(records[-1]["event"], "controlled_pr_cycle")
             self.assertEqual(records[-1]["action"], "complete_controlled_pr_cycle")
             self.assertEqual(records[-1]["payload_checksum"], checksum_json({k: v for k, v in packet.items() if k != "audit_record"}))
+            self.assertEqual(packet["audit_record"]["payload_checksum"], records[-1]["payload_checksum"])
             replay = replay_audit_log(root)
             self.assertEqual(replay["events_by_type"]["controlled_pr_cycle"], 1)
 

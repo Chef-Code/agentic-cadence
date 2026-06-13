@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-12
+Last updated: 2026-06-13
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,50 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-13 - Plan merge decisions from saved evidence
+
+Summary:
+- Added `merge-decision-plan` to compose saved PR JSON, review-thread JSON,
+  PR-readiness, audit-replay, required controlled PR-cycle, and optional
+  role-readiness evidence into one read-only `merge-decision-plan.v1` packet.
+- The planner rechecks PR number, head branch, base branch, and head SHA across
+  supplied evidence, blocks unresolved actionable review comments, requires
+  valid controlled PR-cycle audit evidence, and keeps merge authority outside
+  Cadence.
+- Successful plans require operator confirmation and report
+  `merge_started: false`, `github_write_started: false`, and an empty command
+  trace.
+
+Completed slices:
+- Task 37: read-only merge decision planning.
+
+Confidence change:
+- Previous: 31%
+- New: 33%
+- Reason: Cadence can now produce a merge decision plan from the saved
+  PR-cycle evidence chain, but it still cannot merge, delete branches, release,
+  publish packages, or continue the loop automatically.
+
+Evidence:
+- `python -m unittest tests.test_merge_decision -v`
+- `python -m py_compile codex_cadence\merge_decision.py codex_cadence\cli.py`
+- `python -m unittest tests.test_pr_readiness tests.test_cadence -v`
+- `python scripts\validate_protocol.py`
+- `python -m ruff check codex_cadence\merge_decision.py codex_cadence\cli.py tests\test_merge_decision.py`
+- `git diff --check`
+
+New risks or blockers:
+- Merge authority remains intentionally absent. A human or external approved
+  system must still perform the merge after inspecting the plan.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
 
 ## 2026-06-12 - Compose controlled PR-cycle evidence
 
