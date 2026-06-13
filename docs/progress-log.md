@@ -33,6 +33,45 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-12 - Refresh evidence after review-thread resolution
+
+Summary:
+- Extended `post-write-pr-evidence-gate` to accept successful
+  `review-thread-resolution-materialization.v1` packets.
+- The gate now verifies approved resolved thread targets against fresh saved
+  review-thread evidence before re-running PR readiness and candidate discovery.
+- Refreshed resolved targets are suppressed from follow-up candidates, while
+  approved targets that remain unresolved block for operator inspection.
+
+Completed slices:
+- Task 35: post-resolution PR/review evidence refresh.
+
+Confidence change:
+- Previous: 27%
+- New: 29%
+- Reason: Cadence can now verify live PR/review state after approved thread
+  resolution writes, but still lacks composed PR-cycle evidence and read-only
+  merge decision planning.
+
+Evidence:
+- `python -m unittest tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_accepts_thread_resolution_result_with_resolved_targets tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_blocks_thread_resolution_target_still_unresolved tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_requires_refreshed_thread_resolution_target_ids -v`
+- `python -m unittest tests.test_pr_readiness -v`
+- `python -m compileall scripts codex_cadence transmission_control tests`
+- `python scripts/validate_protocol.py`
+- `python -m ruff check codex_cadence\github_evidence.py tests\test_pr_readiness.py`
+- `git diff --check`
+- `python -m unittest discover -s tests -v`
+
+New risks or blockers:
+- Controlled PR-cycle composition and merge decision planning remain unbuilt.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/progress-log.md`
+
 ## 2026-06-12 - Materialize approved review-thread resolutions
 
 Summary:

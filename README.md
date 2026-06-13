@@ -822,11 +822,12 @@ requests, merge, release, or publish packages.
 ## Post-Write PR Evidence Gate
 
 `post-write-pr-evidence-gate` is the read-only bridge after an approved
-Git/PR or review-response materialization result. It consumes the
-materialization result plus fresh `github-evidence-sync` summary output, loads
-the refreshed saved PR and review-thread files, verifies PR number, branch,
-base, and head SHA still match the materialized target, then re-runs PR
-readiness and candidate discovery from the refreshed evidence:
+Git/PR, review-response, or review-thread-resolution materialization result. It
+consumes the materialization result plus fresh `github-evidence-sync` summary
+output, loads the refreshed saved PR and review-thread files, verifies PR
+number, branch, base, and head SHA still match the materialized target, verifies
+approved thread-resolution targets are present and resolved when applicable,
+then re-runs PR readiness and candidate discovery from the refreshed evidence:
 
 ```bash
 agentic-cadence post-write-pr-evidence-gate --cwd . --materialization-file review-response-materialization.json --github-evidence-file .cadence/github-evidence/pr-9/pr-9-github-evidence.json --required-check "Python and protocol checks" --pr-template-file .github/pull_request_template.md
@@ -836,9 +837,11 @@ The packet is `post-write-pr-evidence-gate.v1` and recommends exactly one of
 `ready_for_review`, `refresh_required`, `follow_up_candidates`,
 `wait_for_checks`, `respond_to_review`, or `operator_review`. Missing, stale,
 incomplete, or mismatched refreshed evidence blocks before any follow-up
-recommendation. The gate does not post comments, update PR bodies, resolve
-review threads, trigger paid review, merge, release, publish packages, assign
-roles, schedule agents, or continue a loop.
+recommendation. Resolved target threads no longer produce review-finding
+follow-up candidates; still-unresolved approved targets block for operator
+inspection. The gate does not post comments, update PR bodies, resolve review
+threads, trigger paid review, merge, release, publish packages, assign roles,
+schedule agents, or continue a loop.
 
 ## PR Readiness
 

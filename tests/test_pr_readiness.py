@@ -189,6 +189,72 @@ def git_pr_materialization_result(pr, **overrides):
     return packet
 
 
+def review_thread_resolution_materialization_result(pr, *, thread_ids=None, **overrides):
+    thread_ids = list(thread_ids or ["thread-1"])
+    github_writes = [
+        {
+            "kind": "resolve_review_thread",
+            "pr_number": str(pr.get("number")),
+            "thread_id": thread_id,
+            "comment_ids": [f"comment-{index}"],
+            "github_thread_id": thread_id,
+            "is_resolved": True,
+            "status": "resolved",
+        }
+        for index, thread_id in enumerate(thread_ids, start=1)
+    ]
+    packet = {
+        "protocol_version": "cadence.v1",
+        "schema_version": "review-thread-resolution-materialization.v1",
+        "packet": "review_thread_resolution_materialization",
+        "generated_at": "2026-06-11T10:05:00Z",
+        "valid": True,
+        "decision": "materialized",
+        "recommended_next_action": "inspect_pull_request",
+        "approval_state": "approved",
+        "execution_authority": "operator_approved_review_thread_resolution",
+        "github_write_started": True,
+        "review_resolution": "resolved",
+        "merge_readiness": "not_evaluated",
+        "plan_file": "review-thread-resolution-plan.json",
+        "plan_checksum": checksum_json(
+            {"packet": "review_thread_resolution_plan", "mock": "plan"}
+        ),
+        "target_checksum": checksum_json(
+            {"packet": "review_thread_resolution_target", "mock": "target"}
+        ),
+        "approval_target": {
+            "schema_version": "review-thread-resolution-approval-target.v1",
+            "pr_number": str(pr.get("number")),
+            "head_ref": pr.get("headRefName"),
+            "base_ref": pr.get("baseRefName"),
+            "head_sha": pr.get("headRefOid"),
+            "thread_ids": thread_ids,
+        },
+        "pr": {
+            "number": str(pr.get("number")),
+            "head_ref": pr.get("headRefName"),
+            "base_ref": pr.get("baseRefName"),
+            "head_sha": pr.get("headRefOid"),
+            "url": pr.get("url", "https://github.com/Chef-Code/agentic-cadence/pull/330"),
+        },
+        "evidence": {},
+        "intended_side_effects": ["resolve_review_thread" for _thread_id in thread_ids],
+        "side_effects": [
+            "audit_intent_record_appended",
+            *["resolved_review_thread" for _thread_id in thread_ids],
+            "audit_result_record_appended",
+        ],
+        "command_trace": [],
+        "github_writes": github_writes,
+        "blockers": [],
+        "warnings": [],
+        "limitations": ["does_not_merge"],
+    }
+    packet.update(overrides)
+    return packet
+
+
 def write_github_evidence_sync_files(root, pr, review_threads, captured_at="2026-06-11T10:10:00Z"):
     evidence_dir = Path(root, "github-evidence")
     evidence_dir.mkdir()
@@ -1799,6 +1865,137 @@ class PrReadinessTests(unittest.TestCase):
         self.assertEqual(packet["materialization"]["type"], "git_pr_materialization")
         self.assertEqual(packet["materialization"]["pr_number"], "330")
         self.assertEqual(packet["refresh"]["head_ref"], "codex/example-branch")
+        self.assertEqual(packet["side_effects"], [])
+
+    def test_post_write_gate_accepts_thread_resolution_result_with_resolved_targets(self):
+        from codex_cadence.github_evidence import evaluate_post_write_pr_evidence_gate
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            init_pr_gate_repo(tmp)
+            pr = base_pr()
+            threads = review_threads_payload(
+                [
+                    {
+                        "id": "thread-1",
+                        "isResolved": True,
+                        "isOutdated": False,
+                        "path": "codex_cadence/cli.py",
+                        "line": 120,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-1",
+                                    "body": "Resolved review finding should not produce a follow-up candidate.",
+                                    "outdated": False,
+                                    "author": {"login": "coderabbitai"},
+                                }
+                            ],
+                        },
+                    }
+                ]
+            )
+            sync_path, sync_packet = write_github_evidence_sync_files(evidence_tmp, pr, threads)
+
+            packet = evaluate_post_write_pr_evidence_gate(
+                cwd=Path(tmp),
+                materialization_result=review_thread_resolution_materialization_result(pr),
+                github_evidence_sync=sync_packet,
+                github_evidence_file=sync_path,
+                required_checks=["Python and protocol checks"],
+                required_body_sections=["Summary", "Testing"],
+            )
+
+        self.assertTrue(packet["valid"])
+        self.assertEqual(packet["decision"], "ready")
+        self.assertEqual(packet["recommended_next_action"], "ready_for_review")
+        self.assertEqual(packet["materialization"]["type"], "review_thread_resolution_materialization")
+        self.assertEqual(packet["materialization"]["target_thread_ids"], ["thread-1"])
+        self.assertEqual(packet["refresh"]["resolved_target_thread_ids"], ["thread-1"])
+        self.assertEqual(packet["refresh"]["unresolved_target_thread_ids"], [])
+        self.assertEqual(packet["pr_readiness"]["review_feedback_summary"]["unresolved_actionable_comments"], 0)
+        self.assertEqual(packet["follow_up_candidates"], [])
+        self.assertEqual(packet["side_effects"], [])
+
+    def test_post_write_gate_blocks_thread_resolution_target_still_unresolved(self):
+        from codex_cadence.github_evidence import evaluate_post_write_pr_evidence_gate
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            init_pr_gate_repo(tmp)
+            pr = base_pr()
+            threads = review_threads_payload(
+                [
+                    {
+                        "id": "thread-1",
+                        "isResolved": False,
+                        "isOutdated": False,
+                        "path": "codex_cadence/cli.py",
+                        "line": 120,
+                        "comments": {
+                            "pageInfo": {"hasNextPage": False, "endCursor": None},
+                            "nodes": [
+                                {
+                                    "id": "comment-1",
+                                    "body": "Approved resolution did not actually close this thread.",
+                                    "outdated": False,
+                                    "author": {"login": "coderabbitai"},
+                                }
+                            ],
+                        },
+                    }
+                ]
+            )
+            sync_path, sync_packet = write_github_evidence_sync_files(evidence_tmp, pr, threads)
+
+            packet = evaluate_post_write_pr_evidence_gate(
+                cwd=Path(tmp),
+                materialization_result=review_thread_resolution_materialization_result(pr),
+                github_evidence_sync=sync_packet,
+                github_evidence_file=sync_path,
+                required_checks=["Python and protocol checks"],
+            )
+
+        self.assertFalse(packet["valid"])
+        self.assertEqual(packet["decision"], "blocked")
+        self.assertEqual(packet["recommended_next_action"], "operator_review")
+        self.assertEqual(packet["refresh"]["unresolved_target_thread_ids"], ["thread-1"])
+        self.assertIn(
+            "post_write_thread_resolution_target_unresolved",
+            {blocker["code"] for blocker in packet["blockers"]},
+        )
+        self.assertEqual(packet["side_effects"], [])
+
+    def test_post_write_gate_requires_refreshed_thread_resolution_target_ids(self):
+        from codex_cadence.github_evidence import evaluate_post_write_pr_evidence_gate
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as evidence_tmp:
+            init_pr_gate_repo(tmp)
+            pr = base_pr()
+            sync_path, sync_packet = write_github_evidence_sync_files(
+                evidence_tmp,
+                pr,
+                review_threads_payload([]),
+            )
+
+            packet = evaluate_post_write_pr_evidence_gate(
+                cwd=Path(tmp),
+                materialization_result=review_thread_resolution_materialization_result(pr),
+                github_evidence_sync=sync_packet,
+                github_evidence_file=sync_path,
+                required_checks=["Python and protocol checks"],
+            )
+
+        self.assertFalse(packet["valid"])
+        self.assertEqual(packet["decision"], "blocked")
+        self.assertEqual(packet["recommended_next_action"], "refresh_required")
+        self.assertEqual(packet["refresh"]["target_thread_ids"], ["thread-1"])
+        self.assertEqual(packet["refresh"]["missing_target_thread_ids"], ["thread-1"])
+        self.assertIn(
+            "post_write_thread_resolution_target_missing",
+            {blocker["code"] for blocker in packet["blockers"]},
+        )
+        self.assertEqual(packet["pr_readiness"], {})
+        self.assertEqual(packet["candidate_discovery"], {})
         self.assertEqual(packet["side_effects"], [])
 
     def test_post_write_gate_requires_github_evidence_sync_after_materialization(self):
