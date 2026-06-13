@@ -2,8 +2,8 @@
 
 Status: living document
 Last updated: 2026-06-13
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-39 complete in main or active review branches
-Current unattended-operation confidence: 25% (deliberately stable headline token; progress-log records Task 39 projected capability at 34%)
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-40 complete in main or active review branches
+Current unattended-operation confidence: 25% (deliberately stable headline token; progress-log records Task 40 projected capability at 35%)
 
 This document answers how close Agentic Cadence is to the "press start and
 build continuously" experience. The first usable path is a governed
@@ -165,6 +165,11 @@ runtime can do these things end-to-end:
   planned executor task checksum, execution-start task anchor, local active
   epoch, and start audit record before recommending executor-invocation
   planning, without starting a runner or executor.
+- compose a saved `controlled-loop-start.v1` packet with saved
+  `executor-invocation-readiness.v1` and `executor-invocation-plan.v1`
+  packets through `controlled-loop-invocation-plan`, rechecking task, epoch,
+  readiness, and target checksum anchors before recommending
+  `invoke_real_executor`, without starting a runner or executor.
 - start one approved real executor command through `invoke-real-executor`,
   write `real-executor-invocation.v1` evidence, and bind accepted
   real-invocation evidence into closeout and dry-run Git/PR planning without
@@ -237,7 +242,7 @@ Agentic Cadence cannot currently:
 | Handoff lifecycle | Implemented | `codex_cadence/handoff_loop.py`, `codex_cadence/cli.py` |
 | PR body/readiness checks | Implemented from saved inputs | `codex_cadence/pr_readiness.py` |
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
-| Single loop tick | Partial, controlled local evidence | `loop-tick` emits next action and stops before execution; `loop-run-plan` wraps that decision into a read-only next-step packet; `controlled-loop-start` composes a saved plan with approved execution-start evidence; `controlled-loop-tick` composes saved local evidence after closeout without retrying or continuing |
+| Single loop tick | Partial, controlled local evidence | `loop-tick` emits next action and stops before execution; `loop-run-plan` wraps that decision into a read-only next-step packet; `controlled-loop-start` composes a saved plan with approved execution-start evidence; `controlled-loop-invocation-plan` composes the controlled start with readiness and invocation-plan evidence before process start; `controlled-loop-tick` composes saved local evidence after closeout without retrying or continuing |
 | Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, task-carried branch policy, active brake stop handling, governed execution-start audit, local `execution-run.v1` records, `<root>/audit/events.jsonl`, hash-chained new audit appends, read-only `audit-replay`, audited `operator-approval.v1` verification through `verify-operator-approval`, success-only `controlled_loop_tick`, and success-only `controlled_pr_cycle` audit evidence; no external identity provider or autonomous GitHub authority |
 | Agent-team orchestration | Partial read-only evidence | `role-readiness` can verify local `role-policy.v1`, scoped ownership role labels, and saved review-thread separation evidence; no agent pool, role assignment, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
@@ -314,6 +319,9 @@ read-only `executor-invocation-readiness.v1` packet can prove whether a real
 invocation is locally ready, and `executor-invocation-plan` binds that
 readiness to operator approval, adapter metadata, rollback evidence, a command,
 environment allowlist, timeout, result path, and the current audit-chain head.
+`controlled-loop-invocation-plan` can then compose the controlled start,
+readiness, and invocation plan into one read-only pre-invocation packet before
+any process start.
 Matching plans still use `recommended_next_action: invoke_real_executor`;
 process start only happens when an operator runs `invoke-real-executor`.
 `invoke-real-executor` can now start exactly one approved command and write
@@ -442,8 +450,10 @@ Reasoning:
 - A read-only `loop-tick` now stitches snapshot, candidate election, Cadence
   state, and next-action reporting into one packet; `loop-run-plan` can wrap
   that decision into a bounded next-step plan, and `controlled-loop-start` can
-  compose that plan with approved execution-start evidence without starting a
-  runner, executor, PR action, GitHub write, or merge.
+  compose that plan with approved execution-start evidence while
+  `controlled-loop-invocation-plan` composes the controlled start with
+  readiness and invocation-plan evidence, all without starting a runner,
+  executor, PR action, GitHub write, or merge.
 - The generic executor task/result contract is now explicit and testable, and
   is wired through read-only executor invocation readiness, read-only invocation
   planning, fake controlled executor fixtures, and controlled one-command real

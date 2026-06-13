@@ -980,6 +980,53 @@ GitHub, create or update pull requests, resolve review threads, merge, release,
 publish packages, assign roles, schedule agents, claim distributed locks, or
 rewrite the supplied plan or execution-start records.
 
+`controlled-loop-invocation-plan` composes an already saved
+`controlled-loop-start.v1` packet with saved `executor-invocation-readiness.v1`
+and `executor-invocation-plan.v1` packets into
+`controlled-loop-invocation-plan.v1`. The command reads
+`--controlled-loop-start-file`, `--readiness-file`, and
+`--invocation-plan-file`; requires matching packet and schema values; requires
+the controlled start to be completed with
+`recommended_next_action: plan_executor_invocation`; requires readiness to be
+valid, read-only, executor-ready, and side-effect-free; and requires the
+invocation plan to be valid, read-only, executor-planned, side-effect-free, and
+waiting at `recommended_next_action: invoke_real_executor`.
+
+The command rechecks that the controlled start task id, executor task checksum,
+and epoch id match the readiness task and active-epoch anchors. It also rechecks
+that the invocation plan's readiness file/checksum and target readiness
+checksum match the supplied readiness packet, and that the invocation plan
+target checksum matches its target payload. A completed packet uses
+`packet: controlled_loop_invocation_plan`,
+`controlled_invocation_plan_status: completed`, `read_only: true`,
+`valid: true`, and `recommended_next_action: invoke_real_executor`. The
+top-level response envelope includes `controlled_loop_start_checksum`,
+`readiness_checksum`, `invocation_plan_checksum`, `task_id`, `epoch_id`,
+`target_checksum`, nested copies of the three supplied packets, `blockers`, and
+explicit false side-effect flags.
+
+Blocked packets use `controlled_invocation_plan_status: blocked`,
+`valid: false`, stable blockers, and exit code 2. Invalid readiness or
+controlled-start/readiness anchor mismatch recommends
+`refresh_executor_invocation_readiness`; invalid invocation-plan evidence or
+invocation-plan/readiness mismatch recommends
+`recreate_executor_invocation_plan`; invalid controlled-start evidence
+recommends `recreate_controlled_loop_start`; missing or wrong packet evidence
+recommends `refresh_controlled_invocation_evidence`. Stable blocker codes
+include `controlled_loop_start_evidence_missing`,
+`readiness_evidence_missing`, `invocation_plan_evidence_missing`,
+`controlled_invocation_packet_mismatch`, `controlled_start_invalid`,
+`readiness_not_invocable`, `invocation_plan_not_invocable`,
+`controlled_start_readiness_mismatch`, and
+`invocation_plan_readiness_mismatch`.
+
+Completed and blocked `controlled-loop-invocation-plan` packets append no audit
+record and must not continue the loop, start a runner, start or retry an
+executor, start an epoch, create branches, commit, push, call GitHub, create or
+update pull requests, resolve review threads, merge, release, publish packages,
+assign roles, schedule agents, claim distributed locks, or rewrite the supplied
+controlled-start, readiness, or invocation-plan records.
+
 `audit-replay` is the read-only local audit verification command. It reads
 `<root>/audit/events.jsonl`, emits an `audit-replay.v1` packet, and exits
 nonzero when the audit log contains malformed, corrupt, unsupported, or

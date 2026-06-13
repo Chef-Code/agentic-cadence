@@ -33,6 +33,52 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-13 - Compose loop invocation plans
+
+Summary:
+- Added `controlled-loop-invocation-plan` to compose a saved
+  `controlled-loop-start.v1` packet with saved
+  `executor-invocation-readiness.v1` and `executor-invocation-plan.v1`
+  packets.
+- The packet rechecks controlled-start, readiness, and invocation-plan schemas,
+  task id/checksum, epoch id, readiness file/checksum, target checksum, and
+  target readiness checksum before recommending `invoke_real_executor`.
+- Completed and blocked packets append no audit evidence; the command does not
+  start a runner, start or retry an executor, continue a loop, write
+  Git/GitHub state, merge, release, publish packages, assign roles, or schedule
+  agents.
+
+Completed slices:
+- Task 40: read-only controlled loop invocation-plan composition.
+
+Confidence change:
+- Previous: 34%
+- New: 35%
+- Reason: Cadence can now prove the path from loop start to already-approved
+  invocation plan before process start, but it still does not run a continuous
+  loop, autonomously retry executors, or operate GitHub.
+
+Evidence:
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_controlled_loop_invocation_plan_composes_start_readiness_and_plan tests.test_cadence.CadenceCliTests.test_controlled_loop_invocation_plan_blocks_mismatched_invocation_plan tests.test_cadence.CadenceCliTests.test_controlled_loop_invocation_plan_blocks_missing_readiness_file_anchor tests.test_cadence.CadenceCliTests.test_controlled_loop_invocation_plan_blocks_side_effect_contaminated_readiness tests.test_cadence.CadenceCliTests.test_controlled_loop_invocation_plan_blocks_side_effect_contaminated_invocation_plan -v`
+- `python -m unittest tests.test_cadence -v` (336 tests, 3 expected Windows symlink skips)
+- `python -m compileall scripts codex_cadence transmission_control tests`
+- `python scripts\validate_protocol.py`
+- `python -m ruff check codex_cadence\cli.py tests\test_cadence.py`
+- `git diff --check`
+
+New risks or blockers:
+- Continuous loop execution, autonomous executor retry, Git/GitHub writes,
+  merge, release, package publication, role assignment, and agent scheduling
+  remain out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-13 - Compose controlled loop starts
 
 Summary:

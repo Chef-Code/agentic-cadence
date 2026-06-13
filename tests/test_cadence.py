@@ -3235,7 +3235,7 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse((Path(tmp) / "audit" / "events.jsonl").exists())
             self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
 
-    def write_controlled_loop_start_inputs(self, tmp, repo):
+    def write_controlled_loop_start_inputs(self, tmp, repo, *, executor_evidence_path=None):
         marker = Path(repo) / "notes.py"
         marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
         git(repo, "add", "notes.py")
@@ -3243,7 +3243,7 @@ class CadenceCliTests(unittest.TestCase):
         plan_path = Path(tmp) / "loop-run-plan.json"
         task_path = Path(tmp) / "executor-task.json"
         start_path = Path(tmp) / "execution-start.json"
-        evidence_path = Path(tmp) / "executor-result.json"
+        evidence_path = Path(executor_evidence_path) if executor_evidence_path is not None else Path(tmp) / "executor-result.json"
 
         plan_result, plan = run_cli(
             tmp,
@@ -3277,6 +3277,128 @@ class CadenceCliTests(unittest.TestCase):
         self.assertEqual(start_result.returncode, 0, start_result.stderr)
         start_path.write_text(json.dumps(start), encoding="utf-8")
         return plan_path, task_path, start_path, plan, start
+
+    def write_controlled_loop_invocation_plan_inputs(self, tmp, repo):
+        executor_result_path = Path(tmp) / "executor-results" / "executor-result.json"
+        loop_plan_path, task_path, execution_start_path, loop_plan, execution_start = self.write_controlled_loop_start_inputs(
+            tmp,
+            repo,
+            executor_evidence_path=executor_result_path,
+        )
+        controlled_start_result, controlled_start = run_cli(
+            tmp,
+            "controlled-loop-start",
+            "--loop-run-plan-file",
+            str(loop_plan_path),
+            "--execution-start-file",
+            str(execution_start_path),
+        )
+        self.assertEqual(controlled_start_result.returncode, 0, controlled_start_result.stderr)
+        controlled_start_path = Path(tmp) / "controlled-loop-start.json"
+        controlled_start_path.write_text(json.dumps(controlled_start), encoding="utf-8")
+
+        task_packet = loop_plan["executor_task"]
+        task_id = task_packet["task"]["id"]
+        write_work_ownership(
+            tmp,
+            "ownership-1",
+            task_id=task_id,
+            candidate_id=task_id,
+            branch=current_branch(repo),
+            head=current_head(repo),
+            epoch_id=execution_start["epoch_id"],
+            handoff_id=None,
+        )
+
+        readiness_result, readiness = run_cli(
+            tmp,
+            "executor-invocation-readiness",
+            "--cwd",
+            repo,
+            "--task-file",
+            str(task_path),
+            "--epoch-id",
+            execution_start["epoch_id"],
+            "--ownership-target",
+            "ownership-1",
+            "--expected-result-path",
+            str(executor_result_path),
+        )
+        self.assertEqual(readiness_result.returncode, 0, readiness_result.stderr)
+        readiness_path = Path(tmp) / "executor-invocation-readiness.json"
+        readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
+
+        audit_result, audit_replay = run_cli(tmp, "audit-replay")
+        self.assertEqual(audit_result.returncode, 0, audit_result.stderr)
+        self.assertTrue(audit_replay["valid"])
+
+        command = "python -m unittest tests.test_cadence"
+        adapter_path, adapter_packet = write_executor_invocation_adapter(
+            Path(tmp) / "executor-adapter.json",
+            command_template=command,
+        )
+        rollback_path, rollback_packet = write_executor_invocation_rollback(
+            Path(tmp) / "executor-rollback.json",
+            task_packet,
+        )
+        environment_allowlist = ["PATH", "PYTHONPATH"]
+        target = executor_invocation_target_descriptor(
+            readiness_packet=readiness,
+            adapter_packet=adapter_packet,
+            rollback_packet=rollback_packet,
+            command=command,
+            cwd=repo,
+            expected_result_path=executor_result_path,
+            environment_allowlist=environment_allowlist,
+            timeout_seconds=300,
+            audit_chain_head=audit_replay["chain_head"],
+        )
+        approval_path, _approval_packet = write_operator_approval(
+            Path(tmp) / "executor-invocation-approval.json",
+            target_checksum=checksum_json(target),
+            purpose="real_executor_invocation",
+        )
+        invocation_plan_result, invocation_plan = run_cli(
+            tmp,
+            "executor-invocation-plan",
+            "--cwd",
+            repo,
+            "--readiness-file",
+            str(readiness_path),
+            "--approval-file",
+            str(approval_path),
+            "--approval-secret",
+            OPERATOR_APPROVAL_SECRET,
+            "--adapter-file",
+            str(adapter_path),
+            "--rollback-file",
+            str(rollback_path),
+            "--command",
+            command,
+            "--env-allow",
+            "PATH",
+            "--env-allow",
+            "PYTHONPATH",
+            "--timeout-seconds",
+            "300",
+            "--expected-result-path",
+            str(executor_result_path),
+        )
+        self.assertEqual(invocation_plan_result.returncode, 0, invocation_plan_result.stderr)
+        invocation_plan_path = Path(tmp) / "executor-invocation-plan.json"
+        invocation_plan_path.write_text(json.dumps(invocation_plan), encoding="utf-8")
+
+        return {
+            "controlled_start_path": controlled_start_path,
+            "readiness_path": readiness_path,
+            "invocation_plan_path": invocation_plan_path,
+            "controlled_start": controlled_start,
+            "readiness": readiness,
+            "invocation_plan": invocation_plan,
+            "execution_start": execution_start,
+            "loop_plan": loop_plan,
+            "task_packet": task_packet,
+        }
 
     def test_controlled_loop_start_composes_plan_and_execution_start(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
@@ -3514,6 +3636,149 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertEqual(output["recommended_next_action"], expected_action)
                     self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
                     self.assertEqual(audit_path.read_text(encoding="utf-8"), audit_before)
+
+    def test_controlled_loop_invocation_plan_composes_start_readiness_and_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_invocation_plan_inputs(tmp, repo)
+            audit_before = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-invocation-plan",
+                "--controlled-loop-start-file",
+                str(inputs["controlled_start_path"]),
+                "--readiness-file",
+                str(inputs["readiness_path"]),
+                "--invocation-plan-file",
+                str(inputs["invocation_plan_path"]),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "controlled-loop-invocation-plan.v1")
+            self.assertEqual(output["packet"], "controlled_loop_invocation_plan")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["controlled_invocation_plan_status"], "completed")
+            self.assertEqual(output["recommended_next_action"], "invoke_real_executor")
+            self.assertFalse(output["runner_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertFalse(output["github_write_started"])
+            self.assertFalse(output["merge_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(output["controlled_loop_start_checksum"], checksum_json(inputs["controlled_start"]))
+            self.assertEqual(output["readiness_checksum"], checksum_json(inputs["readiness"]))
+            self.assertEqual(output["invocation_plan_checksum"], checksum_json(inputs["invocation_plan"]))
+            self.assertEqual(output["task_id"], inputs["task_packet"]["task"]["id"])
+            self.assertEqual(output["epoch_id"], inputs["execution_start"]["epoch_id"])
+            self.assertEqual(output["target_checksum"], inputs["invocation_plan"]["target_checksum"])
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual((Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8"), audit_before)
+
+    def test_controlled_loop_invocation_plan_blocks_mismatched_invocation_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_invocation_plan_inputs(tmp, repo)
+            invocation_plan = dict(inputs["invocation_plan"])
+            invocation_plan["readiness"] = dict(invocation_plan["readiness"])
+            invocation_plan["readiness"]["checksum"] = "sha256:" + "0" * 64
+            inputs["invocation_plan_path"].write_text(json.dumps(invocation_plan), encoding="utf-8")
+            audit_before = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-invocation-plan",
+                "--controlled-loop-start-file",
+                str(inputs["controlled_start_path"]),
+                "--readiness-file",
+                str(inputs["readiness_path"]),
+                "--invocation-plan-file",
+                str(inputs["invocation_plan_path"]),
+            )
+
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_invocation_plan_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "recreate_executor_invocation_plan")
+            self.assertIn("invocation_plan_readiness_mismatch", blocker_codes)
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual((Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8"), audit_before)
+
+    def test_controlled_loop_invocation_plan_blocks_missing_readiness_file_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_invocation_plan_inputs(tmp, repo)
+            invocation_plan = dict(inputs["invocation_plan"])
+            invocation_plan["readiness"] = dict(invocation_plan["readiness"])
+            del invocation_plan["readiness"]["file"]
+            inputs["invocation_plan_path"].write_text(json.dumps(invocation_plan), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-invocation-plan",
+                "--controlled-loop-start-file",
+                str(inputs["controlled_start_path"]),
+                "--readiness-file",
+                str(inputs["readiness_path"]),
+                "--invocation-plan-file",
+                str(inputs["invocation_plan_path"]),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "recreate_executor_invocation_plan")
+            self.assertIn("invocation_plan_readiness_mismatch", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_controlled_loop_invocation_plan_blocks_side_effect_contaminated_readiness(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_invocation_plan_inputs(tmp, repo)
+            readiness = dict(inputs["readiness"])
+            readiness["side_effects"] = ["executor_started"]
+            inputs["readiness_path"].write_text(json.dumps(readiness), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-invocation-plan",
+                "--controlled-loop-start-file",
+                str(inputs["controlled_start_path"]),
+                "--readiness-file",
+                str(inputs["readiness_path"]),
+                "--invocation-plan-file",
+                str(inputs["invocation_plan_path"]),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "refresh_executor_invocation_readiness")
+            self.assertIn("readiness_not_invocable", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_controlled_loop_invocation_plan_blocks_side_effect_contaminated_invocation_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_invocation_plan_inputs(tmp, repo)
+            invocation_plan = dict(inputs["invocation_plan"])
+            invocation_plan["github_write_started"] = True
+            inputs["invocation_plan_path"].write_text(json.dumps(invocation_plan), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-invocation-plan",
+                "--controlled-loop-start-file",
+                str(inputs["controlled_start_path"]),
+                "--readiness-file",
+                str(inputs["readiness_path"]),
+                "--invocation-plan-file",
+                str(inputs["invocation_plan_path"]),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "recreate_executor_invocation_plan")
+            self.assertIn("invocation_plan_not_invocable", {blocker["code"] for blocker in output["blockers"]})
 
     def test_loop_tick_stops_at_executor_contract_for_elected_candidate(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
