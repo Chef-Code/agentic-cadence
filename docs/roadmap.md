@@ -3,7 +3,7 @@
 Status: living document
 Last updated: 2026-06-13
 Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-40 complete in main or active review branches
-Current unattended-operation confidence: 25%
+Current unattended-operation confidence: 25% (stable headline; progress log records Task 40 projected capability at 35%)
 
 This document tracks the practical path from the current Agentic Cadence
 protocol toolkit toward GitHub-native orchestration for autonomous software
@@ -94,7 +94,8 @@ push branches, autonomously open pull requests, assign agent roles, launch fresh
 sessions, coordinate an agent pool, merge, release, publish packages, or
 continue in an unattended loop.
 
-Current confidence for unattended continuous operation is 25%.
+Current confidence for unattended continuous operation is 25% as a stable
+headline; the progress log records Task 40 projected capability at 35%.
 
 The rating is low because the safety primitives are real, but the central
 autonomous build loop is not implemented. The first real unattended run would

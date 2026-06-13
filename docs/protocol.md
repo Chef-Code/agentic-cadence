@@ -988,9 +988,11 @@ and `executor-invocation-plan.v1` packets into
 `--invocation-plan-file`; requires matching packet and schema values; requires
 the controlled start to be completed with
 `recommended_next_action: plan_executor_invocation`; requires readiness to be
-valid, read-only, executor-ready, and side-effect-free; and requires the
-invocation plan to be valid, read-only, executor-planned, side-effect-free, and
-waiting at `recommended_next_action: invoke_real_executor`.
+valid, read-only, `executor_invocation_ready: true`, side-effect-free, and
+waiting at `recommended_next_action: invoke_real_executor`; and requires the
+invocation plan to be valid, read-only, `executor_invocation_planned: true`,
+side-effect-free, and waiting at
+`recommended_next_action: invoke_real_executor`.
 
 The command rechecks that the controlled start task id, executor task checksum,
 and epoch id match the readiness task and active-epoch anchors. It also rechecks
@@ -1008,8 +1010,9 @@ explicit false side-effect flags.
 Blocked packets use `controlled_invocation_plan_status: blocked`,
 `valid: false`, stable blockers, and exit code 2. Invalid readiness or
 controlled-start/readiness anchor mismatch recommends
-`refresh_executor_invocation_readiness`; invalid invocation-plan evidence or
-invocation-plan/readiness mismatch recommends
+`refresh_executor_invocation_readiness`; invalid invocation-plan evidence,
+invocation-plan/readiness mismatch, or invocation-plan target checksum mismatch
+recommends
 `recreate_executor_invocation_plan`; invalid controlled-start evidence
 recommends `recreate_controlled_loop_start`; missing or wrong packet evidence
 recommends `refresh_controlled_invocation_evidence`. Stable blocker codes
@@ -1018,7 +1021,8 @@ include `controlled_loop_start_evidence_missing`,
 `controlled_invocation_packet_mismatch`, `controlled_start_invalid`,
 `readiness_not_invocable`, `invocation_plan_not_invocable`,
 `controlled_start_readiness_mismatch`, and
-`invocation_plan_readiness_mismatch`.
+`invocation_plan_readiness_mismatch`, and
+`invocation_plan_target_checksum_mismatch`.
 
 Completed and blocked `controlled-loop-invocation-plan` packets append no audit
 record and must not continue the loop, start a runner, start or retry an

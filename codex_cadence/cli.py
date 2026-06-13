@@ -3688,7 +3688,11 @@ def controlled_loop_invocation_plan_recommendation(blockers: list[dict[str, Any]
     codes = {blocker.get("code") for blocker in blockers}
     if codes & {"readiness_not_invocable", "controlled_start_readiness_mismatch"}:
         return "refresh_executor_invocation_readiness"
-    if codes & {"invocation_plan_not_invocable", "invocation_plan_readiness_mismatch"}:
+    if codes & {
+        "invocation_plan_not_invocable",
+        "invocation_plan_readiness_mismatch",
+        "invocation_plan_target_checksum_mismatch",
+    }:
         return "recreate_executor_invocation_plan"
     if "controlled_start_invalid" in codes:
         return "recreate_controlled_loop_start"
@@ -3935,7 +3939,7 @@ def controlled_loop_invocation_plan_command(args: argparse.Namespace) -> int:
         elif checksum_json(target) != target_checksum:
             blockers.append(
                 controlled_loop_invocation_plan_blocker(
-                    "invocation_plan_not_invocable",
+                    "invocation_plan_target_checksum_mismatch",
                     "invocation plan target checksum does not match target payload",
                     expected=checksum_json(target),
                     actual=target_checksum,
