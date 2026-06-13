@@ -893,6 +893,50 @@ def validate_controlled_pr_cycle_audit_record(record: dict[str, Any], line: int)
                     line,
                 )
             )
+    final_post_write_gate = record.get("final_post_write_gate")
+    final_post_write_gate_checksum = record.get("final_post_write_gate_checksum")
+    if final_post_write_gate not in (None, "") or final_post_write_gate_checksum not in (None, ""):
+        final_gate_anchors = {
+            "initial_post_write_gate": ("initial_post_write_gate_file", "initial_post_write_gate_checksum"),
+        }
+        for file_field, checksum_field in optional_pairs:
+            if file_field.endswith("_post_write_gate_file"):
+                final_gate_anchors[file_field.removesuffix("_file")] = (file_field, checksum_field)
+        anchor = final_gate_anchors.get(final_post_write_gate) if isinstance(final_post_write_gate, str) else None
+        if anchor is None:
+            blockers.append(
+                audit_replay_blocker(
+                    "audit_controlled_pr_cycle_optional_anchor_incomplete",
+                    "final_post_write_gate must reference a present post-write gate file/checksum anchor",
+                    line,
+                )
+            )
+        else:
+            anchor_file_field, anchor_checksum_field = anchor
+            anchor_file_blockers = required_string(record, anchor_file_field, line)
+            anchor_checksum_blockers = required_checksum_present(record, anchor_checksum_field, line)
+            blockers.extend(anchor_file_blockers)
+            blockers.extend(anchor_checksum_blockers)
+            if anchor_file_blockers or anchor_checksum_blockers:
+                blockers.append(
+                    audit_replay_blocker(
+                        "audit_controlled_pr_cycle_optional_anchor_incomplete",
+                        f"{anchor_file_field} and {anchor_checksum_field} must anchor final_post_write_gate",
+                        line,
+                    )
+                )
+            elif (
+                isinstance(final_post_write_gate_checksum, str)
+                and isinstance(record.get(anchor_checksum_field), str)
+                and final_post_write_gate_checksum != record[anchor_checksum_field]
+            ):
+                blockers.append(
+                    audit_replay_blocker(
+                        "audit_controlled_pr_cycle_final_gate_checksum_mismatch",
+                        "final_post_write_gate_checksum must match the referenced gate checksum",
+                        line,
+                    )
+                )
     return blockers
 
 

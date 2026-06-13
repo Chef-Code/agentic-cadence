@@ -43,6 +43,27 @@ def _non_empty_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value.strip())
 
 
+def _pr_number_from_url(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    marker = "/pull/"
+    if marker not in value:
+        return None
+    suffix = value.rsplit(marker, 1)[-1]
+    digits = []
+    for char in suffix:
+        if not char.isdigit():
+            break
+        digits.append(char)
+    return "".join(digits) or None
+
+
+def _target_number(value: Any, url: Any) -> str | None:
+    if value is not None and not (isinstance(value, str) and not value.strip()):
+        return str(value)
+    return _pr_number_from_url(url)
+
+
 def _packet_type_blockers(
     packet: Any,
     *,
@@ -78,49 +99,49 @@ def _packet_type_blockers(
 
 def _git_pr_target(packet: dict[str, Any]) -> dict[str, Any]:
     repository = packet.get("repository") if isinstance(packet.get("repository"), dict) else {}
-    pr_number = packet.get("pr_number")
+    pr_url = packet.get("pr_url")
     return {
-        "number": str(pr_number) if pr_number is not None else None,
+        "number": _target_number(packet.get("pr_number"), pr_url),
         "head_ref": packet.get("proposed_branch"),
         "base_ref": repository.get("base_branch"),
         "head_sha": repository.get("current_head"),
-        "url": packet.get("pr_url"),
+        "url": pr_url,
     }
 
 
 def _pr_target(packet: dict[str, Any]) -> dict[str, Any]:
     pr = packet.get("pr") if isinstance(packet.get("pr"), dict) else {}
-    number = pr.get("number")
+    url = pr.get("url")
     return {
-        "number": str(number) if number is not None else None,
+        "number": _target_number(pr.get("number"), url),
         "head_ref": pr.get("head_ref"),
         "base_ref": pr.get("base_ref"),
         "head_sha": pr.get("head_sha"),
-        "url": pr.get("url"),
+        "url": url,
     }
 
 
 def _gate_target(packet: dict[str, Any]) -> dict[str, Any]:
     materialization = packet.get("materialization") if isinstance(packet.get("materialization"), dict) else {}
-    number = materialization.get("pr_number")
+    url = materialization.get("pr_url")
     return {
-        "number": str(number) if number is not None else None,
+        "number": _target_number(materialization.get("pr_number"), url),
         "head_ref": materialization.get("head_ref"),
         "base_ref": materialization.get("base_ref"),
         "head_sha": materialization.get("head_sha"),
-        "url": materialization.get("pr_url"),
+        "url": url,
     }
 
 
 def _gate_refresh_target(packet: dict[str, Any]) -> dict[str, Any]:
     refresh = packet.get("refresh") if isinstance(packet.get("refresh"), dict) else {}
-    number = refresh.get("pr_number")
+    url = refresh.get("pr_url")
     return {
-        "number": str(number) if number is not None else None,
+        "number": _target_number(refresh.get("pr_number"), url),
         "head_ref": refresh.get("head_ref"),
         "base_ref": refresh.get("base_ref"),
         "head_sha": refresh.get("head_sha"),
-        "url": refresh.get("pr_url"),
+        "url": url,
     }
 
 
@@ -171,7 +192,7 @@ def _timestamp_blockers(step: str, packet: dict[str, Any]) -> list[dict[str, Any
         return [
             _issue(
                 "pr_cycle_timestamp_missing",
-                "PR-cycle materialization and post-write gate steps must include generated_at",
+                "PR-cycle evidence steps must include generated_at",
                 step=step,
             )
         ]
@@ -195,6 +216,7 @@ def _chronology_blockers(packets: dict[str, Any]) -> list[dict[str, Any]]:
     previous_step: str | None = None
     previous_time: datetime | None = None
     for step in (
+        "controlled_loop_tick",
         "git_pr_materialization",
         "initial_post_write_gate",
         "review_response_materialization",
@@ -422,7 +444,7 @@ def compose_controlled_pr_cycle(
         blockers.extend(step_type_blockers)
 
     for step, packet in packets.items():
-        if step in {"controlled_loop_tick"} or packet is None or not isinstance(packet, dict):
+        if packet is None or not isinstance(packet, dict):
             continue
         time_blockers = _timestamp_blockers(step, packet)
         step_blockers[step].extend(time_blockers)
@@ -454,6 +476,42 @@ def compose_controlled_pr_cycle(
         if controlled_loop_tick.get("executor_started") is not True:
             blocker = _issue("controlled_loop_tick_executor_not_started", "controlled loop tick must include started executor evidence")
             step_blockers["controlled_loop_tick"].append(blocker)
+            blockers.append(blocker)
+
+    if isinstance(controlled_loop_tick, dict) and isinstance(git_pr_materialization, dict):
+        loop_checksums = (
+            controlled_loop_tick.get("checksums")
+            if isinstance(controlled_loop_tick.get("checksums"), dict)
+            else {}
+        )
+        loop_git_pr_plan_checksum = loop_checksums.get("git_pr_plan")
+        materialization_plan_checksum = git_pr_materialization.get("plan_checksum")
+        if not _non_empty_string(loop_git_pr_plan_checksum):
+            blocker = _issue(
+                "pr_cycle_git_pr_plan_anchor_missing",
+                "controlled loop tick must include the Git/PR plan checksum used by the PR materialization",
+                step="controlled_loop_tick",
+                field="checksums.git_pr_plan",
+            )
+            step_blockers["controlled_loop_tick"].append(blocker)
+            blockers.append(blocker)
+        elif not _non_empty_string(materialization_plan_checksum):
+            blocker = _issue(
+                "pr_cycle_git_pr_plan_anchor_missing",
+                "Git/PR materialization must include the materialized plan checksum",
+                step="git_pr_materialization",
+                field="plan_checksum",
+            )
+            step_blockers["git_pr_materialization"].append(blocker)
+            blockers.append(blocker)
+        elif loop_git_pr_plan_checksum != materialization_plan_checksum:
+            blocker = _issue(
+                "pr_cycle_git_pr_plan_checksum_mismatch",
+                "controlled loop tick Git/PR plan checksum must match the materialized plan checksum",
+                expected=loop_git_pr_plan_checksum,
+                actual=materialization_plan_checksum,
+            )
+            step_blockers["git_pr_materialization"].append(blocker)
             blockers.append(blocker)
 
     materialization_steps = (

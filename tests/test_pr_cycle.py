@@ -5,7 +5,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from codex_cadence.policy_audit import checksum_json, replay_audit_log
+from codex_cadence.policy_audit import (
+    checksum_json,
+    controlled_pr_cycle_audit_record,
+    replay_audit_log,
+    validate_controlled_pr_cycle_audit_record,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -54,6 +59,7 @@ def controlled_loop_tick_packet():
         "protocol_version": "v1",
         "schema_version": "controlled-loop-tick.v1",
         "packet": "controlled_loop_tick",
+        "generated_at": "2026-06-12T10:00:00Z",
         "tick_id": "controlled-loop-tick-20260612T100000Z-00000001",
         "source_tick_id": "loop-tick-1",
         "valid": True,
@@ -209,8 +215,11 @@ def review_thread_resolution_materialization_packet(target=None):
 
 def post_write_gate_packet(materialization: dict, *, generated_at: str, captured_at: str):
     if materialization["packet"] == "git_pr_materialization":
+        pr_number = materialization["pr_number"]
+        if pr_number is None:
+            pr_number = materialization["pr_url"].rsplit("/pull/", 1)[-1]
         target = {
-            "number": str(materialization["pr_number"]),
+            "number": str(pr_number),
             "head_ref": materialization["proposed_branch"],
             "base_ref": materialization["repository"]["base_branch"],
             "head_sha": materialization["repository"]["current_head"],
@@ -340,6 +349,133 @@ class PrCycleTests(unittest.TestCase):
             self.assertEqual(records[-1]["payload_checksum"], checksum_json({k: v for k, v in packet.items() if k != "audit_record"}))
             replay = replay_audit_log(root)
             self.assertEqual(replay["events_by_type"]["controlled_pr_cycle"], 1)
+
+    def test_compose_controlled_pr_cycle_accepts_created_pr_number_from_url(self):
+        from codex_cadence.pr_cycle import compose_controlled_pr_cycle
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chain = full_pr_cycle_chain()
+            git_pr = dict(chain["git_pr_materialization"], pr_number=None)
+            chain["git_pr_materialization"] = git_pr
+            chain["initial_post_write_gate"] = post_write_gate_packet(
+                git_pr,
+                generated_at="2026-06-12T10:11:00Z",
+                captured_at="2026-06-12T10:10:00Z",
+            )
+            files = {name: f"{name}.json" for name in chain}
+
+            packet = compose_controlled_pr_cycle(root=root, files=files, **chain)
+
+            self.assertTrue(packet["valid"], packet["blockers"])
+            self.assertEqual(packet["pr"]["number"], "107")
+            self.assertEqual(audit_records(root)[-1]["event"], "controlled_pr_cycle")
+
+    def test_compose_controlled_pr_cycle_blocks_missing_loop_git_pr_plan_checksum(self):
+        from codex_cadence.pr_cycle import compose_controlled_pr_cycle
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chain = full_pr_cycle_chain()
+            loop_tick = dict(chain["controlled_loop_tick"])
+            checksums = dict(loop_tick["checksums"])
+            checksums.pop("git_pr_plan")
+            loop_tick["checksums"] = checksums
+            chain["controlled_loop_tick"] = loop_tick
+            files = {name: f"{name}.json" for name in chain}
+
+            packet = compose_controlled_pr_cycle(root=root, files=files, **chain)
+
+            self.assertFalse(packet["valid"])
+            self.assertIn("pr_cycle_git_pr_plan_anchor_missing", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertNotIn("audit_record", packet)
+            self.assertEqual(audit_records(root), [])
+
+    def test_compose_controlled_pr_cycle_blocks_loop_git_pr_plan_checksum_drift(self):
+        from codex_cadence.pr_cycle import compose_controlled_pr_cycle
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chain = full_pr_cycle_chain()
+            loop_tick = dict(chain["controlled_loop_tick"])
+            loop_tick["checksums"] = {**loop_tick["checksums"], "git_pr_plan": "sha256:" + "d" * 64}
+            chain["controlled_loop_tick"] = loop_tick
+            files = {name: f"{name}.json" for name in chain}
+
+            packet = compose_controlled_pr_cycle(root=root, files=files, **chain)
+
+            self.assertFalse(packet["valid"])
+            self.assertIn("pr_cycle_git_pr_plan_checksum_mismatch", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertNotIn("audit_record", packet)
+            self.assertEqual(audit_records(root), [])
+
+    def test_compose_controlled_pr_cycle_blocks_missing_loop_timestamp(self):
+        from codex_cadence.pr_cycle import compose_controlled_pr_cycle
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chain = full_pr_cycle_chain()
+            loop_tick = dict(chain["controlled_loop_tick"])
+            loop_tick.pop("generated_at")
+            chain["controlled_loop_tick"] = loop_tick
+            files = {name: f"{name}.json" for name in chain}
+
+            packet = compose_controlled_pr_cycle(root=root, files=files, **chain)
+
+            self.assertFalse(packet["valid"])
+            self.assertIn("pr_cycle_timestamp_missing", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertNotIn("audit_record", packet)
+            self.assertEqual(audit_records(root), [])
+
+    def test_compose_controlled_pr_cycle_blocks_loop_timestamp_order_drift(self):
+        from codex_cadence.pr_cycle import compose_controlled_pr_cycle
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chain = full_pr_cycle_chain()
+            chain["controlled_loop_tick"] = {
+                **chain["controlled_loop_tick"],
+                "generated_at": "2026-06-12T10:06:00Z",
+            }
+            files = {name: f"{name}.json" for name in chain}
+
+            packet = compose_controlled_pr_cycle(root=root, files=files, **chain)
+
+            self.assertFalse(packet["valid"])
+            self.assertIn("pr_cycle_step_order_invalid", {blocker["code"] for blocker in packet["blockers"]})
+            self.assertNotIn("audit_record", packet)
+            self.assertEqual(audit_records(root), [])
+
+    def test_controlled_pr_cycle_audit_record_requires_final_gate_anchor_pair(self):
+        from codex_cadence.pr_cycle import compose_controlled_pr_cycle
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chain = full_pr_cycle_chain()
+            files = {name: f"{name}.json" for name in chain}
+            packet = compose_controlled_pr_cycle(root=root, files=files, **chain)
+            record = controlled_pr_cycle_audit_record({key: value for key, value in packet.items() if key != "audit_record"})
+            record.pop("review_thread_resolution_post_write_gate_file")
+            record.pop("review_thread_resolution_post_write_gate_checksum")
+
+            blockers = validate_controlled_pr_cycle_audit_record(record, 1)
+
+            self.assertIn("audit_controlled_pr_cycle_optional_anchor_incomplete", {blocker["code"] for blocker in blockers})
+
+    def test_controlled_pr_cycle_audit_record_rejects_final_gate_checksum_drift(self):
+        from codex_cadence.pr_cycle import compose_controlled_pr_cycle
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            chain = full_pr_cycle_chain()
+            files = {name: f"{name}.json" for name in chain}
+            packet = compose_controlled_pr_cycle(root=root, files=files, **chain)
+            record = controlled_pr_cycle_audit_record({key: value for key, value in packet.items() if key != "audit_record"})
+            record["final_post_write_gate_checksum"] = "sha256:" + "d" * 64
+
+            blockers = validate_controlled_pr_cycle_audit_record(record, 1)
+
+            self.assertIn("audit_controlled_pr_cycle_final_gate_checksum_mismatch", {blocker["code"] for blocker in blockers})
 
     def test_compose_controlled_pr_cycle_requires_final_gate_after_thread_resolution_without_audit_append(self):
         from codex_cadence.pr_cycle import compose_controlled_pr_cycle

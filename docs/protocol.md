@@ -1172,7 +1172,8 @@ not a completed controlled tick.
 
 The command emits `controlled-loop-tick.v1` with
 `packet: controlled_loop_tick`, `controlled_tick_status` of `completed` or
-`blocked`, step status/checksum evidence, files, checksums, blockers,
+`blocked`, `generated_at`, step status/checksum evidence, files, checksums,
+blockers,
 `next_decision`, and stable limitations including
 `composes_existing_local_evidence_only`, `does_not_retry_executor`, and
 `does_not_rewrite_invocation_or_closeout_records`. A completed packet appends a
@@ -1633,9 +1634,9 @@ optional `review-response-materialization.v1` plus its post-write gate, and
 optional `review-thread-resolution-materialization.v1` plus its final
 post-write gate. The command must read only those local JSON files, recheck
 packet schema, packet type, validity, materialization approval state, packet
-checksums, PR number, head branch, base branch, head SHA, post-write gate
-materialization bindings, and chronological ordering before emitting a
-`controlled-pr-cycle.v1` packet.
+checksums, PR number, head branch, base branch, head SHA, Git/PR plan checksum
+binding, post-write gate materialization bindings, and chronological ordering
+before emitting a `controlled-pr-cycle.v1` packet.
 
 When valid, `controlled-pr-cycle` emits `controlled_pr_cycle_status:
 completed`, lists accepted step files and checksums, records the final

@@ -418,8 +418,8 @@ packet with no side effects or execution authority:
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-tick --loop-tick-file loop-tick.json --task-file executor-task.json --execution-start-file execution-start.json --readiness-file executor-invocation-readiness.json --invocation-plan-file executor-invocation-plan.json --real-invocation-file real-executor-invocation.json --result-file executor-result.json --snapshot-after-file snapshot-after.json --closeout-file executor-closeout.json
 ```
 
-A valid packet sets `controlled_tick_status: completed`, appends
-`controlled_loop_tick` audit evidence, and records
+A valid packet sets `controlled_tick_status: completed`, includes
+`generated_at`, appends `controlled_loop_tick` audit evidence, and records
 `controlled_loop_tick_audit_appended`. Blocked packets return stable mismatch
 codes and append no audit record. The command composes existing local evidence
 only and carries limitation tokens including
@@ -984,8 +984,9 @@ agentic-cadence --root <runtime-root> controlled-pr-cycle --controlled-loop-tick
 ```
 
 The command rechecks packet schemas, materialization approval state, PR number,
-head branch, base branch, head SHA, post-write materialization checksums, and
-chronological ordering. A valid packet records accepted step files/checksums,
+head branch, base branch, head SHA, Git/PR plan checksum binding, post-write
+materialization checksums, and chronological ordering. A valid packet records
+accepted step files/checksums,
 sets `controlled_pr_cycle_status: completed`, appends success-only
 `controlled_pr_cycle` audit evidence, and recommends `plan_merge_readiness`
 when the final post-write gate is ready. Missing, mismatched, blocked, or

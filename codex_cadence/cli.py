@@ -3337,6 +3337,7 @@ def controlled_loop_tick_command(args: argparse.Namespace) -> int:
         "protocol_version": PROTOCOL_VERSION,
         "schema_version": CONTROLLED_LOOP_TICK_SCHEMA_VERSION,
         "packet": "controlled_loop_tick",
+        "generated_at": utc_now(),
         "tick_id": tick_id,
         "source_tick_id": loop_tick.get("tick_id"),
         "valid": valid,
