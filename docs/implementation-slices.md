@@ -1,8 +1,8 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-06-12
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, controlled PR-cycle evidence composition, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 28-36 complete in main or active review branches, and Task 37 remains planned
+Last updated: 2026-06-13
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 28-37 complete in main or active review branches
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -122,12 +122,16 @@ compose saved controlled-loop, approved Git/PR materialization, post-write
 gate, optional review-response materialization, optional review-thread
 resolution materialization, and final post-write gate evidence into
 `controlled-pr-cycle.v1` with success-only `controlled_pr_cycle` audit
-evidence. Autonomous
+evidence. `merge-decision-plan` can compose saved PR JSON, review-thread JSON,
+PR-readiness, audit-replay, `controlled-pr-cycle` evidence, and optional
+role-readiness evidence into a read-only `merge-decision-plan.v1` packet that
+requires operator confirmation while reporting no Git, GitHub, merge, release,
+package, role-assignment, scheduler, or loop-continuation side effects. Autonomous
 branch/commit/push or PR creation, automatic session launch,
 distributed work ownership, role assignment, and continuous loop orchestration
 remain missing.
 Current unattended-operation confidence is 25%. Progress-log entries record
-Task 36 projected capability at 31% while this stable headline remains 25%.
+Task 37 projected capability at 33% while this stable headline remains 25%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
 complete, Tasks 8-12 from
@@ -146,9 +150,8 @@ Tasks 23-27 from `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` are
 complete in `main` via PRs #92-#96. Tasks 28-32 from
 `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md` are complete in `main` via
 PRs #98-#103. The current roadmap after Task 32 is
-`docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md`; Tasks 33-36 are complete
-in `main` or active review branches and Task 37 remains the next planned
-slice.
+`docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md`; Tasks 33-37 are complete
+in `main` or active review branches.
 
 ## Vision Framing
 
@@ -725,6 +728,12 @@ Current evidence:
   recheck packet schemas, checksums, PR anchors, materialization targets, and
   chronological order, emit `controlled-pr-cycle.v1`, and append success-only
   `controlled_pr_cycle` audit evidence;
+- `merge-decision-plan` can consume saved PR JSON, review-thread JSON,
+  PR-readiness, audit-replay, required `controlled-pr-cycle` evidence, and
+  optional role-readiness evidence, recheck PR target anchors, require controlled-cycle
+  audit evidence, block unresolved review comments, emit
+  `merge-decision-plan.v1`, and require operator confirmation before any merge
+  outside Cadence;
 - no branch creation, commit, push, merge, release, package publication,
   continuous reconciliation, automatic response loop execution, paid review,
   label editing, role assignment, or agent scheduling exists.
@@ -765,10 +774,10 @@ Validation needed:
 - done: review-thread resolution planning blocks stale, incomplete, mismatched,
   wrong-PR, failed-gate, already resolved, outdated, non-actionable, missing,
   unresponded target, and unresponded current-comment evidence before approval;
-- done: controlled PR-cycle composition accepts internally consistent saved
+- done: `controlled-pr-cycle` composition accepts internally consistent saved
   Git/PR, review-response, review-thread resolution, and post-write gate
   chains while appending success-only audit evidence;
-- done: controlled PR-cycle composition blocks missing final post-resolution
+- done: `controlled-pr-cycle` composition blocks missing final post-resolution
   gates and PR target/checksum drift without appending audit evidence;
 - read-only live fetch failures block without partial local evidence files.
 

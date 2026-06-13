@@ -103,6 +103,7 @@ from codex_cadence.policy_audit import (
     validate_controlled_loop_tick_audit_record,
     work_ownership_mutation_audit_record,
 )
+from codex_cadence.merge_decision import plan_merge_decision_from_files
 from codex_cadence.pr_cycle import compose_controlled_pr_cycle_from_files
 from codex_cadence.pr_readiness import (
     evaluate_pr_body_preflight,
@@ -5017,6 +5018,20 @@ def controlled_pr_cycle_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 1
 
 
+def merge_decision_plan_command(args: argparse.Namespace) -> int:
+    payload = plan_merge_decision_from_files(
+        root=args.root,
+        pr_json_file=Path(args.pr_json_file),
+        review_threads_file=Path(args.review_threads_file),
+        pr_readiness_file=Path(args.pr_readiness_file),
+        audit_replay_file=Path(args.audit_replay_file),
+        controlled_pr_cycle_file=Path(args.controlled_pr_cycle_file),
+        role_readiness_file=Path(args.role_readiness_file) if args.role_readiness_file else None,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def pr_body_preflight_command(args: argparse.Namespace) -> int:
     body = load_pr_body(Path(args.body_file))
     required_body_sections = list(args.required_body_section or [])
@@ -5422,6 +5437,22 @@ def build_parser() -> argparse.ArgumentParser:
     controlled_pr_cycle_parser.add_argument("--review-thread-resolution-post-write-gate-file")
     controlled_pr_cycle_parser.set_defaults(
         func=controlled_pr_cycle_command,
+        requires_root=True,
+        guards_runtime_root_only=True,
+    )
+
+    merge_decision_parser = subparsers.add_parser(
+        "merge-decision-plan",
+        help="Compose saved merge-readiness evidence into one read-only merge decision plan",
+    )
+    merge_decision_parser.add_argument("--pr-json-file", required=True)
+    merge_decision_parser.add_argument("--review-threads-file", required=True)
+    merge_decision_parser.add_argument("--pr-readiness-file", required=True)
+    merge_decision_parser.add_argument("--audit-replay-file", required=True)
+    merge_decision_parser.add_argument("--controlled-pr-cycle-file", required=True)
+    merge_decision_parser.add_argument("--role-readiness-file")
+    merge_decision_parser.set_defaults(
+        func=merge_decision_plan_command,
         requires_root=True,
         guards_runtime_root_only=True,
     )

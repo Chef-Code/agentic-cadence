@@ -1651,6 +1651,52 @@ executors, create branches, commit, push, call GitHub, post comments, update PR
 bodies, resolve review threads, trigger paid review, merge, release, publish
 packages, assign roles, schedule agents, or continue a loop.
 
+`merge-decision-plan` is the read-only merge-readiness planning packet after a
+valid controlled PR cycle exists. It consumes saved PR JSON, saved
+review-thread JSON, a saved `pr-readiness` packet, saved `audit-replay`
+evidence, a required `controlled-pr-cycle.v1` packet, and optional
+`role-readiness.v1` evidence. It must read only local JSON files, recheck PR
+number, head branch, base branch, and head SHA across the supplied evidence,
+require valid audit replay with `controlled_pr_cycle` audit evidence, require
+completed controlled PR-cycle evidence, forward PR-readiness blockers, block
+unresolved actionable review comments, and block invalid or not-ready optional
+role-readiness evidence.
+
+The packet must use `schema_version: merge-decision-plan.v1`, `packet:
+merge_decision_plan`, `read_only: true`, `operator_confirmation_required:
+true`, `merge_started: false`, `github_write_started: false`, empty
+`command_trace`, empty `side_effects`, input file paths, input checksums,
+blockers, and limitation tokens including `does_not_call_github` and
+`does_not_merge`. Valid packets recommend
+`merge_after_operator_confirmation`; blocked packets must recommend
+`respond_to_review`, `refresh_pr_evidence`, the supplied role-readiness action,
+or `address_blockers`/`inspect_merge_decision_inputs` as appropriate. Stable
+blockers include `merge_decision_pr_json_invalid`,
+`merge_decision_review_threads_missing`,
+`merge_decision_review_threads_invalid`, `review_thread_evidence_invalid`,
+`merge_decision_review_threads_pr_anchor_missing`,
+`merge_decision_review_threads_pr_mismatch`, `unresolved_review_comment`,
+`merge_decision_pr_readiness_invalid`, `pr_readiness_decision_not_ready`,
+`pr_readiness_action_not_merge_ready`, `pr_readiness_evidence_incomplete`,
+`pr_readiness_not_ready`, `pr_readiness_checks_not_clear`,
+`pr_readiness_required_checks_missing`, `pr_readiness_template_sections_missing`,
+`pr_readiness_template_contract_missing`, `pr_readiness_evidence_stale`,
+`pr_readiness_review_feedback_missing`,
+`pr_readiness_review_feedback_mismatch`, `merge_decision_audit_replay_invalid`,
+`merge_decision_audit_replay_schema_invalid`, `audit_replay_blocked`,
+`audit_replay_controlled_pr_cycle_missing`,
+`merge_decision_controlled_pr_cycle_missing`,
+`merge_decision_controlled_pr_cycle_schema_invalid`,
+`merge_decision_controlled_pr_cycle_invalid`,
+`controlled_pr_cycle_not_completed`,
+`controlled_pr_cycle_audit_reference_invalid`,
+`controlled_pr_cycle_audit_checksum_mismatch`, `role_readiness_invalid`,
+`role_readiness_schema_invalid`, `role_readiness_blocked`,
+`merge_decision_pr_target_anchor_missing`, and
+`merge_decision_pr_target_mismatch`. The command must not call GitHub, run Git
+commands, merge, delete branches, create tags, release, publish packages,
+assign roles, schedule agents, or continue a loop.
+
 PR body preflight covers the pre-publish side of the same template contract. `pr-body-preflight --body-file <path> --pr-template-file <path>` must read a draft PR body and a local Markdown pull request template, derive required template sections from template headings, and report missing template sections before PR creation or update. It must reuse the same heading parser as PR readiness, match draft body headings by normalized section label, ignore headings inside HTML comments or fenced code blocks without creating false setext headings across skipped blocks, stay repo-agnostic, and must not hard-code target-specific labels, call GitHub, rewrite the body file, create a PR, update a PR, spend paid review, or merge the PR. If no template file or `--required-body-section` is supplied, it must fail closed and recommend `provide_template_or_sections`.
 
 ## Release Dry Run

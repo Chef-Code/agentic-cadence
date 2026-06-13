@@ -1,8 +1,8 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-12
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, Tasks 28-32 complete in main, and the Tasks 33-37 roadmap prepared
+Last updated: 2026-06-13
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-37 complete in main or active review branches
 Current unattended-operation confidence: 25%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -78,17 +78,19 @@ resume continuation, read-only review-response planning, operator-approved
 review-response materialization, post-write PR evidence refresh, local work
 ownership claim/closeout evidence, read-only role-readiness evidence, read-only
 executor-invocation-readiness and invocation-plan evidence, controlled real
-executor invocation evidence, controlled single-tick run packet evidence, and
-local audit hash-chain integrity evidence. It can
+executor invocation evidence, controlled single-tick run packet evidence,
+controlled PR-cycle evidence composition, read-only merge decision planning,
+and local audit hash-chain integrity evidence. It can
 materialize a reviewed Git/PR plan only through exact target-bound operator
 approval, and it can verify handoff pickup state before a fresh session
 continues. It can also start one approved real executor command with local
 invocation evidence and bind accepted real-run evidence into epoch closeout and
 dry-run Git/PR planning, then compose the saved local chain into
-`controlled-loop-tick.v1`, and write exact approved PR body/comment responses
-before refreshing PR evidence. It still cannot independently implement code
-outside approved command evidence, autonomously push branches, autonomously open
-pull requests, resolve review threads, assign agent roles, launch fresh
+`controlled-loop-tick.v1`, write exact approved PR body/comment responses,
+compose the saved PR/review/post-write chain into `controlled-pr-cycle.v1`, and
+plan merge readiness from saved evidence without merging. It still cannot
+independently implement code outside approved command evidence, autonomously
+push branches, autonomously open pull requests, assign agent roles, launch fresh
 sessions, coordinate an agent pool, merge, release, publish packages, or
 continue in an unattended loop.
 
@@ -180,6 +182,9 @@ command-policy and active-stop controls. It includes:
   loop/task/start/readiness/plan/invocation/result/snapshot/closeout evidence
   into `controlled-loop-tick.v1` without retrying executors or writing
   Git/GitHub state;
+- controlled PR-cycle and merge-decision planning packets that compose saved
+  PR/review/post-write, PR-readiness, audit, and optional role-readiness
+  evidence before any human or external system considers a merge;
 - release dry-run checks that require operator confirmation before tag or
   release actions;
 - elected Codex Review GitHub workflow with preflight, dedupe, pinned action,
@@ -366,7 +371,8 @@ invocation runner, is implemented in `main` via PR #89. Task 22, real executor
 run closeout binding, is implemented in `main` via PR #90. Tasks 23-27 from
 `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` are complete in `main` via
 PRs #92-#96. The current roadmap handoff branch prepares
-`docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`.
+`docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md`; Tasks 33-37 are now
+complete in `main` or active review branches.
 
 ## Roadmap
 
@@ -711,10 +717,12 @@ Goal: coordinate multiple bounded agents through GitHub-native work ownership,
 branch isolation, PR review, CI, documentation updates, handoff contracts, and
 merge decisions.
 
-Current evidence: Phase 1 governance primitives exist locally, and
+Current evidence: Phase 1 governance primitives exist locally,
 `role-readiness` can verify local role policy plus saved review-separation
-evidence. No agent pool, role registry, issue assignment workflow, distributed
-lock, write-side GitHub sync, or role-aware permission system exists.
+evidence, and `merge-decision-plan` can bind saved readiness evidence before a
+human or external system considers merging. No agent pool, role registry, issue
+assignment workflow, distributed lock, merge authority, write-side GitHub sync,
+or role-aware permission system exists.
 
 Risk: high.
 

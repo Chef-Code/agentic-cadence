@@ -39,7 +39,7 @@ local generic executor task and result evidence, read-only
 read-only `role-readiness`, read-only `executor-invocation-readiness`, read-only `executor-invocation-plan`,
 operator-approved `git-pr-dirty-commit-materialize`, operator-approved
 `git-pr-materialize`, operator-approved `review-response-materialize`,
-read-only `controlled-pr-cycle`,
+read-only `controlled-pr-cycle`, read-only `merge-decision-plan`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -49,8 +49,9 @@ fixture-only controlled executor runner for tests and examples, controlled
 through `closeout-executor-result --real-invocation-file`, plus
 `controlled-loop-tick` evidence that composes an already-recorded local
 single-tick chain and `controlled-pr-cycle` evidence that composes already
-recorded PR/review/post-write packets without retrying the executor or writing
-Git/GitHub state.
+recorded PR/review/post-write packets, plus `merge-decision-plan` evidence
+that separates merge readiness from merge authority without retrying the
+executor or writing Git/GitHub state.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -994,6 +995,27 @@ unpaired optional packets append no audit record. It does not execute Git
 commands, call GitHub, start or retry executors, post comments, update PR
 bodies, resolve review threads, merge, release, publish packages, assign roles,
 schedule agents, or continue a loop.
+
+## Merge Decision Planning
+
+`merge-decision-plan` composes saved merge-readiness evidence into a read-only
+`merge-decision-plan.v1` packet. It consumes saved PR JSON, saved review-thread
+JSON, a saved `pr-readiness` packet, saved `audit-replay` evidence, a required
+`controlled-pr-cycle.v1` packet, and optional `role-readiness.v1` evidence:
+
+```bash
+agentic-cadence --root <runtime-root> merge-decision-plan --pr-json-file pr.json --review-threads-file review-threads.json --pr-readiness-file pr-readiness.json --audit-replay-file audit-replay.json --controlled-pr-cycle-file controlled-pr-cycle.json --role-readiness-file role-readiness.json
+```
+
+The command rechecks the PR number, head branch, base branch, and head SHA
+across the supplied packets, blocks unresolved actionable review comments,
+requires valid audit replay with controlled PR-cycle audit evidence, and keeps
+`merge_started: false` with `operator_confirmation_required: true`. A valid
+packet recommends `merge_after_operator_confirmation`; blocked packets
+recommend evidence refresh, review response, role-readiness follow-up, or
+blocker inspection. It does not call GitHub, run Git commands, merge, delete
+branches, create tags, release, publish packages, assign roles, schedule
+agents, or continue a loop.
 
 ## PR Body Preflight
 
