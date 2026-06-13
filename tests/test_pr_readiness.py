@@ -196,12 +196,12 @@ def review_thread_resolution_materialization_result(pr, *, thread_ids=None, **ov
             "kind": "resolve_review_thread",
             "pr_number": str(pr.get("number")),
             "thread_id": thread_id,
-            "comment_ids": [f"comment-{index}"],
+            "comment_ids": [str(thread_id).replace("thread-", "comment-", 1)],
             "github_thread_id": thread_id,
             "is_resolved": True,
             "status": "resolved",
         }
-        for index, thread_id in enumerate(thread_ids, start=1)
+        for thread_id in thread_ids
     ]
     packet = {
         "protocol_version": "cadence.v1",
