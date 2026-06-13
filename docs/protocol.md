@@ -1529,14 +1529,23 @@ resolution. The command must not resolve review threads, invoke paid review,
 edit labels, merge, release, publish packages, assign roles, schedule agents,
 or continue a loop automatically.
 
-`post-write-pr-evidence-gate` is the read-only boundary after approved Git/PR
-or review-response writes. It must consume a successful
-`git-pr-materialization.v1` or `review-response-materialization.v1` result and
-fresh `github-evidence-sync.v1` summary output. It must load the refreshed
-saved PR JSON and saved review-thread JSON named by the sync packet, verify the
-materialized PR number, head branch, base branch, and head SHA still match the
-refreshed PR evidence, and reject missing, stale, malformed, incomplete, or
-mismatched refreshed evidence before recommending any follow-up action.
+`post-write-pr-evidence-gate` is the read-only boundary after approved Git/PR,
+review-response, or review-thread-resolution writes. It must consume a
+successful `git-pr-materialization.v1`,
+`review-response-materialization.v1`, or
+`review-thread-resolution-materialization.v1` result and fresh
+`github-evidence-sync.v1` summary output. It must load the refreshed saved PR
+JSON and saved review-thread JSON named by the sync packet, verify each file's
+embedded `github_evidence.captured_at` metadata matches the sync summary,
+verify the materialized PR number, head branch, base branch, and head SHA still
+match the refreshed PR evidence, verify the refreshed review-thread evidence
+belongs to that same PR, verify approved thread-resolution targets are present
+and resolved when the materialization resolved review threads, and reject
+missing, stale, malformed, incomplete, wrong-PR, or mismatched refreshed
+evidence before recommending any follow-up action. For
+`review-thread-resolution-materialization.v1`, the approved
+`approval_target.thread_ids` are canonical and must exactly match confirmed
+`resolve_review_thread` write records before refreshed target status is trusted.
 
 When the refreshed target matches, the gate must re-run PR readiness and
 merge-readiness candidate discovery from the refreshed saved PR and
@@ -1546,10 +1555,13 @@ review-thread files. It emits `post-write-pr-evidence-gate.v1` with
 `operator_review`. Failing checks may become bounded `pr_check_failure`
 follow-up candidates; unresolved actionable review threads may become bounded
 `review_finding` follow-up candidates; PR body gaps block and require operator
-review unless another bounded candidate applies. The command must perform only
-one evaluation, must not call GitHub directly, and must not post comments,
-update PR bodies, resolve review threads, trigger paid review, merge, release,
-publish packages, assign roles, schedule agents, or continue a loop.
+review unless another bounded candidate applies. Refreshed evidence for resolved
+approved target threads must suppress those threads from follow-up candidates;
+refreshed evidence that shows an approved target is still unresolved must block
+for operator review. The command must perform only one evaluation, must not call
+GitHub directly, and must not post comments, update PR bodies, resolve review
+threads, trigger paid review, merge, release, publish packages, assign roles,
+schedule agents, or continue a loop.
 
 `review-thread-resolution-plan` is the read-only approval-target boundary for
 later review-thread resolution. It must consume saved PR JSON, saved GitHub
