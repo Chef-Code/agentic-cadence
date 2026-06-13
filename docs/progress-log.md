@@ -40,6 +40,9 @@ Summary:
   `review-thread-resolution-materialization.v1` packets.
 - The gate now verifies approved resolved thread targets against fresh saved
   review-thread evidence before re-running PR readiness and candidate discovery.
+- Review hardening makes the approved `approval_target.thread_ids` canonical,
+  requires exact confirmed resolution-write matches, binds review-thread files
+  to the same PR, and rejects stale embedded evidence metadata.
 - Refreshed resolved targets are suppressed from follow-up candidates, while
   approved targets that remain unresolved block for operator inspection.
 
@@ -55,6 +58,9 @@ Confidence change:
 
 Evidence:
 - `python -m unittest tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_accepts_thread_resolution_result_with_resolved_targets tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_blocks_thread_resolution_target_still_unresolved tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_requires_refreshed_thread_resolution_target_ids -v`
+- `python -m unittest tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_blocks_thread_resolution_approval_write_drift tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_blocks_wrong_pr_review_thread_evidence tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_blocks_malformed_thread_resolution_target_evidence tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_blocks_stale_embedded_review_thread_evidence -v`
+- `python -m unittest tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_accepts_thread_resolution_result_with_resolved_targets tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_blocks_thread_resolution_target_still_unresolved tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_requires_refreshed_thread_resolution_target_ids tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_blocks_thread_resolution_approval_write_drift tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_blocks_wrong_pr_review_thread_evidence tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_blocks_malformed_thread_resolution_target_evidence tests.test_pr_readiness.PrReadinessTests.test_post_write_gate_blocks_stale_embedded_review_thread_evidence -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_post_write_pr_evidence_gate_cli_reads_materialization_and_sync_summary -v`
 - `python -m unittest tests.test_pr_readiness -v`
 - `python -m compileall scripts codex_cadence transmission_control tests`
 - `python scripts/validate_protocol.py`

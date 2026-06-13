@@ -688,12 +688,13 @@ Current evidence:
   records;
 - `post-write-pr-evidence-gate` can consume an approved Git/PR,
   review-response, or review-thread-resolution materialization result plus
-  fresh `github-evidence-sync` output, verify refreshed PR
-  number/branch/base/head anchors, verify approved resolved thread targets
-  against refreshed review-thread evidence, re-run PR readiness and candidate
-  discovery, and recommend only `ready_for_review`, `refresh_required`,
-  `follow_up_candidates`, `wait_for_checks`, `respond_to_review`, or
-  `operator_review`;
+  fresh `github-evidence-sync` output, verify refreshed file metadata and PR
+  number/branch/base/head anchors, bind review-thread evidence to the same PR,
+  require approved thread-resolution targets to exactly match confirmed
+  resolution writes, verify those targets against refreshed review-thread
+  evidence, re-run PR readiness and candidate discovery, and recommend only
+  `ready_for_review`, `refresh_required`, `follow_up_candidates`,
+  `wait_for_checks`, `respond_to_review`, or `operator_review`;
 - `review-thread-resolution-plan` can consume saved PR JSON, saved
   review-thread JSON, a successful approved review-response materialization
   result, a matching post-write gate packet, and explicit thread ids to emit a

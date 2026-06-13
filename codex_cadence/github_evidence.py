@@ -689,14 +689,58 @@ def _thread_resolution_target_ids(materialization_result: dict[str, Any]) -> tup
     blockers: list[dict[str, Any]] = []
     target_ids: list[str] = []
     seen: set[str] = set()
-    github_writes = materialization_result.get("github_writes")
-    if not isinstance(github_writes, list):
-        return [], [
+    approval_target = materialization_result.get("approval_target")
+    if not isinstance(approval_target, dict):
+        blockers.append(
             _issue(
                 "materialization_result_thread_targets_missing",
+                "review thread resolution materialization must include approved thread targets",
+            )
+        )
+        approval_thread_ids = None
+    else:
+        approval_thread_ids = approval_target.get("thread_ids")
+    if not isinstance(approval_thread_ids, list):
+        blockers.append(
+            _issue(
+                "materialization_result_thread_targets_missing",
+                "review thread resolution materialization approval target must include thread_ids",
+            )
+        )
+    else:
+        for index, raw_thread_id in enumerate(approval_thread_ids, start=1):
+            if not _present(raw_thread_id):
+                blockers.append(
+                    _issue(
+                        "materialization_result_thread_id_missing",
+                        "review thread resolution approval target must identify each approved thread id",
+                        target_index=index,
+                    )
+                )
+                continue
+            thread_id = str(raw_thread_id)
+            if thread_id not in seen:
+                seen.add(thread_id)
+                target_ids.append(thread_id)
+    if not target_ids:
+        blockers.append(
+            _issue(
+                "materialization_result_thread_targets_missing",
+                "review thread resolution materialization must include at least one approved thread target",
+            )
+        )
+
+    write_ids: list[str] = []
+    write_seen: set[str] = set()
+    github_writes = materialization_result.get("github_writes")
+    if not isinstance(github_writes, list):
+        blockers.append(
+            _issue(
+                "materialization_result_thread_writes_missing",
                 "review thread resolution materialization must include GitHub resolution writes",
             )
-        ]
+        )
+        return target_ids, blockers
     for index, write in enumerate(github_writes, start=1):
         if not isinstance(write, dict) or write.get("kind") != "resolve_review_thread":
             continue
@@ -712,6 +756,9 @@ def _thread_resolution_target_ids(materialization_result: dict[str, Any]) -> tup
             )
             continue
         thread_id = str(thread_id)
+        if thread_id not in write_seen:
+            write_seen.add(thread_id)
+            write_ids.append(thread_id)
         resolution_confirmed = (
             str(github_thread_id) == thread_id
             and write.get("is_resolved") is True
@@ -728,14 +775,24 @@ def _thread_resolution_target_ids(materialization_result: dict[str, Any]) -> tup
                     status=write.get("status"),
                 )
             )
-        if thread_id not in seen:
-            seen.add(thread_id)
-            target_ids.append(thread_id)
-    if not target_ids:
+    if not write_ids:
         blockers.append(
             _issue(
-                "materialization_result_thread_targets_missing",
-                "review thread resolution materialization must include at least one approved thread target",
+                "materialization_result_thread_writes_missing",
+                "review thread resolution materialization must include at least one GitHub resolution write",
+            )
+        )
+    missing_write_ids = [thread_id for thread_id in target_ids if thread_id not in write_seen]
+    unexpected_write_ids = [thread_id for thread_id in write_ids if thread_id not in seen]
+    if missing_write_ids or unexpected_write_ids:
+        blockers.append(
+            _issue(
+                "materialization_result_thread_target_mismatch",
+                "review thread resolution writes must exactly match the approved target thread ids",
+                approved_thread_ids=target_ids,
+                write_thread_ids=write_ids,
+                missing_write_thread_ids=missing_write_ids,
+                unexpected_write_thread_ids=unexpected_write_ids,
             )
         )
     return target_ids, blockers
@@ -896,9 +953,24 @@ def _post_write_thread_resolution_blockers(
     target_ids = materialization.get("target_thread_ids")
     if not isinstance(target_ids, list) or not target_ids:
         return {}, []
+    target_thread_ids = [str(thread_id) for thread_id in target_ids]
     nodes = review_threads_nodes(review_threads_payload)
     if nodes is None:
-        return {}, []
+        return (
+            {
+                "target_thread_ids": target_thread_ids,
+                "resolved_target_thread_ids": [],
+                "unresolved_target_thread_ids": [],
+                "missing_target_thread_ids": target_thread_ids,
+            },
+            [
+                _issue(
+                    "post_write_thread_resolution_target_evidence_invalid",
+                    "refreshed review-thread evidence must include reviewThreads.nodes before approved targets can be verified",
+                    target_thread_ids=target_thread_ids,
+                )
+            ],
+        )
     by_id = {
         str(thread.get("id")): thread
         for thread in nodes
@@ -944,13 +1016,83 @@ def _post_write_thread_resolution_blockers(
             )
     return (
         {
-            "target_thread_ids": [str(thread_id) for thread_id in target_ids],
+            "target_thread_ids": target_thread_ids,
             "resolved_target_thread_ids": resolved,
             "unresolved_target_thread_ids": unresolved,
             "missing_target_thread_ids": missing,
         },
         blockers,
     )
+
+
+def _review_threads_pr_number(review_threads_payload: Any) -> Any:
+    current = review_threads_payload
+    for key in ("data", "repository", "pullRequest"):
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current.get("number") if isinstance(current, dict) else None
+
+
+def _payload_metadata_blockers(
+    payload: Any,
+    *,
+    label: str,
+    expected_captured_at: Any,
+) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    blockers: list[dict[str, Any]] = []
+    metadata = payload.get("github_evidence")
+    if not isinstance(metadata, dict):
+        return [
+            _issue(
+                f"{label}_metadata_missing",
+                f"{label.replace('_', ' ')} must include github_evidence metadata from github-evidence-sync",
+            )
+        ]
+    captured_at = metadata.get("captured_at")
+    if metadata.get("stale") is True:
+        blockers.append(
+            _issue(
+                f"{label}_metadata_stale",
+                f"{label.replace('_', ' ')} metadata marks the saved evidence stale",
+                captured_at=captured_at,
+            )
+        )
+    if not _present(captured_at):
+        blockers.append(
+            _issue(
+                f"{label}_metadata_timestamp_missing",
+                f"{label.replace('_', ' ')} metadata must include captured_at",
+            )
+        )
+        return blockers
+    if not _present(expected_captured_at):
+        return blockers
+    try:
+        actual = _parse_utc(captured_at)
+        expected = _parse_utc(expected_captured_at)
+    except (TypeError, ValueError) as exc:
+        blockers.append(
+            _issue(
+                f"{label}_metadata_timestamp_invalid",
+                f"{label.replace('_', ' ')} metadata captured_at is invalid: {exc}",
+                captured_at=captured_at,
+                expected_captured_at=expected_captured_at,
+            )
+        )
+        return blockers
+    if actual != expected:
+        blockers.append(
+            _issue(
+                f"{label}_metadata_mismatch",
+                f"{label.replace('_', ' ')} metadata must match github-evidence-sync captured_at",
+                captured_at=_format_utc(actual),
+                expected_captured_at=_format_utc(expected),
+            )
+        )
+    return blockers
 
 
 def _sync_summary_blockers(sync_packet: Any) -> list[dict[str, Any]]:
@@ -1073,11 +1215,24 @@ def _post_write_recommendation(
                 "refreshed_pr_evidence_unreadable",
                 "refreshed_pr_evidence_invalid_json",
                 "refreshed_pr_evidence_invalid",
+                "refreshed_pr_evidence_metadata_missing",
+                "refreshed_pr_evidence_metadata_stale",
+                "refreshed_pr_evidence_metadata_timestamp_missing",
+                "refreshed_pr_evidence_metadata_timestamp_invalid",
+                "refreshed_pr_evidence_metadata_mismatch",
                 "refreshed_review_threads_unreadable",
                 "refreshed_review_threads_invalid_json",
                 "refreshed_review_threads_invalid",
+                "refreshed_review_threads_metadata_missing",
+                "refreshed_review_threads_metadata_stale",
+                "refreshed_review_threads_metadata_timestamp_missing",
+                "refreshed_review_threads_metadata_timestamp_invalid",
+                "refreshed_review_threads_metadata_mismatch",
+                "post_write_review_threads_pr_target_anchor_missing",
+                "post_write_review_threads_pr_target_mismatch",
                 "post_write_thread_resolution_target_missing",
                 "post_write_thread_resolution_target_status_missing",
+                "post_write_thread_resolution_target_evidence_invalid",
             )
         ):
             return "blocked", "refresh_required"
@@ -1189,11 +1344,11 @@ def evaluate_post_write_pr_evidence_gate(
                     "materialization result generated_at is required before accepting refreshed evidence",
                 )
             )
-        elif captured_at is not None and captured_at < materialized_at:
+        elif captured_at is not None and captured_at <= materialized_at:
             gate_blockers.append(
                 _issue(
                     "github_evidence_sync_before_materialization",
-                    "github evidence sync was captured before the materialization result; refresh PR evidence after writes",
+                    "github evidence sync must be captured after the materialization result; refresh PR evidence after writes",
                     captured_at=_format_utc(captured_at),
                     materialization_generated_at=_format_utc(materialized_at),
                 )
@@ -1221,6 +1376,15 @@ def evaluate_post_write_pr_evidence_gate(
             refresh["pr_json_file"] = str(pr_json_path)
             refresh["pr_json_checksum"] = _checksum_json(pr_payload)
             refresh["pr_number"] = pr_payload.get("number")
+            gate_blockers.extend(
+                _payload_metadata_blockers(
+                    pr_payload,
+                    label="refreshed_pr_evidence",
+                    expected_captured_at=github_evidence_sync.get("captured_at")
+                    if isinstance(github_evidence_sync, dict)
+                    else None,
+                )
+            )
     if review_threads_path is not None:
         review_threads_payload, blocker = _load_json_object(review_threads_path, "refreshed_review_threads")
         if blocker is not None:
@@ -1228,6 +1392,15 @@ def evaluate_post_write_pr_evidence_gate(
         elif review_threads_payload is not None:
             refresh["review_threads_file"] = str(review_threads_path)
             refresh["review_threads_checksum"] = _checksum_json(review_threads_payload)
+            gate_blockers.extend(
+                _payload_metadata_blockers(
+                    review_threads_payload,
+                    label="refreshed_review_threads",
+                    expected_captured_at=github_evidence_sync.get("captured_at")
+                    if isinstance(github_evidence_sync, dict)
+                    else None,
+                )
+            )
 
     if pr_payload is not None:
         compared = {
@@ -1261,7 +1434,34 @@ def evaluate_post_write_pr_evidence_gate(
                     )
                 )
 
-    if materialization.get("type") == "review_thread_resolution_materialization" and review_threads_payload is not None:
+    if review_threads_payload is not None:
+        review_threads_pr_number = _review_threads_pr_number(review_threads_payload)
+        refresh["review_threads_pr_number"] = review_threads_pr_number
+        expected_pr_number = refresh.get("pr_number") if _present(refresh.get("pr_number")) else materialization.get("pr_number")
+        if not _present(expected_pr_number) or not _present(review_threads_pr_number):
+            gate_blockers.append(
+                _issue(
+                    "post_write_review_threads_pr_target_anchor_missing",
+                    "refreshed review-thread evidence must identify the same PR number as the refreshed PR evidence",
+                    expected=expected_pr_number,
+                    actual=review_threads_pr_number,
+                )
+            )
+        elif str(expected_pr_number) != str(review_threads_pr_number):
+            gate_blockers.append(
+                _issue(
+                    "post_write_review_threads_pr_target_mismatch",
+                    "refreshed review-thread evidence no longer matches the refreshed PR evidence",
+                    expected=expected_pr_number,
+                    actual=review_threads_pr_number,
+                )
+            )
+
+    if (
+        materialization.get("type") == "review_thread_resolution_materialization"
+        and review_threads_payload is not None
+        and not materialization_blockers
+    ):
         thread_refresh, thread_blockers = _post_write_thread_resolution_blockers(
             materialization,
             review_threads_payload,

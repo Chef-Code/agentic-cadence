@@ -1535,12 +1535,17 @@ successful `git-pr-materialization.v1`,
 `review-response-materialization.v1`, or
 `review-thread-resolution-materialization.v1` result and fresh
 `github-evidence-sync.v1` summary output. It must load the refreshed saved PR
-JSON and saved review-thread JSON named by the sync packet, verify the
-materialized PR number, head branch, base branch, and head SHA still match the
-refreshed PR evidence, verify approved thread-resolution targets are present and
-resolved when the materialization resolved review threads, and reject missing,
-stale, malformed, incomplete, or mismatched refreshed evidence before
-recommending any follow-up action.
+JSON and saved review-thread JSON named by the sync packet, verify each file's
+embedded `github_evidence.captured_at` metadata matches the sync summary,
+verify the materialized PR number, head branch, base branch, and head SHA still
+match the refreshed PR evidence, verify the refreshed review-thread evidence
+belongs to that same PR, verify approved thread-resolution targets are present
+and resolved when the materialization resolved review threads, and reject
+missing, stale, malformed, incomplete, wrong-PR, or mismatched refreshed
+evidence before recommending any follow-up action. For
+`review-thread-resolution-materialization.v1`, the approved
+`approval_target.thread_ids` are canonical and must exactly match confirmed
+`resolve_review_thread` write records before refreshed target status is trusted.
 
 When the refreshed target matches, the gate must re-run PR readiness and
 merge-readiness candidate discovery from the refreshed saved PR and

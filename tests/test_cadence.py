@@ -2252,6 +2252,7 @@ class CadenceCliTests(unittest.TestCase):
                 "data": {
                     "repository": {
                         "pullRequest": {
+                            "number": 330,
                             "reviewThreads": {
                                 "pageInfo": {"hasNextPage": False, "endCursor": None},
                                 "nodes": [],
