@@ -3584,6 +3584,8 @@ def controlled_loop_start_command(args: argparse.Namespace) -> int:
 
 
 CONTROLLED_LOOP_INVOCATION_PLAN_SCHEMA_VERSION = "controlled-loop-invocation-plan.v1"
+EXECUTOR_INVOCATION_READINESS_SCHEMA_VERSION = "executor-invocation-readiness.v1"
+EXECUTOR_INVOCATION_PLAN_SCHEMA_VERSION = "executor-invocation-plan.v1"
 CONTROLLED_LOOP_INVOCATION_FALSE_FLAGS = (
     "runner_started",
     "executor_started",
@@ -3676,6 +3678,10 @@ def controlled_loop_invocation_plan_false_flag_blockers(
     return blockers
 
 
+def controlled_loop_invocation_plan_non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
 def controlled_loop_invocation_plan_recommendation(blockers: list[dict[str, Any]]) -> str:
     if not blockers:
         return "invoke_real_executor"
@@ -3731,7 +3737,7 @@ def controlled_loop_invocation_plan_command(args: argparse.Namespace) -> int:
             controlled_loop_invocation_plan_type_blockers(
                 readiness,
                 expected_packet="executor_invocation_readiness",
-                expected_schema="executor-invocation-readiness.v1",
+                expected_schema=EXECUTOR_INVOCATION_READINESS_SCHEMA_VERSION,
                 label="executor invocation readiness",
             )
         )
@@ -3740,7 +3746,7 @@ def controlled_loop_invocation_plan_command(args: argparse.Namespace) -> int:
             controlled_loop_invocation_plan_type_blockers(
                 invocation_plan,
                 expected_packet="executor_invocation_plan",
-                expected_schema="executor-invocation-plan.v1",
+                expected_schema=EXECUTOR_INVOCATION_PLAN_SCHEMA_VERSION,
                 label="executor invocation plan",
             )
         )
@@ -3760,6 +3766,7 @@ def controlled_loop_invocation_plan_command(args: argparse.Namespace) -> int:
             or controlled_start.get("valid") is not True
             or controlled_start.get("controlled_start_status") != "completed"
             or controlled_start.get("recommended_next_action") != "plan_executor_invocation"
+            or controlled_start.get("side_effects") != []
         ):
             blockers.append(
                 controlled_loop_invocation_plan_blocker(
@@ -3825,24 +3832,64 @@ def controlled_loop_invocation_plan_command(args: argparse.Namespace) -> int:
         controlled_start_task_checksum = controlled_start.get("executor_task_checksum")
         readiness_task = readiness.get("task") if isinstance(readiness.get("task"), dict) else {}
         readiness_epoch = readiness.get("active_epoch") if isinstance(readiness.get("active_epoch"), dict) else {}
-        if readiness_task.get("checksum") != controlled_start_task_checksum or readiness_task.get("id") != task_id:
+        readiness_task_checksum = readiness_task.get("checksum")
+        readiness_task_id = readiness_task.get("id")
+        controlled_start_execution = controlled_start.get("execution_start") if isinstance(controlled_start.get("execution_start"), dict) else {}
+        controlled_start_files = controlled_start.get("files") if isinstance(controlled_start.get("files"), dict) else {}
+        controlled_start_execution_file = controlled_start_files.get("execution_start")
+        controlled_start_execution_context = controlled_start_path
+        if controlled_loop_invocation_plan_non_empty_string(controlled_start_execution_file):
+            resolved_start_file = controlled_tick_context_path(controlled_start_path, controlled_start_execution_file)
+            if isinstance(resolved_start_file, Path):
+                controlled_start_execution_context = resolved_start_file
+        controlled_start_task_file = controlled_start_execution.get("task_file")
+        readiness_task_file = readiness_task.get("file")
+        if (
+            not controlled_loop_invocation_plan_non_empty_string(controlled_start_task_checksum)
+            or not controlled_loop_invocation_plan_non_empty_string(readiness_task_checksum)
+            or not controlled_loop_invocation_plan_non_empty_string(task_id)
+            or not controlled_loop_invocation_plan_non_empty_string(readiness_task_id)
+            or readiness_task_checksum != controlled_start_task_checksum
+            or readiness_task_id != task_id
+        ):
             blockers.append(
                 controlled_loop_invocation_plan_blocker(
                     "controlled_start_readiness_mismatch",
                     "readiness task anchor does not match controlled loop start",
                     expected_task_id=task_id,
-                    actual_task_id=readiness_task.get("id"),
+                    actual_task_id=readiness_task_id,
                     expected_checksum=controlled_start_task_checksum,
-                    actual_checksum=readiness_task.get("checksum"),
+                    actual_checksum=readiness_task_checksum,
                 )
             )
-        if readiness_epoch.get("id") != epoch_id:
+        if (
+            not controlled_loop_invocation_plan_non_empty_string(controlled_start_task_file)
+            or not controlled_loop_invocation_plan_non_empty_string(readiness_task_file)
+            or not _closeout_paths_match(
+                controlled_tick_context_path(controlled_start_execution_context, controlled_start_task_file),
+                controlled_tick_context_path(readiness_path, readiness_task_file),
+            )
+        ):
+            blockers.append(
+                controlled_loop_invocation_plan_blocker(
+                    "controlled_start_readiness_mismatch",
+                    "readiness task file does not match controlled loop start task file",
+                    expected_task_file=controlled_start_task_file,
+                    actual_task_file=readiness_task_file,
+                )
+            )
+        readiness_epoch_id = readiness_epoch.get("id")
+        if (
+            not controlled_loop_invocation_plan_non_empty_string(epoch_id)
+            or not controlled_loop_invocation_plan_non_empty_string(readiness_epoch_id)
+            or readiness_epoch_id != epoch_id
+        ):
             blockers.append(
                 controlled_loop_invocation_plan_blocker(
                     "controlled_start_readiness_mismatch",
                     "readiness active epoch does not match controlled loop start",
                     expected_epoch_id=epoch_id,
-                    actual_epoch_id=readiness_epoch.get("id"),
+                    actual_epoch_id=readiness_epoch_id,
                 )
             )
 
@@ -4109,8 +4156,8 @@ def controlled_loop_tick_command(args: argparse.Namespace) -> int:
         expected_types = {
             "loop_tick": ("loop_tick", None),
             "execution_start": ("execution_start", EXECUTION_START_SCHEMA_VERSION),
-            "readiness": ("executor_invocation_readiness", "executor-invocation-readiness.v1"),
-            "invocation_plan": ("executor_invocation_plan", "executor-invocation-plan.v1"),
+            "readiness": ("executor_invocation_readiness", EXECUTOR_INVOCATION_READINESS_SCHEMA_VERSION),
+            "invocation_plan": ("executor_invocation_plan", EXECUTOR_INVOCATION_PLAN_SCHEMA_VERSION),
             "real_invocation": ("real_executor_invocation", REAL_EXECUTOR_INVOCATION_SCHEMA_VERSION),
             "result": ("executor_result", "generic-executor-result.v1"),
             "closeout": ("executor_epoch_closeout", EXECUTOR_EPOCH_CLOSEOUT_SCHEMA_VERSION),

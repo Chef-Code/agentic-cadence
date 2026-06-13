@@ -3732,6 +3732,90 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["recommended_next_action"], "recreate_executor_invocation_plan")
             self.assertIn("invocation_plan_readiness_mismatch", {blocker["code"] for blocker in output["blockers"]})
 
+    def test_controlled_loop_invocation_plan_blocks_missing_controlled_start_and_readiness_anchors(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_invocation_plan_inputs(tmp, repo)
+            controlled_start = dict(inputs["controlled_start"])
+            controlled_start.pop("task_id")
+            controlled_start.pop("epoch_id")
+            controlled_start.pop("executor_task_checksum")
+            inputs["controlled_start_path"].write_text(json.dumps(controlled_start), encoding="utf-8")
+            readiness = dict(inputs["readiness"])
+            readiness["task"] = dict(readiness["task"])
+            readiness["task"].pop("id")
+            readiness["task"].pop("checksum")
+            readiness["active_epoch"] = dict(readiness["active_epoch"])
+            readiness["active_epoch"].pop("id")
+            inputs["readiness_path"].write_text(json.dumps(readiness), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-invocation-plan",
+                "--controlled-loop-start-file",
+                str(inputs["controlled_start_path"]),
+                "--readiness-file",
+                str(inputs["readiness_path"]),
+                "--invocation-plan-file",
+                str(inputs["invocation_plan_path"]),
+            )
+
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "refresh_executor_invocation_readiness")
+            self.assertIn("controlled_start_readiness_mismatch", blocker_codes)
+
+    def test_controlled_loop_invocation_plan_blocks_controlled_start_readiness_task_file_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_invocation_plan_inputs(tmp, repo)
+            controlled_start = dict(inputs["controlled_start"])
+            controlled_start["execution_start"] = dict(controlled_start["execution_start"])
+            controlled_start["execution_start"]["task_file"] = str(Path(tmp) / "other-task.json")
+            inputs["controlled_start_path"].write_text(json.dumps(controlled_start), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-invocation-plan",
+                "--controlled-loop-start-file",
+                str(inputs["controlled_start_path"]),
+                "--readiness-file",
+                str(inputs["readiness_path"]),
+                "--invocation-plan-file",
+                str(inputs["invocation_plan_path"]),
+            )
+
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "refresh_executor_invocation_readiness")
+            self.assertIn("controlled_start_readiness_mismatch", blocker_codes)
+
+    def test_controlled_loop_invocation_plan_blocks_side_effect_contaminated_controlled_start(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_invocation_plan_inputs(tmp, repo)
+            controlled_start = dict(inputs["controlled_start"])
+            controlled_start["side_effects"] = ["executor_started"]
+            inputs["controlled_start_path"].write_text(json.dumps(controlled_start), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-invocation-plan",
+                "--controlled-loop-start-file",
+                str(inputs["controlled_start_path"]),
+                "--readiness-file",
+                str(inputs["readiness_path"]),
+                "--invocation-plan-file",
+                str(inputs["invocation_plan_path"]),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "recreate_controlled_loop_start")
+            self.assertIn("controlled_start_invalid", {blocker["code"] for blocker in output["blockers"]})
+
     def test_controlled_loop_invocation_plan_blocks_side_effect_contaminated_readiness(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
