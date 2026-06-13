@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-13
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 28-37 complete in main or active review branches
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 28-39 complete in main or active review branches
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -129,11 +129,15 @@ requires operator confirmation while reporting no Git, GitHub, merge, release,
 package, role-assignment, scheduler, or loop-continuation side effects.
 `loop-run-plan` can wrap the current read-only `loop-tick` decision into a
 `loop-run-plan.v1` packet with planned next steps and explicit non-start flags
-for the runner, executor, epoch, PR actions, GitHub writes, and merge. Autonomous
+for the runner, executor, epoch, PR actions, GitHub writes, and merge.
+`controlled-loop-start` can compose a saved loop-run plan with approved
+`execution-start.v1` evidence, recheck the executor task checksum and
+execution-start task anchor, and recommend executor-invocation planning without
+starting a runner or executor. Autonomous
 branch/commit/push or PR creation, automatic session launch, distributed work
 ownership, role assignment, and continuous loop orchestration remain missing.
 Current unattended-operation confidence is 25%. Progress-log entries record
-Task 37 projected capability at 33% while this stable headline remains 25%.
+Task 39 projected capability at 34% while this stable headline remains 25%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
 complete, Tasks 8-12 from
@@ -154,7 +158,9 @@ complete in `main` via PRs #92-#96. Tasks 28-32 from
 PRs #98-#103. The current roadmap after Task 32 is
 `docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md`; Tasks 33-37 are complete
 in `main`. Task 38 starts the next runner-adjacent slice with a read-only
-`loop-run-plan` packet rather than autonomous execution authority.
+`loop-run-plan` packet rather than autonomous execution authority. Task 39
+adds read-only `controlled-loop-start` evidence for the saved loop-plan plus
+approved execution-start boundary.
 
 ## Vision Framing
 
@@ -244,6 +250,11 @@ Current evidence:
   closeout, and optional dry-run Git/PR plan files, rechecks their path and
   checksum anchors, emits `controlled-loop-tick.v1`, and appends
   `controlled_loop_tick` audit evidence only after a completed composition;
+- `controlled-loop-start` reads saved `loop-run-plan.v1` and
+  `execution-start.v1` files, rechecks packet schemas, the planned executor
+  task checksum, and execution-start task id/checksum anchors, then recommends
+  executor-invocation planning without starting a runner, executor, or loop
+  continuation;
 - no command runs a continuous governed loop tick end to end or retries failed
   real executor invocations.
 
@@ -279,6 +290,10 @@ Validation needed:
 - controlled-loop-tick matching saved evidence: complete for Task 23;
 - controlled-loop-tick mismatched evidence blocks without audit append:
   complete for Task 23.
+- controlled-loop-start matching saved plan/start evidence: complete for
+  Task 39.
+- controlled-loop-start mismatched execution-start evidence blocks without
+  appending audit evidence: complete for Task 39.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.
@@ -741,6 +756,10 @@ Current evidence:
   `loop-run-plan.v1` packet with planned next steps while reporting no runner,
   executor, epoch, PR-action, GitHub-write, merge, release, package,
   role-assignment, scheduling, or loop-continuation side effects;
+- `controlled-loop-start` can consume saved loop-run-plan and execution-start
+  evidence, verify that the approved start matches the planned executor task,
+  and recommend executor-invocation planning without starting a runner,
+  executor, GitHub write, or loop continuation;
 - no branch creation, commit, push, merge, release, package publication,
   continuous reconciliation, automatic response loop execution, paid review,
   label editing, role assignment, or agent scheduling exists.

@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-13
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-37 complete in main or active review branches
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-39 complete in main or active review branches
 Current unattended-operation confidence: 25%
 
 This document tracks the practical path from the current Agentic Cadence
@@ -176,6 +176,8 @@ command-policy and active-stop controls. It includes:
   operator approval identity, clean audit replay, adapter metadata, rollback evidence,
   command, environment allowlist, timeout, active epoch, active
   ownership, and result-path anchors before any future process start;
+- `controlled-loop-start` packets that compose saved loop-run plans with
+  approved execution-start evidence without starting a runner or executor;
 - controlled `invoke-real-executor` local process-start records,
   `closeout-executor-result --real-invocation-file` binding, and
   `controlled-loop-tick` packets that compose saved local
@@ -457,6 +459,10 @@ path, branch, `HEAD`, clean worktree, task-carried command and branch policy
 shape, brake state, active epoch state, and supplied local ownership evidence,
 start one active epoch, bind matching active ownership to that epoch, emit
 `execution-start.v1`, and still report `executor_started: false`.
+`controlled-loop-start` can compose a saved `loop-run-plan.v1` packet with
+approved `execution-start.v1` evidence, recheck the executor task checksum and
+task id, and recommend executor-invocation planning without starting a runner
+or executor.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,
@@ -486,6 +492,7 @@ HEAD blockers, dirty worktree blockers, non-`DRIVE` brake blockers, active
 epoch blockers, malformed active-epoch state blockers, malformed task packets,
 missing or mismatched approval, missing repo paths, missing/mismatched/duplicate
 work ownership blockers, ownership binding rollback on audit failure,
+controlled-loop-start success and task-mismatch blocking,
 controlled real executor invocation evidence, real-invocation closeout binding,
 controlled-loop-tick success and mismatch-blocking evidence, and replayable
 audit evidence. Full autonomous completion still needs

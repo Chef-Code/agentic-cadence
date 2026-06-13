@@ -3006,6 +3006,317 @@ def loop_run_plan_command(args: argparse.Namespace) -> int:
     return 0
 
 
+CONTROLLED_LOOP_START_SCHEMA_VERSION = "controlled-loop-start.v1"
+CONTROLLED_LOOP_START_PLAN_NON_START_FLAGS = (
+    "runner_started",
+    "executor_started",
+    "epoch_started",
+    "pr_action_started",
+    "github_write_started",
+    "merge_started",
+    "release_started",
+    "package_publication_started",
+    "role_assignment_started",
+    "agent_scheduling_started",
+    "loop_continuation_started",
+)
+CONTROLLED_LOOP_START_EXECUTION_START_FORBIDDEN_TRUE_FLAGS = (
+    "runner_started",
+    "executor_started",
+    "pr_action_started",
+    "github_write_started",
+    "merge_started",
+    "release_started",
+    "package_publication_started",
+    "role_assignment_started",
+    "agent_scheduling_started",
+    "loop_continuation_started",
+)
+
+
+def controlled_loop_start_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def read_controlled_loop_start_packet(path: Path, *, code: str, label: str) -> tuple[Any | None, list[dict[str, Any]]]:
+    try:
+        packet = read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, [controlled_loop_start_blocker(code, f"{label} could not be read as JSON", path=str(path), error=str(exc))]
+    if not isinstance(packet, dict):
+        return None, [controlled_loop_start_blocker(code, f"{label} must be a JSON object", path=str(path))]
+    return packet, []
+
+
+def controlled_loop_start_type_blockers(
+    packet: dict[str, Any],
+    *,
+    expected_packet: str,
+    expected_schema: str,
+    label: str,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if packet.get("schema_version") != expected_schema:
+        blockers.append(
+            controlled_loop_start_blocker(
+                "controlled_start_packet_mismatch",
+                f"{label} schema_version is invalid",
+                expected=expected_schema,
+                actual=packet.get("schema_version"),
+            )
+        )
+    if packet.get("packet") != expected_packet:
+        blockers.append(
+            controlled_loop_start_blocker(
+                "controlled_start_packet_mismatch",
+                f"{label} packet is invalid",
+                expected=expected_packet,
+                actual=packet.get("packet"),
+            )
+        )
+    return blockers
+
+
+def controlled_loop_start_recommendation(blockers: list[dict[str, Any]]) -> str:
+    if not blockers:
+        return "plan_executor_invocation"
+    codes = {blocker.get("code") for blocker in blockers}
+    if "execution_start_task_mismatch" in codes:
+        return "recreate_execution_start"
+    if "loop_run_plan_not_ready" in codes:
+        return "regenerate_loop_run_plan"
+    if "execution_start_invalid" in codes:
+        return "inspect_execution_start"
+    if codes & {"loop_run_plan_evidence_missing", "execution_start_evidence_missing", "controlled_start_packet_mismatch"}:
+        return "refresh_controlled_start_evidence"
+    return "inspect_controlled_start_blockers"
+
+
+def controlled_loop_start_side_effect_blockers(
+    packet: dict[str, Any],
+    *,
+    flags: tuple[str, ...],
+    expected_false: bool,
+    code: str,
+    label: str,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    for flag in flags:
+        value = packet.get(flag)
+        if (expected_false and value is not False) or (not expected_false and value is True):
+            blockers.append(
+                controlled_loop_start_blocker(
+                    code,
+                    f"{label} must not report side-effect flag {flag}",
+                    flag=flag,
+                    actual=value,
+                )
+            )
+    return blockers
+
+
+def controlled_loop_start_command(args: argparse.Namespace) -> int:
+    plan_path = Path(args.loop_run_plan_file)
+    start_path = Path(args.execution_start_file)
+    loop_run_plan, plan_blockers = read_controlled_loop_start_packet(
+        plan_path,
+        code="loop_run_plan_evidence_missing",
+        label="loop run plan",
+    )
+    execution_start, start_blockers = read_controlled_loop_start_packet(
+        start_path,
+        code="execution_start_evidence_missing",
+        label="execution start",
+    )
+    blockers = [*plan_blockers, *start_blockers]
+
+    if isinstance(loop_run_plan, dict):
+        blockers.extend(
+            controlled_loop_start_type_blockers(
+                loop_run_plan,
+                expected_packet="loop_run_plan",
+                expected_schema=LOOP_RUN_PLAN_SCHEMA_VERSION,
+                label="loop run plan",
+            )
+        )
+    if isinstance(execution_start, dict):
+        blockers.extend(
+            controlled_loop_start_type_blockers(
+                execution_start,
+                expected_packet="execution_start",
+                expected_schema=EXECUTION_START_SCHEMA_VERSION,
+                label="execution start",
+            )
+        )
+
+    executor_task_checksum = None
+    task_id = None
+    epoch_id = None
+    if not blockers and isinstance(loop_run_plan, dict) and isinstance(execution_start, dict):
+        executor_task = loop_run_plan.get("executor_task")
+        executor_task_checksum = loop_run_plan.get("executor_task_checksum")
+        if not isinstance(executor_task, dict) or not isinstance(executor_task_checksum, str) or not executor_task_checksum.strip():
+            blockers.append(
+                controlled_loop_start_blocker(
+                    "loop_run_plan_not_ready",
+                    "loop run plan must include an executor task checksum",
+                )
+            )
+        elif checksum_json(executor_task) != executor_task_checksum:
+            blockers.append(
+                controlled_loop_start_blocker(
+                    "loop_run_plan_not_ready",
+                    "loop run plan executor task checksum does not match embedded task",
+                    expected=checksum_json(executor_task),
+                    actual=executor_task_checksum,
+                )
+            )
+        if isinstance(executor_task, dict):
+            task_valid, task_reason = validate_executor_task_packet(executor_task)
+            if not task_valid:
+                blockers.append(
+                    controlled_loop_start_blocker(
+                        "loop_run_plan_not_ready",
+                        f"loop run plan executor task is invalid: {task_reason}",
+                    )
+                )
+        if loop_run_plan.get("recommended_next_action") != "request_operator_approval":
+            blockers.append(
+                controlled_loop_start_blocker(
+                    "loop_run_plan_not_ready",
+                    "loop run plan must be waiting for executor task operator approval",
+                    actual=loop_run_plan.get("recommended_next_action"),
+                )
+            )
+        blockers.extend(
+            controlled_loop_start_side_effect_blockers(
+                loop_run_plan,
+                flags=CONTROLLED_LOOP_START_PLAN_NON_START_FLAGS,
+                expected_false=True,
+                code="loop_run_plan_not_ready",
+                label="loop run plan",
+            )
+        )
+        task = executor_task.get("task") if isinstance(executor_task, dict) and isinstance(executor_task.get("task"), dict) else {}
+        task_id = task.get("id")
+        if not isinstance(task_id, str) or not task_id.strip():
+            blockers.append(
+                controlled_loop_start_blocker(
+                    "loop_run_plan_not_ready",
+                    "loop run plan executor task id is required",
+                )
+            )
+        epoch_id = execution_start.get("epoch_id")
+        if execution_start.get("valid") is not True or execution_start.get("epoch_started") is not True:
+            blockers.append(
+                controlled_loop_start_blocker(
+                    "execution_start_invalid",
+                    "execution start evidence must be valid and epoch_started",
+                )
+            )
+        if execution_start.get("approval_state") != "approved":
+            blockers.append(
+                controlled_loop_start_blocker(
+                    "execution_start_invalid",
+                    "execution start evidence must have approved approval_state",
+                    actual=execution_start.get("approval_state"),
+                )
+            )
+        blockers.extend(
+            controlled_loop_start_side_effect_blockers(
+                execution_start,
+                flags=CONTROLLED_LOOP_START_EXECUTION_START_FORBIDDEN_TRUE_FLAGS,
+                expected_false=False,
+                code="execution_start_invalid",
+                label="execution start",
+            )
+        )
+        if execution_start.get("executor_started") is not False:
+            blockers.append(
+                controlled_loop_start_blocker(
+                    "execution_start_invalid",
+                    "execution start evidence must not start an executor",
+                )
+            )
+        if not isinstance(epoch_id, str) or not epoch_id.strip():
+            blockers.append(
+                controlled_loop_start_blocker(
+                    "execution_start_invalid",
+                    "execution start evidence must include an epoch id",
+                )
+            )
+        if execution_start.get("task_checksum") != executor_task_checksum or execution_start.get("task_id") != task_id:
+            blockers.append(
+                controlled_loop_start_blocker(
+                    "execution_start_task_mismatch",
+                    "execution start task anchor does not match loop run plan executor task",
+                    expected_checksum=executor_task_checksum,
+                    actual_checksum=execution_start.get("task_checksum"),
+                    expected_task_id=task_id,
+                    actual_task_id=execution_start.get("task_id"),
+                )
+            )
+
+    valid = not blockers
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": CONTROLLED_LOOP_START_SCHEMA_VERSION,
+        "packet": "controlled_loop_start",
+        "generated_at": utc_now(),
+        "read_only": True,
+        "valid": valid,
+        "controlled_start_status": "completed" if valid else "blocked",
+        "reason": "loop run plan and execution start evidence match" if valid else "loop run plan and execution start evidence are incomplete or mismatched",
+        "runner_started": False,
+        "executor_started": False,
+        "epoch_started": False,
+        "pr_action_started": False,
+        "github_write_started": False,
+        "merge_started": False,
+        "release_started": False,
+        "package_publication_started": False,
+        "role_assignment_started": False,
+        "agent_scheduling_started": False,
+        "loop_continuation_started": False,
+        "operator_confirmation_required": False if valid else True,
+        "side_effects": [],
+        "recommended_next_action": controlled_loop_start_recommendation(blockers),
+        "files": {
+            "loop_run_plan": str(plan_path),
+            "execution_start": str(start_path),
+        },
+        "loop_run_plan": loop_run_plan if isinstance(loop_run_plan, dict) else None,
+        "execution_start": execution_start if isinstance(execution_start, dict) else None,
+        "loop_run_plan_checksum": checksum_json(loop_run_plan) if isinstance(loop_run_plan, dict) else None,
+        "execution_start_checksum": checksum_json(execution_start) if isinstance(execution_start, dict) else None,
+        "executor_task_checksum": executor_task_checksum,
+        "task_id": task_id,
+        "epoch_id": epoch_id,
+        "blockers": blockers,
+        "limitations": [
+            "composes_existing_plan_and_execution_start_only",
+            "does_not_continue_loop",
+            "does_not_start_runner",
+            "does_not_start_executor",
+            "does_not_retry_executor",
+            "does_not_call_github",
+            "does_not_create_branch",
+            "does_not_commit",
+            "does_not_push",
+            "does_not_create_pr",
+            "does_not_merge",
+            "does_not_release",
+            "does_not_publish_packages",
+            "does_not_assign_roles",
+            "does_not_schedule_agents",
+        ],
+    }
+    emit(payload)
+    return 0 if valid else 2
+
+
 CONTROLLED_LOOP_TICK_SCHEMA_VERSION = "controlled-loop-tick.v1"
 CONTROLLED_LOOP_TICK_TERMINAL_CLOSEOUT_STATUSES = {"completed", "failed"}
 
@@ -5534,6 +5845,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     add_loop_planning_arguments(loop_run_plan_parser)
     loop_run_plan_parser.set_defaults(func=loop_run_plan_command)
+
+    controlled_loop_start_parser = subparsers.add_parser(
+        "controlled-loop-start",
+        help="Compose a loop run plan and approved execution start without running the executor",
+    )
+    controlled_loop_start_parser.add_argument("--loop-run-plan-file", required=True)
+    controlled_loop_start_parser.add_argument("--execution-start-file", required=True)
+    controlled_loop_start_parser.set_defaults(
+        func=controlled_loop_start_command,
+        requires_root=True,
+        guards_runtime_root_only=True,
+    )
 
     controlled_loop_tick_parser = subparsers.add_parser(
         "controlled-loop-tick",
