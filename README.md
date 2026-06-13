@@ -41,6 +41,7 @@ operator-approved `git-pr-dirty-commit-materialize`, operator-approved
 `git-pr-materialize`, operator-approved `review-response-materialize`,
 read-only `controlled-pr-cycle`, read-only `merge-decision-plan`,
 read-only `loop-run-plan`,
+read-only `controlled-loop-start`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -52,8 +53,10 @@ through `closeout-executor-result --real-invocation-file`, plus
 single-tick chain and `controlled-pr-cycle` evidence that composes already
 recorded PR/review/post-write packets, plus `merge-decision-plan` evidence
 that separates merge readiness from merge authority without retrying the
-executor or writing Git/GitHub state, and `loop-run-plan` evidence that plans
-the next bounded loop steps without starting a runner.
+executor or writing Git/GitHub state, `loop-run-plan` evidence that plans
+the next bounded loop steps without starting a runner, and
+`controlled-loop-start` evidence that composes a saved loop plan with approved
+execution-start evidence without starting a runner or executor.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -300,6 +303,19 @@ agents:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime loop-run-plan --cwd examples/first-run/work/repo --repo local/demo --intent repo_health --emit-executor-task --allowed-path . --required-check "python -m unittest discover -s tests"
+```
+
+`controlled-loop-start` composes a saved `loop-run-plan.v1` packet with a
+separately produced `execution-start.v1` packet after the operator-approved
+execution-start gate has already run. It rechecks the planned executor task
+checksum against the execution-start task anchor plus the local active epoch and
+start audit record before reporting the next bounded recommendation, but it
+still does not continue the loop, start a runner, start or retry an executor,
+call GitHub, create branches, commit, push, open PRs, merge, release, publish
+packages, assign roles, or schedule agents:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-start --loop-run-plan-file loop-run-plan.json --execution-start-file execution-start.json
 ```
 
 `start-governed-execution` is the local write-side gate that consumes a reviewed

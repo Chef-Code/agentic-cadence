@@ -33,6 +33,95 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-13 - Compose controlled loop starts
+
+Summary:
+- Added `controlled-loop-start` to compose a saved `loop-run-plan.v1` packet
+  with an already produced `execution-start.v1` packet.
+- The packet rechecks loop-plan schema, execution-start schema, planned
+  executor task checksum, embedded executor task shape, task id, approved
+  execution-start evidence, active epoch/audit binding, and explicit
+  non-runner/non-executor boundaries on the success path before recommending
+  `plan_executor_invocation`; blocked packets return recovery actions.
+- Completed and blocked packets append no audit evidence; the command does not
+  start a runner, start or retry an executor, continue a loop, write
+  Git/GitHub state, merge, release, publish packages, assign roles, or schedule
+  agents.
+
+Completed slices:
+- Task 39: read-only controlled loop-start composition.
+
+Confidence change:
+- Previous: 33%
+- New: 34%
+- Reason: Cadence can now prove that a saved loop-run plan and separately
+  approved execution-start evidence line up before invocation planning, but it
+  still does not run a continuous loop or invoke executors from this packet.
+
+Evidence:
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_controlled_loop_start_composes_plan_and_execution_start -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_controlled_loop_start_blocks_mismatched_execution_start -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_controlled_loop_start_composes_plan_and_execution_start tests.test_cadence.CadenceCliTests.test_controlled_loop_start_blocks_mismatched_execution_start -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_controlled_loop_start_blocks_unapproved_execution_start tests.test_cadence.CadenceCliTests.test_controlled_loop_start_blocks_malformed_embedded_executor_task tests.test_cadence.CadenceCliTests.test_controlled_loop_start_blocks_side_effect_contaminated_inputs -v`
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_controlled_loop_start_composes_plan_and_execution_start tests.test_cadence.CadenceCliTests.test_controlled_loop_start_blocks_mismatched_execution_start tests.test_cadence.CadenceCliTests.test_controlled_loop_start_blocks_unapproved_execution_start tests.test_cadence.CadenceCliTests.test_controlled_loop_start_blocks_malformed_embedded_executor_task tests.test_cadence.CadenceCliTests.test_controlled_loop_start_blocks_side_effect_contaminated_inputs -v`
+- `python -m unittest tests.test_cadence -v` (328 tests, 3 expected Windows symlink skips)
+- `python -m compileall scripts codex_cadence transmission_control tests`
+- `python scripts\validate_protocol.py`
+- `python -m ruff check codex_cadence\cli.py tests\test_cadence.py`
+- `git diff --check`
+
+New risks or blockers:
+- Continuous loop execution, autonomous executor retry, Git/GitHub writes,
+  merge, release, package publication, role assignment, and agent scheduling
+  remain out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
+## 2026-06-13 - Plan loop runs without starting a runner
+
+Summary:
+- Added `loop-run-plan` to wrap the read-only loop-tick decision path into a
+  `loop-run-plan.v1` packet with planned next operator/orchestrator steps.
+- The packet preserves executor task checksum evidence for explicit operator
+  approval while keeping runner, executor, epoch, PR action, GitHub write,
+  merge, release, package publication, role assignment, scheduling, and loop
+  continuation side-effect flags false.
+- Review hardening removed the approval-token hint from the plan so the packet
+  identifies the approval target without emitting write-side authority.
+
+Completed slices:
+- Task 38: read-only loop run planning.
+
+Confidence change:
+- Previous: 33%
+- New: 33%
+- Reason: Cadence can now plan the next bounded loop step from a loop-tick
+  decision, but this remains read-only planning and does not start a runner,
+  executor, epoch, Git/GitHub write, or continuous loop.
+
+Evidence:
+- PR #110 merged on 2026-06-13 as `8bef90bcf7413d5d10584ac9c14646958aff9f48`.
+- GitHub PR checks for #110 reported Python/protocol checks passing, Ubuntu
+  and Windows package/first-run examples passing, and CodeRabbit passing before
+  merge.
+
+New risks or blockers:
+- A human or external orchestrator still has to approve the executor task and
+  run subsequent commands; no runner, retry, or continuation authority was
+  added.
+
+Docs updated:
+- `README.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+
 ## 2026-06-13 - Plan merge decisions from saved evidence
 
 Summary:

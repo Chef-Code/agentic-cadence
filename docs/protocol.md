@@ -921,6 +921,65 @@ When the operator omits `--repo`, the loop-decision audit record uses the
 resolved snapshot `cwd` as the local repo anchor so replay can still validate
 the compact record.
 
+## Loop Run Planning And Controlled Start Composition
+
+`loop-run-plan` is a read-only wrapper around the same loop decision path used
+by `loop-tick`. It emits `loop-run-plan.v1` with planned next steps and explicit
+non-start flags for runner, executor, epoch, PR, GitHub, merge, release,
+package publication, role assignment, scheduling, and loop continuation. When
+an executor task is emitted, the packet includes the executor task checksum as
+an approval target for a later operator-approved execution-start gate. It does
+not emit an approval token, append audit records, mutate runtime state, start a
+runner, start an executor, start an epoch, call GitHub, or write Git state.
+
+`controlled-loop-start` composes an already saved `loop-run-plan.v1` packet and
+an already produced `execution-start.v1` packet into
+`controlled-loop-start.v1`. The command reads
+`--loop-run-plan-file` and `--execution-start-file`, requires matching packet
+and schema values, requires the loop plan to carry an executor task checksum
+and `recommended_next_action: request_operator_approval`, validates the
+embedded generic executor task packet, requires the execution start to be valid
+with `approval_state: approved`, `epoch_started: true`, and
+`executor_started: false`, and verifies that the execution-start task checksum
+and task id match the executor task embedded in the loop plan. It also rechecks
+the runtime root for the matching active epoch and the prior
+`execution_start_decision` audit record whose payload checksum binds the
+supplied `execution-start.v1` packet. It rejects loop-plan or execution-start
+evidence that reports runner, executor, PR, GitHub, merge, release,
+package-publication, role-assignment, scheduling, or loop-continuation side
+effects.
+
+A completed packet uses `packet: controlled_loop_start`,
+`controlled_start_status: completed`, `read_only: true`, and
+`recommended_next_action: plan_executor_invocation`. The top-level response
+envelope includes `packet`, `schema_version`, `controlled_start_status`,
+`read_only`, `valid`, `recommended_next_action`, `loop_run_plan_checksum`,
+`execution_start_checksum`, `executor_task_checksum`, `task_id`, `epoch_id`,
+the nested `loop_run_plan` evidence, the nested `execution_start` evidence,
+`blockers`, and explicit false side-effect flags. The nested `loop_run_plan`
+contains the embedded `generic-executor-task.v1` packet plus its checksum and
+loop metadata. The nested `execution_start` contains `approval_state`,
+`epoch_started`, `executor_started`, `task_id`, `task_checksum`, `epoch_id`, and
+the `audit_record` reference written by `start-governed-execution`.
+
+Blocked packets use `controlled_start_status: blocked`, `valid: false`, stable
+blockers, and exit code 2. A task-anchor mismatch recommends
+`recreate_execution_start`; malformed or not-ready loop plans recommend
+`regenerate_loop_run_plan`; invalid execution-start evidence, including missing
+active epoch or audit binding, recommends `inspect_execution_start`; missing or
+wrong packet evidence recommends `refresh_controlled_start_evidence`.
+Completed and blocked `controlled-loop-start` packets append no audit record;
+the command is read-only composition evidence only. Stable blocker codes include
+`loop_run_plan_evidence_missing`, `execution_start_evidence_missing`,
+`controlled_start_packet_mismatch`, `loop_run_plan_not_ready`,
+`execution_start_invalid`, and `execution_start_task_mismatch`.
+
+`controlled-loop-start` must not continue the loop, start a runner, start or
+retry an executor, start another epoch, create branches, commit, push, call
+GitHub, create or update pull requests, resolve review threads, merge, release,
+publish packages, assign roles, schedule agents, claim distributed locks, or
+rewrite the supplied plan or execution-start records.
+
 `audit-replay` is the read-only local audit verification command. It reads
 `<root>/audit/events.jsonl`, emits an `audit-replay.v1` packet, and exits
 nonzero when the audit log contains malformed, corrupt, unsupported, or

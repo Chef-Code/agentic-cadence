@@ -3235,6 +3235,286 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse((Path(tmp) / "audit" / "events.jsonl").exists())
             self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
 
+    def write_controlled_loop_start_inputs(self, tmp, repo):
+        marker = Path(repo) / "notes.py"
+        marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+        git(repo, "add", "notes.py")
+        git(repo, "commit", "-m", "add repo health marker")
+        plan_path = Path(tmp) / "loop-run-plan.json"
+        task_path = Path(tmp) / "executor-task.json"
+        start_path = Path(tmp) / "execution-start.json"
+        evidence_path = Path(tmp) / "executor-result.json"
+
+        plan_result, plan = run_cli(
+            tmp,
+            "loop-run-plan",
+            "--cwd",
+            repo,
+            "--repo",
+            "local/test",
+            "--intent",
+            "repo_health",
+            "--emit-executor-task",
+            "--allowed-path",
+            "notes.py",
+            "--required-check",
+            "python -m unittest tests.test_cadence",
+            "--executor-evidence-path",
+            str(evidence_path),
+        )
+        self.assertEqual(plan_result.returncode, 0, plan_result.stderr)
+        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+        task_path.write_text(json.dumps(plan["executor_task"]), encoding="utf-8")
+
+        start_result, start = run_cli(
+            tmp,
+            "start-governed-execution",
+            "--task-file",
+            str(task_path),
+            "--approval-token",
+            f"approve-executor-task:{plan['executor_task_checksum']}",
+        )
+        self.assertEqual(start_result.returncode, 0, start_result.stderr)
+        start_path.write_text(json.dumps(start), encoding="utf-8")
+        return plan_path, task_path, start_path, plan, start
+
+    def test_controlled_loop_start_composes_plan_and_execution_start(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            plan_path, _task_path, start_path, plan, start = self.write_controlled_loop_start_inputs(tmp, repo)
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-start",
+                "--loop-run-plan-file",
+                str(plan_path),
+                "--execution-start-file",
+                str(start_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "controlled-loop-start.v1")
+            self.assertEqual(output["packet"], "controlled_loop_start")
+            self.assertTrue(output["read_only"])
+            self.assertEqual(output["controlled_start_status"], "completed")
+            self.assertEqual(output["recommended_next_action"], "plan_executor_invocation")
+            self.assertFalse(output["runner_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["pr_action_started"])
+            self.assertFalse(output["github_write_started"])
+            self.assertFalse(output["merge_started"])
+            self.assertFalse(output["release_started"])
+            self.assertFalse(output["package_publication_started"])
+            self.assertFalse(output["role_assignment_started"])
+            self.assertFalse(output["agent_scheduling_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["loop_run_plan_checksum"], checksum_json(plan))
+            self.assertEqual(output["execution_start_checksum"], checksum_json(start))
+            self.assertEqual(output["executor_task_checksum"], plan["executor_task_checksum"])
+            self.assertEqual(output["execution_start"]["task_checksum"], plan["executor_task_checksum"])
+            self.assertEqual(output["blockers"], [])
+            audit_events = Path(tmp) / "audit" / "events.jsonl"
+            audit_lines = audit_events.read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(audit_lines), 1)
+            self.assertIn("execution_start_decision", audit_lines[0])
+
+    def test_controlled_loop_start_blocks_mismatched_execution_start(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            plan_path, _task_path, start_path, _plan, start = self.write_controlled_loop_start_inputs(tmp, repo)
+            start["task_checksum"] = "sha256:" + "0" * 64
+            start_path.write_text(json.dumps(start), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-start",
+                "--loop-run-plan-file",
+                str(plan_path),
+                "--execution-start-file",
+                str(start_path),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertEqual(output["schema_version"], "controlled-loop-start.v1")
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_start_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "recreate_execution_start")
+            self.assertTrue(output["operator_confirmation_required"])
+            self.assertIn("execution_start_task_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertFalse(output["runner_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["pr_action_started"])
+            self.assertFalse(output["github_write_started"])
+            self.assertFalse(output["merge_started"])
+            self.assertFalse(output["release_started"])
+            self.assertFalse(output["package_publication_started"])
+            self.assertFalse(output["role_assignment_started"])
+            self.assertFalse(output["agent_scheduling_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            audit_lines = (Path(tmp) / "audit" / "events.jsonl").read_text(encoding="utf-8").splitlines()
+            self.assertEqual(len(audit_lines), 1)
+            self.assertIn("execution_start_decision", audit_lines[0])
+
+    def test_controlled_loop_start_blocks_unapproved_execution_start(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            plan_path, _task_path, start_path, _plan, start = self.write_controlled_loop_start_inputs(tmp, repo)
+            start["approval_state"] = "missing"
+            start_path.write_text(json.dumps(start), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-start",
+                "--loop-run-plan-file",
+                str(plan_path),
+                "--execution-start-file",
+                str(start_path),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_start_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "inspect_execution_start")
+            self.assertIn("execution_start_invalid", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_controlled_loop_start_blocks_malformed_embedded_executor_task(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            plan_path, _task_path, start_path, plan, start = self.write_controlled_loop_start_inputs(tmp, repo)
+            malformed_task = {
+                "schema_version": "generic-executor-task.v1",
+                "packet": "executor_task",
+                "task": {},
+            }
+            plan["executor_task"] = malformed_task
+            plan["executor_task_checksum"] = checksum_json(malformed_task)
+            start["task_checksum"] = plan["executor_task_checksum"]
+            start["task_id"] = None
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+            start_path.write_text(json.dumps(start), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-start",
+                "--loop-run-plan-file",
+                str(plan_path),
+                "--execution-start-file",
+                str(start_path),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_start_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "regenerate_loop_run_plan")
+            self.assertIn("loop_run_plan_not_ready", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_controlled_loop_start_prioritizes_malformed_plan_before_start_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            plan_path, _task_path, start_path, plan, _start = self.write_controlled_loop_start_inputs(tmp, repo)
+            plan["executor_task_checksum"] = ""
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-start",
+                "--loop-run-plan-file",
+                str(plan_path),
+                "--execution-start-file",
+                str(start_path),
+            )
+
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_start_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "regenerate_loop_run_plan")
+            self.assertIn("loop_run_plan_not_ready", blocker_codes)
+            self.assertNotIn("execution_start_task_mismatch", blocker_codes)
+
+    def test_controlled_loop_start_blocks_start_without_active_epoch_binding(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            plan_path, _task_path, start_path, _plan, _start = self.write_controlled_loop_start_inputs(tmp, repo)
+            for path in (Path(tmp) / "epochs" / "active").glob("*.json"):
+                path.unlink()
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-start",
+                "--loop-run-plan-file",
+                str(plan_path),
+                "--execution-start-file",
+                str(start_path),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_start_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "inspect_execution_start")
+            self.assertIn("execution_start_invalid", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_controlled_loop_start_blocks_start_without_audit_binding(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            plan_path, _task_path, start_path, _plan, _start = self.write_controlled_loop_start_inputs(tmp, repo)
+            audit_path = Path(tmp) / "audit" / "events.jsonl"
+            audit_path.unlink()
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-start",
+                "--loop-run-plan-file",
+                str(plan_path),
+                "--execution-start-file",
+                str(start_path),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_start_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "inspect_execution_start")
+            self.assertIn("execution_start_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertFalse(audit_path.exists())
+
+    def test_controlled_loop_start_blocks_side_effect_contaminated_inputs(self):
+        cases = [
+            ("loop_plan", "github_write_started", True, "loop_run_plan_not_ready", "regenerate_loop_run_plan"),
+            ("execution_start", "pr_action_started", True, "execution_start_invalid", "inspect_execution_start"),
+            ("execution_start", "github_write_started", "true", "execution_start_invalid", "inspect_execution_start"),
+        ]
+        for target, flag, value, expected_code, expected_action in cases:
+            with self.subTest(target=target, flag=flag):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    plan_path, _task_path, start_path, plan, start = self.write_controlled_loop_start_inputs(tmp, repo)
+                    audit_path = Path(tmp) / "audit" / "events.jsonl"
+                    audit_before = audit_path.read_text(encoding="utf-8")
+                    if target == "loop_plan":
+                        plan[flag] = value
+                        plan_path.write_text(json.dumps(plan), encoding="utf-8")
+                    else:
+                        start[flag] = value
+                        start_path.write_text(json.dumps(start), encoding="utf-8")
+
+                    result, output = run_cli(
+                        tmp,
+                        "controlled-loop-start",
+                        "--loop-run-plan-file",
+                        str(plan_path),
+                        "--execution-start-file",
+                        str(start_path),
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["controlled_start_status"], "blocked")
+                    self.assertEqual(output["recommended_next_action"], expected_action)
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertEqual(audit_path.read_text(encoding="utf-8"), audit_before)
+
     def test_loop_tick_stops_at_executor_contract_for_elected_candidate(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
