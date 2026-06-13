@@ -43,6 +43,7 @@ read-only `controlled-pr-cycle`, read-only `merge-decision-plan`,
 read-only `loop-run-plan`,
 read-only `controlled-loop-start`,
 read-only `controlled-loop-invocation-plan`,
+read-only `controlled-loop-real-invocation`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -59,7 +60,10 @@ the next bounded loop steps without starting a runner, and
 `controlled-loop-start` evidence that composes a saved loop plan with approved
 execution-start evidence without starting a runner or executor, and
 `controlled-loop-invocation-plan` evidence that composes the controlled start,
-executor-invocation readiness, and invocation plan before any process start.
+executor-invocation readiness, and invocation plan before any process start,
+and `controlled-loop-real-invocation` evidence that composes the saved
+controlled invocation plan with the recorded real executor invocation before
+closeout.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -331,6 +335,19 @@ state:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-invocation-plan --controlled-loop-start-file controlled-loop-start.json --readiness-file executor-invocation-readiness.json --invocation-plan-file executor-invocation-plan.json
+```
+
+`controlled-loop-real-invocation` composes a saved
+`controlled-loop-invocation-plan.v1` packet with a saved
+`real-executor-invocation.v1` record after `invoke-real-executor` has already
+run. It rechecks the embedded invocation plan checksum, target checksum,
+plan-file anchor, invocation record-file anchor, result-file path and checksum,
+invocation audit record, invocation id, and pending closeout status before recommending
+`closeout_executor_result`, without starting or retrying the executor,
+continuing the loop, appending audit, or writing Git/GitHub state:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-real-invocation --controlled-invocation-plan-file controlled-loop-invocation-plan.json --real-invocation-file real-executor-invocation.json
 ```
 
 `start-governed-execution` is the local write-side gate that consumes a reviewed
@@ -829,6 +846,18 @@ Stable blockers include `plan_packet_stale`, `plan_not_invocable`,
 Immediate pre-start rechecks can also forward `executor-invocation-plan`
 blockers such as `repo_head_mismatch`, `active_epoch_missing`, and
 `executor_command_denied`.
+
+`controlled-loop-real-invocation` is the read-only composition boundary between
+the recorded real invocation and closeout. It reads a saved
+`controlled-loop-invocation-plan.v1` packet and the saved
+`real-executor-invocation.v1` record, rechecks that the record binds to the
+embedded invocation plan checksum, target checksum, plan path, result path,
+result checksum, invocation audit record, invocation id, and
+`closeout_status: pending`, then emits `controlled-loop-real-invocation.v1`
+with `side_effects: []`, `executor_started: false`, and
+`recommended_next_action: closeout_executor_result`. Blocked packets append no audit and recommend
+`refresh_controlled_loop_invocation_plan` or
+`inspect_real_invocation_evidence`.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can

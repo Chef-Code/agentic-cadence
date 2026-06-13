@@ -1031,6 +1031,60 @@ update pull requests, resolve review threads, merge, release, publish packages,
 assign roles, schedule agents, claim distributed locks, or rewrite the supplied
 controlled-start, readiness, or invocation-plan records.
 
+`controlled-loop-real-invocation` composes an already saved
+`controlled-loop-invocation-plan.v1` packet with an already saved
+`real-executor-invocation.v1` record into
+`controlled-loop-real-invocation.v1`. The command reads
+`--controlled-invocation-plan-file` and `--real-invocation-file`; requires the
+controlled invocation plan to be completed, read-only, side-effect-free, and
+waiting at `recommended_next_action: invoke_real_executor`; requires the
+embedded invocation plan checksum and target checksum to match the controlled
+packet anchors; and requires the real invocation to be valid, executor-started,
+not timed out, waiting at `recommended_next_action: bind_real_executor_closeout`,
+and still `closeout_status: pending`.
+
+The command rechecks that the real invocation `plan_checksum`,
+`plan_target_checksum`, and `plan_file` match the embedded invocation plan and
+the controlled invocation-plan input. It also rechecks that `record_file`
+matches the supplied real-invocation file, the invocation file is the canonical
+runtime invocation-record path, the `record_real_executor_invocation` audit
+record is present and checksum-matched, `result_file` matches the invocation
+target `expected_result_path`, and `result_evidence_checksum` matches the
+current result file. A completed packet uses
+`packet: controlled_loop_real_invocation`,
+`controlled_real_invocation_status: completed`, `read_only: true`,
+`valid: true`, and `recommended_next_action: closeout_executor_result`. The
+top-level response envelope includes `controlled_invocation_plan_checksum`,
+`invocation_plan_checksum`, `real_invocation_checksum`,
+`result_evidence_checksum`, `task_id`, `epoch_id`, `target_checksum`, nested
+copies of the controlled plan, real invocation, and result evidence, `blockers`,
+and explicit false side-effect flags.
+
+Blocked packets use `controlled_real_invocation_status: blocked`,
+`valid: false`, stable blockers, and exit code 2. Controlled plan evidence
+problems recommend `refresh_controlled_loop_invocation_plan`; real invocation,
+record, plan, closeout, or result mismatches recommend
+`inspect_real_invocation_evidence`. Stable blocker codes include
+`controlled_invocation_plan_evidence_missing`,
+`real_invocation_evidence_missing`,
+`controlled_invocation_plan_packet_mismatch`,
+`real_invocation_packet_mismatch`,
+`controlled_invocation_plan_invalid`, `controlled_invocation_plan_mismatch`,
+`controlled_invocation_plan_target_mismatch`, `real_invocation_invalid`,
+`real_invocation_identity_missing`, `real_invocation_closeout_not_pending`,
+`real_invocation_plan_mismatch`, `real_invocation_record_mismatch`,
+`real_invocation_audit_mismatch`, and `real_invocation_result_mismatch`.
+
+Completed and blocked `controlled-loop-real-invocation` packets append no audit
+record and must not continue the loop, start a runner, start or retry an
+executor, start an epoch, create branches, commit, push, call GitHub, create or
+update pull requests, resolve review threads, merge, release, publish packages,
+assign roles, schedule agents, claim distributed locks, or rewrite the supplied
+controlled invocation-plan, real-invocation, or result records. The top-level
+`executor_started: false` flag means this command did not start a new process;
+the nested real-invocation record still carries the already approved process
+start evidence.
+
 `audit-replay` is the read-only local audit verification command. It reads
 `<root>/audit/events.jsonl`, emits an `audit-replay.v1` packet, and exits
 nonzero when the audit log contains malformed, corrupt, unsupported, or

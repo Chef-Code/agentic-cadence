@@ -2,8 +2,8 @@
 
 Status: living document
 Last updated: 2026-06-13
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-40 complete in main or active review branches
-Current unattended-operation confidence: 25% (stable headline; progress log records Task 40 projected capability at 35%)
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-41 complete in main or active review branches
+Current unattended-operation confidence: 25% (stable headline; progress log records Task 41 projected capability at 36%)
 
 This document tracks the practical path from the current Agentic Cadence
 protocol toolkit toward GitHub-native orchestration for autonomous software
@@ -95,7 +95,7 @@ sessions, coordinate an agent pool, merge, release, publish packages, or
 continue in an unattended loop.
 
 Current confidence for unattended continuous operation is 25% as a stable
-headline; the progress log records Task 40 projected capability at 35%.
+headline; the progress log records Task 41 projected capability at 36%.
 
 The rating is low because the safety primitives are real, but the central
 autonomous build loop is not implemented. The first real unattended run would
@@ -183,6 +183,9 @@ command-policy and active-stop controls. It includes:
 - `controlled-loop-invocation-plan` packets that compose saved controlled-start,
   executor-invocation-readiness, and executor-invocation-plan evidence before
   any process start;
+- `controlled-loop-real-invocation` packets that compose a saved controlled
+  invocation plan with recorded real executor invocation evidence before
+  closeout;
 - controlled `invoke-real-executor` local process-start records,
   `closeout-executor-result --real-invocation-file` binding, and
   `controlled-loop-tick` packets that compose saved local
@@ -470,7 +473,11 @@ task id, and recommend executor-invocation planning without starting a runner
 or executor. `controlled-loop-invocation-plan` can compose that controlled
 start with saved readiness and invocation-plan evidence, recheck task, epoch,
 readiness, and target checksum anchors, and recommend `invoke_real_executor`
-without starting or retrying an executor.
+without starting or retrying an executor. `controlled-loop-real-invocation`
+can then compose the saved controlled invocation plan with recorded
+real-invocation evidence, recheck plan, target, record, result, invocation id,
+audit, and pending-closeout anchors, and recommend
+`closeout_executor_result` without starting or retrying an executor.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,

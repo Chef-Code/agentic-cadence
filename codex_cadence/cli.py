@@ -86,6 +86,7 @@ from codex_cadence.ownership import (
 )
 from codex_cadence.policy_audit import (
     append_audit_record,
+    audit_chain_blockers,
     audit_event_hash,
     audit_events_path,
     controlled_loop_tick_audit_record,
@@ -4016,6 +4017,445 @@ def controlled_loop_invocation_plan_command(args: argparse.Namespace) -> int:
     return 0 if valid else 2
 
 
+CONTROLLED_LOOP_REAL_INVOCATION_SCHEMA_VERSION = "controlled-loop-real-invocation.v1"
+
+
+def controlled_loop_real_invocation_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def read_controlled_loop_real_invocation_packet(
+    path: Path,
+    *,
+    code: str,
+    label: str,
+) -> tuple[Any | None, list[dict[str, Any]]]:
+    try:
+        packet = read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, [
+            controlled_loop_real_invocation_blocker(
+                code,
+                f"{label} could not be read as JSON",
+                path=str(path),
+                error=str(exc),
+            )
+        ]
+    if not isinstance(packet, dict):
+        return None, [controlled_loop_real_invocation_blocker(code, f"{label} must be a JSON object", path=str(path))]
+    return packet, []
+
+
+def controlled_loop_real_invocation_type_blockers(
+    packet: dict[str, Any],
+    *,
+    expected_packet: str,
+    expected_schema: str,
+    label: str,
+    code: str = "controlled_real_invocation_packet_mismatch",
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if packet.get("schema_version") != expected_schema:
+        blockers.append(
+            controlled_loop_real_invocation_blocker(
+                code,
+                f"{label} schema_version is invalid",
+                expected=expected_schema,
+                actual=packet.get("schema_version"),
+            )
+        )
+    if packet.get("packet") != expected_packet:
+        blockers.append(
+            controlled_loop_real_invocation_blocker(
+                code,
+                f"{label} packet is invalid",
+                expected=expected_packet,
+                actual=packet.get("packet"),
+            )
+        )
+    return blockers
+
+
+def controlled_loop_real_invocation_recommendation(blockers: list[dict[str, Any]]) -> str:
+    if not blockers:
+        return "closeout_executor_result"
+    codes = {blocker.get("code") for blocker in blockers}
+    if codes & {
+        "controlled_invocation_plan_evidence_missing",
+        "controlled_invocation_plan_invalid",
+        "controlled_invocation_plan_mismatch",
+        "controlled_invocation_plan_target_mismatch",
+        "controlled_invocation_plan_packet_mismatch",
+    }:
+        return "refresh_controlled_loop_invocation_plan"
+    return "inspect_real_invocation_evidence"
+
+
+def controlled_loop_real_invocation_non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def controlled_loop_real_invocation_audit_blockers(
+    root: Path,
+    real_invocation: dict[str, Any],
+    real_invocation_path: Path,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    invocation_id = real_invocation.get("invocation_id")
+    if controlled_loop_real_invocation_non_empty_string(invocation_id):
+        try:
+            canonical_path = real_executor_invocation_path(root, invocation_id)
+        except ValueError as exc:
+            return [
+                controlled_loop_real_invocation_blocker(
+                    "real_invocation_identity_missing",
+                    "real invocation invocation_id is invalid",
+                    actual=invocation_id,
+                    error=str(exc),
+                )
+            ]
+        if not _closeout_paths_match(real_invocation_path, canonical_path):
+            blockers.append(
+                controlled_loop_real_invocation_blocker(
+                    "real_invocation_record_mismatch",
+                    "real invocation file must be the canonical runtime invocation record path",
+                    expected=str(canonical_path),
+                    actual=str(real_invocation_path),
+                )
+            )
+    for blocker in _closeout_real_invocation_audit_blockers(root, real_invocation, real_invocation_path):
+        source_code = blocker.get("code")
+        code = "real_invocation_record_mismatch" if source_code == "invocation_checksum_mismatch" else "real_invocation_audit_mismatch"
+        blockers.append(
+            controlled_loop_real_invocation_blocker(
+                code,
+                blocker.get("message", "real invocation audit anchor does not match"),
+                **{key: value for key, value in blocker.items() if key not in {"code", "message"}},
+            )
+        )
+    return blockers
+
+
+def controlled_loop_real_invocation_command(args: argparse.Namespace) -> int:
+    controlled_plan_path = Path(args.controlled_invocation_plan_file)
+    real_invocation_path = Path(args.real_invocation_file)
+    controlled_plan, controlled_plan_blockers = read_controlled_loop_real_invocation_packet(
+        controlled_plan_path,
+        code="controlled_invocation_plan_evidence_missing",
+        label="controlled invocation plan",
+    )
+    real_invocation, real_invocation_blockers = read_controlled_loop_real_invocation_packet(
+        real_invocation_path,
+        code="real_invocation_evidence_missing",
+        label="real executor invocation",
+    )
+    blockers = [*controlled_plan_blockers, *real_invocation_blockers]
+
+    if isinstance(controlled_plan, dict):
+        blockers.extend(
+            controlled_loop_real_invocation_type_blockers(
+                controlled_plan,
+                expected_packet="controlled_loop_invocation_plan",
+                expected_schema=CONTROLLED_LOOP_INVOCATION_PLAN_SCHEMA_VERSION,
+                label="controlled invocation plan",
+                code="controlled_invocation_plan_packet_mismatch",
+            )
+        )
+    if isinstance(real_invocation, dict):
+        blockers.extend(
+            controlled_loop_real_invocation_type_blockers(
+                real_invocation,
+                expected_packet="real_executor_invocation",
+                expected_schema=REAL_EXECUTOR_INVOCATION_SCHEMA_VERSION,
+                label="real executor invocation",
+                code="real_invocation_packet_mismatch",
+            )
+        )
+
+    invocation_plan: dict[str, Any] | None = None
+    result_evidence: dict[str, Any] | None = None
+    result_evidence_checksum: str | None = None
+    invocation_plan_checksum: str | None = None
+    task_id = None
+    epoch_id = None
+    target_checksum = None
+
+    if not blockers and isinstance(controlled_plan, dict) and isinstance(real_invocation, dict):
+        if (
+            controlled_plan.get("read_only") is not True
+            or controlled_plan.get("valid") is not True
+            or controlled_plan.get("controlled_invocation_plan_status") != "completed"
+            or controlled_plan.get("recommended_next_action") != "invoke_real_executor"
+            or controlled_plan.get("side_effects") != []
+            or controlled_plan.get("executor_started") is not False
+        ):
+            blockers.append(
+                controlled_loop_real_invocation_blocker(
+                    "controlled_invocation_plan_invalid",
+                    "controlled invocation plan must be valid, read-only, and ready for real executor invocation",
+                    actual_status=controlled_plan.get("controlled_invocation_plan_status"),
+                    actual_next_action=controlled_plan.get("recommended_next_action"),
+                )
+            )
+        for flag_blocker in controlled_loop_invocation_plan_false_flag_blockers(
+            controlled_plan,
+            label="controlled invocation plan",
+            code="controlled_invocation_plan_invalid",
+        ):
+            blockers.append(
+                controlled_loop_real_invocation_blocker(
+                    flag_blocker["code"],
+                    flag_blocker["message"],
+                    **{key: value for key, value in flag_blocker.items() if key not in {"code", "message"}},
+                )
+            )
+
+        nested_plan = controlled_plan.get("invocation_plan")
+        if not isinstance(nested_plan, dict):
+            blockers.append(
+                controlled_loop_real_invocation_blocker(
+                    "controlled_invocation_plan_invalid",
+                    "controlled invocation plan must embed the executor invocation plan",
+                )
+            )
+        else:
+            invocation_plan = nested_plan
+            blockers.extend(
+                controlled_loop_real_invocation_type_blockers(
+                    invocation_plan,
+                    expected_packet="executor_invocation_plan",
+                    expected_schema=EXECUTOR_INVOCATION_PLAN_SCHEMA_VERSION,
+                    label="embedded invocation plan",
+                    code="controlled_invocation_plan_invalid",
+                )
+            )
+            invocation_plan_checksum = checksum_json(invocation_plan)
+            task_id = controlled_plan.get("task_id")
+            epoch_id = controlled_plan.get("epoch_id")
+            target_checksum = invocation_plan.get("target_checksum")
+            if controlled_plan.get("invocation_plan_checksum") != invocation_plan_checksum:
+                blockers.append(
+                    controlled_loop_real_invocation_blocker(
+                        "controlled_invocation_plan_mismatch",
+                        "controlled invocation plan checksum does not match embedded invocation plan",
+                        expected=invocation_plan_checksum,
+                        actual=controlled_plan.get("invocation_plan_checksum"),
+                    )
+                )
+            if controlled_plan.get("target_checksum") != target_checksum:
+                blockers.append(
+                    controlled_loop_real_invocation_blocker(
+                        "controlled_invocation_plan_target_mismatch",
+                        "controlled invocation plan target checksum does not match embedded invocation plan",
+                        expected=target_checksum,
+                        actual=controlled_plan.get("target_checksum"),
+                    )
+                )
+            target = invocation_plan.get("target")
+            if not isinstance(target, dict) or not controlled_loop_real_invocation_non_empty_string(target_checksum):
+                blockers.append(
+                    controlled_loop_real_invocation_blocker(
+                        "controlled_invocation_plan_invalid",
+                        "embedded invocation plan target and target checksum are required",
+                    )
+                )
+            elif checksum_json(target) != target_checksum:
+                blockers.append(
+                    controlled_loop_real_invocation_blocker(
+                        "controlled_invocation_plan_target_mismatch",
+                        "embedded invocation plan target checksum does not match target payload",
+                        expected=checksum_json(target),
+                        actual=target_checksum,
+                    )
+                )
+
+        if (
+            real_invocation.get("valid") is not True
+            or real_invocation.get("executor_started") is not True
+            or real_invocation.get("timed_out") is not False
+            or real_invocation.get("recommended_next_action") != "bind_real_executor_closeout"
+        ):
+            blockers.append(
+                controlled_loop_real_invocation_blocker(
+                    "real_invocation_invalid",
+                    "real invocation evidence must be valid, executor-started, and ready for closeout binding",
+                    actual_next_action=real_invocation.get("recommended_next_action"),
+                )
+            )
+        if not controlled_loop_real_invocation_non_empty_string(real_invocation.get("invocation_id")):
+            blockers.append(
+                controlled_loop_real_invocation_blocker(
+                    "real_invocation_identity_missing",
+                    "real invocation invocation_id is required",
+                )
+            )
+        if real_invocation.get("closeout_status") != "pending":
+            blockers.append(
+                controlled_loop_real_invocation_blocker(
+                    "real_invocation_closeout_not_pending",
+                    "real invocation closeout_status must be pending before controlled closeout composition",
+                    actual=real_invocation.get("closeout_status"),
+                )
+            )
+
+        if invocation_plan is not None:
+            if real_invocation.get("plan_checksum") != invocation_plan_checksum:
+                blockers.append(
+                    controlled_loop_real_invocation_blocker(
+                        "real_invocation_plan_mismatch",
+                        "real invocation plan checksum does not match controlled invocation plan",
+                        expected=invocation_plan_checksum,
+                        actual=real_invocation.get("plan_checksum"),
+                    )
+                )
+            if real_invocation.get("plan_target_checksum") != target_checksum:
+                blockers.append(
+                    controlled_loop_real_invocation_blocker(
+                        "real_invocation_plan_mismatch",
+                        "real invocation target checksum does not match controlled invocation plan target",
+                        expected=target_checksum,
+                        actual=real_invocation.get("plan_target_checksum"),
+                    )
+                )
+            controlled_files = controlled_plan.get("files") if isinstance(controlled_plan.get("files"), dict) else {}
+            controlled_invocation_plan_file = controlled_files.get("invocation_plan")
+            if not controlled_tick_context_paths_match(
+                controlled_plan_path,
+                controlled_invocation_plan_file,
+                controlled_tick_invocation_path(real_invocation, real_invocation.get("plan_file")),
+            ):
+                blockers.append(
+                    controlled_loop_real_invocation_blocker(
+                        "real_invocation_plan_mismatch",
+                        "real invocation plan_file does not match controlled invocation plan input file",
+                        expected=controlled_invocation_plan_file,
+                        actual=real_invocation.get("plan_file"),
+                    )
+                )
+            target = invocation_plan.get("target") if isinstance(invocation_plan.get("target"), dict) else {}
+            expected_result_path = target.get("expected_result_path")
+            if not _closeout_paths_match(
+                controlled_tick_invocation_path(real_invocation, real_invocation.get("result_file")),
+                expected_result_path,
+            ):
+                blockers.append(
+                    controlled_loop_real_invocation_blocker(
+                        "real_invocation_result_mismatch",
+                        "real invocation result_file does not match invocation target expected_result_path",
+                        expected=expected_result_path,
+                        actual=real_invocation.get("result_file"),
+                    )
+                )
+
+        if not _closeout_paths_match(
+            controlled_tick_invocation_path(real_invocation, real_invocation.get("record_file")),
+            real_invocation_path,
+        ):
+            blockers.append(
+                controlled_loop_real_invocation_blocker(
+                    "real_invocation_record_mismatch",
+                    "real invocation record_file does not match supplied real invocation file",
+                    expected=str(real_invocation_path),
+                    actual=real_invocation.get("record_file"),
+                )
+            )
+        blockers.extend(controlled_loop_real_invocation_audit_blockers(args.root, real_invocation, real_invocation_path))
+
+        result_file_value = real_invocation.get("result_file")
+        result_path = controlled_tick_invocation_path(real_invocation, result_file_value)
+        if not isinstance(result_path, Path):
+            blockers.append(
+                controlled_loop_real_invocation_blocker(
+                    "real_invocation_result_mismatch",
+                    "real invocation result_file is required",
+                    actual=result_file_value,
+                )
+            )
+        elif not blockers:
+            loaded_result, result_blockers = read_controlled_loop_real_invocation_packet(
+                result_path,
+                code="real_invocation_result_mismatch",
+                label="real invocation result",
+            )
+            blockers.extend(result_blockers)
+            if isinstance(loaded_result, dict):
+                result_evidence = loaded_result
+                result_evidence_checksum = checksum_json(result_evidence)
+                if real_invocation.get("result_evidence_checksum") != result_evidence_checksum:
+                    blockers.append(
+                        controlled_loop_real_invocation_blocker(
+                            "real_invocation_result_mismatch",
+                            "real invocation result checksum does not match result file",
+                            expected=result_evidence_checksum,
+                            actual=real_invocation.get("result_evidence_checksum"),
+                        )
+                    )
+
+    valid = not blockers
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": CONTROLLED_LOOP_REAL_INVOCATION_SCHEMA_VERSION,
+        "packet": "controlled_loop_real_invocation",
+        "generated_at": utc_now(),
+        "read_only": True,
+        "valid": valid,
+        "controlled_real_invocation_status": "completed" if valid else "blocked",
+        "reason": "controlled real invocation evidence matches" if valid else "controlled real invocation evidence is incomplete or mismatched",
+        "runner_started": False,
+        "executor_started": False,
+        "epoch_started": False,
+        "pr_action_started": False,
+        "github_write_started": False,
+        "merge_started": False,
+        "release_started": False,
+        "package_publication_started": False,
+        "role_assignment_started": False,
+        "agent_scheduling_started": False,
+        "loop_continuation_started": False,
+        "operator_confirmation_required": False if valid else True,
+        "side_effects": [],
+        "recommended_next_action": controlled_loop_real_invocation_recommendation(blockers),
+        "files": {
+            "controlled_invocation_plan": str(controlled_plan_path),
+            "real_invocation": str(real_invocation_path),
+            "result": str(real_invocation.get("result_file")) if isinstance(real_invocation, dict) else None,
+        },
+        "controlled_invocation_plan": controlled_plan if isinstance(controlled_plan, dict) else None,
+        "real_invocation": real_invocation if isinstance(real_invocation, dict) else None,
+        "result_evidence": result_evidence,
+        "controlled_invocation_plan_checksum": checksum_json(controlled_plan) if isinstance(controlled_plan, dict) else None,
+        "invocation_plan_checksum": invocation_plan_checksum,
+        "real_invocation_checksum": checksum_json(real_invocation) if isinstance(real_invocation, dict) else None,
+        "result_evidence_checksum": result_evidence_checksum,
+        "task_id": task_id,
+        "epoch_id": epoch_id,
+        "target_checksum": target_checksum,
+        "blockers": blockers,
+        "limitations": [
+            "composes_existing_controlled_invocation_plan_and_real_invocation_only",
+            "does_not_continue_loop",
+            "does_not_start_runner",
+            "does_not_start_executor",
+            "does_not_retry_executor",
+            "does_not_call_github",
+            "does_not_create_branch",
+            "does_not_commit",
+            "does_not_push",
+            "does_not_create_pr",
+            "does_not_merge",
+            "does_not_release",
+            "does_not_publish_packages",
+            "does_not_assign_roles",
+            "does_not_schedule_agents",
+            "does_not_append_audit",
+        ],
+    }
+    emit(payload)
+    return 0 if valid else 2
+
+
 CONTROLLED_LOOP_TICK_SCHEMA_VERSION = "controlled-loop-tick.v1"
 CONTROLLED_LOOP_TICK_TERMINAL_CLOSEOUT_STATUSES = {"completed", "failed"}
 
@@ -4855,6 +5295,34 @@ def _closeout_real_invocation_audit_blockers(
                     continue
                 if not _closeout_paths_match(record.get("invocation_record_file"), invocation_file):
                     continue
+                _event, audit_record_blockers = validate_audit_record(record, line_number)
+                if audit_record_blockers:
+                    return [
+                        real_invocation_blocker(
+                            "audit_chain_mismatch",
+                            "real executor invocation audit record is invalid",
+                            audit_blockers=audit_record_blockers,
+                            line=line_number,
+                        )
+                    ]
+                audit_chain = invocation.get("audit_chain") if isinstance(invocation.get("audit_chain"), dict) else {}
+                expected_previous_hash = audit_chain.get("chain_head")
+                chain_blockers, _chain_head, _chained = audit_chain_blockers(
+                    record,
+                    line_number,
+                    expected_previous_hash=expected_previous_hash,
+                    seen_chain_indexes=set(),
+                    chain_started=True,
+                )
+                if chain_blockers:
+                    return [
+                        real_invocation_blocker(
+                            "audit_chain_mismatch",
+                            "real executor invocation audit chain metadata is invalid",
+                            audit_blockers=chain_blockers,
+                            line=line_number,
+                        )
+                    ]
                 record["_line"] = line_number
                 matching_records.append(record)
     except (OSError, ValueError, json.JSONDecodeError) as exc:
@@ -6566,6 +7034,18 @@ def build_parser() -> argparse.ArgumentParser:
     controlled_loop_invocation_plan_parser.add_argument("--invocation-plan-file", required=True)
     controlled_loop_invocation_plan_parser.set_defaults(
         func=controlled_loop_invocation_plan_command,
+        requires_root=True,
+        guards_runtime_root_only=True,
+    )
+
+    controlled_loop_real_invocation_parser = subparsers.add_parser(
+        "controlled-loop-real-invocation",
+        help="Compose controlled invocation-plan evidence and recorded real invocation without starting or retrying the executor",
+    )
+    controlled_loop_real_invocation_parser.add_argument("--controlled-invocation-plan-file", required=True)
+    controlled_loop_real_invocation_parser.add_argument("--real-invocation-file", required=True)
+    controlled_loop_real_invocation_parser.set_defaults(
+        func=controlled_loop_real_invocation_command,
         requires_root=True,
         guards_runtime_root_only=True,
     )
