@@ -42,6 +42,7 @@ operator-approved `git-pr-dirty-commit-materialize`, operator-approved
 read-only `controlled-pr-cycle`, read-only `merge-decision-plan`,
 read-only `loop-run-plan`,
 read-only `controlled-loop-start`,
+read-only `controlled-loop-invocation-plan`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -56,7 +57,9 @@ that separates merge readiness from merge authority without retrying the
 executor or writing Git/GitHub state, `loop-run-plan` evidence that plans
 the next bounded loop steps without starting a runner, and
 `controlled-loop-start` evidence that composes a saved loop plan with approved
-execution-start evidence without starting a runner or executor.
+execution-start evidence without starting a runner or executor, and
+`controlled-loop-invocation-plan` evidence that composes the controlled start,
+executor-invocation readiness, and invocation plan before any process start.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -316,6 +319,18 @@ packages, assign roles, or schedule agents:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-start --loop-run-plan-file loop-run-plan.json --execution-start-file execution-start.json
+```
+
+`controlled-loop-invocation-plan` composes a saved
+`controlled-loop-start.v1` packet with saved `executor-invocation-readiness.v1`
+and `executor-invocation-plan.v1` packets. It rechecks the controlled start's
+task and epoch anchors against readiness, rechecks the invocation plan's
+readiness and target checksums, and then recommends `invoke_real_executor`
+without starting the executor, continuing the loop, or writing Git/GitHub
+state:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-invocation-plan --controlled-loop-start-file controlled-loop-start.json --readiness-file executor-invocation-readiness.json --invocation-plan-file executor-invocation-plan.json
 ```
 
 `start-governed-execution` is the local write-side gate that consumes a reviewed
