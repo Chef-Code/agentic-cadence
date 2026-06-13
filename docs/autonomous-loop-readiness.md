@@ -162,9 +162,9 @@ runtime can do these things end-to-end:
   ownership, and result-path rechecks before any future process start.
 - compose a saved `loop-run-plan.v1` packet with an already produced
   `execution-start.v1` packet through `controlled-loop-start`, rechecking the
-  planned executor task checksum and execution-start task anchor before
-  recommending executor-invocation planning, without starting a runner or
-  executor.
+  planned executor task checksum, execution-start task anchor, local active
+  epoch, and start audit record before recommending executor-invocation
+  planning, without starting a runner or executor.
 - start one approved real executor command through `invoke-real-executor`,
   write `real-executor-invocation.v1` evidence, and bind accepted
   real-invocation evidence into closeout and dry-run Git/PR planning without

@@ -40,8 +40,9 @@ Summary:
   with an already produced `execution-start.v1` packet.
 - The packet rechecks loop-plan schema, execution-start schema, planned
   executor task checksum, embedded executor task shape, task id, approved
-  epoch-start evidence, and explicit non-runner/non-executor boundaries before recommending
-  `plan_executor_invocation`.
+  execution-start evidence, active epoch/audit binding, and explicit
+  non-runner/non-executor boundaries on the success path before recommending
+  `plan_executor_invocation`; blocked packets return recovery actions.
 - Completed and blocked packets append no audit evidence; the command does not
   start a runner, start or retry an executor, continue a loop, write
   Git/GitHub state, merge, release, publish packages, assign roles, or schedule

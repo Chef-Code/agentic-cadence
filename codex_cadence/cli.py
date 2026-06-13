@@ -3105,7 +3105,11 @@ def controlled_loop_start_side_effect_blockers(
     blockers: list[dict[str, Any]] = []
     for flag in flags:
         value = packet.get(flag)
-        if (expected_false and value is not False) or (not expected_false and value is True):
+        if expected_false:
+            invalid = value is not False
+        else:
+            invalid = flag in packet and value is not False
+        if invalid:
             blockers.append(
                 controlled_loop_start_blocker(
                     code,
@@ -3114,6 +3118,243 @@ def controlled_loop_start_side_effect_blockers(
                     actual=value,
                 )
             )
+    return blockers
+
+
+def controlled_loop_start_active_epoch_blockers(
+    root: Path,
+    *,
+    epoch_id: str,
+    task_id: str,
+    executor_task_checksum: str,
+) -> list[dict[str, Any]]:
+    try:
+        active_epochs = read_active_epoch_records(root)
+    except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as exc:
+        return [
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                f"active epoch evidence could not be read: {exc}",
+            )
+        ]
+    if len(active_epochs) != 1:
+        return [
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "execution start must bind to exactly one active epoch",
+                active_epoch_count=len(active_epochs),
+            )
+        ]
+    path, active_epoch = active_epochs[0]
+    blockers: list[dict[str, Any]] = []
+    if active_epoch.get("id") != epoch_id:
+        blockers.append(
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "active epoch id does not match execution start",
+                expected=epoch_id,
+                actual=active_epoch.get("id"),
+                path=str(path),
+            )
+        )
+    if active_epoch.get("status") != "ACTIVE":
+        blockers.append(
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "active epoch status must be ACTIVE",
+                actual=active_epoch.get("status"),
+                path=str(path),
+            )
+        )
+    tasks = active_epoch.get("tasks")
+    if not isinstance(tasks, list):
+        blockers.append(
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "active epoch tasks must be a list",
+                path=str(path),
+            )
+        )
+        return blockers
+    matching_tasks = [task for task in tasks if isinstance(task, dict) and task.get("id") == task_id]
+    if len(matching_tasks) != 1:
+        blockers.append(
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "active epoch must contain exactly one matching executor task",
+                task_id=task_id,
+                matching_task_count=len(matching_tasks),
+                path=str(path),
+            )
+        )
+    elif matching_tasks[0].get("executor_task_checksum") != executor_task_checksum:
+        blockers.append(
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "active epoch task checksum does not match loop run plan executor task",
+                expected=executor_task_checksum,
+                actual=matching_tasks[0].get("executor_task_checksum"),
+                path=str(path),
+            )
+        )
+    return blockers
+
+
+def controlled_loop_start_audit_blockers(
+    root: Path,
+    execution_start: dict[str, Any],
+    *,
+    epoch_id: str,
+    task_id: str,
+    executor_task_checksum: str,
+) -> list[dict[str, Any]]:
+    audit_ref = execution_start.get("audit_record")
+    if not isinstance(audit_ref, dict):
+        return [
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "execution start must include an audit_record reference",
+            )
+        ]
+    expected_chain_index = audit_ref.get("chain_index")
+    expected_event_hash = audit_ref.get("event_hash")
+    if isinstance(expected_chain_index, bool) or not isinstance(expected_chain_index, int) or expected_chain_index < 1:
+        return [
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "execution start audit_record chain_index is invalid",
+                actual=expected_chain_index,
+            )
+        ]
+    if not isinstance(expected_event_hash, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", expected_event_hash) is None:
+        return [
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "execution start audit_record event_hash is invalid",
+                actual=expected_event_hash,
+            )
+        ]
+
+    expected_payload = {key: value for key, value in execution_start.items() if key != "audit_record"}
+    expected_payload_checksum = checksum_json(expected_payload)
+    target = audit_events_path(root)
+    try:
+        lines = target.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        return [
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "execution start audit record is missing from the runtime audit log",
+                path=str(target),
+            )
+        ]
+    except OSError as exc:
+        return [
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                f"execution start audit log could not be read: {exc}",
+                path=str(target),
+            )
+        ]
+
+    matched_record = None
+    for line_number, line in enumerate(lines, start=1):
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError as exc:
+            return [
+                controlled_loop_start_blocker(
+                    "execution_start_invalid",
+                    f"execution start audit log contains malformed JSON: {exc}",
+                    path=str(target),
+                    line=line_number,
+                )
+            ]
+        if not isinstance(record, dict):
+            return [
+                controlled_loop_start_blocker(
+                    "execution_start_invalid",
+                    "execution start audit log contains a non-object record",
+                    path=str(target),
+                    line=line_number,
+                )
+            ]
+        if record.get("chain_index") == expected_chain_index and record.get("event_hash") == expected_event_hash:
+            matched_record = record
+            break
+
+    if matched_record is None:
+        return [
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "execution start audit record reference was not found in the runtime audit log",
+                path=str(target),
+                chain_index=expected_chain_index,
+                event_hash=expected_event_hash,
+            )
+        ]
+
+    if audit_event_hash(matched_record) != expected_event_hash:
+        return [
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "execution start audit record event_hash does not match the recorded event",
+                path=str(target),
+                chain_index=expected_chain_index,
+            )
+        ]
+
+    mismatches: dict[str, dict[str, Any]] = {}
+    expected_values = {
+        "event": "execution_start_decision",
+        "valid": True,
+        "epoch_started": True,
+        "executor_started": False,
+        "epoch_id": epoch_id,
+        "task_id": task_id,
+        "task_checksum": executor_task_checksum,
+        "payload_checksum": expected_payload_checksum,
+    }
+    for field, expected in expected_values.items():
+        actual = matched_record.get(field)
+        if actual != expected:
+            mismatches[field] = {"expected": expected, "actual": actual}
+    if mismatches:
+        return [
+            controlled_loop_start_blocker(
+                "execution_start_invalid",
+                "execution start audit record does not match supplied execution-start evidence",
+                path=str(target),
+                chain_index=expected_chain_index,
+                mismatches=mismatches,
+            )
+        ]
+    return []
+
+
+def controlled_loop_start_binding_blockers(
+    root: Path,
+    execution_start: dict[str, Any],
+    *,
+    epoch_id: str,
+    task_id: str,
+    executor_task_checksum: str,
+) -> list[dict[str, Any]]:
+    blockers = controlled_loop_start_active_epoch_blockers(
+        root,
+        epoch_id=epoch_id,
+        task_id=task_id,
+        executor_task_checksum=executor_task_checksum,
+    )
+    blockers.extend(
+        controlled_loop_start_audit_blockers(
+            root,
+            execution_start,
+            epoch_id=epoch_id,
+            task_id=task_id,
+            executor_task_checksum=executor_task_checksum,
+        )
+    )
     return blockers
 
 
@@ -3208,7 +3449,16 @@ def controlled_loop_start_command(args: argparse.Namespace) -> int:
                     "loop run plan executor task id is required",
                 )
             )
+        plan_ready_for_anchor_check = (
+            isinstance(executor_task, dict)
+            and isinstance(executor_task_checksum, str)
+            and bool(executor_task_checksum.strip())
+            and isinstance(task_id, str)
+            and bool(task_id.strip())
+            and not any(blocker.get("code") == "loop_run_plan_not_ready" for blocker in blockers)
+        )
         epoch_id = execution_start.get("epoch_id")
+        execution_start_blocker_start = len(blockers)
         if execution_start.get("valid") is not True or execution_start.get("epoch_started") is not True:
             blockers.append(
                 controlled_loop_start_blocker(
@@ -3247,17 +3497,33 @@ def controlled_loop_start_command(args: argparse.Namespace) -> int:
                     "execution start evidence must include an epoch id",
                 )
             )
-        if execution_start.get("task_checksum") != executor_task_checksum or execution_start.get("task_id") != task_id:
-            blockers.append(
-                controlled_loop_start_blocker(
-                    "execution_start_task_mismatch",
-                    "execution start task anchor does not match loop run plan executor task",
-                    expected_checksum=executor_task_checksum,
-                    actual_checksum=execution_start.get("task_checksum"),
-                    expected_task_id=task_id,
-                    actual_task_id=execution_start.get("task_id"),
+        if plan_ready_for_anchor_check:
+            execution_start_matches_plan = execution_start.get("task_checksum") == executor_task_checksum and execution_start.get("task_id") == task_id
+            if not execution_start_matches_plan:
+                blockers.append(
+                    controlled_loop_start_blocker(
+                        "execution_start_task_mismatch",
+                        "execution start task anchor does not match loop run plan executor task",
+                        expected_checksum=executor_task_checksum,
+                        actual_checksum=execution_start.get("task_checksum"),
+                        expected_task_id=task_id,
+                        actual_task_id=execution_start.get("task_id"),
+                    )
                 )
-            )
+            elif (
+                isinstance(epoch_id, str)
+                and epoch_id.strip()
+                and not any(blocker.get("code") == "execution_start_invalid" for blocker in blockers[execution_start_blocker_start:])
+            ):
+                blockers.extend(
+                    controlled_loop_start_binding_blockers(
+                        args.root,
+                        execution_start,
+                        epoch_id=epoch_id,
+                        task_id=task_id,
+                        executor_task_checksum=executor_task_checksum,
+                    )
+                )
 
     valid = not blockers
     payload = {

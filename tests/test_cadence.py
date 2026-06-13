@@ -3410,21 +3410,93 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["recommended_next_action"], "regenerate_loop_run_plan")
             self.assertIn("loop_run_plan_not_ready", {blocker["code"] for blocker in output["blockers"]})
 
+    def test_controlled_loop_start_prioritizes_malformed_plan_before_start_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            plan_path, _task_path, start_path, plan, _start = self.write_controlled_loop_start_inputs(tmp, repo)
+            plan["executor_task_checksum"] = ""
+            plan_path.write_text(json.dumps(plan), encoding="utf-8")
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-start",
+                "--loop-run-plan-file",
+                str(plan_path),
+                "--execution-start-file",
+                str(start_path),
+            )
+
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_start_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "regenerate_loop_run_plan")
+            self.assertIn("loop_run_plan_not_ready", blocker_codes)
+            self.assertNotIn("execution_start_task_mismatch", blocker_codes)
+
+    def test_controlled_loop_start_blocks_start_without_active_epoch_binding(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            plan_path, _task_path, start_path, _plan, _start = self.write_controlled_loop_start_inputs(tmp, repo)
+            for path in (Path(tmp) / "epochs" / "active").glob("*.json"):
+                path.unlink()
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-start",
+                "--loop-run-plan-file",
+                str(plan_path),
+                "--execution-start-file",
+                str(start_path),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_start_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "inspect_execution_start")
+            self.assertIn("execution_start_invalid", {blocker["code"] for blocker in output["blockers"]})
+
+    def test_controlled_loop_start_blocks_start_without_audit_binding(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            plan_path, _task_path, start_path, _plan, _start = self.write_controlled_loop_start_inputs(tmp, repo)
+            audit_path = Path(tmp) / "audit" / "events.jsonl"
+            audit_path.unlink()
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-start",
+                "--loop-run-plan-file",
+                str(plan_path),
+                "--execution-start-file",
+                str(start_path),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_start_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "inspect_execution_start")
+            self.assertIn("execution_start_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertFalse(audit_path.exists())
+
     def test_controlled_loop_start_blocks_side_effect_contaminated_inputs(self):
         cases = [
-            ("loop_plan", "github_write_started", "loop_run_plan_not_ready", "regenerate_loop_run_plan"),
-            ("execution_start", "pr_action_started", "execution_start_invalid", "inspect_execution_start"),
+            ("loop_plan", "github_write_started", True, "loop_run_plan_not_ready", "regenerate_loop_run_plan"),
+            ("execution_start", "pr_action_started", True, "execution_start_invalid", "inspect_execution_start"),
+            ("execution_start", "github_write_started", "true", "execution_start_invalid", "inspect_execution_start"),
         ]
-        for target, flag, expected_code, expected_action in cases:
+        for target, flag, value, expected_code, expected_action in cases:
             with self.subTest(target=target, flag=flag):
                 with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
                     init_committed_repo(repo)
                     plan_path, _task_path, start_path, plan, start = self.write_controlled_loop_start_inputs(tmp, repo)
+                    audit_path = Path(tmp) / "audit" / "events.jsonl"
+                    audit_before = audit_path.read_text(encoding="utf-8")
                     if target == "loop_plan":
-                        plan[flag] = True
+                        plan[flag] = value
                         plan_path.write_text(json.dumps(plan), encoding="utf-8")
                     else:
-                        start[flag] = True
+                        start[flag] = value
                         start_path.write_text(json.dumps(start), encoding="utf-8")
 
                     result, output = run_cli(
@@ -3441,6 +3513,7 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertEqual(output["controlled_start_status"], "blocked")
                     self.assertEqual(output["recommended_next_action"], expected_action)
                     self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertEqual(audit_path.read_text(encoding="utf-8"), audit_before)
 
     def test_loop_tick_stops_at_executor_contract_for_elected_candidate(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

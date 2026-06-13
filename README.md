@@ -308,10 +308,11 @@ agentic-cadence --root examples/first-run/work/runtime loop-run-plan --cwd examp
 `controlled-loop-start` composes a saved `loop-run-plan.v1` packet with a
 separately produced `execution-start.v1` packet after the operator-approved
 execution-start gate has already run. It rechecks the planned executor task
-checksum against the execution-start task anchor and reports the next bounded
-recommendation, but it still does not continue the loop, start a runner, start
-or retry an executor, call GitHub, create branches, commit, push, open PRs,
-merge, release, publish packages, assign roles, or schedule agents:
+checksum against the execution-start task anchor plus the local active epoch and
+start audit record before reporting the next bounded recommendation, but it
+still does not continue the loop, start a runner, start or retry an executor,
+call GitHub, create branches, commit, push, open PRs, merge, release, publish
+packages, assign roles, or schedule agents:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-start --loop-run-plan-file loop-run-plan.json --execution-start-file execution-start.json

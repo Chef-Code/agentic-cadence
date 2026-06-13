@@ -177,7 +177,8 @@ command-policy and active-stop controls. It includes:
   command, environment allowlist, timeout, active epoch, active
   ownership, and result-path anchors before any future process start;
 - `controlled-loop-start` packets that compose saved loop-run plans with
-  approved execution-start evidence without starting a runner or executor;
+  approved, active-epoch/audit-bound execution-start evidence without starting
+  a runner or executor;
 - controlled `invoke-real-executor` local process-start records,
   `closeout-executor-result --real-invocation-file` binding, and
   `controlled-loop-tick` packets that compose saved local

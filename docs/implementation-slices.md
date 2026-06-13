@@ -252,9 +252,9 @@ Current evidence:
   `controlled_loop_tick` audit evidence only after a completed composition;
 - `controlled-loop-start` reads saved `loop-run-plan.v1` and
   `execution-start.v1` files, rechecks packet schemas, the planned executor
-  task checksum, and execution-start task id/checksum anchors, then recommends
-  executor-invocation planning without starting a runner, executor, or loop
-  continuation;
+  task checksum, execution-start task id/checksum anchors, the local active
+  epoch, and start audit record, then recommends executor-invocation planning
+  without starting a runner, executor, or loop continuation;
 - no command runs a continuous governed loop tick end to end or retries failed
   real executor invocations.
 

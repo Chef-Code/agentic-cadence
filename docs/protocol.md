@@ -941,17 +941,35 @@ and `recommended_next_action: request_operator_approval`, validates the
 embedded generic executor task packet, requires the execution start to be valid
 with `approval_state: approved`, `epoch_started: true`, and
 `executor_started: false`, and verifies that the execution-start task checksum
-and task id match the executor task embedded in the loop plan. It also rejects
-loop-plan or execution-start evidence that reports runner, executor, PR,
-GitHub, merge, release, package-publication, role-assignment, scheduling, or
-loop-continuation side effects.
+and task id match the executor task embedded in the loop plan. It also rechecks
+the runtime root for the matching active epoch and the prior
+`execution_start_decision` audit record whose payload checksum binds the
+supplied `execution-start.v1` packet. It rejects loop-plan or execution-start
+evidence that reports runner, executor, PR, GitHub, merge, release,
+package-publication, role-assignment, scheduling, or loop-continuation side
+effects.
 
 A completed packet uses `packet: controlled_loop_start`,
 `controlled_start_status: completed`, `read_only: true`, and
-`recommended_next_action: plan_executor_invocation`. Blocked packets use
-`controlled_start_status: blocked` and return exit code 2. Completed and
-blocked `controlled-loop-start` packets append no audit record; the command is
-read-only composition evidence only. Stable blocker codes include
+`recommended_next_action: plan_executor_invocation`. The top-level response
+envelope includes `packet`, `schema_version`, `controlled_start_status`,
+`read_only`, `valid`, `recommended_next_action`, `loop_run_plan_checksum`,
+`execution_start_checksum`, `executor_task_checksum`, `task_id`, `epoch_id`,
+the nested `loop_run_plan` evidence, the nested `execution_start` evidence,
+`blockers`, and explicit false side-effect flags. The nested `loop_run_plan`
+contains the embedded `generic-executor-task.v1` packet plus its checksum and
+loop metadata. The nested `execution_start` contains `approval_state`,
+`epoch_started`, `executor_started`, `task_id`, `task_checksum`, `epoch_id`, and
+the `audit_record` reference written by `start-governed-execution`.
+
+Blocked packets use `controlled_start_status: blocked`, `valid: false`, stable
+blockers, and exit code 2. A task-anchor mismatch recommends
+`recreate_execution_start`; malformed or not-ready loop plans recommend
+`regenerate_loop_run_plan`; invalid execution-start evidence, including missing
+active epoch or audit binding, recommends `inspect_execution_start`; missing or
+wrong packet evidence recommends `refresh_controlled_start_evidence`.
+Completed and blocked `controlled-loop-start` packets append no audit record;
+the command is read-only composition evidence only. Stable blocker codes include
 `loop_run_plan_evidence_missing`, `execution_start_evidence_missing`,
 `controlled_start_packet_mismatch`, `loop_run_plan_not_ready`,
 `execution_start_invalid`, and `execution_start_task_mismatch`.
