@@ -820,6 +820,82 @@ def validate_controlled_loop_tick_audit_record(record: dict[str, Any], line: int
     return blockers
 
 
+def validate_controlled_pr_cycle_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate controlled PR-cycle composition audit fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in (
+        "action",
+        "reason",
+        "cycle_id",
+        "final_recommendation",
+        "pr_number",
+        "head_ref",
+        "base_ref",
+        "head_sha",
+        "controlled_loop_tick_file",
+        "git_pr_materialization_file",
+        "initial_post_write_gate_file",
+        "final_post_write_gate",
+    ):
+        blockers.extend(required_string(record, field, line))
+    for field in ("valid", "github_write_started"):
+        blockers.extend(required_bool(record, field, line))
+    for field in (
+        "payload_checksum",
+        "controlled_loop_tick_checksum",
+        "git_pr_materialization_checksum",
+        "initial_post_write_gate_checksum",
+        "final_post_write_gate_checksum",
+    ):
+        blockers.extend(required_checksum_present(record, field, line))
+    if record.get("action") != "complete_controlled_pr_cycle":
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_pr_cycle_action_invalid",
+                "controlled_pr_cycle audit records must be completed packets",
+                line,
+            )
+        )
+    if record.get("valid") is not True:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_pr_cycle_valid_invalid",
+                "controlled_pr_cycle audit records are only appended for valid packets",
+                line,
+            )
+        )
+    if record.get("github_write_started") is not False:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_pr_cycle_github_write_started",
+                "controlled_pr_cycle audit records must be read-only GitHub compositions",
+                line,
+            )
+        )
+    optional_pairs = (
+        ("review_response_materialization_file", "review_response_materialization_checksum"),
+        ("review_response_post_write_gate_file", "review_response_post_write_gate_checksum"),
+        ("review_thread_resolution_materialization_file", "review_thread_resolution_materialization_checksum"),
+        ("review_thread_resolution_post_write_gate_file", "review_thread_resolution_post_write_gate_checksum"),
+    )
+    for file_field, checksum_field in optional_pairs:
+        has_file = file_field in record and record.get(file_field) not in (None, "")
+        has_checksum = checksum_field in record and record.get(checksum_field) not in (None, "")
+        if has_file:
+            blockers.extend(required_string(record, file_field, line))
+        if has_checksum:
+            blockers.extend(required_checksum_present(record, checksum_field, line))
+        if has_file != has_checksum:
+            blockers.append(
+                audit_replay_blocker(
+                    "audit_controlled_pr_cycle_optional_anchor_incomplete",
+                    f"{file_field} and {checksum_field} must be present together",
+                    line,
+                )
+            )
+    return blockers
+
+
 def validate_work_ownership_mutation_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
     """Validate local work-ownership mutation audit fields."""
     blockers: list[dict[str, Any]] = []
@@ -992,6 +1068,8 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
         blockers.extend(validate_execution_start_audit_record(record, line))
     elif event == "controlled_loop_tick":
         blockers.extend(validate_controlled_loop_tick_audit_record(record, line))
+    elif event == "controlled_pr_cycle":
+        blockers.extend(validate_controlled_pr_cycle_audit_record(record, line))
     elif event == "work_ownership_mutation":
         blockers.extend(validate_work_ownership_mutation_audit_record(record, line))
     else:
@@ -1524,6 +1602,47 @@ def controlled_loop_tick_audit_record(payload: dict[str, Any]) -> dict[str, Any]
         "snapshot_after_checksum": checksums.get("snapshot_after"),
         "closeout_checksum": checksums.get("closeout"),
         "git_pr_plan_checksum": checksums.get("git_pr_plan"),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def controlled_pr_cycle_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
+    pr = payload.get("pr") if isinstance(payload.get("pr"), dict) else {}
+    files = payload.get("files") if isinstance(payload.get("files"), dict) else {}
+    checksums = payload.get("checksums") if isinstance(payload.get("checksums"), dict) else {}
+    final_post_write_gate = payload.get("final_post_write_gate")
+    record = {
+        "event": "controlled_pr_cycle",
+        "action": "complete_controlled_pr_cycle",
+        "reason": payload.get("reason"),
+        "valid": payload.get("valid"),
+        "cycle_id": payload.get("cycle_id"),
+        "final_recommendation": payload.get("final_recommendation"),
+        "recommended_next_action": payload.get("recommended_next_action"),
+        "pr_number": pr.get("number"),
+        "head_ref": pr.get("head_ref"),
+        "base_ref": pr.get("base_ref"),
+        "head_sha": pr.get("head_sha"),
+        "github_write_started": payload.get("github_write_started"),
+        "controlled_loop_tick_file": files.get("controlled_loop_tick"),
+        "git_pr_materialization_file": files.get("git_pr_materialization"),
+        "initial_post_write_gate_file": files.get("initial_post_write_gate"),
+        "review_response_materialization_file": files.get("review_response_materialization"),
+        "review_response_post_write_gate_file": files.get("review_response_post_write_gate"),
+        "review_thread_resolution_materialization_file": files.get("review_thread_resolution_materialization"),
+        "review_thread_resolution_post_write_gate_file": files.get("review_thread_resolution_post_write_gate"),
+        "final_post_write_gate": final_post_write_gate,
+        "payload_checksum": checksum_json(payload),
+        "controlled_loop_tick_checksum": checksums.get("controlled_loop_tick"),
+        "git_pr_materialization_checksum": checksums.get("git_pr_materialization"),
+        "initial_post_write_gate_checksum": checksums.get("initial_post_write_gate"),
+        "review_response_materialization_checksum": checksums.get("review_response_materialization"),
+        "review_response_post_write_gate_checksum": checksums.get("review_response_post_write_gate"),
+        "review_thread_resolution_materialization_checksum": checksums.get("review_thread_resolution_materialization"),
+        "review_thread_resolution_post_write_gate_checksum": checksums.get("review_thread_resolution_post_write_gate"),
+        "final_post_write_gate_checksum": checksums.get(final_post_write_gate)
+        if isinstance(final_post_write_gate, str)
+        else None,
     }
     return {key: value for key, value in record.items() if value is not None}
 

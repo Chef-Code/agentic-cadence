@@ -103,6 +103,7 @@ from codex_cadence.policy_audit import (
     validate_controlled_loop_tick_audit_record,
     work_ownership_mutation_audit_record,
 )
+from codex_cadence.pr_cycle import compose_controlled_pr_cycle_from_files
 from codex_cadence.pr_readiness import (
     evaluate_pr_body_preflight,
     evaluate_pr_readiness,
@@ -4992,6 +4993,29 @@ def post_write_pr_evidence_gate_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 1
 
 
+def controlled_pr_cycle_command(args: argparse.Namespace) -> int:
+    payload = compose_controlled_pr_cycle_from_files(
+        root=args.root,
+        controlled_loop_tick_file=Path(args.controlled_loop_tick_file),
+        git_pr_materialization_file=Path(args.git_pr_materialization_file),
+        initial_post_write_gate_file=Path(args.initial_post_write_gate_file),
+        review_response_materialization_file=Path(args.review_response_materialization_file)
+        if args.review_response_materialization_file
+        else None,
+        review_response_post_write_gate_file=Path(args.review_response_post_write_gate_file)
+        if args.review_response_post_write_gate_file
+        else None,
+        review_thread_resolution_materialization_file=Path(args.review_thread_resolution_materialization_file)
+        if args.review_thread_resolution_materialization_file
+        else None,
+        review_thread_resolution_post_write_gate_file=Path(args.review_thread_resolution_post_write_gate_file)
+        if args.review_thread_resolution_post_write_gate_file
+        else None,
+    )
+    emit(payload)
+    return 0 if payload["valid"] else 1
+
+
 def pr_body_preflight_command(args: argparse.Namespace) -> int:
     body = load_pr_body(Path(args.body_file))
     required_body_sections = list(args.required_body_section or [])
@@ -5380,6 +5404,23 @@ def build_parser() -> argparse.ArgumentParser:
     controlled_loop_tick_parser.add_argument("--git-pr-plan-file")
     controlled_loop_tick_parser.set_defaults(
         func=controlled_loop_tick_command,
+        requires_root=True,
+        guards_runtime_root_only=True,
+    )
+
+    controlled_pr_cycle_parser = subparsers.add_parser(
+        "controlled-pr-cycle",
+        help="Compose saved PR-cycle evidence into one read-only consistency packet",
+    )
+    controlled_pr_cycle_parser.add_argument("--controlled-loop-tick-file", required=True)
+    controlled_pr_cycle_parser.add_argument("--git-pr-materialization-file", required=True)
+    controlled_pr_cycle_parser.add_argument("--initial-post-write-gate-file", required=True)
+    controlled_pr_cycle_parser.add_argument("--review-response-materialization-file")
+    controlled_pr_cycle_parser.add_argument("--review-response-post-write-gate-file")
+    controlled_pr_cycle_parser.add_argument("--review-thread-resolution-materialization-file")
+    controlled_pr_cycle_parser.add_argument("--review-thread-resolution-post-write-gate-file")
+    controlled_pr_cycle_parser.set_defaults(
+        func=controlled_pr_cycle_command,
         requires_root=True,
         guards_runtime_root_only=True,
     )

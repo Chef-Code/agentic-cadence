@@ -39,6 +39,7 @@ local generic executor task and result evidence, read-only
 read-only `role-readiness`, read-only `executor-invocation-readiness`, read-only `executor-invocation-plan`,
 operator-approved `git-pr-dirty-commit-materialize`, operator-approved
 `git-pr-materialize`, operator-approved `review-response-materialize`,
+read-only `controlled-pr-cycle`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -47,7 +48,9 @@ fixture-only controlled executor runner for tests and examples, controlled
 `invoke-real-executor` process-start evidence, and real-invocation closeout binding
 through `closeout-executor-result --real-invocation-file`, plus
 `controlled-loop-tick` evidence that composes an already-recorded local
-single-tick chain without retrying the executor or writing Git/GitHub state.
+single-tick chain and `controlled-pr-cycle` evidence that composes already
+recorded PR/review/post-write packets without retrying the executor or writing
+Git/GitHub state.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -965,6 +968,31 @@ command trace, GitHub thread ids, resolution status, approval target evidence,
 and blockers. It does not post comments, update PR bodies, invoke paid review,
 edit labels, merge, release, publish packages, assign roles, schedule agents,
 or continue a loop.
+
+## Controlled PR-Cycle Evidence
+
+`controlled-pr-cycle` composes saved evidence from one governed PR cycle into a
+read-only `controlled-pr-cycle.v1` packet. It consumes an existing
+`controlled-loop-tick.v1`, approved `git-pr-materialization.v1`, the first
+`post-write-pr-evidence-gate.v1`, optional approved
+`review-response-materialization.v1` plus its post-write gate, and optional
+approved `review-thread-resolution-materialization.v1` plus the final
+post-resolution gate:
+
+```bash
+agentic-cadence --root <runtime-root> controlled-pr-cycle --controlled-loop-tick-file controlled-loop-tick.json --git-pr-materialization-file git-pr-materialization.json --initial-post-write-gate-file post-write-gate-after-pr.json --review-response-materialization-file review-response-materialization.json --review-response-post-write-gate-file post-write-gate-after-response.json --review-thread-resolution-materialization-file review-thread-resolution-materialization.json --review-thread-resolution-post-write-gate-file post-write-gate-after-thread-resolution.json
+```
+
+The command rechecks packet schemas, materialization approval state, PR number,
+head branch, base branch, head SHA, post-write materialization checksums, and
+chronological ordering. A valid packet records accepted step files/checksums,
+sets `controlled_pr_cycle_status: completed`, appends success-only
+`controlled_pr_cycle` audit evidence, and recommends `plan_merge_readiness`
+when the final post-write gate is ready. Missing, mismatched, blocked, or
+unpaired optional packets append no audit record. It does not execute Git
+commands, call GitHub, start or retry executors, post comments, update PR
+bodies, resolve review threads, merge, release, publish packages, assign roles,
+schedule agents, or continue a loop.
 
 ## PR Body Preflight
 

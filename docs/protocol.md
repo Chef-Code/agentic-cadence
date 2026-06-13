@@ -944,7 +944,8 @@ Supported events are `loop_tick_decision`, `executor_fixture_invocation`,
 `review_response_materialization_intent`,
 `review_response_materialization_result`,
 `review_thread_resolution_intent`, `review_thread_resolution_result`,
-`operator_approval_verification`, `controlled_loop_tick`, and
+`operator_approval_verification`, `controlled_loop_tick`,
+`controlled_pr_cycle`, and
 `work_ownership_mutation`. It does not
 recompute `payload_checksum`,
 `run_record_checksum`,
@@ -1624,6 +1625,30 @@ blockers and recovery evidence without claiming merge readiness. The command
 must not post comments, update PR bodies, invoke paid review, edit labels,
 merge, release, publish packages, assign roles, schedule agents, or continue a
 loop automatically.
+
+`controlled-pr-cycle` is the read-only Phase 1/4/5 composition packet after
+approved PR and review writes. It consumes saved `controlled-loop-tick.v1`,
+`git-pr-materialization.v1`, the first `post-write-pr-evidence-gate.v1`,
+optional `review-response-materialization.v1` plus its post-write gate, and
+optional `review-thread-resolution-materialization.v1` plus its final
+post-write gate. The command must read only those local JSON files, recheck
+packet schema, packet type, validity, materialization approval state, packet
+checksums, PR number, head branch, base branch, head SHA, post-write gate
+materialization bindings, and chronological ordering before emitting a
+`controlled-pr-cycle.v1` packet.
+
+When valid, `controlled-pr-cycle` emits `controlled_pr_cycle_status:
+completed`, lists accepted step files and checksums, records the final
+post-write gate, and recommends `plan_merge_readiness` when the final gate is
+`ready_for_review`. It appends success-only `controlled_pr_cycle` audit
+evidence after validating the compact audit record. Missing, blocked,
+malformed, wrong-order, wrong-PR, wrong-head, wrong-checksum, unapproved, or
+unpaired optional packets must emit stable blockers and append no audit record.
+If review-thread resolution evidence is supplied, the final
+post-resolution post-write gate is required. The command must not run
+executors, create branches, commit, push, call GitHub, post comments, update PR
+bodies, resolve review threads, trigger paid review, merge, release, publish
+packages, assign roles, schedule agents, or continue a loop.
 
 PR body preflight covers the pre-publish side of the same template contract. `pr-body-preflight --body-file <path> --pr-template-file <path>` must read a draft PR body and a local Markdown pull request template, derive required template sections from template headings, and report missing template sections before PR creation or update. It must reuse the same heading parser as PR readiness, match draft body headings by normalized section label, ignore headings inside HTML comments or fenced code blocks without creating false setext headings across skipped blocks, stay repo-agnostic, and must not hard-code target-specific labels, call GitHub, rewrite the body file, create a PR, update a PR, spend paid review, or merge the PR. If no template file or `--required-body-section` is supplied, it must fail closed and recommend `provide_template_or_sections`.
 
