@@ -2916,8 +2916,9 @@ def build_loop_run_plan_steps(loop_tick: dict[str, Any]) -> list[dict[str, Any]]
     steps = [
         {
             "name": "loop_tick",
-            "status": "accepted",
+            "status": "computed",
             "command": "loop-tick",
+            "audited": False,
             "packet_checksum": checksum_json(loop_tick),
             "recommended_next_action": loop_tick["recommended_next_action"],
         }
@@ -2947,7 +2948,8 @@ def build_loop_run_plan_steps(loop_tick: dict[str, Any]) -> list[dict[str, Any]]
                     "name": "start_governed_execution",
                     "status": "blocked_until_approval",
                     "command": "start-governed-execution",
-                    "approval_token_hint": f"approve-executor-task:{executor_task_checksum}",
+                    "operator_approval_required": True,
+                    "target_checksum": executor_task_checksum,
                 },
             ]
         )
@@ -2969,6 +2971,11 @@ def loop_run_plan_command(args: argparse.Namespace) -> int:
         "pr_action_started": False,
         "github_write_started": False,
         "merge_started": False,
+        "release_started": False,
+        "package_publication_started": False,
+        "role_assignment_started": False,
+        "agent_scheduling_started": False,
+        "loop_continuation_started": False,
         "operator_confirmation_required": loop_tick["operator_confirmation_required"],
         "executor_contract_required": loop_tick["executor_contract_required"],
         "recommended_next_action": recommended_next_action,

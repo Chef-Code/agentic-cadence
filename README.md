@@ -292,10 +292,11 @@ The task packet is nested under `executor_task` in the `loop-tick` packet. It mu
 `loop-run-plan` wraps the same read-only loop-tick decision into a
 `loop-run-plan.v1` packet that lists the next bounded operator/orchestrator
 steps. It can include the emitted executor task checksum and the exact approval
-token hint for `start-governed-execution`, but it does not continue the loop,
-start a runner, start an executor, start an epoch, create a branch, commit,
-push, open or update a PR, call GitHub, merge, release, publish packages,
-assign roles, or schedule agents:
+target checksum for later operator approval, but it does not emit the
+write-side approval token, continue the loop, start a runner, start an
+executor, start an epoch, create a branch, commit, push, open or update a PR,
+call GitHub, merge, release, publish packages, assign roles, or schedule
+agents:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime loop-run-plan --cwd examples/first-run/work/repo --repo local/demo --intent repo_health --emit-executor-task --allowed-path . --required-check "python -m unittest discover -s tests"

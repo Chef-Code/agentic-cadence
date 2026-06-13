@@ -3160,10 +3160,19 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["pr_action_started"])
             self.assertFalse(output["github_write_started"])
             self.assertFalse(output["merge_started"])
+            self.assertFalse(output["release_started"])
+            self.assertFalse(output["package_publication_started"])
+            self.assertFalse(output["role_assignment_started"])
+            self.assertFalse(output["agent_scheduling_started"])
+            self.assertFalse(output["loop_continuation_started"])
             self.assertEqual(output["recommended_next_action"], "stop_no_candidates")
+            self.assertNotIn("audit_record", output)
             self.assertEqual(output["loop_tick"]["recommended_next_action"], "no_candidates")
+            self.assertNotIn("audit_record", output["loop_tick"])
             self.assertEqual(output["planned_steps"][0]["name"], "loop_tick")
-            self.assertEqual(output["planned_steps"][0]["status"], "accepted")
+            self.assertEqual(output["planned_steps"][0]["status"], "computed")
+            self.assertFalse(output["planned_steps"][0]["audited"])
+            self.assertFalse((Path(tmp) / "audit" / "events.jsonl").exists())
             self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
 
     def test_loop_run_plan_emits_executor_task_approval_plan_for_candidate(self):
@@ -3202,18 +3211,28 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["pr_action_started"])
             self.assertFalse(output["github_write_started"])
             self.assertFalse(output["merge_started"])
+            self.assertFalse(output["release_started"])
+            self.assertFalse(output["package_publication_started"])
+            self.assertFalse(output["role_assignment_started"])
+            self.assertFalse(output["agent_scheduling_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertNotIn("audit_record", output)
             self.assertEqual(output["loop_tick"]["recommended_next_action"], "approve_executor_task")
+            self.assertNotIn("audit_record", output["loop_tick"])
             executor_task = output["executor_task"]
             self.assertEqual(executor_task["packet"], "executor_task")
             self.assertEqual(output["executor_task_checksum"], checksum_json(executor_task))
             step_names = [step["name"] for step in output["planned_steps"]]
             self.assertEqual(step_names, ["loop_tick", "operator_approval", "start_governed_execution"])
+            self.assertEqual(output["planned_steps"][0]["status"], "computed")
+            self.assertFalse(output["planned_steps"][0]["audited"])
             self.assertEqual(output["planned_steps"][1]["status"], "required")
+            self.assertEqual(output["planned_steps"][1]["target_checksum"], checksum_json(executor_task))
             self.assertEqual(output["planned_steps"][2]["status"], "blocked_until_approval")
-            self.assertEqual(
-                output["planned_steps"][2]["approval_token_hint"],
-                f"approve-executor-task:{checksum_json(executor_task)}",
-            )
+            self.assertNotIn("approval_token_hint", output["planned_steps"][2])
+            self.assertTrue(output["planned_steps"][2]["operator_approval_required"])
+            self.assertEqual(output["planned_steps"][2]["target_checksum"], checksum_json(executor_task))
+            self.assertFalse((Path(tmp) / "audit" / "events.jsonl").exists())
             self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
 
     def test_loop_tick_stops_at_executor_contract_for_elected_candidate(self):
