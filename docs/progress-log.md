@@ -33,6 +33,50 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-12 - Compose controlled PR-cycle evidence
+
+Summary:
+- Added `controlled-pr-cycle` to compose saved controlled-loop,
+  Git/PR-materialization, post-write gate, review-response materialization,
+  optional review-thread resolution, and final post-write gate evidence into
+  one read-only `controlled-pr-cycle.v1` packet.
+- The composer rechecks packet schemas, materialization approval state,
+  checksums, PR number, head branch, base branch, head SHA, post-write gate
+  bindings, and chronological order before recommending merge-readiness
+  planning.
+- Successful composition appends success-only `controlled_pr_cycle` audit
+  evidence; blocked, mismatched, missing final gate, or drifted packets append
+  no audit record.
+
+Completed slices:
+- Task 36: controlled PR-cycle evidence packet.
+
+Confidence change:
+- Previous: 29%
+- New: 31%
+- Reason: Cadence can now prove the saved PR/review/post-write chain is
+  internally consistent before merge planning, but merge decision planning and
+  merge authority remain separate and unbuilt.
+
+Evidence:
+- `python -m unittest tests.test_pr_cycle -v`
+- `python -m py_compile codex_cadence\pr_cycle.py codex_cadence\cli.py codex_cadence\policy_audit.py`
+- `python -m unittest tests.test_audit_replay -v`
+- `python -m ruff check codex_cadence\pr_cycle.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_pr_cycle.py`
+- `git diff --check`
+
+New risks or blockers:
+- Task 37 still needs read-only merge decision planning; `controlled-pr-cycle`
+  deliberately does not merge, trigger paid review, schedule agents, or
+  continue a loop.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/progress-log.md`
+
 ## 2026-06-12 - Refresh evidence after review-thread resolution
 
 Summary:
