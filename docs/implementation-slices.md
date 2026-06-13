@@ -126,10 +126,12 @@ evidence. `merge-decision-plan` can compose saved PR JSON, review-thread JSON,
 PR-readiness, audit-replay, `controlled-pr-cycle` evidence, and optional
 role-readiness evidence into a read-only `merge-decision-plan.v1` packet that
 requires operator confirmation while reporting no Git, GitHub, merge, release,
-package, role-assignment, scheduler, or loop-continuation side effects. Autonomous
-branch/commit/push or PR creation, automatic session launch,
-distributed work ownership, role assignment, and continuous loop orchestration
-remain missing.
+package, role-assignment, scheduler, or loop-continuation side effects.
+`loop-run-plan` can wrap the current read-only `loop-tick` decision into a
+`loop-run-plan.v1` packet with planned next steps and explicit non-start flags
+for the runner, executor, epoch, PR actions, GitHub writes, and merge. Autonomous
+branch/commit/push or PR creation, automatic session launch, distributed work
+ownership, role assignment, and continuous loop orchestration remain missing.
 Current unattended-operation confidence is 25%. Progress-log entries record
 Task 37 projected capability at 33% while this stable headline remains 25%.
 
@@ -151,7 +153,8 @@ complete in `main` via PRs #92-#96. Tasks 28-32 from
 `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md` are complete in `main` via
 PRs #98-#103. The current roadmap after Task 32 is
 `docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md`; Tasks 33-37 are complete
-in `main` or active review branches.
+in `main`. Task 38 starts the next runner-adjacent slice with a read-only
+`loop-run-plan` packet rather than autonomous execution authority.
 
 ## Vision Framing
 
@@ -734,6 +737,10 @@ Current evidence:
   audit evidence, block unresolved review comments, emit
   `merge-decision-plan.v1`, and require operator confirmation before any merge
   outside Cadence;
+- `loop-run-plan` can consume the current `loop-tick` decision path and emit a
+  `loop-run-plan.v1` packet with planned next steps while reporting no runner,
+  executor, epoch, PR-action, GitHub-write, merge, release, package,
+  role-assignment, scheduling, or loop-continuation side effects;
 - no branch creation, commit, push, merge, release, package publication,
   continuous reconciliation, automatic response loop execution, paid review,
   label editing, role assignment, or agent scheduling exists.

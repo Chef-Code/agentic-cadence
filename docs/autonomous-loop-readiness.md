@@ -232,7 +232,7 @@ Agentic Cadence cannot currently:
 | Handoff lifecycle | Implemented | `codex_cadence/handoff_loop.py`, `codex_cadence/cli.py` |
 | PR body/readiness checks | Implemented from saved inputs | `codex_cadence/pr_readiness.py` |
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
-| Single loop tick | Partial, controlled local evidence | `loop-tick` emits next action and stops before execution; `controlled-loop-tick` composes saved local evidence after closeout without retrying or continuing |
+| Single loop tick | Partial, controlled local evidence | `loop-tick` emits next action and stops before execution; `loop-run-plan` wraps that decision into a read-only next-step packet; `controlled-loop-tick` composes saved local evidence after closeout without retrying or continuing |
 | Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, task-carried branch policy, active brake stop handling, governed execution-start audit, local `execution-run.v1` records, `<root>/audit/events.jsonl`, hash-chained new audit appends, read-only `audit-replay`, audited `operator-approval.v1` verification through `verify-operator-approval`, success-only `controlled_loop_tick`, and success-only `controlled_pr_cycle` audit evidence; no external identity provider or autonomous GitHub authority |
 | Agent-team orchestration | Partial read-only evidence | `role-readiness` can verify local `role-policy.v1`, scoped ownership role labels, and saved review-thread separation evidence; no agent pool, role assignment, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
@@ -252,9 +252,11 @@ Agentic Cadence cannot currently:
 No.
 
 It can inspect and suggest. It can run a read-only loop tick that produces a
-structured next action. It can emit a generic executor task packet for operator
-approval, validate the packet's local snapshot trust anchor, start one active
-epoch from an exactly approved task packet through `start-governed-execution`,
+structured next action and wrap that decision in a `loop-run-plan.v1` packet
+that lists the next bounded operator/orchestrator steps. It can emit a generic
+executor task packet for operator approval, validate the packet's local
+snapshot trust anchor, start one active epoch from an exactly approved task
+packet through `start-governed-execution`,
 run a controlled fake executor fixture from an explicit command template for
 tests/examples, write a local execution-run record, validate local executor
 result evidence, close out the active epoch with supplied run-record or
@@ -286,7 +288,7 @@ role-specific agents.
 The current loop stops after:
 
 ```text
-inspect repo -> discover/elect candidate -> emit blocked/no_candidates/approval_required/requires_executor_contract/approve_executor_task -> approved start_governed_execution
+inspect repo -> discover/elect candidate -> emit blocked/no_candidates/approval_required/requires_executor_contract/approve_executor_task -> optional loop-run-plan -> approved start_governed_execution
 ```
 
 It can also emit `policy_denied` when a supplied local loop policy blocks the
@@ -429,7 +431,9 @@ Reasoning:
 
 - Safety and governance primitives are real.
 - A read-only `loop-tick` now stitches snapshot, candidate election, Cadence
-  state, and next-action reporting into one packet.
+  state, and next-action reporting into one packet; `loop-run-plan` can wrap
+  that decision into a bounded next-step plan without starting a runner,
+  executor, epoch, PR action, GitHub write, or merge.
 - The generic executor task/result contract is now explicit and testable, and
   is wired through read-only executor invocation readiness, read-only invocation
   planning, fake controlled executor fixtures, and controlled one-command real

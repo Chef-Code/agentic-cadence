@@ -3135,6 +3135,87 @@ class CadenceCliTests(unittest.TestCase):
             self.assertTrue(Path(output["snapshot"]["path"]).exists())
             self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
 
+    def test_loop_run_plan_reports_no_candidates_without_starting_runner(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+
+            result, output = run_cli(
+                tmp,
+                "loop-run-plan",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "loop-run-plan.v1")
+            self.assertEqual(output["packet"], "loop_run_plan")
+            self.assertTrue(output["read_only"])
+            self.assertFalse(output["runner_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["pr_action_started"])
+            self.assertFalse(output["github_write_started"])
+            self.assertFalse(output["merge_started"])
+            self.assertEqual(output["recommended_next_action"], "stop_no_candidates")
+            self.assertEqual(output["loop_tick"]["recommended_next_action"], "no_candidates")
+            self.assertEqual(output["planned_steps"][0]["name"], "loop_tick")
+            self.assertEqual(output["planned_steps"][0]["status"], "accepted")
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
+    def test_loop_run_plan_emits_executor_task_approval_plan_for_candidate(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            marker = Path(repo) / "notes.py"
+            marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+            git(repo, "add", "notes.py")
+            git(repo, "commit", "-m", "add repo health marker")
+            evidence_path = Path(tmp) / "executor-result.json"
+
+            result, output = run_cli(
+                tmp,
+                "loop-run-plan",
+                "--cwd",
+                repo,
+                "--repo",
+                "local/test",
+                "--intent",
+                "repo_health",
+                "--emit-executor-task",
+                "--allowed-path",
+                "notes.py",
+                "--required-check",
+                "python -m unittest tests.test_cadence",
+                "--executor-evidence-path",
+                str(evidence_path),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["recommended_next_action"], "request_operator_approval")
+            self.assertTrue(output["operator_confirmation_required"])
+            self.assertFalse(output["runner_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["pr_action_started"])
+            self.assertFalse(output["github_write_started"])
+            self.assertFalse(output["merge_started"])
+            self.assertEqual(output["loop_tick"]["recommended_next_action"], "approve_executor_task")
+            executor_task = output["executor_task"]
+            self.assertEqual(executor_task["packet"], "executor_task")
+            self.assertEqual(output["executor_task_checksum"], checksum_json(executor_task))
+            step_names = [step["name"] for step in output["planned_steps"]]
+            self.assertEqual(step_names, ["loop_tick", "operator_approval", "start_governed_execution"])
+            self.assertEqual(output["planned_steps"][1]["status"], "required")
+            self.assertEqual(output["planned_steps"][2]["status"], "blocked_until_approval")
+            self.assertEqual(
+                output["planned_steps"][2]["approval_token_hint"],
+                f"approve-executor-task:{checksum_json(executor_task)}",
+            )
+            self.assertEqual(list((Path(tmp) / "epochs" / "active").glob("*.json")), [])
+
     def test_loop_tick_stops_at_executor_contract_for_elected_candidate(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)

@@ -40,6 +40,7 @@ read-only `role-readiness`, read-only `executor-invocation-readiness`, read-only
 operator-approved `git-pr-dirty-commit-materialize`, operator-approved
 `git-pr-materialize`, operator-approved `review-response-materialize`,
 read-only `controlled-pr-cycle`, read-only `merge-decision-plan`,
+read-only `loop-run-plan`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -51,7 +52,8 @@ through `closeout-executor-result --real-invocation-file`, plus
 single-tick chain and `controlled-pr-cycle` evidence that composes already
 recorded PR/review/post-write packets, plus `merge-decision-plan` evidence
 that separates merge readiness from merge authority without retrying the
-executor or writing Git/GitHub state.
+executor or writing Git/GitHub state, and `loop-run-plan` evidence that plans
+the next bounded loop steps without starting a runner.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -286,6 +288,18 @@ python -c "import json; print(json.dumps(json.load(open('loop-tick.json'))['exec
 ```
 
 The task packet is nested under `executor_task` in the `loop-tick` packet. It must be saved before validating returned executor evidence.
+
+`loop-run-plan` wraps the same read-only loop-tick decision into a
+`loop-run-plan.v1` packet that lists the next bounded operator/orchestrator
+steps. It can include the emitted executor task checksum and the exact approval
+token hint for `start-governed-execution`, but it does not continue the loop,
+start a runner, start an executor, start an epoch, create a branch, commit,
+push, open or update a PR, call GitHub, merge, release, publish packages,
+assign roles, or schedule agents:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime loop-run-plan --cwd examples/first-run/work/repo --repo local/demo --intent repo_health --emit-executor-task --allowed-path . --required-check "python -m unittest discover -s tests"
+```
 
 `start-governed-execution` is the local write-side gate that consumes a reviewed
 `generic-executor-task.v1` packet and starts exactly one active epoch when the

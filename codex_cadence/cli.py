@@ -2760,7 +2760,7 @@ def loop_tick_recommendation(
     return "requires_executor_contract", "executor task packet has not been emitted", False, True
 
 
-def loop_tick_command(args: argparse.Namespace) -> int:
+def build_loop_tick_payload(args: argparse.Namespace) -> dict[str, Any]:
     if args.discovery_mode == "expanded":
         raise ValueError("expanded discovery mode is reserved for v2")
     if args.discovery_mode != "off" and not args.intent:
@@ -2881,7 +2881,120 @@ def loop_tick_command(args: argparse.Namespace) -> int:
         "policy": policy,
         "limitations": limitations,
     }
-    payload["audit_record"] = append_audit_record(root, loop_tick_audit_record(payload))
+    return payload
+
+
+def loop_tick_command(args: argparse.Namespace) -> int:
+    payload = build_loop_tick_payload(args)
+    payload["audit_record"] = append_audit_record(args.root, loop_tick_audit_record(payload))
+    emit(payload)
+    return 0
+
+
+LOOP_RUN_PLAN_SCHEMA_VERSION = "loop-run-plan.v1"
+
+
+def loop_run_plan_next_action(loop_tick: dict[str, Any]) -> tuple[str, str]:
+    action = loop_tick["recommended_next_action"]
+    reason = loop_tick["reason"]
+    if action == "no_candidates":
+        return "stop_no_candidates", reason
+    if action == "approve_executor_task":
+        return "request_operator_approval", "executor task packet is ready for explicit operator approval"
+    if action == "requires_executor_contract":
+        return "emit_executor_task", reason
+    if action == "approval_required":
+        return "request_operator_review", reason
+    if action == "blocked":
+        return "stop_blocked", reason
+    if action == "policy_denied":
+        return "inspect_policy_denial", reason
+    return "operator_review", reason
+
+
+def build_loop_run_plan_steps(loop_tick: dict[str, Any]) -> list[dict[str, Any]]:
+    steps = [
+        {
+            "name": "loop_tick",
+            "status": "accepted",
+            "command": "loop-tick",
+            "packet_checksum": checksum_json(loop_tick),
+            "recommended_next_action": loop_tick["recommended_next_action"],
+        }
+    ]
+    action = loop_tick["recommended_next_action"]
+    executor_task = loop_tick.get("executor_task")
+    if action == "requires_executor_contract":
+        steps.append(
+            {
+                "name": "emit_executor_task",
+                "status": "required",
+                "command": "loop-tick --emit-executor-task",
+                "reason": loop_tick["reason"],
+            }
+        )
+    elif action == "approve_executor_task" and isinstance(executor_task, dict):
+        executor_task_checksum = checksum_json(executor_task)
+        steps.extend(
+            [
+                {
+                    "name": "operator_approval",
+                    "status": "required",
+                    "target_packet": "executor_task",
+                    "target_checksum": executor_task_checksum,
+                },
+                {
+                    "name": "start_governed_execution",
+                    "status": "blocked_until_approval",
+                    "command": "start-governed-execution",
+                    "approval_token_hint": f"approve-executor-task:{executor_task_checksum}",
+                },
+            ]
+        )
+    return steps
+
+
+def loop_run_plan_command(args: argparse.Namespace) -> int:
+    loop_tick = build_loop_tick_payload(args)
+    recommended_next_action, reason = loop_run_plan_next_action(loop_tick)
+    executor_task = loop_tick.get("executor_task")
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": LOOP_RUN_PLAN_SCHEMA_VERSION,
+        "packet": "loop_run_plan",
+        "read_only": True,
+        "runner_started": False,
+        "executor_started": False,
+        "epoch_started": False,
+        "pr_action_started": False,
+        "github_write_started": False,
+        "merge_started": False,
+        "operator_confirmation_required": loop_tick["operator_confirmation_required"],
+        "executor_contract_required": loop_tick["executor_contract_required"],
+        "recommended_next_action": recommended_next_action,
+        "reason": reason,
+        "loop_tick": loop_tick,
+        "loop_tick_checksum": checksum_json(loop_tick),
+        "executor_task": executor_task,
+        "executor_task_checksum": checksum_json(executor_task) if isinstance(executor_task, dict) else None,
+        "planned_steps": build_loop_run_plan_steps(loop_tick),
+        "limitations": [
+            "does_not_continue_loop",
+            "does_not_start_runner",
+            "does_not_start_executor",
+            "does_not_start_epoch",
+            "does_not_call_github",
+            "does_not_create_branch",
+            "does_not_commit",
+            "does_not_push",
+            "does_not_create_pr",
+            "does_not_merge",
+            "does_not_release",
+            "does_not_publish_packages",
+            "does_not_assign_roles",
+            "does_not_schedule_agents",
+        ],
+    }
     emit(payload)
     return 0
 
@@ -5280,6 +5393,35 @@ def release_dry_run_command(args: argparse.Namespace) -> int:
     return 0
 
 
+def add_loop_planning_arguments(command_parser: argparse.ArgumentParser) -> None:
+    command_parser.add_argument("--cwd", default=".")
+    command_parser.add_argument("--repo")
+    command_parser.add_argument("--active-pr", type=int)
+    command_parser.add_argument("--ci-status", choices=("unknown", "green", "red", "pending"), default="unknown")
+    command_parser.add_argument("--intent", choices=DISCOVERY_INTENTS)
+    command_parser.add_argument("--discovery-mode", choices=DISCOVERY_MODES, default="local")
+    command_parser.add_argument("--proposal-allowance", choices=PROPOSAL_ALLOWANCES, default="none")
+    command_parser.add_argument("--known-failure", action="append", default=[])
+    command_parser.add_argument("--pr-json-file")
+    command_parser.add_argument("--review-findings-file")
+    command_parser.add_argument("--review-threads-file")
+    command_parser.add_argument("--max-tasks", type=int, default=1)
+    command_parser.add_argument("--max-candidates", type=int, default=25)
+    command_parser.add_argument("--max-candidates-per-source", type=int, default=10)
+    command_parser.add_argument("--max-text-marker-candidates", type=int, default=10)
+    command_parser.add_argument("--max-doc-marker-candidates", type=int, default=5)
+    command_parser.add_argument("--max-business-memory-candidates", type=int, default=5)
+    command_parser.add_argument("--max-proposals", type=int, default=3)
+    command_parser.add_argument("--max-product-evolution-candidates-in-hybrid", type=int, default=1)
+    command_parser.add_argument("--emit-executor-task", action="store_true")
+    command_parser.add_argument("--allowed-path", action="append", default=[])
+    command_parser.add_argument("--required-check", action="append", default=[])
+    command_parser.add_argument("--executor-time-limit-minutes", type=positive_int)
+    command_parser.add_argument("--executor-evidence-path")
+    command_parser.add_argument("--stop-condition", action="append", default=[])
+    command_parser.add_argument("--policy-file")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Agentic Cadence")
     parser.add_argument("--root", type=Path, help="Agentic Cadence state root")
@@ -5376,33 +5518,15 @@ def build_parser() -> argparse.ArgumentParser:
     discover_parser.set_defaults(func=discover_candidates_command, requires_root=False)
 
     loop_tick_parser = subparsers.add_parser("loop-tick", help="Run one read-only governed loop tick")
-    loop_tick_parser.add_argument("--cwd", default=".")
-    loop_tick_parser.add_argument("--repo")
-    loop_tick_parser.add_argument("--active-pr", type=int)
-    loop_tick_parser.add_argument("--ci-status", choices=("unknown", "green", "red", "pending"), default="unknown")
-    loop_tick_parser.add_argument("--intent", choices=DISCOVERY_INTENTS)
-    loop_tick_parser.add_argument("--discovery-mode", choices=DISCOVERY_MODES, default="local")
-    loop_tick_parser.add_argument("--proposal-allowance", choices=PROPOSAL_ALLOWANCES, default="none")
-    loop_tick_parser.add_argument("--known-failure", action="append", default=[])
-    loop_tick_parser.add_argument("--pr-json-file")
-    loop_tick_parser.add_argument("--review-findings-file")
-    loop_tick_parser.add_argument("--review-threads-file")
-    loop_tick_parser.add_argument("--max-tasks", type=int, default=1)
-    loop_tick_parser.add_argument("--max-candidates", type=int, default=25)
-    loop_tick_parser.add_argument("--max-candidates-per-source", type=int, default=10)
-    loop_tick_parser.add_argument("--max-text-marker-candidates", type=int, default=10)
-    loop_tick_parser.add_argument("--max-doc-marker-candidates", type=int, default=5)
-    loop_tick_parser.add_argument("--max-business-memory-candidates", type=int, default=5)
-    loop_tick_parser.add_argument("--max-proposals", type=int, default=3)
-    loop_tick_parser.add_argument("--max-product-evolution-candidates-in-hybrid", type=int, default=1)
-    loop_tick_parser.add_argument("--emit-executor-task", action="store_true")
-    loop_tick_parser.add_argument("--allowed-path", action="append", default=[])
-    loop_tick_parser.add_argument("--required-check", action="append", default=[])
-    loop_tick_parser.add_argument("--executor-time-limit-minutes", type=positive_int)
-    loop_tick_parser.add_argument("--executor-evidence-path")
-    loop_tick_parser.add_argument("--stop-condition", action="append", default=[])
-    loop_tick_parser.add_argument("--policy-file")
+    add_loop_planning_arguments(loop_tick_parser)
     loop_tick_parser.set_defaults(func=loop_tick_command)
+
+    loop_run_plan_parser = subparsers.add_parser(
+        "loop-run-plan",
+        help="Plan the next governed loop steps without starting execution",
+    )
+    add_loop_planning_arguments(loop_run_plan_parser)
+    loop_run_plan_parser.set_defaults(func=loop_run_plan_command)
 
     controlled_loop_tick_parser = subparsers.add_parser(
         "controlled-loop-tick",
