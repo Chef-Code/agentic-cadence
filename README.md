@@ -44,6 +44,7 @@ read-only `loop-run-plan`,
 read-only `controlled-loop-start`,
 read-only `controlled-loop-invocation-plan`,
 read-only `controlled-loop-real-invocation`,
+read-only `controlled-loop-closeout`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -63,7 +64,9 @@ execution-start evidence without starting a runner or executor, and
 executor-invocation readiness, and invocation plan before any process start,
 and `controlled-loop-real-invocation` evidence that composes the saved
 controlled invocation plan with the recorded real executor invocation before
-closeout.
+closeout, and `controlled-loop-closeout` evidence that composes the saved
+controlled real-invocation packet with accepted executor closeout before the
+aggregate tick.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -348,6 +351,19 @@ continuing the loop, appending audit, or writing Git/GitHub state:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-real-invocation --controlled-invocation-plan-file controlled-loop-invocation-plan.json --real-invocation-file real-executor-invocation.json
+```
+
+`controlled-loop-closeout` composes a saved
+`controlled-loop-real-invocation.v1` packet with a saved
+`executor-epoch-closeout.v1` packet after closeout has already run. It rechecks
+the pre-closeout invocation checksum, the terminal closeout status, the updated
+real-invocation record checksum, the closeout and real-invocation audit
+anchors, and the epoch closeout checksum before recommending
+`controlled_loop_tick`, without closing epochs, rewriting invocation records,
+continuing the loop, appending audit, or writing Git/GitHub state:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-closeout --controlled-real-invocation-file controlled-loop-real-invocation.json --closeout-file executor-closeout.json
 ```
 
 `start-governed-execution` is the local write-side gate that consumes a reviewed
@@ -858,6 +874,18 @@ with `side_effects: []`, `executor_started: false`, and
 `recommended_next_action: closeout_executor_result`. Blocked packets append no audit and recommend
 `refresh_controlled_loop_invocation_plan` or
 `inspect_real_invocation_evidence`.
+
+`controlled-loop-closeout` is the read-only composition boundary between real
+invocation closeout and the aggregate controlled tick. It reads a saved
+`controlled-loop-real-invocation.v1` packet and a saved
+`executor-epoch-closeout.v1` packet, rechecks the closeout-bound invocation
+path/id, pre-closeout checksum, post-closeout checksum, terminal closeout
+status, epoch closeout checksum, closeout audit record, and real-invocation
+closeout-update audit record, then emits `controlled-loop-closeout.v1` with
+`side_effects: []`, all top-level side-effect flags false, and
+`recommended_next_action: controlled_loop_tick`. Blocked packets append no
+audit and recommend `refresh_controlled_loop_real_invocation` or
+`inspect_closeout_evidence`.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can

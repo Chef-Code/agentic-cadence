@@ -1316,6 +1316,62 @@ appending another closeout audit record. It must not start an executor, create a
 branch, commit, push, call GitHub, open a pull request, merge, release, or
 publish packages.
 
+`controlled-loop-closeout` composes an already saved
+`controlled-loop-real-invocation.v1` packet with an already saved
+`executor-epoch-closeout.v1` packet into `controlled-loop-closeout.v1`. The
+command reads `--controlled-real-invocation-file` and `--closeout-file`;
+requires the controlled real-invocation packet to be completed, read-only,
+side-effect-free, and waiting at
+`recommended_next_action: closeout_executor_result`; requires closeout evidence
+to be valid and terminal with `closeout_status: completed` or
+`closeout_status: failed`; and requires the closeout real-invocation reference
+to match the controlled packet's real-invocation file path, invocation id, and
+pre-closeout checksum.
+
+The command revalidates the controlled packet's embedded controlled invocation
+plan, executor invocation plan, result evidence, and pre-closeout real
+invocation checksum anchors before trusting the closeout composition. It safely
+reads the updated real-invocation record only after the closeout path anchor
+matches the controlled real-invocation input, the embedded invocation
+`record_file`, and the canonical runtime invocation path derived from
+`invocation_id`. It then rechecks the closeout `after_checksum`, updated
+invocation `closeout_status`, `epoch_id`, `epoch_status`,
+`epoch_closeout_checksum`, `result_evidence_checksum`, validation checksum,
+task-file anchor, and record path. It also replays the current audit log and
+verifies both the closeout audit reference and the real-invocation
+closeout-update audit reference against their referenced audit lines. A
+completed packet uses
+`packet: controlled_loop_closeout`, `controlled_closeout_status: completed`,
+`read_only: true`, `side_effects: []`, `valid: true`, and
+`recommended_next_action: controlled_loop_tick`. The top-level response envelope
+includes `controlled_real_invocation_checksum`, `closeout_checksum`,
+`real_invocation_before_checksum`, `real_invocation_after_checksum`,
+`epoch_closeout_checksum`, `task_id`, `epoch_id`, `closeout_status`, nested
+copies of the controlled real-invocation packet, closeout packet, and updated
+real-invocation record, `blockers`, and explicit false side-effect flags.
+
+Blocked packets use `controlled_closeout_status: blocked`, `read_only: true`,
+`side_effects: []`, `valid: false`, stable blockers, and exit code 2.
+Controlled real-invocation evidence problems recommend
+`refresh_controlled_loop_real_invocation`; closeout, updated real-invocation,
+path, checksum, terminal-status, and audit mismatches recommend
+`inspect_closeout_evidence`. Stable blocker codes include
+`controlled_real_invocation_evidence_missing`, `closeout_evidence_missing`,
+`controlled_real_invocation_packet_mismatch`, `closeout_packet_mismatch`,
+`controlled_real_invocation_invalid`, `closeout_invalid`,
+`closeout_not_terminal`, `closeout_epoch_mismatch`,
+`closeout_result_mismatch`, `closeout_invocation_mismatch`,
+`real_invocation_evidence_missing`, `real_invocation_packet_mismatch`,
+`real_invocation_closeout_mismatch`, `closeout_audit_mismatch`, and
+`real_invocation_audit_mismatch`.
+
+Completed and blocked `controlled-loop-closeout` packets append no audit record
+and must not continue the loop, start a runner, start or retry an executor,
+start or close an epoch, create branches, commit, push, call GitHub, create or
+update pull requests, resolve review threads, merge, release, publish packages,
+assign roles, schedule agents, claim distributed locks, or rewrite the supplied
+controlled real-invocation, real-invocation, or closeout records.
+
 `controlled-loop-tick` is the controlled single-tick composition boundary after
 the individual local gates have already produced evidence. It reads saved
 `loop-tick`, `generic-executor-task.v1`, `execution-start.v1`,
