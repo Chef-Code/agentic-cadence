@@ -1522,9 +1522,10 @@ bounded `recommended_next_action`.
 
 The command verifies that the summary is completed and ready for review, the
 controlled closeout is completed and ready for the controlled tick, and the
-controlled tick is completed. It rechecks summary checksums for the controlled
-closeout and controlled tick, summary file anchors, controlled tick closeout and
-real-invocation checksums, the embedded controlled closeout checksum,
+controlled tick is completed. It rechecks the controlled-run-summary checksum,
+summary checksums for the controlled closeout and controlled tick, summary file
+anchors, controlled tick closeout and real-invocation checksums, the embedded
+controlled closeout checksum,
 summary/tick/closeout next-decision equality, task id, epoch id, closeout
 status, and that the source decision is one of `generate_git_pr_plan`,
 `continue`, `handoff`, `stop`, or `validate_more_evidence`. The source
@@ -1559,6 +1560,7 @@ packages, assign roles, or schedule agents. Stable blockers include
 `controlled_loop_outcome_packet_mismatch`,
 `controlled_run_summary_not_completed`,
 `controlled_closeout_not_completed`, `controlled_loop_tick_not_completed`,
+`controlled_run_summary_checksum_mismatch`,
 `controlled_closeout_checksum_mismatch`,
 `controlled_loop_tick_checksum_mismatch`,
 `controlled_closeout_file_mismatch`, `controlled_loop_tick_file_mismatch`,

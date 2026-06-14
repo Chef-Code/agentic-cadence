@@ -6398,8 +6398,7 @@ class CadenceCliTests(unittest.TestCase):
         git(repo, "commit", "-m", "add repo health marker")
 
         result_path = Path(tmp) / "executor-results" / "executor-result.json"
-        loop_plan_result, loop_plan = run_cli(
-            tmp,
+        loop_plan_args = [
             "loop-run-plan",
             "--cwd",
             repo,
@@ -6410,12 +6409,16 @@ class CadenceCliTests(unittest.TestCase):
             "--emit-executor-task",
             "--allowed-path",
             "notes.py",
-            "--allowed-path",
-            "README.md",
             "--required-check",
             "python -m unittest tests.test_cadence",
             "--executor-evidence-path",
             str(result_path),
+        ]
+        if emit_git_pr_plan:
+            loop_plan_args.extend(["--allowed-path", "README.md"])
+        loop_plan_result, loop_plan = run_cli(
+            tmp,
+            *loop_plan_args,
         )
         self.assertEqual(loop_plan_result.returncode, 0, loop_plan_result.stderr)
         loop_run_plan_path = Path(tmp) / "loop-run-plan.json"
