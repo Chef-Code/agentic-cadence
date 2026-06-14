@@ -6418,6 +6418,438 @@ def controlled_loop_run_summary_command(args: argparse.Namespace) -> int:
     return 0 if valid else 2
 
 
+CONTROLLED_LOOP_OUTCOME_PLAN_SCHEMA_VERSION = "controlled-loop-outcome-plan.v1"
+
+
+def controlled_loop_outcome_plan_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def read_controlled_loop_outcome_plan_packet(
+    path: Path,
+    *,
+    code: str,
+    label: str,
+) -> tuple[Any | None, list[dict[str, Any]]]:
+    try:
+        packet = read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, [
+            controlled_loop_outcome_plan_blocker(
+                code,
+                f"{label} could not be read as JSON",
+                path=str(path),
+                error=str(exc),
+            )
+        ]
+    if not isinstance(packet, dict):
+        return None, [controlled_loop_outcome_plan_blocker(code, f"{label} must be a JSON object", path=str(path))]
+    return packet, []
+
+
+def controlled_loop_outcome_plan_type_blockers(
+    packet: dict[str, Any],
+    *,
+    label: str,
+    expected_packet: str,
+    expected_schema: str,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if packet.get("schema_version") != expected_schema:
+        blockers.append(
+            controlled_loop_outcome_plan_blocker(
+                "controlled_loop_outcome_packet_mismatch",
+                f"{label} schema_version is invalid",
+                expected=expected_schema,
+                actual=packet.get("schema_version"),
+            )
+        )
+    if packet.get("packet") != expected_packet:
+        blockers.append(
+            controlled_loop_outcome_plan_blocker(
+                "controlled_loop_outcome_packet_mismatch",
+                f"{label} packet is invalid",
+                expected=expected_packet,
+                actual=packet.get("packet"),
+            )
+        )
+    return blockers
+
+
+def controlled_loop_outcome_plan_step(
+    name: str,
+    path: Path,
+    packet: Any,
+    blockers: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "status": "accepted" if not blockers else "blocked",
+        "file": str(path),
+        "checksum": checksum_json(packet) if isinstance(packet, dict) else None,
+        "blocker_codes": [blocker["code"] for blocker in blockers],
+    }
+
+
+def controlled_loop_outcome_plan_add_blocker(
+    blockers: list[dict[str, Any]],
+    step_blockers: dict[str, list[dict[str, Any]]],
+    step: str,
+    code: str,
+    message: str,
+    **extra: Any,
+) -> None:
+    blocker = controlled_loop_outcome_plan_blocker(code, message, **extra)
+    step_blockers[step].append(blocker)
+    blockers.append(blocker)
+
+
+def controlled_loop_outcome_plan_file_matches(context_file: Path, value: Any, expected_path: Path) -> bool:
+    return _closeout_paths_match(controlled_tick_context_path(context_file, value), expected_path)
+
+
+def controlled_loop_outcome_recommendation(
+    blockers: list[dict[str, Any]],
+    *,
+    source_decision: dict[str, Any],
+    git_pr_plan: dict[str, Any] | None,
+) -> tuple[str, bool, str]:
+    if blockers:
+        blocker_codes = {blocker.get("code") for blocker in blockers}
+        if any(
+            code in blocker_codes
+            for code in {
+                "controlled_run_summary_evidence_missing",
+                "controlled_run_summary_not_completed",
+                "controlled_run_summary_checksum_mismatch",
+                "controlled_loop_tick_checksum_mismatch",
+                "controlled_closeout_checksum_mismatch",
+                "controlled_loop_outcome_packet_mismatch",
+            }
+        ):
+            return "refresh_controlled_loop_run_summary", True, "controlled run summary or terminal evidence is stale"
+        return "inspect_controlled_loop_outcome_blockers", True, "controlled loop outcome evidence is blocked"
+
+    decision = source_decision.get("decision")
+    if decision == "generate_git_pr_plan":
+        if git_pr_plan is None:
+            return "run_git_pr_plan", False, "controlled run completed and needs a dry-run Git/PR plan"
+        if not validate_git_pr_plan_dry_run_packet(git_pr_plan):
+            return "request_git_pr_materialization_approval", True, "controlled run has a ready dry-run Git/PR plan"
+        return "inspect_git_pr_plan_blockers", True, "controlled run Git/PR plan is not ready for approval"
+    if decision == "continue":
+        return "plan_next_controlled_executor_step", True, "controlled run completed one task and the epoch remains active"
+    if decision == "handoff":
+        return "inspect_executor_failure", True, "controlled run ended with executor failure evidence"
+    if decision == "stop":
+        return source_decision.get("recommended_next_action", "review_stop_decision"), True, "controlled run ended with a stop decision"
+    if decision == "validate_more_evidence":
+        return source_decision.get("recommended_next_action", "fix_executor_evidence"), True, "controlled run needs more executor evidence"
+    return "inspect_controlled_loop_outcome_blockers", True, "controlled run outcome decision is not supported"
+
+
+def controlled_loop_outcome_plan_command(args: argparse.Namespace) -> int:
+    packet_inputs = {
+        "controlled_run_summary": Path(args.controlled_run_summary_file),
+        "controlled_closeout": Path(args.controlled_closeout_file),
+        "controlled_loop_tick": Path(args.controlled_loop_tick_file),
+    }
+    read_codes = {
+        "controlled_run_summary": "controlled_run_summary_evidence_missing",
+        "controlled_closeout": "controlled_closeout_evidence_missing",
+        "controlled_loop_tick": "controlled_loop_tick_evidence_missing",
+    }
+    packets: dict[str, Any] = {}
+    blockers: list[dict[str, Any]] = []
+    step_blockers: dict[str, list[dict[str, Any]]] = {}
+    for name, path in packet_inputs.items():
+        packet, packet_blockers = read_controlled_loop_outcome_plan_packet(
+            path,
+            code=read_codes[name],
+            label=name.replace("_", " "),
+        )
+        packets[name] = packet
+        step_blockers[name] = list(packet_blockers)
+        blockers.extend(packet_blockers)
+
+    if not blockers:
+        expected_types = {
+            "controlled_run_summary": ("controlled_loop_run_summary", CONTROLLED_LOOP_RUN_SUMMARY_SCHEMA_VERSION),
+            "controlled_closeout": ("controlled_loop_closeout", CONTROLLED_LOOP_CLOSEOUT_SCHEMA_VERSION),
+            "controlled_loop_tick": ("controlled_loop_tick", CONTROLLED_LOOP_TICK_SCHEMA_VERSION),
+        }
+        for name, (expected_packet, expected_schema) in expected_types.items():
+            packet_blockers = controlled_loop_outcome_plan_type_blockers(
+                packets[name],
+                label=name.replace("_", " "),
+                expected_packet=expected_packet,
+                expected_schema=expected_schema,
+            )
+            step_blockers[name].extend(packet_blockers)
+            blockers.extend(packet_blockers)
+
+    if not blockers:
+        summary = packets["controlled_run_summary"]
+        controlled_closeout = packets["controlled_closeout"]
+        controlled_tick = packets["controlled_loop_tick"]
+
+        if (
+            summary.get("valid") is not True
+            or summary.get("controlled_run_status") != "completed"
+            or summary.get("recommended_next_action") != "review_controlled_loop_run"
+            or summary.get("side_effects") != []
+        ):
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_run_summary",
+                "controlled_run_summary_not_completed",
+                "controlled run summary must be valid, completed, and ready for review",
+                valid=summary.get("valid"),
+                status=summary.get("controlled_run_status"),
+                recommended_next_action=summary.get("recommended_next_action"),
+            )
+        if (
+            controlled_closeout.get("valid") is not True
+            or controlled_closeout.get("controlled_closeout_status") != "completed"
+            or controlled_closeout.get("recommended_next_action") != "controlled_loop_tick"
+            or controlled_closeout.get("side_effects") != []
+        ):
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_closeout",
+                "controlled_closeout_not_completed",
+                "controlled closeout must be valid and completed",
+                valid=controlled_closeout.get("valid"),
+                status=controlled_closeout.get("controlled_closeout_status"),
+                recommended_next_action=controlled_closeout.get("recommended_next_action"),
+            )
+        if (
+            controlled_tick.get("valid") is not True
+            or controlled_tick.get("controlled_tick_status") != "completed"
+            or controlled_tick.get("recommended_next_action") != "controlled_tick_complete"
+        ):
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_loop_tick_not_completed",
+                "controlled loop tick must be valid and completed",
+                valid=controlled_tick.get("valid"),
+                status=controlled_tick.get("controlled_tick_status"),
+                recommended_next_action=controlled_tick.get("recommended_next_action"),
+            )
+
+        summary_checksums = summary.get("checksums") if isinstance(summary.get("checksums"), dict) else {}
+        if summary_checksums.get("controlled_closeout") != checksum_json(controlled_closeout):
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_closeout",
+                "controlled_closeout_checksum_mismatch",
+                "controlled closeout checksum does not match controlled run summary",
+                expected=summary_checksums.get("controlled_closeout"),
+                actual=checksum_json(controlled_closeout),
+            )
+        if summary_checksums.get("controlled_loop_tick") != checksum_json(controlled_tick):
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_loop_tick_checksum_mismatch",
+                "controlled loop tick checksum does not match controlled run summary",
+                expected=summary_checksums.get("controlled_loop_tick"),
+                actual=checksum_json(controlled_tick),
+            )
+        summary_files = summary.get("files") if isinstance(summary.get("files"), dict) else {}
+        for key, path in {
+            "controlled_closeout": packet_inputs["controlled_closeout"],
+            "controlled_loop_tick": packet_inputs["controlled_loop_tick"],
+        }.items():
+            if key not in summary_files:
+                controlled_loop_outcome_plan_add_blocker(
+                    blockers,
+                    step_blockers,
+                    "controlled_run_summary",
+                    f"{key}_file_mismatch",
+                    f"controlled run summary files.{key} anchor is missing",
+                    expected=str(path),
+                    actual=summary.get("files"),
+                )
+            elif not controlled_loop_outcome_plan_file_matches(packet_inputs["controlled_run_summary"], summary_files.get(key), path):
+                controlled_loop_outcome_plan_add_blocker(
+                    blockers,
+                    step_blockers,
+                    "controlled_run_summary",
+                    f"{key}_file_mismatch",
+                    f"controlled run summary files.{key} does not match supplied evidence path",
+                    expected=str(path),
+                    actual=summary_files.get(key),
+                )
+
+        tick_checksums = controlled_tick.get("checksums") if isinstance(controlled_tick.get("checksums"), dict) else {}
+        if tick_checksums.get("closeout") != controlled_closeout.get("closeout_checksum"):
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_loop_tick_closeout_checksum_mismatch",
+                "controlled loop tick closeout checksum does not match controlled closeout",
+                expected=controlled_closeout.get("closeout_checksum"),
+                actual=tick_checksums.get("closeout"),
+            )
+        if tick_checksums.get("real_invocation") != controlled_closeout.get("real_invocation_after_checksum"):
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_loop_tick_real_invocation_checksum_mismatch",
+                "controlled loop tick real invocation checksum does not match controlled closeout",
+                expected=controlled_closeout.get("real_invocation_after_checksum"),
+                actual=tick_checksums.get("real_invocation"),
+            )
+        if summary.get("next_decision") != controlled_tick.get("next_decision"):
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_run_summary",
+                "controlled_run_summary_decision_mismatch",
+                "controlled run summary next_decision does not match controlled loop tick",
+                expected=controlled_tick.get("next_decision"),
+                actual=summary.get("next_decision"),
+            )
+
+        tick_task = controlled_tick.get("task") if isinstance(controlled_tick.get("task"), dict) else {}
+        tick_epoch = controlled_tick.get("epoch") if isinstance(controlled_tick.get("epoch"), dict) else {}
+        if controlled_closeout.get("task_id") != tick_task.get("id"):
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_loop_outcome_task_mismatch",
+                "controlled loop tick task does not match controlled closeout",
+                expected=controlled_closeout.get("task_id"),
+                actual=tick_task.get("id"),
+            )
+        if controlled_closeout.get("epoch_id") != tick_epoch.get("id"):
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_loop_outcome_epoch_mismatch",
+                "controlled loop tick epoch does not match controlled closeout",
+                expected=controlled_closeout.get("epoch_id"),
+                actual=tick_epoch.get("id"),
+            )
+        if controlled_closeout.get("closeout_status") != tick_epoch.get("closeout_status"):
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_loop_outcome_closeout_status_mismatch",
+                "controlled loop tick closeout status does not match controlled closeout",
+                expected=controlled_closeout.get("closeout_status"),
+                actual=tick_epoch.get("closeout_status"),
+            )
+
+        source_decision = controlled_tick.get("next_decision") if isinstance(controlled_tick.get("next_decision"), dict) else {}
+        if source_decision.get("decision") not in {"generate_git_pr_plan", "continue", "handoff", "stop", "validate_more_evidence"}:
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_loop_outcome_decision_unsupported",
+                "controlled loop outcome decision is unsupported",
+                actual=source_decision,
+            )
+
+    valid = not blockers
+    summary = packets.get("controlled_run_summary") if isinstance(packets.get("controlled_run_summary"), dict) else {}
+    controlled_closeout = packets.get("controlled_closeout") if isinstance(packets.get("controlled_closeout"), dict) else {}
+    controlled_tick = packets.get("controlled_loop_tick") if isinstance(packets.get("controlled_loop_tick"), dict) else {}
+    closeout = controlled_closeout.get("closeout") if isinstance(controlled_closeout.get("closeout"), dict) else {}
+    source_decision = controlled_tick.get("next_decision") if isinstance(controlled_tick.get("next_decision"), dict) else {}
+    git_pr_plan = closeout.get("git_pr_plan") if isinstance(closeout.get("git_pr_plan"), dict) else None
+    recommended_next_action, operator_confirmation_required, reason = controlled_loop_outcome_recommendation(
+        blockers,
+        source_decision=source_decision,
+        git_pr_plan=git_pr_plan,
+    )
+    tick_task = controlled_tick.get("task") if isinstance(controlled_tick.get("task"), dict) else {}
+    tick_epoch = controlled_tick.get("epoch") if isinstance(controlled_tick.get("epoch"), dict) else {}
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": CONTROLLED_LOOP_OUTCOME_PLAN_SCHEMA_VERSION,
+        "packet": "controlled_loop_outcome_plan",
+        "generated_at": utc_now(),
+        "read_only": True,
+        "valid": valid,
+        "outcome_plan_status": "completed" if valid else "blocked",
+        "reason": reason,
+        "runner_started": False,
+        "executor_started": False,
+        "epoch_started": False,
+        "pr_action_started": False,
+        "github_write_started": False,
+        "merge_started": False,
+        "release_started": False,
+        "package_publication_started": False,
+        "role_assignment_started": False,
+        "agent_scheduling_started": False,
+        "loop_continuation_started": False,
+        "operator_confirmation_required": operator_confirmation_required,
+        "side_effects": [],
+        "recommended_next_action": recommended_next_action,
+        "source_decision": source_decision,
+        "task": {
+            "id": tick_task.get("id"),
+            "checksum": tick_task.get("checksum"),
+        },
+        "epoch": {
+            "id": tick_epoch.get("id"),
+            "closeout_status": tick_epoch.get("closeout_status") or controlled_closeout.get("closeout_status"),
+            "epoch_status": tick_epoch.get("epoch_status") or controlled_closeout.get("epoch_status"),
+        },
+        "git_pr_plan": git_pr_plan,
+        "files": {name: str(path) for name, path in packet_inputs.items()},
+        "checksums": {
+            name: checksum_json(packet)
+            for name, packet in packets.items()
+            if isinstance(packet, dict)
+        },
+        "steps": [
+            controlled_loop_outcome_plan_step(name, path, packets.get(name), step_blockers.get(name, []))
+            for name, path in packet_inputs.items()
+        ],
+        "blockers": blockers,
+        "limitations": [
+            "composes_existing_controlled_loop_outcome_evidence_only",
+            "does_not_start_runner",
+            "does_not_start_executor",
+            "does_not_retry_executor",
+            "does_not_continue_loop",
+            "does_not_close_epoch",
+            "does_not_append_audit",
+            "does_not_execute_git_commands",
+            "does_not_call_github",
+            "does_not_create_branch",
+            "does_not_commit",
+            "does_not_push",
+            "does_not_create_pr",
+            "does_not_merge",
+            "does_not_release",
+            "does_not_publish_packages",
+            "does_not_assign_roles",
+            "does_not_schedule_agents",
+        ],
+    }
+    emit(payload)
+    return 0 if valid else 2
+
+
 def build_executor_result_validation_payload(
     *,
     root: Path | None,
@@ -8534,6 +8966,19 @@ def build_parser() -> argparse.ArgumentParser:
     controlled_loop_run_summary_parser.add_argument("--controlled-loop-tick-file", required=True)
     controlled_loop_run_summary_parser.set_defaults(
         func=controlled_loop_run_summary_command,
+        requires_root=True,
+        guards_runtime_root_only=True,
+    )
+
+    controlled_loop_outcome_plan_parser = subparsers.add_parser(
+        "controlled-loop-outcome-plan",
+        help="Plan the next operator action from saved controlled loop outcome evidence",
+    )
+    controlled_loop_outcome_plan_parser.add_argument("--controlled-run-summary-file", required=True)
+    controlled_loop_outcome_plan_parser.add_argument("--controlled-closeout-file", required=True)
+    controlled_loop_outcome_plan_parser.add_argument("--controlled-loop-tick-file", required=True)
+    controlled_loop_outcome_plan_parser.set_defaults(
+        func=controlled_loop_outcome_plan_command,
         requires_root=True,
         guards_runtime_root_only=True,
     )

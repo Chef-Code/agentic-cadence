@@ -1511,6 +1511,61 @@ single-tick composition. Stable blockers include:
   `controlled_tick_closeout_checksum_mismatch`,
   `controlled_tick_real_invocation_checksum_mismatch`.
 
+`controlled-loop-outcome-plan` is the read-only terminal planner for a reviewed
+controlled run. It reads `--controlled-run-summary-file`,
+`--controlled-closeout-file`, and `--controlled-loop-tick-file`, then emits
+`controlled-loop-outcome-plan.v1` with `packet:
+controlled_loop_outcome_plan`, `read_only: true`, `side_effects: []`,
+`outcome_plan_status` of `completed` or `blocked`, step checksums, files,
+blockers, source decision, embedded Git/PR plan evidence when present, and a
+bounded `recommended_next_action`.
+
+The command verifies that the summary is completed and ready for review, the
+controlled closeout is completed and ready for the controlled tick, and the
+controlled tick is completed. It rechecks summary checksums for the controlled
+closeout and controlled tick, summary file anchors, controlled tick closeout and
+real-invocation checksums, summary/tick next-decision equality, task id, epoch
+id, closeout status, and that the source decision is one of
+`generate_git_pr_plan`, `continue`, `handoff`, `stop`, or
+`validate_more_evidence`.
+
+When valid, recommendation mapping is:
+
+- `generate_git_pr_plan` with no embedded plan: `run_git_pr_plan`, with no
+  operator confirmation required.
+- `generate_git_pr_plan` with a ready dry-run embedded plan and no side effects:
+  `request_git_pr_materialization_approval`, with operator confirmation
+  required.
+- `generate_git_pr_plan` with an embedded unready plan:
+  `inspect_git_pr_plan_blockers`, with operator confirmation required.
+- `continue`: `plan_next_controlled_executor_step`.
+- `handoff`: `inspect_executor_failure`.
+- `stop`: the source decision's recommended action, or
+  `review_stop_decision`.
+- `validate_more_evidence`: the source decision's recommended action, or
+  `fix_executor_evidence`.
+
+The command appends no audit evidence and does not start a runner or executor,
+retry an executor, continue a loop, close an epoch, execute Git commands, call
+GitHub, create branches, commit, push, create PRs, merge, release, publish
+packages, assign roles, or schedule agents. Stable blockers include
+`controlled_run_summary_evidence_missing`,
+`controlled_closeout_evidence_missing`,
+`controlled_loop_tick_evidence_missing`,
+`controlled_loop_outcome_packet_mismatch`,
+`controlled_run_summary_not_completed`,
+`controlled_closeout_not_completed`, `controlled_loop_tick_not_completed`,
+`controlled_closeout_checksum_mismatch`,
+`controlled_loop_tick_checksum_mismatch`,
+`controlled_closeout_file_mismatch`, `controlled_loop_tick_file_mismatch`,
+`controlled_loop_tick_closeout_checksum_mismatch`,
+`controlled_loop_tick_real_invocation_checksum_mismatch`,
+`controlled_run_summary_decision_mismatch`,
+`controlled_loop_outcome_task_mismatch`,
+`controlled_loop_outcome_epoch_mismatch`,
+`controlled_loop_outcome_closeout_status_mismatch`, and
+`controlled_loop_outcome_decision_unsupported`.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from

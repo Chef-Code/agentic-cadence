@@ -6391,7 +6391,7 @@ class CadenceCliTests(unittest.TestCase):
             return run_cli_from(cwd, tmp, *args)
         return run_cli(tmp, *args)
 
-    def write_controlled_loop_run_summary_chain(self, tmp, repo):
+    def write_controlled_loop_run_summary_chain(self, tmp, repo, *, emit_git_pr_plan=False):
         marker = Path(repo) / "notes.py"
         marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
         git(repo, "add", "notes.py")
@@ -6410,6 +6410,8 @@ class CadenceCliTests(unittest.TestCase):
             "--emit-executor-task",
             "--allowed-path",
             "notes.py",
+            "--allowed-path",
+            "README.md",
             "--required-check",
             "python -m unittest tests.test_cadence",
             "--executor-evidence-path",
@@ -6520,8 +6522,8 @@ class CadenceCliTests(unittest.TestCase):
                 {
                     "command": command,
                     "exit_code": 0,
-                    "files_changed": None,
-                    "include_materialized_change_evidence": False,
+                    "files_changed": ["README.md"] if emit_git_pr_plan else None,
+                    "include_materialized_change_evidence": emit_git_pr_plan,
                     "invalid_output": False,
                     "materialized_change_evidence": None,
                     "repo_head": current_head(repo),
@@ -6534,7 +6536,7 @@ class CadenceCliTests(unittest.TestCase):
                     "stderr_text": None,
                     "stdout_text": None,
                     "task_id": task_packet["task"]["id"],
-                    "touch_repo": False,
+                    "touch_repo": emit_git_pr_plan,
                     "write_result": True,
                     "delete_git": False,
                 }
@@ -6607,12 +6609,25 @@ class CadenceCliTests(unittest.TestCase):
         controlled_plan_path = Path(tmp) / "controlled-loop-invocation-plan.json"
         controlled_plan_path.write_text(json.dumps(controlled_plan), encoding="utf-8")
 
-        invocation_result, invocation = self.run_invoke_real_executor_cli(tmp, invocation_plan_path)
+        invocation_result, invocation = self.run_invoke_real_executor_cli(
+            tmp,
+            invocation_plan_path,
+            side_effect_mode="materialized_changes" if emit_git_pr_plan else "evidence_only",
+        )
         self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
         invocation_path = Path(invocation["record_file"])
         snapshot_after_path = Path(tmp) / "snapshot-after.json"
         snapshot_after_path.write_text(
-            json.dumps(closeout_snapshot(repo, id="snapshot-after-run-summary", captured_at="2999-05-22T00:30:00Z")),
+            json.dumps(
+                closeout_snapshot(
+                    repo,
+                    id="snapshot-after-run-summary",
+                    captured_at="2999-05-22T00:30:00Z",
+                    dirty_worktree=emit_git_pr_plan,
+                    repo_confidence="low" if emit_git_pr_plan else "high",
+                    repo_confidence_drivers=["dirty_worktree"] if emit_git_pr_plan else [],
+                )
+            ),
             encoding="utf-8",
         )
 
@@ -6628,8 +6643,7 @@ class CadenceCliTests(unittest.TestCase):
         controlled_real_path = Path(tmp) / "controlled-loop-real-invocation.json"
         controlled_real_path.write_text(json.dumps(controlled_real), encoding="utf-8")
 
-        closeout_result, closeout = run_cli(
-            tmp,
+        closeout_args = [
             "closeout-executor-result",
             "--epoch-id",
             execution_start["epoch_id"],
@@ -6643,10 +6657,17 @@ class CadenceCliTests(unittest.TestCase):
             str(invocation_path),
             "--cwd",
             repo,
-        )
+        ]
+        if emit_git_pr_plan:
+            closeout_args.append("--emit-git-pr-plan")
+        closeout_result, closeout = run_cli(tmp, *closeout_args)
         self.assertEqual(closeout_result.returncode, 0, closeout_result.stdout or closeout_result.stderr)
         closeout_path = Path(tmp) / "executor-closeout.json"
         closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+        git_pr_plan_path = None
+        if isinstance(closeout.get("git_pr_plan"), dict):
+            git_pr_plan_path = Path(tmp) / "git-pr-plan.json"
+            git_pr_plan_path.write_text(json.dumps(closeout["git_pr_plan"]), encoding="utf-8")
 
         controlled_closeout_result, controlled_closeout = run_cli(
             tmp,
@@ -6685,6 +6706,7 @@ class CadenceCliTests(unittest.TestCase):
             "controlled_real_path": controlled_real_path,
             "controlled_closeout_path": controlled_closeout_path,
             "controlled_tick_path": controlled_tick_path,
+            "git_pr_plan_path": git_pr_plan_path,
             "loop_run_plan": loop_plan,
             "controlled_start": controlled_start,
             "controlled_plan": controlled_plan,
@@ -6694,6 +6716,67 @@ class CadenceCliTests(unittest.TestCase):
             "task_packet": task_packet,
             "execution_start": execution_start,
         }
+
+    def write_controlled_loop_outcome_plan_chain(self, tmp, repo, *, emit_git_pr_plan=False):
+        chain = self.write_controlled_loop_run_summary_chain(tmp, repo, emit_git_pr_plan=emit_git_pr_plan)
+        summary_result, summary = self.run_controlled_loop_run_summary_cli(tmp, chain)
+        self.assertEqual(summary_result.returncode, 0, summary_result.stderr)
+        summary_path = Path(tmp) / "controlled-loop-run-summary.json"
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+        chain["controlled_run_summary_path"] = summary_path
+        chain["controlled_run_summary"] = summary
+        return chain
+
+    def mark_controlled_loop_outcome_git_pr_plan_ready(self, chain):
+        controlled_closeout = json.loads(json.dumps(chain["controlled_closeout"]))
+        closeout = controlled_closeout["closeout"]
+        git_pr_plan = closeout.get("git_pr_plan")
+        self.assertIsInstance(git_pr_plan, dict)
+        git_pr_plan = json.loads(json.dumps(git_pr_plan))
+        git_pr_plan.update(
+            {
+                "ready_to_review": True,
+                "decision": "ready",
+                "recommended_next_action": "review_git_pr_plan",
+                "blockers": [],
+            }
+        )
+        git_pr_plan["pr_body_preflight"] = {
+            "ready_to_publish": True,
+            "decision": "ready",
+            "recommended_next_action": "review_git_pr_plan",
+            "blockers": [],
+            "warnings": [],
+            "template_summary": {
+                "required_sections": ["Summary", "Validation"],
+                "missing_sections": [],
+            },
+        }
+        closeout["git_pr_plan"] = git_pr_plan
+        closeout["next_decision"] = dict(
+            closeout["next_decision"],
+            recommended_next_action="review_git_pr_plan",
+            git_pr_plan_ready=True,
+        )
+        controlled_closeout["closeout"] = closeout
+        controlled_closeout["closeout_checksum"] = checksum_json(closeout)
+
+        controlled_tick = json.loads(json.dumps(chain["controlled_tick"]))
+        controlled_tick["next_decision"] = dict(closeout["next_decision"])
+        controlled_tick["checksums"]["closeout"] = controlled_closeout["closeout_checksum"]
+
+        summary = json.loads(json.dumps(chain["controlled_run_summary"]))
+        summary["next_decision"] = dict(controlled_tick["next_decision"])
+        summary["checksums"]["controlled_closeout"] = checksum_json(controlled_closeout)
+        summary["checksums"]["controlled_loop_tick"] = checksum_json(controlled_tick)
+
+        chain["controlled_closeout_path"].write_text(json.dumps(controlled_closeout), encoding="utf-8")
+        chain["controlled_tick_path"].write_text(json.dumps(controlled_tick), encoding="utf-8")
+        chain["controlled_run_summary_path"].write_text(json.dumps(summary), encoding="utf-8")
+        chain["controlled_closeout"] = controlled_closeout
+        chain["controlled_tick"] = controlled_tick
+        chain["controlled_run_summary"] = summary
+        return chain
 
     def run_controlled_loop_run_summary_cli(self, tmp, chain, **overrides):
         values = {
@@ -6716,6 +6799,24 @@ class CadenceCliTests(unittest.TestCase):
             str(values["controlled_invocation_plan_file"]),
             "--controlled-real-invocation-file",
             str(values["controlled_real_invocation_file"]),
+            "--controlled-closeout-file",
+            str(values["controlled_closeout_file"]),
+            "--controlled-loop-tick-file",
+            str(values["controlled_loop_tick_file"]),
+        )
+
+    def run_controlled_loop_outcome_plan_cli(self, tmp, chain, **overrides):
+        values = {
+            "controlled_run_summary_file": chain["controlled_run_summary_path"],
+            "controlled_closeout_file": chain["controlled_closeout_path"],
+            "controlled_loop_tick_file": chain["controlled_tick_path"],
+        }
+        values.update(overrides)
+        return run_cli(
+            tmp,
+            "controlled-loop-outcome-plan",
+            "--controlled-run-summary-file",
+            str(values["controlled_run_summary_file"]),
             "--controlled-closeout-file",
             str(values["controlled_closeout_file"]),
             "--controlled-loop-tick-file",
@@ -7186,6 +7287,130 @@ class CadenceCliTests(unittest.TestCase):
             self.assertNotIn("audit_record", output)
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(self.controlled_loop_run_summary_input_file_contents(chain), files_before)
+
+    def test_controlled_loop_outcome_plan_recommends_git_pr_materialization_approval(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_outcome_plan_chain(tmp, repo, emit_git_pr_plan=True)
+            self.mark_controlled_loop_outcome_git_pr_plan_ready(chain)
+            audit_before = audit_records(tmp)
+            files_before = {
+                "summary": chain["controlled_run_summary_path"].read_text(encoding="utf-8"),
+                "closeout": chain["controlled_closeout_path"].read_text(encoding="utf-8"),
+                "tick": chain["controlled_tick_path"].read_text(encoding="utf-8"),
+            }
+
+            result, output = self.run_controlled_loop_outcome_plan_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "controlled-loop-outcome-plan.v1")
+            self.assertEqual(output["packet"], "controlled_loop_outcome_plan")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["outcome_plan_status"], "completed")
+            self.assertEqual(output["recommended_next_action"], "request_git_pr_materialization_approval")
+            self.assertTrue(output["operator_confirmation_required"])
+            self.assertFalse(output["runner_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["github_write_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(output["source_decision"]["decision"], "generate_git_pr_plan")
+            self.assertEqual(output["source_decision"]["recommended_next_action"], "review_git_pr_plan")
+            self.assertTrue(output["git_pr_plan"]["ready_to_review"])
+            self.assertEqual(output["git_pr_plan"]["side_effects"], [])
+            self.assertEqual(output["task"]["id"], chain["task_packet"]["task"]["id"])
+            self.assertEqual(output["epoch"]["id"], chain["execution_start"]["epoch_id"])
+            self.assertEqual(output["checksums"]["controlled_run_summary"], checksum_json(chain["controlled_run_summary"]))
+            self.assertEqual(output["checksums"]["controlled_closeout"], checksum_json(chain["controlled_closeout"]))
+            self.assertEqual(output["checksums"]["controlled_loop_tick"], checksum_json(chain["controlled_tick"]))
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(
+                {
+                    "summary": chain["controlled_run_summary_path"].read_text(encoding="utf-8"),
+                    "closeout": chain["controlled_closeout_path"].read_text(encoding="utf-8"),
+                    "tick": chain["controlled_tick_path"].read_text(encoding="utf-8"),
+                },
+                files_before,
+            )
+
+    def test_controlled_loop_outcome_plan_inspects_unready_embedded_git_pr_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_outcome_plan_chain(tmp, repo, emit_git_pr_plan=True)
+
+            result, output = self.run_controlled_loop_outcome_plan_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["source_decision"]["decision"], "generate_git_pr_plan")
+            self.assertEqual(output["recommended_next_action"], "inspect_git_pr_plan_blockers")
+            self.assertTrue(output["operator_confirmation_required"])
+            self.assertFalse(output["git_pr_plan"]["ready_to_review"])
+            self.assertEqual(output["side_effects"], [])
+
+    def test_controlled_loop_outcome_plan_inspects_malformed_ready_git_pr_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_outcome_plan_chain(tmp, repo, emit_git_pr_plan=True)
+            self.mark_controlled_loop_outcome_git_pr_plan_ready(chain)
+            controlled_closeout = chain["controlled_closeout"]
+            controlled_closeout["closeout"]["git_pr_plan"]["approval_state"] = "approved"
+            controlled_closeout["closeout_checksum"] = checksum_json(controlled_closeout["closeout"])
+            controlled_tick = chain["controlled_tick"]
+            controlled_tick["checksums"]["closeout"] = controlled_closeout["closeout_checksum"]
+            summary = chain["controlled_run_summary"]
+            summary["checksums"]["controlled_closeout"] = checksum_json(controlled_closeout)
+            summary["checksums"]["controlled_loop_tick"] = checksum_json(controlled_tick)
+            chain["controlled_closeout_path"].write_text(json.dumps(controlled_closeout), encoding="utf-8")
+            chain["controlled_tick_path"].write_text(json.dumps(controlled_tick), encoding="utf-8")
+            chain["controlled_run_summary_path"].write_text(json.dumps(summary), encoding="utf-8")
+
+            result, output = self.run_controlled_loop_outcome_plan_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "inspect_git_pr_plan_blockers")
+            self.assertTrue(output["operator_confirmation_required"])
+            self.assertEqual(output["git_pr_plan"]["approval_state"], "approved")
+            self.assertEqual(output["side_effects"], [])
+
+    def test_controlled_loop_outcome_plan_recommends_git_pr_plan_when_no_plan_exists(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_outcome_plan_chain(tmp, repo)
+
+            result, output = self.run_controlled_loop_outcome_plan_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["source_decision"]["decision"], "generate_git_pr_plan")
+            self.assertEqual(output["recommended_next_action"], "run_git_pr_plan")
+            self.assertFalse(output["operator_confirmation_required"])
+            self.assertIsNone(output["git_pr_plan"])
+            self.assertEqual(output["side_effects"], [])
+
+    def test_controlled_loop_outcome_plan_blocks_stale_summary_tick_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_outcome_plan_chain(tmp, repo, emit_git_pr_plan=True)
+            controlled_tick = json.loads(chain["controlled_tick_path"].read_text(encoding="utf-8"))
+            controlled_tick["next_decision"]["recommended_next_action"] = "unexpected_action"
+            chain["controlled_tick_path"].write_text(json.dumps(controlled_tick), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_outcome_plan_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["outcome_plan_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "refresh_controlled_loop_run_summary")
+            self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertIn("controlled_loop_tick_checksum_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
 
     def test_controlled_loop_tick_accepts_existing_real_invocation_closeout_chain(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
