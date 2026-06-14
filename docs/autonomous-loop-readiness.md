@@ -2,8 +2,8 @@
 
 Status: living document
 Last updated: 2026-06-14
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only controlled closeout composition, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-42 complete in main or active review branches
-Current unattended-operation confidence: 25% (deliberately stable headline token; progress-log records Task 42 projected capability at 37%)
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-43 complete in main or active review branches
+Current unattended-operation confidence: 25% (deliberately stable headline token; progress-log records Task 43 projected capability at 38%)
 
 This document answers how close Agentic Cadence is to the "press start and
 build continuously" experience. The first usable path is a governed
@@ -193,6 +193,11 @@ runtime can do these things end-to-end:
   real-invocation, result, snapshot-after, closeout, and optional dry-run
   Git/PR plan anchors into one `controlled-loop-tick.v1` packet and
   success-only `controlled_loop_tick` audit record.
+- summarize a saved runner-adjacent controlled chain with
+  `controlled-loop-run-summary`, rechecking `loop-run-plan`,
+  controlled-start, controlled invocation-plan, controlled real-invocation,
+  controlled closeout, and controlled tick packet checksums without appending
+  audit, retrying executors, or continuing the loop.
 - compose a saved PR cycle with `controlled-pr-cycle`, rechecking
   controlled-loop, approved Git/PR materialization, post-write gate, optional
   review-response materialization, optional review-thread resolution
@@ -473,9 +478,10 @@ Reasoning:
   readiness and invocation-plan evidence, and
   `controlled-loop-real-invocation` composes the recorded real invocation with
   that controlled plan before closeout, while `controlled-loop-closeout`
-  composes accepted closeout evidence before the aggregate tick, all without
-  starting a runner, retrying an executor, continuing the loop, starting a PR
-  action, writing GitHub state, or merging.
+  composes accepted closeout evidence before the aggregate tick, and
+  `controlled-loop-run-summary` summarizes the saved runner-adjacent chain, all
+  without starting a runner, retrying an executor, continuing the loop,
+  starting a PR action, writing GitHub state, or merging.
 - The generic executor task/result contract is now explicit and testable, and
   is wired through read-only executor invocation readiness, read-only invocation
   planning, fake controlled executor fixtures, and controlled one-command real

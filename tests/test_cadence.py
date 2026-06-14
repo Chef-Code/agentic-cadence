@@ -24,6 +24,7 @@ from codex_cadence.model import estimate_task
 from codex_cadence.policy_audit import (
     append_audit_record,
     checksum_json,
+    execution_start_audit_record,
     executor_epoch_closeout_audit_record,
     operator_approval_verification_audit_record,
     real_executor_invocation_audit_record,
@@ -6390,6 +6391,337 @@ class CadenceCliTests(unittest.TestCase):
             return run_cli_from(cwd, tmp, *args)
         return run_cli(tmp, *args)
 
+    def write_controlled_loop_run_summary_chain(self, tmp, repo):
+        marker = Path(repo) / "notes.py"
+        marker.write_text("# TODO inspect repo health marker\n", encoding="utf-8")
+        git(repo, "add", "notes.py")
+        git(repo, "commit", "-m", "add repo health marker")
+
+        result_path = Path(tmp) / "executor-results" / "executor-result.json"
+        loop_plan_result, loop_plan = run_cli(
+            tmp,
+            "loop-run-plan",
+            "--cwd",
+            repo,
+            "--repo",
+            "local/test",
+            "--intent",
+            "repo_health",
+            "--emit-executor-task",
+            "--allowed-path",
+            "notes.py",
+            "--required-check",
+            "python -m unittest tests.test_cadence",
+            "--executor-evidence-path",
+            str(result_path),
+        )
+        self.assertEqual(loop_plan_result.returncode, 0, loop_plan_result.stderr)
+        loop_run_plan_path = Path(tmp) / "loop-run-plan.json"
+        loop_run_plan_path.write_text(json.dumps(loop_plan), encoding="utf-8")
+        loop_tick_path = Path(tmp) / "loop-tick.json"
+        loop_tick_path.write_text(json.dumps(loop_plan["loop_tick"]), encoding="utf-8")
+        task_packet = loop_plan["executor_task"]
+        task_path = Path(tmp) / "executor-task.json"
+        task_path.write_text(json.dumps(task_packet), encoding="utf-8")
+        task_checksum = checksum_json(task_packet)
+        epoch_id = "epoch-1"
+        write_active_epoch(
+            tmp,
+            epoch_id,
+            task_packet["snapshot"],
+            tasks=[
+                {
+                    "id": task_packet["task"]["id"],
+                    "task_type": "execution",
+                    "executor_task_checksum": task_checksum,
+                }
+            ],
+        )
+        execution_start = {
+            "protocol_version": "v1",
+            "schema_version": "execution-start.v1",
+            "packet": "execution_start",
+            "valid": True,
+            "blockers": [],
+            "epoch_started": True,
+            "executor_started": False,
+            "pr_action_started": False,
+            "recommended_next_action": "handoff_to_executor",
+            "reason": "approved executor task started a governed epoch",
+            "approval_state": "approved",
+            "task_checksum": task_checksum,
+            "task_id": task_packet["task"]["id"],
+            "task_file": str(task_path),
+            "epoch_id": epoch_id,
+            "repo": {
+                "name": task_packet["repo"]["name"],
+                "path": task_packet["repo"]["path"],
+                "branch": task_packet["repo"]["branch"],
+                "head": task_packet["repo"]["head"],
+            },
+            "side_effects": ["epoch_started"],
+            "limitations": ["executor_not_started"],
+        }
+        execution_start["audit_record"] = append_audit_record(
+            Path(tmp),
+            execution_start_audit_record(execution_start),
+        )
+        execution_start_path = Path(tmp) / "execution-start.json"
+        execution_start_path.write_text(json.dumps(execution_start), encoding="utf-8")
+
+        controlled_start_result, controlled_start = run_cli(
+            tmp,
+            "controlled-loop-start",
+            "--loop-run-plan-file",
+            str(loop_run_plan_path),
+            "--execution-start-file",
+            str(execution_start_path),
+        )
+        self.assertEqual(controlled_start_result.returncode, 0, controlled_start_result.stderr)
+        controlled_start_path = Path(tmp) / "controlled-loop-start.json"
+        controlled_start_path.write_text(json.dumps(controlled_start), encoding="utf-8")
+
+        write_work_ownership(
+            tmp,
+            "ownership-1",
+            task_id=task_packet["task"]["id"],
+            candidate_id=task_packet["task"]["id"],
+            branch=current_branch(repo),
+            head=current_head(repo),
+            epoch_id=execution_start["epoch_id"],
+            handoff_id=None,
+        )
+        readiness_result, readiness = run_cli(
+            tmp,
+            "executor-invocation-readiness",
+            "--cwd",
+            repo,
+            "--task-file",
+            str(task_path),
+            "--epoch-id",
+            execution_start["epoch_id"],
+            "--ownership-target",
+            "ownership-1",
+            "--expected-result-path",
+            str(result_path),
+        )
+        self.assertEqual(readiness_result.returncode, 0, readiness_result.stderr)
+        readiness_path = Path(tmp) / "executor-invocation-readiness.json"
+        readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
+
+        audit_result, audit_replay = run_cli(tmp, "audit-replay")
+        self.assertEqual(audit_result.returncode, 0, audit_result.stderr)
+        self.assertTrue(audit_replay["valid"])
+        script_path = real_executor_script(Path(tmp) / "real-executor.py")
+        config_path = Path(tmp) / "real-executor-config.json"
+        command = f"{command_quote(sys.executable)} {command_quote(script_path)} {command_quote(config_path)}"
+        config_path.write_text(
+            json.dumps(
+                {
+                    "command": command,
+                    "exit_code": 0,
+                    "files_changed": None,
+                    "include_materialized_change_evidence": False,
+                    "invalid_output": False,
+                    "materialized_change_evidence": None,
+                    "repo_head": current_head(repo),
+                    "repo_path": str(Path(repo).resolve()),
+                    "result_path": str(result_path),
+                    "resulting_head": None,
+                    "required_checks": task_packet["required_checks"],
+                    "sleep_seconds": None,
+                    "status": "succeeded",
+                    "stderr_text": None,
+                    "stdout_text": None,
+                    "task_id": task_packet["task"]["id"],
+                    "touch_repo": False,
+                    "write_result": True,
+                    "delete_git": False,
+                }
+            ),
+            encoding="utf-8",
+        )
+        adapter_path, adapter_packet = write_executor_invocation_adapter(
+            Path(tmp) / "executor-adapter.json",
+            command_template=command,
+        )
+        rollback_path, rollback_packet = write_executor_invocation_rollback(Path(tmp) / "executor-rollback.json", task_packet)
+        environment_allowlist = ["PATH", "PYTHONPATH"]
+        target = executor_invocation_target_descriptor(
+            readiness_packet=readiness,
+            adapter_packet=adapter_packet,
+            rollback_packet=rollback_packet,
+            command=command,
+            cwd=repo,
+            expected_result_path=result_path,
+            environment_allowlist=environment_allowlist,
+            timeout_seconds=300,
+            audit_chain_head=audit_replay["chain_head"],
+        )
+        approval_path, _approval = write_operator_approval(
+            Path(tmp) / "executor-invocation-approval.json",
+            target_checksum=checksum_json(target),
+            purpose="real_executor_invocation",
+        )
+        invocation_plan_result, invocation_plan = run_cli(
+            tmp,
+            "executor-invocation-plan",
+            "--cwd",
+            repo,
+            "--readiness-file",
+            str(readiness_path),
+            "--approval-file",
+            str(approval_path),
+            "--approval-secret",
+            OPERATOR_APPROVAL_SECRET,
+            "--adapter-file",
+            str(adapter_path),
+            "--rollback-file",
+            str(rollback_path),
+            "--command",
+            command,
+            "--env-allow",
+            "PATH",
+            "--env-allow",
+            "PYTHONPATH",
+            "--timeout-seconds",
+            "300",
+            "--expected-result-path",
+            str(result_path),
+        )
+        self.assertEqual(invocation_plan_result.returncode, 0, invocation_plan_result.stderr)
+        invocation_plan_path = Path(tmp) / "executor-invocation-plan.json"
+        invocation_plan_path.write_text(json.dumps(invocation_plan), encoding="utf-8")
+
+        controlled_plan_result, controlled_plan = run_cli(
+            tmp,
+            "controlled-loop-invocation-plan",
+            "--controlled-loop-start-file",
+            str(controlled_start_path),
+            "--readiness-file",
+            str(readiness_path),
+            "--invocation-plan-file",
+            str(invocation_plan_path),
+        )
+        self.assertEqual(controlled_plan_result.returncode, 0, controlled_plan_result.stderr)
+        controlled_plan_path = Path(tmp) / "controlled-loop-invocation-plan.json"
+        controlled_plan_path.write_text(json.dumps(controlled_plan), encoding="utf-8")
+
+        invocation_result, invocation = self.run_invoke_real_executor_cli(tmp, invocation_plan_path)
+        self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+        invocation_path = Path(invocation["record_file"])
+        snapshot_after_path = Path(tmp) / "snapshot-after.json"
+        snapshot_after_path.write_text(
+            json.dumps(closeout_snapshot(repo, id="snapshot-after-run-summary", captured_at="2999-05-22T00:30:00Z")),
+            encoding="utf-8",
+        )
+
+        controlled_real_result, controlled_real = run_cli(
+            tmp,
+            "controlled-loop-real-invocation",
+            "--controlled-invocation-plan-file",
+            str(controlled_plan_path),
+            "--real-invocation-file",
+            str(invocation_path),
+        )
+        self.assertEqual(controlled_real_result.returncode, 0, controlled_real_result.stderr)
+        controlled_real_path = Path(tmp) / "controlled-loop-real-invocation.json"
+        controlled_real_path.write_text(json.dumps(controlled_real), encoding="utf-8")
+
+        closeout_result, closeout = run_cli(
+            tmp,
+            "closeout-executor-result",
+            "--epoch-id",
+            execution_start["epoch_id"],
+            "--task-file",
+            str(task_path),
+            "--result-file",
+            str(result_path),
+            "--snapshot-after-file",
+            str(snapshot_after_path),
+            "--real-invocation-file",
+            str(invocation_path),
+            "--cwd",
+            repo,
+        )
+        self.assertEqual(closeout_result.returncode, 0, closeout_result.stdout or closeout_result.stderr)
+        closeout_path = Path(tmp) / "executor-closeout.json"
+        closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+
+        controlled_closeout_result, controlled_closeout = run_cli(
+            tmp,
+            "controlled-loop-closeout",
+            "--controlled-real-invocation-file",
+            str(controlled_real_path),
+            "--closeout-file",
+            str(closeout_path),
+        )
+        self.assertEqual(controlled_closeout_result.returncode, 0, controlled_closeout_result.stderr)
+        controlled_closeout_path = Path(tmp) / "controlled-loop-closeout.json"
+        controlled_closeout_path.write_text(json.dumps(controlled_closeout), encoding="utf-8")
+
+        controlled_tick_result, controlled_tick = self.run_controlled_loop_tick_cli(
+            tmp,
+            {
+                "loop_tick_path": loop_tick_path,
+                "task_path": task_path,
+                "execution_start_path": execution_start_path,
+                "readiness_path": readiness_path,
+                "plan_path": invocation_plan_path,
+                "invocation_path": invocation_path,
+                "result_path": result_path,
+                "snapshot_after_path": snapshot_after_path,
+                "closeout_path": closeout_path,
+            },
+        )
+        self.assertEqual(controlled_tick_result.returncode, 0, controlled_tick_result.stderr)
+        controlled_tick_path = Path(tmp) / "controlled-loop-tick.json"
+        controlled_tick_path.write_text(json.dumps(controlled_tick), encoding="utf-8")
+
+        return {
+            "loop_run_plan_path": loop_run_plan_path,
+            "controlled_start_path": controlled_start_path,
+            "controlled_plan_path": controlled_plan_path,
+            "controlled_real_path": controlled_real_path,
+            "controlled_closeout_path": controlled_closeout_path,
+            "controlled_tick_path": controlled_tick_path,
+            "loop_run_plan": loop_plan,
+            "controlled_start": controlled_start,
+            "controlled_plan": controlled_plan,
+            "controlled_real": controlled_real,
+            "controlled_closeout": controlled_closeout,
+            "controlled_tick": controlled_tick,
+            "task_packet": task_packet,
+            "execution_start": execution_start,
+        }
+
+    def run_controlled_loop_run_summary_cli(self, tmp, chain, **overrides):
+        values = {
+            "loop_run_plan_file": chain["loop_run_plan_path"],
+            "controlled_loop_start_file": chain["controlled_start_path"],
+            "controlled_invocation_plan_file": chain["controlled_plan_path"],
+            "controlled_real_invocation_file": chain["controlled_real_path"],
+            "controlled_closeout_file": chain["controlled_closeout_path"],
+            "controlled_loop_tick_file": chain["controlled_tick_path"],
+        }
+        values.update(overrides)
+        return run_cli(
+            tmp,
+            "controlled-loop-run-summary",
+            "--loop-run-plan-file",
+            str(values["loop_run_plan_file"]),
+            "--controlled-loop-start-file",
+            str(values["controlled_loop_start_file"]),
+            "--controlled-invocation-plan-file",
+            str(values["controlled_invocation_plan_file"]),
+            "--controlled-real-invocation-file",
+            str(values["controlled_real_invocation_file"]),
+            "--controlled-closeout-file",
+            str(values["controlled_closeout_file"]),
+            "--controlled-loop-tick-file",
+            str(values["controlled_loop_tick_file"]),
+        )
+
     def controlled_loop_tick_args(self, tmp, chain, **overrides):
         values = {
             "root": Path(tmp),
@@ -6633,6 +6965,91 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
             self.assertTrue(replay_output["valid"])
             self.assertEqual(replay_output["events_by_type"]["real_executor_invocation_record"], 1)
+
+    def test_controlled_loop_run_summary_composes_saved_controlled_chain(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_run_summary_chain(tmp, repo)
+            audit_before = audit_records(tmp)
+            files_before = {
+                name: Path(path).read_text(encoding="utf-8")
+                for name, path in {
+                    "loop_run_plan": chain["loop_run_plan_path"],
+                    "controlled_start": chain["controlled_start_path"],
+                    "controlled_plan": chain["controlled_plan_path"],
+                    "controlled_real": chain["controlled_real_path"],
+                    "controlled_closeout": chain["controlled_closeout_path"],
+                    "controlled_tick": chain["controlled_tick_path"],
+                }.items()
+            }
+
+            result, output = self.run_controlled_loop_run_summary_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "controlled-loop-run-summary.v1")
+            self.assertEqual(output["packet"], "controlled_loop_run_summary")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["controlled_run_status"], "completed")
+            self.assertEqual(output["recommended_next_action"], "review_controlled_loop_run")
+            self.assertFalse(output["runner_started"])
+            self.assertTrue(output["executor_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertFalse(output["github_write_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(output["source_tick_id"], chain["controlled_tick"]["source_tick_id"])
+            self.assertEqual(output["task"]["id"], chain["task_packet"]["task"]["id"])
+            self.assertEqual(output["epoch"]["id"], chain["execution_start"]["epoch_id"])
+            self.assertEqual(output["checksums"]["controlled_loop_tick"], checksum_json(chain["controlled_tick"]))
+            self.assertEqual(output["checksums"]["controlled_closeout"], checksum_json(chain["controlled_closeout"]))
+            self.assertEqual([step["name"] for step in output["steps"]], [
+                "loop_run_plan",
+                "controlled_loop_start",
+                "controlled_invocation_plan",
+                "controlled_real_invocation",
+                "controlled_closeout",
+                "controlled_loop_tick",
+            ])
+            self.assertEqual({step["status"] for step in output["steps"]}, {"accepted"})
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(
+                {
+                    name: Path(path).read_text(encoding="utf-8")
+                    for name, path in {
+                        "loop_run_plan": chain["loop_run_plan_path"],
+                        "controlled_start": chain["controlled_start_path"],
+                        "controlled_plan": chain["controlled_plan_path"],
+                        "controlled_real": chain["controlled_real_path"],
+                        "controlled_closeout": chain["controlled_closeout_path"],
+                        "controlled_tick": chain["controlled_tick_path"],
+                    }.items()
+                },
+                files_before,
+            )
+
+    def test_controlled_loop_run_summary_blocks_controlled_plan_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_run_summary_chain(tmp, repo)
+            controlled_plan = json.loads(chain["controlled_plan_path"].read_text(encoding="utf-8"))
+            controlled_plan["target_checksum"] = "sha256:" + "0" * 64
+            chain["controlled_plan_path"].write_text(json.dumps(controlled_plan), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_run_summary_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_run_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "inspect_controlled_loop_run_blockers")
+            self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertIn("controlled_invocation_plan_checksum_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            blocked_step = next(step for step in output["steps"] if step["name"] == "controlled_invocation_plan")
+            self.assertEqual(blocked_step["status"], "blocked")
+            self.assertEqual(audit_records(tmp), audit_before)
 
     def test_controlled_loop_tick_accepts_existing_real_invocation_closeout_chain(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

@@ -1440,6 +1440,34 @@ GitHub, create branches, commit, push, create or update pull requests, resolve
 review threads, merge, release, publish packages, assign roles, schedule
 agents, or claim distributed locks.
 
+`controlled-loop-run-summary` is the read-only summary boundary for the saved
+runner-adjacent packet chain. It reads `--loop-run-plan-file`,
+`--controlled-loop-start-file`, `--controlled-invocation-plan-file`,
+`--controlled-real-invocation-file`, `--controlled-closeout-file`, and
+`--controlled-loop-tick-file`. The command verifies packet schemas and
+completed statuses, then rechecks the checksum/file chain from
+`loop-run-plan.v1` through `controlled-loop-start.v1`,
+`controlled-loop-invocation-plan.v1`, `controlled-loop-real-invocation.v1`,
+`controlled-loop-closeout.v1`, and `controlled-loop-tick.v1`.
+
+The command emits `controlled-loop-run-summary.v1` with
+`packet: controlled_loop_run_summary`, `read_only: true`, `side_effects: []`,
+`controlled_run_status` of `completed` or `blocked`, step checksums, files,
+blockers, and `recommended_next_action` of `review_controlled_loop_run` or
+`inspect_controlled_loop_run_blockers`. It appends no audit evidence; the
+controlled tick packet remains the audit boundary for the completed local
+single-tick composition. Stable blockers include
+`loop_run_plan_evidence_missing`, `controlled_loop_start_evidence_missing`,
+`controlled_invocation_plan_evidence_missing`,
+`controlled_real_invocation_evidence_missing`,
+`controlled_closeout_evidence_missing`, `controlled_loop_tick_evidence_missing`,
+`controlled_run_packet_mismatch`, `loop_run_plan_not_ready`,
+`controlled_run_task_mismatch`, `controlled_run_epoch_mismatch`,
+`controlled_tick_closeout_checksum_mismatch`,
+`controlled_tick_real_invocation_checksum_mismatch`, and step-specific
+`*_checksum_mismatch`, `*_file_mismatch`, `*_not_completed`, and
+`*_unexpected_next_action` codes.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from

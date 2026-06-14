@@ -45,6 +45,7 @@ read-only `controlled-loop-start`,
 read-only `controlled-loop-invocation-plan`,
 read-only `controlled-loop-real-invocation`,
 read-only `controlled-loop-closeout`,
+read-only `controlled-loop-run-summary`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -66,7 +67,8 @@ and `controlled-loop-real-invocation` evidence that composes the saved
 controlled invocation plan with the recorded real executor invocation before
 closeout, and `controlled-loop-closeout` evidence that composes the saved
 controlled real-invocation packet with accepted executor closeout before the
-aggregate tick.
+aggregate tick, and `controlled-loop-run-summary` evidence that summarizes the
+saved runner-adjacent controlled packet chain without continuing the loop.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -513,6 +515,23 @@ locks. Post-validation audit append failures
 return `controlled_loop_tick_audit_append_failed` and recommend
 `recover_controlled_tick_audit`.
 
+`controlled-loop-run-summary` composes the saved runner-adjacent controlled
+packets into one read-only summary after the aggregate tick already exists. It
+reads saved `loop-run-plan.v1`, `controlled-loop-start.v1`,
+`controlled-loop-invocation-plan.v1`, `controlled-loop-real-invocation.v1`,
+`controlled-loop-closeout.v1`, and `controlled-loop-tick.v1` files, then
+rechecks schemas, completed statuses, file anchors, and checksums across the
+chain:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-run-summary --loop-run-plan-file loop-run-plan.json --controlled-loop-start-file controlled-loop-start.json --controlled-invocation-plan-file controlled-loop-invocation-plan.json --controlled-real-invocation-file controlled-loop-real-invocation.json --controlled-closeout-file controlled-loop-closeout.json --controlled-loop-tick-file controlled-loop-tick.json
+```
+
+Completed summaries recommend `review_controlled_loop_run`; blocked summaries
+recommend `inspect_controlled_loop_run_blockers`. The summary command appends no
+audit evidence, starts no runner or executor, retries nothing, continues no
+loop, and writes no Git/GitHub state.
+
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor
 closeout, real-executor invocation records, and accepted controlled single-tick
@@ -886,6 +905,15 @@ closeout-update audit record, then emits `controlled-loop-closeout.v1` with
 `recommended_next_action: controlled_loop_tick`. Blocked packets append no
 audit and recommend `refresh_controlled_loop_real_invocation` or
 `inspect_closeout_evidence`.
+
+`controlled-loop-run-summary` is the read-only summary boundary over the saved
+runner-adjacent controlled packet chain. It composes saved `loop-run-plan`,
+controlled start, controlled invocation-plan, controlled real-invocation,
+controlled closeout, and controlled tick packets into
+`controlled-loop-run-summary.v1`, verifies the chain, and recommends
+`review_controlled_loop_run` only when all saved evidence matches. It appends no
+audit and adds no retry, runner, executor, loop-continuation, Git, GitHub, or
+merge authority.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can

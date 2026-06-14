@@ -33,6 +33,53 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-14 - Summarize controlled loop runs
+
+Summary:
+- Added `controlled-loop-run-summary` to compose saved `loop-run-plan.v1`,
+  `controlled-loop-start.v1`, `controlled-loop-invocation-plan.v1`,
+  `controlled-loop-real-invocation.v1`, `controlled-loop-closeout.v1`, and
+  `controlled-loop-tick.v1` packets into one read-only summary.
+- The packet rechecks schemas, completed statuses, next actions, file anchors,
+  checksums, task ids, epoch ids, and controlled tick closeout and
+  real-invocation anchors before recommending `review_controlled_loop_run`.
+- Completed and blocked summaries append no audit evidence; the command does
+  not start a runner or executor, retry an executor, continue a loop, write
+  Git/GitHub state, merge, release, publish packages, assign roles, or schedule
+  agents.
+
+Completed slices:
+- Task 43: read-only controlled loop-run summary.
+
+Confidence change:
+- Previous: 37%
+- New: 38%
+- Reason: Cadence can now summarize the saved runner-adjacent controlled run
+  after the aggregate tick, but it still does not run a continuous loop,
+  autonomously retry executors, or operate GitHub.
+
+Evidence:
+- Focused `controlled-loop-run-summary` unittest set (2 tests).
+- `python -m unittest tests.test_cadence -v` (370 tests, 3 expected Windows
+  symlink skips)
+- `python -m compileall scripts codex_cadence transmission_control tests`
+- `python scripts\validate_protocol.py`
+- `python -m ruff check codex_cadence\cli.py tests\test_cadence.py`
+- `git diff --check`
+
+New risks or blockers:
+- Continuous loop execution, autonomous executor retry, Git/GitHub writes,
+  review-response execution, merge authority, release publication, role
+  assignment, and agent scheduling remain intentionally out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-14 - Compose controlled closeouts
 
 Summary:
