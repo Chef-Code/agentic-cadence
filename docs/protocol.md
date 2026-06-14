@@ -1456,24 +1456,60 @@ The command emits `controlled-loop-run-summary.v1` with
 blockers, and `recommended_next_action` of `review_controlled_loop_run` or
 `inspect_controlled_loop_run_blockers`. It appends no audit evidence; the
 controlled tick packet remains the audit boundary for the completed local
-single-tick composition. Stable blockers include
-`loop_run_plan_evidence_missing`, `controlled_loop_start_evidence_missing`,
-`controlled_invocation_plan_evidence_missing`,
-`controlled_real_invocation_evidence_missing`,
-`controlled_closeout_evidence_missing`, `controlled_loop_tick_evidence_missing`,
-`controlled_run_packet_mismatch`, `loop_run_plan_not_ready`,
-`controlled_run_task_mismatch`, `controlled_run_epoch_mismatch`,
-`controlled_tick_loop_tick_checksum_mismatch`,
-`controlled_tick_task_checksum_mismatch`,
-`controlled_tick_execution_start_checksum_mismatch`,
-`controlled_tick_readiness_checksum_mismatch`,
-`controlled_tick_invocation_plan_checksum_mismatch`,
-`controlled_tick_result_checksum_mismatch`,
-`controlled_tick_closeout_checksum_mismatch`,
-`controlled_tick_real_invocation_checksum_mismatch`, and step-specific
-`*_checksum_mismatch`, `*_file_mismatch`, `*_not_completed`,
-`*_unexpected_next_action`, `*_unexpected_blockers`,
-`*_unexpected_operator_confirmation`, and `*_unexpected_side_effects` codes.
+single-tick composition. Stable blockers include:
+
+- Missing evidence: `loop_run_plan_evidence_missing`,
+  `controlled_loop_start_evidence_missing`,
+  `controlled_invocation_plan_evidence_missing`,
+  `controlled_real_invocation_evidence_missing`,
+  `controlled_closeout_evidence_missing`,
+  `controlled_loop_tick_evidence_missing`.
+- Packet and readiness mismatches: `controlled_run_packet_mismatch`,
+  `loop_run_plan_not_ready`, `controlled_run_task_mismatch`,
+  `controlled_run_epoch_mismatch`.
+- Step completion mismatches: `controlled_loop_start_not_completed`,
+  `controlled_invocation_plan_not_completed`,
+  `controlled_real_invocation_not_completed`,
+  `controlled_closeout_not_completed`, `controlled_loop_tick_not_completed`.
+- Step next-action mismatches:
+  `controlled_loop_start_unexpected_next_action`,
+  `controlled_invocation_plan_unexpected_next_action`,
+  `controlled_real_invocation_unexpected_next_action`,
+  `controlled_closeout_unexpected_next_action`,
+  `controlled_loop_tick_unexpected_next_action`.
+- Contradictory completed packets:
+  `controlled_loop_start_unexpected_blockers`,
+  `controlled_invocation_plan_unexpected_blockers`,
+  `controlled_real_invocation_unexpected_blockers`,
+  `controlled_closeout_unexpected_blockers`,
+  `controlled_loop_tick_unexpected_blockers`,
+  `controlled_loop_start_unexpected_operator_confirmation`,
+  `controlled_invocation_plan_unexpected_operator_confirmation`,
+  `controlled_real_invocation_unexpected_operator_confirmation`,
+  `controlled_closeout_unexpected_operator_confirmation`,
+  `controlled_loop_tick_unexpected_operator_confirmation`,
+  `controlled_loop_start_unexpected_side_effects`,
+  `controlled_invocation_plan_unexpected_side_effects`,
+  `controlled_real_invocation_unexpected_side_effects`,
+  `controlled_closeout_unexpected_side_effects`,
+  `controlled_loop_tick_unexpected_side_effects`.
+- Cross-packet checksum and file mismatches:
+  `loop_run_plan_checksum_mismatch`, `loop_run_plan_file_mismatch`,
+  `controlled_loop_start_checksum_mismatch`,
+  `controlled_loop_start_file_mismatch`,
+  `controlled_invocation_plan_checksum_mismatch`,
+  `controlled_invocation_plan_file_mismatch`,
+  `controlled_real_invocation_checksum_mismatch`,
+  `controlled_real_invocation_file_mismatch`.
+- Controlled tick mismatches: `controlled_tick_source_mismatch`,
+  `controlled_tick_loop_tick_checksum_mismatch`,
+  `controlled_tick_task_checksum_mismatch`,
+  `controlled_tick_execution_start_checksum_mismatch`,
+  `controlled_tick_readiness_checksum_mismatch`,
+  `controlled_tick_invocation_plan_checksum_mismatch`,
+  `controlled_tick_result_checksum_mismatch`,
+  `controlled_tick_closeout_checksum_mismatch`,
+  `controlled_tick_real_invocation_checksum_mismatch`.
 
 ## Git/PR Dry-Run Planning
 

@@ -42,7 +42,8 @@ Summary:
   `controlled-loop-tick.v1` packets into one read-only summary.
 - The packet rechecks schemas, completed statuses, next actions, file anchors,
   checksums, task ids, epoch ids, and controlled tick closeout and
-  real-invocation anchors before recommending `review_controlled_loop_run`.
+  real-invocation anchors before recommending `review_controlled_loop_run` on
+  success or `inspect_controlled_loop_run_blockers` when blocked.
 - Completed and blocked summaries append no audit evidence; the command does
   not start a runner or executor, retry an executor, continue a loop, write
   Git/GitHub state, merge, release, publish packages, assign roles, or schedule

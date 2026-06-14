@@ -143,8 +143,10 @@ terminal closeout status, audit anchors, and epoch closeout checksum, and
 recommend `controlled_loop_tick` without closing epochs, rewriting records, or
 continuing the loop. `controlled-loop-run-summary` can summarize the saved
 `loop-run-plan` through `controlled-loop-tick` packet chain, rechecking
-schemas, completed statuses, file anchors, and checksums without appending audit
-or continuing the loop.
+schemas, completed statuses, file anchors, and checksums before recommending
+`review_controlled_loop_run` on success or
+`inspect_controlled_loop_run_blockers` when blocked, without appending audit or
+continuing the loop.
 Autonomous
 branch/commit/push or PR creation, automatic session launch, distributed work
 ownership, role assignment, and continuous loop orchestration remain missing.
