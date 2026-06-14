@@ -6764,9 +6764,35 @@ class CadenceCliTests(unittest.TestCase):
         controlled_tick = json.loads(json.dumps(chain["controlled_tick"]))
         controlled_tick["next_decision"] = dict(closeout["next_decision"])
         controlled_tick["checksums"]["closeout"] = controlled_closeout["closeout_checksum"]
+        self.assertIsNotNone(chain["git_pr_plan_path"])
+        chain["git_pr_plan_path"].write_text(json.dumps(git_pr_plan), encoding="utf-8")
+        controlled_tick.setdefault("files", {})["git_pr_plan"] = str(chain["git_pr_plan_path"])
+        controlled_tick["checksums"]["git_pr_plan"] = checksum_json(git_pr_plan)
 
         summary = json.loads(json.dumps(chain["controlled_run_summary"]))
         summary["next_decision"] = dict(controlled_tick["next_decision"])
+        summary["checksums"]["controlled_closeout"] = checksum_json(controlled_closeout)
+        summary["checksums"]["controlled_loop_tick"] = checksum_json(controlled_tick)
+
+        chain["controlled_closeout_path"].write_text(json.dumps(controlled_closeout), encoding="utf-8")
+        chain["controlled_tick_path"].write_text(json.dumps(controlled_tick), encoding="utf-8")
+        chain["controlled_run_summary_path"].write_text(json.dumps(summary), encoding="utf-8")
+        chain["controlled_closeout"] = controlled_closeout
+        chain["controlled_tick"] = controlled_tick
+        chain["controlled_run_summary"] = summary
+        return chain
+
+    def set_controlled_loop_outcome_source_decision(self, chain, next_decision):
+        controlled_closeout = json.loads(json.dumps(chain["controlled_closeout"]))
+        controlled_closeout["closeout"]["next_decision"] = dict(next_decision)
+        controlled_closeout["closeout_checksum"] = checksum_json(controlled_closeout["closeout"])
+
+        controlled_tick = json.loads(json.dumps(chain["controlled_tick"]))
+        controlled_tick["next_decision"] = dict(next_decision)
+        controlled_tick["checksums"]["closeout"] = controlled_closeout["closeout_checksum"]
+
+        summary = json.loads(json.dumps(chain["controlled_run_summary"]))
+        summary["next_decision"] = dict(next_decision)
         summary["checksums"]["controlled_closeout"] = checksum_json(controlled_closeout)
         summary["checksums"]["controlled_loop_tick"] = checksum_json(controlled_tick)
 
@@ -7342,12 +7368,14 @@ class CadenceCliTests(unittest.TestCase):
 
             result, output = self.run_controlled_loop_outcome_plan_cli(tmp, chain)
 
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue(output["valid"])
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["outcome_plan_status"], "blocked")
             self.assertEqual(output["source_decision"]["decision"], "generate_git_pr_plan")
             self.assertEqual(output["recommended_next_action"], "inspect_git_pr_plan_blockers")
             self.assertTrue(output["operator_confirmation_required"])
             self.assertFalse(output["git_pr_plan"]["ready_to_review"])
+            self.assertIn("git_pr_plan_not_ready", {blocker["code"] for blocker in output["blockers"]})
             self.assertEqual(output["side_effects"], [])
 
     def test_controlled_loop_outcome_plan_inspects_malformed_ready_git_pr_plan(self):
@@ -7369,11 +7397,36 @@ class CadenceCliTests(unittest.TestCase):
 
             result, output = self.run_controlled_loop_outcome_plan_cli(tmp, chain)
 
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertTrue(output["valid"])
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["outcome_plan_status"], "blocked")
             self.assertEqual(output["recommended_next_action"], "inspect_git_pr_plan_blockers")
             self.assertTrue(output["operator_confirmation_required"])
             self.assertEqual(output["git_pr_plan"]["approval_state"], "approved")
+            self.assertIn("git_pr_plan_approval_state_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(output["side_effects"], [])
+
+    def test_controlled_loop_outcome_plan_blocks_unanchored_ready_git_pr_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_outcome_plan_chain(tmp, repo, emit_git_pr_plan=True)
+            self.mark_controlled_loop_outcome_git_pr_plan_ready(chain)
+            controlled_tick = chain["controlled_tick"]
+            controlled_tick["files"].pop("git_pr_plan")
+            controlled_tick["checksums"].pop("git_pr_plan")
+            summary = chain["controlled_run_summary"]
+            summary["checksums"]["controlled_loop_tick"] = checksum_json(controlled_tick)
+            chain["controlled_tick_path"].write_text(json.dumps(controlled_tick), encoding="utf-8")
+            chain["controlled_run_summary_path"].write_text(json.dumps(summary), encoding="utf-8")
+
+            result, output = self.run_controlled_loop_outcome_plan_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "inspect_git_pr_plan_blockers")
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertIn("git_pr_plan_checksum_mismatch", blocker_codes)
+            self.assertIn("git_pr_plan_unanchored", blocker_codes)
             self.assertEqual(output["side_effects"], [])
 
     def test_controlled_loop_outcome_plan_recommends_git_pr_plan_when_no_plan_exists(self):
@@ -7391,6 +7444,61 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIsNone(output["git_pr_plan"])
             self.assertEqual(output["side_effects"], [])
 
+    def test_controlled_loop_outcome_plan_maps_bounded_terminal_decisions(self):
+        cases = [
+            (
+                {"decision": "continue", "recommended_next_action": "wait_for_next_executor_result", "reason": "remaining task"},
+                "plan_next_controlled_executor_step",
+            ),
+            (
+                {"decision": "handoff", "recommended_next_action": "prepare_handoff", "reason": "executor failed"},
+                "inspect_executor_failure",
+            ),
+            (
+                {"decision": "stop", "recommended_next_action": "stop_active_loop", "reason": "executor stopped"},
+                "stop_active_loop",
+            ),
+            (
+                {"decision": "validate_more_evidence", "recommended_next_action": "fix_executor_evidence", "reason": "bad evidence"},
+                "fix_executor_evidence",
+            ),
+        ]
+        for next_decision, expected_action in cases:
+            with self.subTest(decision=next_decision["decision"]):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    chain = self.write_controlled_loop_outcome_plan_chain(tmp, repo)
+                    self.set_controlled_loop_outcome_source_decision(chain, next_decision)
+
+                    result, output = self.run_controlled_loop_outcome_plan_cli(tmp, chain)
+
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertTrue(output["valid"])
+                    self.assertEqual(output["source_decision"], next_decision)
+                    self.assertEqual(output["recommended_next_action"], expected_action)
+                    self.assertEqual(output["side_effects"], [])
+
+    def test_controlled_loop_outcome_plan_blocks_unbounded_source_action(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_outcome_plan_chain(tmp, repo)
+            self.set_controlled_loop_outcome_source_decision(
+                chain,
+                {
+                    "decision": "stop",
+                    "recommended_next_action": "merge_after_operator_confirmation",
+                    "reason": "crafted action",
+                },
+            )
+
+            result, output = self.run_controlled_loop_outcome_plan_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "inspect_controlled_loop_outcome_blockers")
+            self.assertIn("controlled_loop_outcome_action_unsupported", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(output["side_effects"], [])
+
     def test_controlled_loop_outcome_plan_blocks_stale_summary_tick_evidence(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -7399,6 +7507,11 @@ class CadenceCliTests(unittest.TestCase):
             controlled_tick["next_decision"]["recommended_next_action"] = "unexpected_action"
             chain["controlled_tick_path"].write_text(json.dumps(controlled_tick), encoding="utf-8")
             audit_before = audit_records(tmp)
+            files_before = {
+                "summary": chain["controlled_run_summary_path"].read_text(encoding="utf-8"),
+                "closeout": chain["controlled_closeout_path"].read_text(encoding="utf-8"),
+                "tick": chain["controlled_tick_path"].read_text(encoding="utf-8"),
+            }
 
             result, output = self.run_controlled_loop_outcome_plan_cli(tmp, chain)
 
@@ -7411,6 +7524,14 @@ class CadenceCliTests(unittest.TestCase):
             self.assertNotIn("audit_record", output)
             self.assertIn("controlled_loop_tick_checksum_mismatch", {blocker["code"] for blocker in output["blockers"]})
             self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(
+                {
+                    "summary": chain["controlled_run_summary_path"].read_text(encoding="utf-8"),
+                    "closeout": chain["controlled_closeout_path"].read_text(encoding="utf-8"),
+                    "tick": chain["controlled_tick_path"].read_text(encoding="utf-8"),
+                },
+                files_before,
+            )
 
     def test_controlled_loop_tick_accepts_existing_real_invocation_closeout_chain(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

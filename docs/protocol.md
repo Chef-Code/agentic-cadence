@@ -1511,8 +1511,8 @@ single-tick composition. Stable blockers include:
   `controlled_tick_closeout_checksum_mismatch`,
   `controlled_tick_real_invocation_checksum_mismatch`.
 
-`controlled-loop-outcome-plan` is the read-only terminal planner for a reviewed
-controlled run. It reads `--controlled-run-summary-file`,
+`controlled-loop-outcome-plan` is the read-only terminal planner for completed
+terminal controlled run evidence. It reads `--controlled-run-summary-file`,
 `--controlled-closeout-file`, and `--controlled-loop-tick-file`, then emits
 `controlled-loop-outcome-plan.v1` with `packet:
 controlled_loop_outcome_plan`, `read_only: true`, `side_effects: []`,
@@ -1524,19 +1524,23 @@ The command verifies that the summary is completed and ready for review, the
 controlled closeout is completed and ready for the controlled tick, and the
 controlled tick is completed. It rechecks summary checksums for the controlled
 closeout and controlled tick, summary file anchors, controlled tick closeout and
-real-invocation checksums, summary/tick next-decision equality, task id, epoch
-id, closeout status, and that the source decision is one of
-`generate_git_pr_plan`, `continue`, `handoff`, `stop`, or
-`validate_more_evidence`.
+real-invocation checksums, the embedded controlled closeout checksum,
+summary/tick/closeout next-decision equality, task id, epoch id, closeout
+status, and that the source decision is one of `generate_git_pr_plan`,
+`continue`, `handoff`, `stop`, or `validate_more_evidence`. The source
+decision's `recommended_next_action` must also be in the command's bounded
+allowlist for that decision.
 
 When valid, recommendation mapping is:
 
 - `generate_git_pr_plan` with no embedded plan: `run_git_pr_plan`, with no
   operator confirmation required.
-- `generate_git_pr_plan` with a ready dry-run embedded plan and no side effects:
-  `request_git_pr_materialization_approval`, with operator confirmation
-  required.
-- `generate_git_pr_plan` with an embedded unready plan:
+- `generate_git_pr_plan` with a ready dry-run embedded plan and no side effects,
+  where the controlled tick also anchors the same saved Git/PR plan file and
+  checksum: `request_git_pr_materialization_approval`, with operator
+  confirmation required.
+- `generate_git_pr_plan` with a missing, malformed, unready, unanchored, or
+  mismatched embedded Git/PR plan:
   `inspect_git_pr_plan_blockers`, with operator confirmation required.
 - `continue`: `plan_next_controlled_executor_step`.
 - `handoff`: `inspect_executor_failure`.
@@ -1558,13 +1562,22 @@ packages, assign roles, or schedule agents. Stable blockers include
 `controlled_closeout_checksum_mismatch`,
 `controlled_loop_tick_checksum_mismatch`,
 `controlled_closeout_file_mismatch`, `controlled_loop_tick_file_mismatch`,
+`controlled_closeout_embedded_closeout_checksum_mismatch`,
 `controlled_loop_tick_closeout_checksum_mismatch`,
 `controlled_loop_tick_real_invocation_checksum_mismatch`,
 `controlled_run_summary_decision_mismatch`,
+`controlled_loop_outcome_closeout_decision_mismatch`,
 `controlled_loop_outcome_task_mismatch`,
 `controlled_loop_outcome_epoch_mismatch`,
 `controlled_loop_outcome_closeout_status_mismatch`, and
-`controlled_loop_outcome_decision_unsupported`.
+`controlled_loop_outcome_decision_unsupported`. Unsupported source actions
+block with `controlled_loop_outcome_action_unsupported`. Embedded Git/PR plan
+approval requires the controlled tick's `files.git_pr_plan` and
+`checksums.git_pr_plan` to match the embedded plan; missing, unreadable,
+malformed, mismatched, or structurally unready plan evidence blocks with stable
+codes such as `git_pr_plan_checksum_mismatch`, `git_pr_plan_unanchored`,
+`git_pr_plan_evidence_missing`, `git_pr_plan_file_mismatch`,
+`git_pr_plan_not_ready`, and `git_pr_plan_approval_state_invalid`.
 
 ## Git/PR Dry-Run Planning
 

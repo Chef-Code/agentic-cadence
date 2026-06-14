@@ -54,14 +54,14 @@ Completed slices:
 Confidence change:
 - Previous: 38%
 - New: 39%
-- Reason: Cadence can now turn a reviewed terminal controlled run outcome into
+- Reason: Cadence can now turn completed terminal controlled run evidence into
   a bounded next operator action, but it still does not run a continuous loop,
   autonomously retry executors, or operate GitHub.
 
 Evidence:
-- Focused `controlled-loop-outcome-plan` unittest set (5 tests).
+- Focused `controlled-loop-outcome-plan` unittest set (8 tests).
 - Focused `controlled-loop-run-summary` unittest set (3 tests).
-- `python -m unittest tests.test_cadence -v` (376 tests, 3 expected Windows
+- `python -m unittest tests.test_cadence -v` (379 tests, 3 expected Windows
   symlink skips)
 - `python -m compileall scripts codex_cadence transmission_control tests`
 - `python scripts\validate_protocol.py`

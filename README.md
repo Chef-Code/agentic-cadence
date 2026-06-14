@@ -70,9 +70,9 @@ closeout, and `controlled-loop-closeout` evidence that composes the saved
 controlled real-invocation packet with accepted executor closeout before the
 aggregate tick, and `controlled-loop-run-summary` evidence that summarizes the
 saved runner-adjacent controlled packet chain without continuing the loop, and
-`controlled-loop-outcome-plan` evidence that turns the reviewed controlled run
-outcome into the next bounded operator action without starting a continuation
-or writing Git/GitHub state.
+`controlled-loop-outcome-plan` evidence that turns completed terminal
+controlled run evidence into the next bounded operator action without starting
+a continuation or writing Git/GitHub state.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -536,23 +536,26 @@ recommend `inspect_controlled_loop_run_blockers`. The summary command appends no
 audit evidence, starts no runner or executor, retries nothing, continues no
 loop, and writes no Git/GitHub state.
 
-`controlled-loop-outcome-plan` composes the saved terminal controlled outcome
+`controlled-loop-outcome-plan` composes the saved terminal controlled run
 summary, controlled closeout, and controlled tick into a read-only next-action
 packet. It rechecks summary/tick/closeout checksums, file anchors, task and
-epoch identity, terminal closeout state, and the source next decision before
-recommending a bounded follow-up:
+epoch identity, terminal closeout state, and the source next decision/action
+before recommending a bounded follow-up:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-outcome-plan --controlled-run-summary-file controlled-loop-run-summary.json --controlled-closeout-file controlled-loop-closeout.json --controlled-loop-tick-file controlled-loop-tick.json
 ```
 
 For `generate_git_pr_plan`, it recommends `run_git_pr_plan` when no embedded
-plan exists, `request_git_pr_materialization_approval` when a ready dry-run plan
-is embedded, or `inspect_git_pr_plan_blockers` when the embedded plan is not
-ready. It can also map completed `continue`, `handoff`, `stop`, and
-`validate_more_evidence` decisions to their bounded next operator action. It
-appends no audit evidence, starts no runner or executor, retries nothing,
-continues no loop, and writes no Git/GitHub state.
+plan exists, `request_git_pr_materialization_approval` only when a ready dry-run
+plan is embedded and the same plan is anchored by the controlled tick's saved
+Git/PR plan file and checksum, or `inspect_git_pr_plan_blockers` when the
+embedded or anchored plan is missing, malformed, unready, or mismatched. Git/PR
+plan blockers make the outcome packet blocked instead of approval-ready. The
+command maps completed `continue`, `handoff`, `stop`, and
+`validate_more_evidence` decisions only through its bounded source-action
+allowlist. It appends no audit evidence, starts no runner or executor, retries
+nothing, continues no loop, and writes no Git/GitHub state.
 
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor
@@ -937,13 +940,15 @@ controlled closeout, and controlled tick packets into
 audit and adds no retry, runner, executor, loop-continuation, Git, GitHub, or
 merge authority.
 
-`controlled-loop-outcome-plan` is the read-only terminal outcome planner for an
-already reviewed controlled run. It composes saved
+`controlled-loop-outcome-plan` is the read-only terminal outcome planner for
+completed terminal controlled run evidence. It composes saved
 `controlled-loop-run-summary.v1`, `controlled-loop-closeout.v1`, and
 `controlled-loop-tick.v1` evidence into `controlled-loop-outcome-plan.v1`,
-verifies the terminal packet anchors, and recommends the next bounded operator
-action without granting runner, executor, loop-continuation, Git, GitHub, or
-merge authority.
+verifies terminal packet anchors, recomputes the embedded closeout checksum,
+validates the source decision/action, and requires any ready Git/PR plan to
+match the controlled tick's saved file/checksum anchor before recommending the
+next bounded operator action. It grants no runner, executor, loop-continuation,
+Git, GitHub, or merge authority.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can

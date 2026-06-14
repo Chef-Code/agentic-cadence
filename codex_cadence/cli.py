@@ -6506,8 +6506,35 @@ def controlled_loop_outcome_plan_add_blocker(
     blockers.append(blocker)
 
 
+def controlled_loop_outcome_plan_add_existing_blocker(
+    blockers: list[dict[str, Any]],
+    step_blockers: dict[str, list[dict[str, Any]]],
+    step: str,
+    blocker: dict[str, Any],
+) -> None:
+    step_blockers[step].append(blocker)
+    blockers.append(blocker)
+
+
 def controlled_loop_outcome_plan_file_matches(context_file: Path, value: Any, expected_path: Path) -> bool:
     return _closeout_paths_match(controlled_tick_context_path(context_file, value), expected_path)
+
+
+CONTROLLED_LOOP_OUTCOME_SOURCE_ACTIONS = {
+    "generate_git_pr_plan": {
+        "run_git_pr_plan",
+        "review_git_pr_plan",
+        "provide_template_or_sections",
+        "update_pr_body",
+        "address_blockers",
+        "provide_runtime_root",
+        "stop_active_loop",
+    },
+    "continue": {"wait_for_next_executor_result"},
+    "handoff": {"prepare_handoff"},
+    "stop": {"stop_active_loop", "inspect_epoch_state", "review_stop_decision"},
+    "validate_more_evidence": {"fix_executor_evidence"},
+}
 
 
 def controlled_loop_outcome_recommendation(
@@ -6527,9 +6554,16 @@ def controlled_loop_outcome_recommendation(
                 "controlled_loop_tick_checksum_mismatch",
                 "controlled_closeout_checksum_mismatch",
                 "controlled_loop_outcome_packet_mismatch",
+                "controlled_closeout_file_mismatch",
+                "controlled_loop_tick_file_mismatch",
+                "controlled_closeout_embedded_closeout_checksum_mismatch",
+                "controlled_loop_tick_closeout_checksum_mismatch",
+                "controlled_loop_tick_real_invocation_checksum_mismatch",
             }
         ):
             return "refresh_controlled_loop_run_summary", True, "controlled run summary or terminal evidence is stale"
+        if any(isinstance(code, str) and code.startswith("git_pr_plan_") for code in blocker_codes):
+            return "inspect_git_pr_plan_blockers", True, "controlled run Git/PR plan is not ready for approval"
         return "inspect_controlled_loop_outcome_blockers", True, "controlled loop outcome evidence is blocked"
 
     decision = source_decision.get("decision")
@@ -6594,6 +6628,7 @@ def controlled_loop_outcome_plan_command(args: argparse.Namespace) -> int:
         summary = packets["controlled_run_summary"]
         controlled_closeout = packets["controlled_closeout"]
         controlled_tick = packets["controlled_loop_tick"]
+        closeout = controlled_closeout.get("closeout") if isinstance(controlled_closeout.get("closeout"), dict) else {}
 
         if (
             summary.get("valid") is not True
@@ -6691,14 +6726,34 @@ def controlled_loop_outcome_plan_command(args: argparse.Namespace) -> int:
                 )
 
         tick_checksums = controlled_tick.get("checksums") if isinstance(controlled_tick.get("checksums"), dict) else {}
-        if tick_checksums.get("closeout") != controlled_closeout.get("closeout_checksum"):
+        closeout_checksum = checksum_json(closeout) if closeout else None
+        if closeout_checksum is None:
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_closeout",
+                "controlled_closeout_embedded_closeout_checksum_mismatch",
+                "controlled closeout must embed the accepted closeout evidence",
+                actual=controlled_closeout.get("closeout"),
+            )
+        elif controlled_closeout.get("closeout_checksum") != closeout_checksum:
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_closeout",
+                "controlled_closeout_embedded_closeout_checksum_mismatch",
+                "controlled closeout checksum does not match embedded closeout evidence",
+                expected=controlled_closeout.get("closeout_checksum"),
+                actual=closeout_checksum,
+            )
+        if tick_checksums.get("closeout") != closeout_checksum:
             controlled_loop_outcome_plan_add_blocker(
                 blockers,
                 step_blockers,
                 "controlled_loop_tick",
                 "controlled_loop_tick_closeout_checksum_mismatch",
                 "controlled loop tick closeout checksum does not match controlled closeout",
-                expected=controlled_closeout.get("closeout_checksum"),
+                expected=closeout_checksum,
                 actual=tick_checksums.get("closeout"),
             )
         if tick_checksums.get("real_invocation") != controlled_closeout.get("real_invocation_after_checksum"):
@@ -6720,6 +6775,17 @@ def controlled_loop_outcome_plan_command(args: argparse.Namespace) -> int:
                 "controlled run summary next_decision does not match controlled loop tick",
                 expected=controlled_tick.get("next_decision"),
                 actual=summary.get("next_decision"),
+            )
+        closeout_next_decision = closeout.get("next_decision") if isinstance(closeout.get("next_decision"), dict) else {}
+        if closeout_next_decision != controlled_tick.get("next_decision"):
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_loop_outcome_closeout_decision_mismatch",
+                "controlled loop tick next_decision does not match embedded closeout evidence",
+                expected=closeout_next_decision,
+                actual=controlled_tick.get("next_decision"),
             )
 
         tick_task = controlled_tick.get("task") if isinstance(controlled_tick.get("task"), dict) else {}
@@ -6756,7 +6822,9 @@ def controlled_loop_outcome_plan_command(args: argparse.Namespace) -> int:
             )
 
         source_decision = controlled_tick.get("next_decision") if isinstance(controlled_tick.get("next_decision"), dict) else {}
-        if source_decision.get("decision") not in {"generate_git_pr_plan", "continue", "handoff", "stop", "validate_more_evidence"}:
+        source_decision_name = source_decision.get("decision")
+        source_recommended_action = source_decision.get("recommended_next_action")
+        if source_decision_name not in CONTROLLED_LOOP_OUTCOME_SOURCE_ACTIONS:
             controlled_loop_outcome_plan_add_blocker(
                 blockers,
                 step_blockers,
@@ -6765,6 +6833,83 @@ def controlled_loop_outcome_plan_command(args: argparse.Namespace) -> int:
                 "controlled loop outcome decision is unsupported",
                 actual=source_decision,
             )
+        elif source_recommended_action not in CONTROLLED_LOOP_OUTCOME_SOURCE_ACTIONS[source_decision_name]:
+            controlled_loop_outcome_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_loop_outcome_action_unsupported",
+                "controlled loop outcome recommended action is unsupported",
+                decision=source_decision_name,
+                actual=source_recommended_action,
+                allowed=sorted(CONTROLLED_LOOP_OUTCOME_SOURCE_ACTIONS[source_decision_name]),
+            )
+        if source_decision_name == "generate_git_pr_plan":
+            git_pr_plan = closeout.get("git_pr_plan") if isinstance(closeout.get("git_pr_plan"), dict) else None
+            if git_pr_plan is not None:
+                git_pr_plan_checksum = checksum_json(git_pr_plan)
+                for git_pr_blocker in validate_git_pr_plan_dry_run_packet(git_pr_plan):
+                    controlled_loop_outcome_plan_add_existing_blocker(
+                        blockers,
+                        step_blockers,
+                        "controlled_closeout",
+                        dict(git_pr_blocker),
+                    )
+                tick_files = controlled_tick.get("files") if isinstance(controlled_tick.get("files"), dict) else {}
+                git_pr_plan_file = controlled_tick_context_path(
+                    packet_inputs["controlled_loop_tick"],
+                    tick_files.get("git_pr_plan"),
+                )
+                if tick_checksums.get("git_pr_plan") != git_pr_plan_checksum:
+                    controlled_loop_outcome_plan_add_blocker(
+                        blockers,
+                        step_blockers,
+                        "controlled_loop_tick",
+                        "git_pr_plan_checksum_mismatch",
+                        "controlled loop tick git-pr plan checksum does not match embedded closeout plan",
+                        expected=git_pr_plan_checksum,
+                        actual=tick_checksums.get("git_pr_plan"),
+                    )
+                if not isinstance(git_pr_plan_file, Path):
+                    controlled_loop_outcome_plan_add_blocker(
+                        blockers,
+                        step_blockers,
+                        "controlled_loop_tick",
+                        "git_pr_plan_unanchored",
+                        "controlled loop tick must anchor the embedded git-pr plan file before approval",
+                        actual=tick_files.get("git_pr_plan"),
+                    )
+                else:
+                    git_pr_plan_packet, git_pr_plan_read_blockers = read_controlled_loop_outcome_plan_packet(
+                        git_pr_plan_file,
+                        code="git_pr_plan_evidence_missing",
+                        label="git pr plan",
+                    )
+                    for read_blocker in git_pr_plan_read_blockers:
+                        controlled_loop_outcome_plan_add_existing_blocker(
+                            blockers,
+                            step_blockers,
+                            "controlled_loop_tick",
+                            read_blocker,
+                        )
+                    if isinstance(git_pr_plan_packet, dict):
+                        if checksum_json(git_pr_plan_packet) != git_pr_plan_checksum:
+                            controlled_loop_outcome_plan_add_blocker(
+                                blockers,
+                                step_blockers,
+                                "controlled_loop_tick",
+                                "git_pr_plan_file_mismatch",
+                                "controlled loop tick git-pr plan file does not match embedded closeout plan",
+                                expected=git_pr_plan_checksum,
+                                actual=checksum_json(git_pr_plan_packet),
+                            )
+                        for git_pr_blocker in validate_git_pr_plan_dry_run_packet(git_pr_plan_packet):
+                            controlled_loop_outcome_plan_add_existing_blocker(
+                                blockers,
+                                step_blockers,
+                                "controlled_loop_tick",
+                                dict(git_pr_blocker),
+                            )
 
     valid = not blockers
     summary = packets.get("controlled_run_summary") if isinstance(packets.get("controlled_run_summary"), dict) else {}
