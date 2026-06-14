@@ -4102,6 +4102,18 @@ def controlled_loop_real_invocation_audit_blockers(
     real_invocation: dict[str, Any],
     real_invocation_path: Path,
 ) -> list[dict[str, Any]]:
+    audit_replay = replay_audit_log(root)
+    if audit_replay.get("valid") is not True:
+        audit_chain = real_invocation.get("audit_chain") if isinstance(real_invocation.get("audit_chain"), dict) else {}
+        return [
+            controlled_loop_real_invocation_blocker(
+                "real_invocation_audit_mismatch",
+                "current audit chain is not valid for controlled real-invocation closeout",
+                invocation_chain_head=audit_chain.get("chain_head"),
+                current_chain_head=audit_replay.get("chain_head"),
+                audit_blockers=audit_replay.get("blockers"),
+            )
+        ]
     blockers: list[dict[str, Any]] = []
     invocation_id = real_invocation.get("invocation_id")
     if controlled_loop_real_invocation_non_empty_string(invocation_id):

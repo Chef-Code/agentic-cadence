@@ -4112,6 +4112,30 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIn("real_invocation_audit_mismatch", {blocker["code"] for blocker in output["blockers"]})
             self.assertEqual(audit_records(tmp), records)
 
+    def test_controlled_loop_real_invocation_blocks_broken_runtime_audit_chain(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_real_invocation_inputs(tmp, repo)
+            audit_path = Path(tmp) / "audit" / "events.jsonl"
+            with audit_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps({"event": "unsupported_audit_event"}) + "\n")
+            audit_before = audit_records(tmp)
+
+            result, output = run_cli(
+                tmp,
+                "controlled-loop-real-invocation",
+                "--controlled-invocation-plan-file",
+                str(inputs["controlled_plan_path"]),
+                "--real-invocation-file",
+                str(inputs["invocation_path"]),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn("real_invocation_audit_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertIsNone(output["result_evidence"])
+            self.assertEqual(audit_records(tmp), audit_before)
+
     def test_controlled_loop_real_invocation_does_not_read_mismatched_result_path(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)

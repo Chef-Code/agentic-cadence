@@ -166,7 +166,9 @@ in `main`. Task 38 starts the next runner-adjacent slice with a read-only
 adds read-only `controlled-loop-start` evidence for the saved loop-plan plus
 approved execution-start boundary. Task 40 adds read-only
 `controlled-loop-invocation-plan` evidence for the controlled start plus
-executor-invocation readiness and invocation-plan boundary.
+executor-invocation readiness and invocation-plan boundary. Task 41 adds
+read-only `controlled-loop-real-invocation` evidence for the recorded real
+invocation before closeout.
 
 ## Vision Framing
 
