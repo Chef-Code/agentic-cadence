@@ -3542,6 +3542,25 @@ class CadenceCliTests(unittest.TestCase):
             "real_invocation": inputs["invocation_path"].read_text(encoding="utf-8"),
         }
 
+    def refresh_controlled_loop_closeout_audits(self, tmp, inputs, closeout, updated_invocation):
+        closeout["real_invocation"]["after_checksum"] = checksum_json(updated_invocation)
+        closeout["real_invocation"]["audit_record"] = append_audit_record(
+            Path(tmp),
+            real_executor_invocation_audit_record(
+                updated_invocation,
+                invocation_record_file=str(inputs["invocation_path"]),
+                action="update_real_executor_invocation_closeout",
+                reason="real executor invocation closeout status updated",
+            ),
+        )
+        task_packet = json.loads(inputs["task_path"].read_text(encoding="utf-8"))
+        result_evidence = json.loads(inputs["result_path"].read_text(encoding="utf-8"))
+        closeout_without_audit = {key: value for key, value in closeout.items() if key != "audit_record"}
+        closeout["audit_record"] = append_audit_record(
+            Path(tmp),
+            executor_epoch_closeout_audit_record(closeout_without_audit, task_packet, result_evidence),
+        )
+
     def test_controlled_loop_start_composes_plan_and_execution_start(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -4568,23 +4587,28 @@ class CadenceCliTests(unittest.TestCase):
             updated_invocation["plan_checksum"] = "sha256:" + "0" * 64
             inputs["invocation_path"].write_text(json.dumps(updated_invocation), encoding="utf-8")
 
-            closeout["real_invocation"]["after_checksum"] = checksum_json(updated_invocation)
-            closeout["real_invocation"]["audit_record"] = append_audit_record(
-                Path(tmp),
-                real_executor_invocation_audit_record(
-                    updated_invocation,
-                    invocation_record_file=str(inputs["invocation_path"]),
-                    action="update_real_executor_invocation_closeout",
-                    reason="real executor invocation closeout status updated",
-                ),
-            )
-            task_packet = json.loads(inputs["task_path"].read_text(encoding="utf-8"))
-            result_evidence = json.loads(inputs["result_path"].read_text(encoding="utf-8"))
-            closeout_without_audit = {key: value for key, value in closeout.items() if key != "audit_record"}
-            closeout["audit_record"] = append_audit_record(
-                Path(tmp),
-                executor_epoch_closeout_audit_record(closeout_without_audit, task_packet, result_evidence),
-            )
+            self.refresh_controlled_loop_closeout_audits(tmp, inputs, closeout, updated_invocation)
+            inputs["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "inspect_closeout_evidence")
+            self.assertIn("real_invocation_closeout_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_blocks_updated_invocation_snapshot_after_checksum_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
+            updated_invocation = json.loads(inputs["invocation_path"].read_text(encoding="utf-8"))
+            updated_invocation["snapshot_after_checksum"] = "sha256:" + "0" * 64
+            inputs["invocation_path"].write_text(json.dumps(updated_invocation), encoding="utf-8")
+            self.refresh_controlled_loop_closeout_audits(tmp, inputs, closeout, updated_invocation)
             inputs["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
             audit_before = audit_records(tmp)
 
@@ -4615,12 +4639,68 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIn("closeout_audit_mismatch", {blocker["code"] for blocker in output["blockers"]})
             self.assertEqual(audit_records(tmp), audit_before)
 
+    def test_controlled_loop_closeout_blocks_closeout_audit_task_checksum_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
+            task_packet = json.loads(inputs["task_path"].read_text(encoding="utf-8"))
+            result_evidence = json.loads(inputs["result_path"].read_text(encoding="utf-8"))
+            closeout_without_audit = {key: value for key, value in closeout.items() if key != "audit_record"}
+            audit_record = executor_epoch_closeout_audit_record(closeout_without_audit, task_packet, result_evidence)
+            audit_record["task_packet_checksum"] = "sha256:" + "0" * 64
+            closeout["audit_record"] = append_audit_record(Path(tmp), audit_record)
+            inputs["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "inspect_closeout_evidence")
+            self.assertIn("closeout_audit_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
+
     def test_controlled_loop_closeout_blocks_tampered_real_invocation_audit_reference(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
             closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
             closeout["real_invocation"]["audit_record"]["event_hash"] = "sha256:" + "0" * 64
+            inputs["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "inspect_closeout_evidence")
+            self.assertIn("real_invocation_audit_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_blocks_real_invocation_audit_payload_checksum_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
+            updated_invocation = json.loads(inputs["invocation_path"].read_text(encoding="utf-8"))
+            audit_record = real_executor_invocation_audit_record(
+                updated_invocation,
+                invocation_record_file=str(inputs["invocation_path"]),
+                action="update_real_executor_invocation_closeout",
+                reason="real executor invocation closeout status updated",
+            )
+            audit_record["payload_checksum"] = "sha256:" + "0" * 64
+            closeout["real_invocation"]["audit_record"] = append_audit_record(Path(tmp), audit_record)
+            task_packet = json.loads(inputs["task_path"].read_text(encoding="utf-8"))
+            result_evidence = json.loads(inputs["result_path"].read_text(encoding="utf-8"))
+            closeout_without_audit = {key: value for key, value in closeout.items() if key != "audit_record"}
+            closeout["audit_record"] = append_audit_record(
+                Path(tmp),
+                executor_epoch_closeout_audit_record(closeout_without_audit, task_packet, result_evidence),
+            )
             inputs["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
             audit_before = audit_records(tmp)
 

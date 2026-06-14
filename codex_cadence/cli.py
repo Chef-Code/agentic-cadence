@@ -5198,6 +5198,7 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
                     "epoch_closeout_checksum": epoch_closeout_checksum,
                     "result_evidence_checksum": controlled.get("result_evidence_checksum"),
                     "validation_packet_checksum": checksum_json(closeout.get("validation")) if isinstance(closeout.get("validation"), dict) else None,
+                    "snapshot_after_checksum": closeout.get("snapshot_after_checksum"),
                 }
                 for field, expected in expected_updated_fields.items():
                     if expected is not None and updated_invocation.get(field) != expected:
@@ -5277,12 +5278,25 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
                     label="executor closeout",
                     expected_checksums={
                         "payload_checksum": checksum_json({key: value for key, value in closeout.items() if key != "audit_record"}),
+                        "task_packet_checksum": closeout.get("task_checksum"),
                         "result_evidence_checksum": controlled.get("result_evidence_checksum"),
                         "snapshot_after_checksum": closeout.get("snapshot_after_checksum"),
                     },
                 )
             )
             if closeout_invocation:
+                invocation_update_payload_checksum = (
+                    checksum_json(
+                        {
+                            "action": "update_real_executor_invocation_closeout",
+                            "reason": "real executor invocation closeout status updated",
+                            "invocation_record_file": str(controlled_invocation_path),
+                            "invocation_record_checksum": updated_invocation_checksum,
+                        }
+                    )
+                    if updated_invocation_checksum is not None and isinstance(controlled_invocation_path, Path)
+                    else None
+                )
                 blockers.extend(
                     controlled_loop_closeout_audit_line_blockers(
                         args.root,
@@ -5292,7 +5306,13 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
                         code="real_invocation_audit_mismatch",
                         label="real invocation closeout update",
                         expected_checksums={
+                            "payload_checksum": invocation_update_payload_checksum,
                             "invocation_record_checksum": updated_invocation_checksum,
+                            "plan_checksum": controlled.get("invocation_plan_checksum"),
+                            "plan_target_checksum": controlled.get("target_checksum"),
+                            "result_evidence_checksum": controlled.get("result_evidence_checksum"),
+                            "validation_packet_checksum": checksum_json(closeout.get("validation")) if isinstance(closeout.get("validation"), dict) else None,
+                            "snapshot_after_checksum": closeout.get("snapshot_after_checksum"),
                             "epoch_closeout_checksum": epoch_closeout_checksum,
                         },
                     )

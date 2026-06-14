@@ -1342,7 +1342,7 @@ verifies both the closeout audit reference and the real-invocation
 closeout-update audit reference against their referenced audit lines. A
 completed packet uses
 `packet: controlled_loop_closeout`, `controlled_closeout_status: completed`,
-`read_only: true`, `valid: true`, and
+`read_only: true`, `side_effects: []`, `valid: true`, and
 `recommended_next_action: controlled_loop_tick`. The top-level response envelope
 includes `controlled_real_invocation_checksum`, `closeout_checksum`,
 `real_invocation_before_checksum`, `real_invocation_after_checksum`,
@@ -1350,10 +1350,11 @@ includes `controlled_real_invocation_checksum`, `closeout_checksum`,
 copies of the controlled real-invocation packet, closeout packet, and updated
 real-invocation record, `blockers`, and explicit false side-effect flags.
 
-Blocked packets use `controlled_closeout_status: blocked`, `valid: false`,
-stable blockers, and exit code 2. Controlled real-invocation evidence problems
-recommend `refresh_controlled_loop_real_invocation`; closeout, updated
-real-invocation, path, checksum, terminal-status, and audit mismatches recommend
+Blocked packets use `controlled_closeout_status: blocked`, `read_only: true`,
+`side_effects: []`, `valid: false`, stable blockers, and exit code 2.
+Controlled real-invocation evidence problems recommend
+`refresh_controlled_loop_real_invocation`; closeout, updated real-invocation,
+path, checksum, terminal-status, and audit mismatches recommend
 `inspect_closeout_evidence`. Stable blocker codes include
 `controlled_real_invocation_evidence_missing`, `closeout_evidence_missing`,
 `controlled_real_invocation_packet_mismatch`, `closeout_packet_mismatch`,
