@@ -154,8 +154,11 @@ such as `run_git_pr_plan`, `request_git_pr_materialization_approval`, or
 continuing the loop, or writing Git/GitHub state.
 `controlled-loop-run-manifest-plan` can compose the saved terminal controlled
 run evidence and outcome plan into a read-only manifest that binds evidence
-file paths, checksums, and controlled one-cycle command stages without starting
-a runner or continuing the loop.
+file paths, checksums, and controlled one-cycle command stages. It appends no
+audit evidence and does not start a runner or executor, retry an executor,
+continue a loop, start or close an epoch, execute Git commands, call GitHub,
+create branches, commit, push, create PRs, merge, release, publish packages,
+assign roles, or schedule agents.
 Autonomous
 branch/commit/push or PR creation, automatic session launch, distributed work
 ownership, role assignment, and continuous loop orchestration remain missing.
@@ -325,8 +328,11 @@ Current evidence:
 - `controlled-loop-run-manifest-plan` reads saved terminal controlled run
   evidence and the saved outcome plan, rechecks outcome-plan file/checksum
   anchors, and records a reviewable evidence-file manifest plus controlled
-  one-cycle command-stage sequence without starting a runner or continuing the
-  loop;
+  one-cycle command-stage sequence without appending audit evidence, starting a
+  runner or executor, retrying executors, continuing the loop, starting or
+  closing an epoch, executing Git commands, calling GitHub, creating branches,
+  committing, pushing, creating PRs, merging, releasing, publishing packages,
+  assigning roles, or scheduling agents;
 - no command runs a continuous governed loop tick end to end or retries failed
   real executor invocations.
 
@@ -855,7 +861,10 @@ Current evidence:
   `controlled-loop-run-manifest-plan` can summarize the saved runner-adjacent
   chain, map the terminal outcome to a bounded next operator action, and bind
   the evidence-file manifest plus controlled command stages without appending
-  audit, retrying executors, continuing the loop, or writing Git/GitHub state;
+  audit evidence, starting a runner or executor, retrying executors, continuing
+  the loop, starting or closing an epoch, executing Git commands, calling
+  GitHub, creating branches, committing, pushing, creating PRs, merging,
+  releasing, publishing packages, assigning roles, or scheduling agents;
 - no branch creation, commit, push, merge, release, package publication,
   continuous reconciliation, automatic response loop execution, paid review,
   label editing, role assignment, or agent scheduling exists.

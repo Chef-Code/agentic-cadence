@@ -42,9 +42,14 @@ Summary:
 - The packet rechecks outcome-plan file/checksum anchors, records the evidence
   file manifest, and lists the controlled one-cycle command stages for operator
   review before any future runner consumes them.
+- Review follow-up hardened the manifest against stale run-summary checksums,
+  stale copied outcome-plan fields, and mismatched controlled-tick side-effect
+  vocabulary.
 - Completed manifests append no audit evidence; the command does not start a
-  runner or executor, retry an executor, continue a loop, write Git/GitHub
-  state, merge, release, publish packages, assign roles, or schedule agents.
+  runner or executor, retry an executor, continue a loop, start or close an
+  epoch, execute Git commands, call GitHub, create branches, commit, push,
+  create PRs, merge, release, publish packages, assign roles, or schedule
+  agents.
 
 Completed slices:
 - Task 45: read-only controlled loop run manifest planning.
@@ -57,12 +62,12 @@ Confidence change:
   loop, autonomously retry executors, or operate GitHub.
 
 Evidence:
-- Focused controlled run-summary/outcome/manifest unittest set (13 tests).
+- Focused controlled run-summary/outcome/manifest unittest set (15 tests).
 - `python -m ruff check codex_cadence\cli.py tests\test_cadence.py`
 - `python scripts\validate_protocol.py`
 - `python -m compileall scripts codex_cadence transmission_control tests`
 - `git diff --check`
-- Full `python -m unittest tests.test_cadence -v` suite: 381 tests, 3
+- Full `python -m unittest tests.test_cadence -v` suite: 383 tests, 3
   expected Windows symlink skips.
 
 New risks or blockers:

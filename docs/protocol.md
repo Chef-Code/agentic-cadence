@@ -1596,7 +1596,11 @@ The command verifies that the summary, closeout, tick, and outcome plan are
 completed and side-effect-free as saved planner evidence. It rechecks the
 outcome-plan checksums and file anchors for the supplied run summary,
 controlled closeout, and controlled tick, and rechecks the run-summary
-checksums for the controlled closeout and controlled tick. When valid, it
+checksums for the controlled closeout and controlled tick. It also recomputes
+the outcome-plan source decision, recommended next action, operator
+confirmation requirement, task, epoch, and optional Git/PR plan from the
+supplied terminal evidence instead of trusting copied outcome-plan fields.
+When valid, it
 recommends `review_controlled_run_manifest` with operator confirmation
 required. Stale terminal or outcome evidence recommends
 `refresh_controlled_loop_outcome_plan`.
@@ -1620,7 +1624,13 @@ include `controlled_run_summary_evidence_missing`,
 `controlled_outcome_plan_controlled_closeout_file_mismatch`,
 `controlled_outcome_plan_controlled_loop_tick_file_mismatch`,
 `controlled_run_manifest_controlled_closeout_checksum_mismatch`, and
-`controlled_run_manifest_controlled_loop_tick_checksum_mismatch`.
+`controlled_run_manifest_controlled_loop_tick_checksum_mismatch`,
+`controlled_outcome_plan_source_decision_mismatch`,
+`controlled_outcome_plan_recommended_next_action_mismatch`,
+`controlled_outcome_plan_operator_confirmation_mismatch`,
+`controlled_outcome_plan_task_mismatch`,
+`controlled_outcome_plan_epoch_mismatch`, and
+`controlled_outcome_plan_git_pr_plan_mismatch`.
 
 ## Git/PR Dry-Run Planning
 

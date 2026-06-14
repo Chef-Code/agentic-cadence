@@ -75,7 +75,10 @@ saved runner-adjacent controlled packet chain without continuing the loop, and
 controlled run evidence into the next bounded operator action without starting
 a continuation or writing Git/GitHub state, and
 `controlled-loop-run-manifest-plan` evidence that binds the saved one-cycle
-controlled run evidence files and command stages without starting a runner.
+controlled run evidence files and command stages without appending audit
+evidence, starting a runner or executor, retrying executors, continuing the
+loop, writing Git/GitHub state, merging, releasing, publishing packages,
+assigning roles, or scheduling agents.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -572,8 +575,10 @@ agentic-cadence --root examples/first-run/work/runtime controlled-loop-run-manif
 
 Completed manifests recommend `review_controlled_run_manifest`; stale outcome
 evidence recommends `refresh_controlled_loop_outcome_plan`. The command appends
-no audit evidence, starts no runner or executor, retries nothing, continues no
-loop, and writes no Git/GitHub state.
+no audit evidence and does not start a runner or executor, retry an executor,
+continue a loop, start or close an epoch, execute Git commands, call GitHub,
+create branches, commit, push, create PRs, merge, release, publish packages,
+assign roles, or schedule agents.
 
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor
@@ -974,8 +979,9 @@ completed terminal controlled run. It composes saved
 `controlled-loop-tick.v1`, and `controlled-loop-outcome-plan.v1` evidence into
 `controlled-loop-run-manifest-plan.v1`, rechecks outcome-plan file/checksum
 anchors, and records the evidence-file manifest plus controlled command-stage
-sequence for operator review. It grants no runner, executor, loop-continuation,
-Git, GitHub, or merge authority.
+sequence for operator review. It grants no audit append, runner, executor,
+loop-continuation, epoch, Git, GitHub, branch, commit, push, PR, merge, release,
+package publication, role-assignment, or agent-scheduling authority.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can

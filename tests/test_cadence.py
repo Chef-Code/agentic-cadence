@@ -7589,10 +7589,20 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["manifest_status"], "completed")
             self.assertEqual(output["recommended_next_action"], "review_controlled_run_manifest")
             self.assertTrue(output["operator_confirmation_required"])
-            self.assertFalse(output["runner_started"])
-            self.assertFalse(output["executor_started"])
-            self.assertFalse(output["github_write_started"])
-            self.assertFalse(output["loop_continuation_started"])
+            for flag in [
+                "runner_started",
+                "executor_started",
+                "epoch_started",
+                "pr_action_started",
+                "github_write_started",
+                "merge_started",
+                "release_started",
+                "package_publication_started",
+                "role_assignment_started",
+                "agent_scheduling_started",
+                "loop_continuation_started",
+            ]:
+                self.assertFalse(output[flag], flag)
             self.assertEqual(output["side_effects"], [])
             self.assertEqual(output["blockers"], [])
             self.assertEqual(output["next_controlled_action"], chain["controlled_outcome_plan"]["recommended_next_action"])
@@ -7629,6 +7639,10 @@ class CadenceCliTests(unittest.TestCase):
                     "controlled-loop-outcome-plan",
                 ],
             )
+            self.assertEqual(
+                output["run_manifest"]["command_sequence"][10]["allowed_side_effects_when_executed"],
+                ["controlled_loop_tick_audit_appended"],
+            )
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(
                 {
@@ -7639,6 +7653,57 @@ class CadenceCliTests(unittest.TestCase):
                 },
                 files_before,
             )
+
+    def test_controlled_loop_run_manifest_plan_blocks_summary_drift_as_stale_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_run_manifest_plan_chain(tmp, repo)
+            summary = chain["controlled_run_summary"]
+            summary["checksums"]["controlled_closeout"] = "sha256:" + "0" * 64
+            chain["controlled_run_summary_path"].write_text(json.dumps(summary), encoding="utf-8")
+            chain["controlled_outcome_plan"]["checksums"]["controlled_run_summary"] = checksum_json(summary)
+            chain["controlled_outcome_plan_path"].write_text(
+                json.dumps(chain["controlled_outcome_plan"]),
+                encoding="utf-8",
+            )
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_run_manifest_plan_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "refresh_controlled_loop_outcome_plan")
+            self.assertIn(
+                "controlled_run_manifest_controlled_closeout_checksum_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(output["checksums"]["controlled_closeout"], checksum_json(chain["controlled_closeout"]))
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_run_manifest_plan_blocks_tampered_outcome_action(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_run_manifest_plan_chain(tmp, repo)
+            chain["controlled_outcome_plan"]["recommended_next_action"] = "stop_active_loop"
+            chain["controlled_outcome_plan_path"].write_text(
+                json.dumps(chain["controlled_outcome_plan"]),
+                encoding="utf-8",
+            )
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_run_manifest_plan_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "refresh_controlled_loop_outcome_plan")
+            self.assertEqual(output["next_controlled_action"], "run_git_pr_plan")
+            self.assertIn(
+                "controlled_outcome_plan_recommended_next_action_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
 
     def test_controlled_loop_run_manifest_plan_blocks_stale_outcome_plan(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

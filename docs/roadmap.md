@@ -196,9 +196,12 @@ command-policy and active-stop controls. It includes:
   controlled run outcome to the next bounded operator action without appending
   audit, retrying executors, continuing the loop, or writing Git/GitHub state;
 - `controlled-loop-run-manifest-plan` packets that bind the saved terminal
-  controlled run evidence files and controlled one-cycle command stages without
-  appending audit, retrying executors, continuing the loop, or writing
-  Git/GitHub state;
+  controlled run evidence files and controlled one-cycle command stages
+  without appending audit evidence, starting a runner or executor, retrying
+  executors, continuing the loop, starting or closing an epoch, executing Git
+  commands, calling GitHub, creating branches, committing, pushing, creating
+  PRs, merging, releasing, publishing packages, assigning roles, or scheduling
+  agents;
 - controlled `invoke-real-executor` local process-start records,
   `closeout-executor-result --real-invocation-file` binding, and
   `controlled-loop-tick` packets that compose saved local
@@ -505,7 +508,11 @@ controlled closeout, and controlled tick into a read-only terminal next-action
 packet without appending audit, retrying executors, continuing the loop, or
 writing Git/GitHub state. `controlled-loop-run-manifest-plan` can then bind the
 saved terminal evidence files and controlled command-stage sequence into a
-reviewable manifest without starting a runner.
+reviewable manifest without appending audit evidence, starting a runner or
+executor, retrying executors, continuing the loop, starting or closing an
+epoch, executing Git commands, calling GitHub, creating branches, committing,
+pushing, creating PRs, merging, releasing, publishing packages, assigning
+roles, or scheduling agents.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,
