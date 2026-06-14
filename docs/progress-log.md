@@ -59,8 +59,8 @@ Confidence change:
   autonomously retry executors, or operate GitHub.
 
 Evidence:
-- Focused `controlled-loop-run-summary` unittest set (2 tests).
-- `python -m unittest tests.test_cadence -v` (370 tests, 3 expected Windows
+- Focused `controlled-loop-run-summary` unittest set (3 tests).
+- `python -m unittest tests.test_cadence -v` (371 tests, 3 expected Windows
   symlink skips)
 - `python -m compileall scripts codex_cadence transmission_control tests`
 - `python scripts\validate_protocol.py`

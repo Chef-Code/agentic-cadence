@@ -1463,10 +1463,17 @@ single-tick composition. Stable blockers include
 `controlled_closeout_evidence_missing`, `controlled_loop_tick_evidence_missing`,
 `controlled_run_packet_mismatch`, `loop_run_plan_not_ready`,
 `controlled_run_task_mismatch`, `controlled_run_epoch_mismatch`,
+`controlled_tick_loop_tick_checksum_mismatch`,
+`controlled_tick_task_checksum_mismatch`,
+`controlled_tick_execution_start_checksum_mismatch`,
+`controlled_tick_readiness_checksum_mismatch`,
+`controlled_tick_invocation_plan_checksum_mismatch`,
+`controlled_tick_result_checksum_mismatch`,
 `controlled_tick_closeout_checksum_mismatch`,
 `controlled_tick_real_invocation_checksum_mismatch`, and step-specific
-`*_checksum_mismatch`, `*_file_mismatch`, `*_not_completed`, and
-`*_unexpected_next_action` codes.
+`*_checksum_mismatch`, `*_file_mismatch`, `*_not_completed`,
+`*_unexpected_next_action`, `*_unexpected_blockers`,
+`*_unexpected_operator_confirmation`, and `*_unexpected_side_effects` codes.
 
 ## Git/PR Dry-Run Planning
 

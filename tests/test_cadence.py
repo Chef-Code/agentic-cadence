@@ -6722,6 +6722,19 @@ class CadenceCliTests(unittest.TestCase):
             str(values["controlled_loop_tick_file"]),
         )
 
+    def controlled_loop_run_summary_input_file_contents(self, chain):
+        return {
+            name: Path(path).read_text(encoding="utf-8")
+            for name, path in {
+                "loop_run_plan": chain["loop_run_plan_path"],
+                "controlled_start": chain["controlled_start_path"],
+                "controlled_plan": chain["controlled_plan_path"],
+                "controlled_real": chain["controlled_real_path"],
+                "controlled_closeout": chain["controlled_closeout_path"],
+                "controlled_tick": chain["controlled_tick_path"],
+            }.items()
+        }
+
     def controlled_loop_tick_args(self, tmp, chain, **overrides):
         values = {
             "root": Path(tmp),
@@ -6993,7 +7006,8 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["controlled_run_status"], "completed")
             self.assertEqual(output["recommended_next_action"], "review_controlled_loop_run")
             self.assertFalse(output["runner_started"])
-            self.assertTrue(output["executor_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertTrue(output["summarized_controlled_tick"]["executor_started"])
             self.assertFalse(output["loop_continuation_started"])
             self.assertFalse(output["github_write_started"])
             self.assertEqual(output["side_effects"], [])
@@ -7036,6 +7050,7 @@ class CadenceCliTests(unittest.TestCase):
             controlled_plan["target_checksum"] = "sha256:" + "0" * 64
             chain["controlled_plan_path"].write_text(json.dumps(controlled_plan), encoding="utf-8")
             audit_before = audit_records(tmp)
+            files_before = self.controlled_loop_run_summary_input_file_contents(chain)
 
             result, output = self.run_controlled_loop_run_summary_cli(tmp, chain)
 
@@ -7050,6 +7065,127 @@ class CadenceCliTests(unittest.TestCase):
             blocked_step = next(step for step in output["steps"] if step["name"] == "controlled_invocation_plan")
             self.assertEqual(blocked_step["status"], "blocked")
             self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(self.controlled_loop_run_summary_input_file_contents(chain), files_before)
+
+    def test_controlled_loop_run_summary_reports_stable_blocker_classes(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_run_summary_chain(tmp, repo)
+            originals = self.controlled_loop_run_summary_input_file_contents(chain)
+
+            def run_mutated_case(path_key, mutate_packet, expected_code):
+                path = chain[path_key]
+                packet = json.loads(Path(path).read_text(encoding="utf-8"))
+                mutate_packet(packet)
+                Path(path).write_text(json.dumps(packet), encoding="utf-8")
+                audit_before = audit_records(tmp)
+                files_before = self.controlled_loop_run_summary_input_file_contents(chain)
+
+                result, output = self.run_controlled_loop_run_summary_cli(tmp, chain)
+
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIsNotNone(output)
+                self.assertFalse(output["valid"])
+                self.assertEqual(output["recommended_next_action"], "inspect_controlled_loop_run_blockers")
+                self.assertEqual(output["side_effects"], [])
+                self.assertNotIn("audit_record", output)
+                self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                self.assertEqual(audit_records(tmp), audit_before)
+                self.assertEqual(self.controlled_loop_run_summary_input_file_contents(chain), files_before)
+                for name, content in originals.items():
+                    Path(
+                        {
+                            "loop_run_plan": chain["loop_run_plan_path"],
+                            "controlled_start": chain["controlled_start_path"],
+                            "controlled_plan": chain["controlled_plan_path"],
+                            "controlled_real": chain["controlled_real_path"],
+                            "controlled_closeout": chain["controlled_closeout_path"],
+                            "controlled_tick": chain["controlled_tick_path"],
+                        }[name]
+                    ).write_text(content, encoding="utf-8")
+
+            cases = [
+                (
+                    "packet mismatch",
+                    "controlled_real_path",
+                    lambda packet: packet.update({"schema_version": "not-controlled-real-invocation.v1"}),
+                    "controlled_run_packet_mismatch",
+                ),
+                (
+                    "not completed",
+                    "controlled_real_path",
+                    lambda packet: packet.update({"controlled_real_invocation_status": "blocked"}),
+                    "controlled_real_invocation_not_completed",
+                ),
+                (
+                    "unexpected next action",
+                    "controlled_closeout_path",
+                    lambda packet: packet.update({"recommended_next_action": "unexpected"}),
+                    "controlled_closeout_unexpected_next_action",
+                ),
+                (
+                    "missing file anchor",
+                    "controlled_plan_path",
+                    lambda packet: packet["files"].pop("controlled_loop_start"),
+                    "controlled_loop_start_file_mismatch",
+                ),
+                (
+                    "missing task anchor",
+                    "controlled_plan_path",
+                    lambda packet: packet.pop("task_id", None),
+                    "controlled_run_task_mismatch",
+                ),
+                (
+                    "missing epoch anchor",
+                    "controlled_real_path",
+                    lambda packet: packet.pop("epoch_id", None),
+                    "controlled_run_epoch_mismatch",
+                ),
+                (
+                    "controlled tick task checksum",
+                    "controlled_tick_path",
+                    lambda packet: packet["task"].update({"checksum": "sha256:" + "0" * 64}),
+                    "controlled_tick_task_checksum_mismatch",
+                ),
+                (
+                    "controlled tick invocation-plan checksum",
+                    "controlled_tick_path",
+                    lambda packet: packet["checksums"].update({"invocation_plan": "sha256:" + "1" * 64}),
+                    "controlled_tick_invocation_plan_checksum_mismatch",
+                ),
+                (
+                    "unexpected completed blockers",
+                    "controlled_closeout_path",
+                    lambda packet: packet.update({"blockers": [{"code": "unexpected_blocker"}]}),
+                    "controlled_closeout_unexpected_blockers",
+                ),
+                (
+                    "unexpected side effects",
+                    "controlled_start_path",
+                    lambda packet: packet.update({"side_effects": ["unexpected"]}),
+                    "controlled_loop_start_unexpected_side_effects",
+                ),
+            ]
+            for label, path_key, mutate_packet, expected_code in cases:
+                with self.subTest(label):
+                    run_mutated_case(path_key, mutate_packet, expected_code)
+
+            audit_before = audit_records(tmp)
+            files_before = self.controlled_loop_run_summary_input_file_contents(chain)
+            result, output = self.run_controlled_loop_run_summary_cli(
+                tmp,
+                chain,
+                controlled_closeout_file=Path(tmp) / "missing-controlled-closeout.json",
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertIn("controlled_closeout_evidence_missing", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(self.controlled_loop_run_summary_input_file_contents(chain), files_before)
 
     def test_controlled_loop_tick_accepts_existing_real_invocation_closeout_chain(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

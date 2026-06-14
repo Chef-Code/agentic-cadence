@@ -6001,6 +6001,10 @@ def controlled_loop_run_summary_file_matches(context_file: Path, value: Any, exp
     return _closeout_paths_match(controlled_tick_context_path(context_file, value), expected_path)
 
 
+def controlled_loop_run_summary_non_empty_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
 def controlled_loop_run_summary_command(args: argparse.Namespace) -> int:
     packet_inputs = {
         "loop_run_plan": Path(args.loop_run_plan_file),
@@ -6065,6 +6069,13 @@ def controlled_loop_run_summary_command(args: argparse.Namespace) -> int:
             "controlled_closeout": ("controlled_closeout_status", "controlled_loop_tick"),
             "controlled_loop_tick": ("controlled_tick_status", "controlled_tick_complete"),
         }
+        expected_side_effects = {
+            "controlled_loop_start": [],
+            "controlled_invocation_plan": [],
+            "controlled_real_invocation": [],
+            "controlled_closeout": [],
+            "controlled_loop_tick": ["controlled_loop_tick_audit_appended"],
+        }
         if loop_run_plan.get("recommended_next_action") != "request_operator_approval":
             controlled_loop_run_summary_add_blocker(
                 blockers,
@@ -6095,6 +6106,34 @@ def controlled_loop_run_summary_command(args: argparse.Namespace) -> int:
                     f"{name.replace('_', ' ')} recommended next action is invalid",
                     expected=expected_action,
                     actual=packet.get("recommended_next_action"),
+                )
+            if packet.get("blockers") != []:
+                controlled_loop_run_summary_add_blocker(
+                    blockers,
+                    step_blockers,
+                    name,
+                    f"{name}_unexpected_blockers",
+                    f"{name.replace('_', ' ')} must not carry blockers when completed",
+                    actual=packet.get("blockers"),
+                )
+            if packet.get("operator_confirmation_required") is not False:
+                controlled_loop_run_summary_add_blocker(
+                    blockers,
+                    step_blockers,
+                    name,
+                    f"{name}_unexpected_operator_confirmation",
+                    f"{name.replace('_', ' ')} must not require operator confirmation when completed",
+                    actual=packet.get("operator_confirmation_required"),
+                )
+            if packet.get("side_effects") != expected_side_effects[name]:
+                controlled_loop_run_summary_add_blocker(
+                    blockers,
+                    step_blockers,
+                    name,
+                    f"{name}_unexpected_side_effects",
+                    f"{name.replace('_', ' ')} side effects are invalid for completed evidence",
+                    expected=expected_side_effects[name],
+                    actual=packet.get("side_effects"),
                 )
 
         expected_links = [
@@ -6147,11 +6186,21 @@ def controlled_loop_run_summary_command(args: argparse.Namespace) -> int:
                     actual=packet.get(checksum_field),
                 )
             files = packet.get("files") if isinstance(packet.get("files"), dict) else {}
-            if file_key in files and not controlled_loop_run_summary_file_matches(packet_inputs[step], files.get(file_key), expected_path):
+            if file_key not in files:
                 controlled_loop_run_summary_add_blocker(
                     blockers,
                     step_blockers,
-                    file_key,
+                    step,
+                    f"{code_prefix}_file_mismatch",
+                    f"{step.replace('_', ' ')} {file_key} file anchor is missing",
+                    expected=str(expected_path),
+                    actual=packet.get("files"),
+                )
+            elif not controlled_loop_run_summary_file_matches(packet_inputs[step], files.get(file_key), expected_path):
+                controlled_loop_run_summary_add_blocker(
+                    blockers,
+                    step_blockers,
+                    step,
                     f"{code_prefix}_file_mismatch",
                     f"{step.replace('_', ' ')} {file_key} file does not match supplied evidence path",
                     expected=str(expected_path),
@@ -6159,6 +6208,45 @@ def controlled_loop_run_summary_command(args: argparse.Namespace) -> int:
                 )
 
         controlled_tick_checksums = controlled_tick.get("checksums") if isinstance(controlled_tick.get("checksums"), dict) else {}
+        controlled_tick_expected_checksums = {
+            "loop_tick": loop_run_plan.get("loop_tick_checksum"),
+            "task": loop_run_plan.get("executor_task_checksum"),
+            "execution_start": controlled_start.get("execution_start_checksum"),
+            "readiness": controlled_plan.get("readiness_checksum"),
+            "invocation_plan": controlled_plan.get("invocation_plan_checksum"),
+            "result": controlled_real.get("result_evidence_checksum"),
+        }
+        for checksum_name, expected_checksum in controlled_tick_expected_checksums.items():
+            if not controlled_loop_run_summary_non_empty_string(expected_checksum):
+                controlled_loop_run_summary_add_blocker(
+                    blockers,
+                    step_blockers,
+                    "controlled_loop_tick",
+                    f"controlled_tick_{checksum_name}_checksum_mismatch",
+                    f"controlled loop tick expected {checksum_name} checksum is missing from upstream evidence",
+                    actual=expected_checksum,
+                )
+            elif controlled_tick_checksums.get(checksum_name) != expected_checksum:
+                controlled_loop_run_summary_add_blocker(
+                    blockers,
+                    step_blockers,
+                    "controlled_loop_tick",
+                    f"controlled_tick_{checksum_name}_checksum_mismatch",
+                    f"controlled loop tick {checksum_name} checksum does not match upstream evidence",
+                    expected=expected_checksum,
+                    actual=controlled_tick_checksums.get(checksum_name),
+                )
+        controlled_tick_task = controlled_tick.get("task") if isinstance(controlled_tick.get("task"), dict) else {}
+        if controlled_tick_task.get("checksum") != loop_run_plan.get("executor_task_checksum"):
+            controlled_loop_run_summary_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_tick_task_checksum_mismatch",
+                "controlled loop tick task checksum does not match loop-run-plan executor task checksum",
+                expected=loop_run_plan.get("executor_task_checksum"),
+                actual=controlled_tick_task.get("checksum"),
+            )
         if controlled_tick_checksums.get("closeout") != controlled_closeout.get("closeout_checksum"):
             controlled_loop_run_summary_add_blocker(
                 blockers,
@@ -6197,7 +6285,21 @@ def controlled_loop_run_summary_command(args: argparse.Namespace) -> int:
             "controlled_closeout": controlled_closeout.get("task_id"),
             "controlled_tick": (controlled_tick.get("task") if isinstance(controlled_tick.get("task"), dict) else {}).get("id"),
         }
-        if len({task_id for task_id in task_ids.values() if task_id is not None}) > 1:
+        missing_task_ids = {
+            name: task_id
+            for name, task_id in task_ids.items()
+            if not controlled_loop_run_summary_non_empty_string(task_id)
+        }
+        if missing_task_ids:
+            controlled_loop_run_summary_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_run_task_mismatch",
+                "controlled run task ids are required",
+                task_ids=task_ids,
+            )
+        elif len(set(task_ids.values())) > 1:
             controlled_loop_run_summary_add_blocker(
                 blockers,
                 step_blockers,
@@ -6213,7 +6315,21 @@ def controlled_loop_run_summary_command(args: argparse.Namespace) -> int:
             "controlled_closeout": controlled_closeout.get("epoch_id"),
             "controlled_tick": (controlled_tick.get("epoch") if isinstance(controlled_tick.get("epoch"), dict) else {}).get("id"),
         }
-        if len({epoch_id for epoch_id in epoch_ids.values() if epoch_id is not None}) > 1:
+        missing_epoch_ids = {
+            name: epoch_id
+            for name, epoch_id in epoch_ids.items()
+            if not controlled_loop_run_summary_non_empty_string(epoch_id)
+        }
+        if missing_epoch_ids:
+            controlled_loop_run_summary_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_run_epoch_mismatch",
+                "controlled run epoch ids are required",
+                epoch_ids=epoch_ids,
+            )
+        elif len(set(epoch_ids.values())) > 1:
             controlled_loop_run_summary_add_blocker(
                 blockers,
                 step_blockers,
@@ -6241,7 +6357,7 @@ def controlled_loop_run_summary_command(args: argparse.Namespace) -> int:
         "controlled_run_status": "completed" if valid else "blocked",
         "reason": "controlled loop run evidence chain matches" if valid else "controlled loop run evidence is incomplete or mismatched",
         "runner_started": False,
-        "executor_started": controlled_tick.get("executor_started") is True,
+        "executor_started": False,
         "epoch_started": False,
         "pr_action_started": False,
         "github_write_started": False,
@@ -6265,6 +6381,10 @@ def controlled_loop_run_summary_command(args: argparse.Namespace) -> int:
             "epoch_status": epoch.get("epoch_status") or controlled_closeout.get("epoch_status"),
         },
         "real_invocation": real_invocation,
+        "summarized_controlled_tick": {
+            "executor_started": controlled_tick.get("executor_started") is True,
+            "side_effects": controlled_tick.get("side_effects") if isinstance(controlled_tick.get("side_effects"), list) else [],
+        },
         "next_decision": controlled_tick.get("next_decision") if isinstance(controlled_tick.get("next_decision"), dict) else {},
         "files": {name: str(path) for name, path in packet_inputs.items()},
         "checksums": checksums,
