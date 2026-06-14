@@ -21,7 +21,13 @@ from codex_cadence.executor_contract import (
 )
 from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.model import estimate_task
-from codex_cadence.policy_audit import append_audit_record, checksum_json, operator_approval_verification_audit_record
+from codex_cadence.policy_audit import (
+    append_audit_record,
+    checksum_json,
+    executor_epoch_closeout_audit_record,
+    operator_approval_verification_audit_record,
+    real_executor_invocation_audit_record,
+)
 from codex_cadence.store import default_root, exclusive_lock, lock_path, snapshot_path as persisted_snapshot_path, utc_now
 
 
@@ -4397,6 +4403,76 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(self.controlled_loop_closeout_supplied_file_texts(inputs), files_before)
 
+    def test_controlled_loop_closeout_accepts_runtime_relative_invocation_paths_saved_elsewhere(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            evidence_dir = Path(tmp) / "evidence"
+            evidence_dir.mkdir()
+            relative_invocation_path = str(Path("real-executor-invocations") / inputs["invocation_path"].name)
+            controlled = json.loads(inputs["controlled_real_invocation_path"].read_text(encoding="utf-8"))
+            closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
+            controlled["files"]["real_invocation"] = relative_invocation_path
+            closeout["real_invocation"]["path"] = relative_invocation_path
+            task_packet = json.loads(inputs["task_path"].read_text(encoding="utf-8"))
+            result_evidence = json.loads(inputs["result_path"].read_text(encoding="utf-8"))
+            closeout_without_audit = {key: value for key, value in closeout.items() if key != "audit_record"}
+            closeout["audit_record"] = append_audit_record(
+                Path(tmp),
+                executor_epoch_closeout_audit_record(closeout_without_audit, task_packet, result_evidence),
+            )
+            controlled_path = evidence_dir / "controlled-loop-real-invocation.json"
+            closeout_path = evidence_dir / "executor-closeout.json"
+            controlled_path.write_text(json.dumps(controlled), encoding="utf-8")
+            closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+            inputs = {
+                **inputs,
+                "controlled_real_invocation_path": controlled_path,
+                "closeout_path": closeout_path,
+            }
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["files"]["real_invocation"], str(inputs["invocation_path"]))
+            self.assertEqual(output["recommended_next_action"], "controlled_loop_tick")
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_accepts_closeout_relative_audit_paths_saved_elsewhere(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            evidence_dir = Path(tmp) / "evidence"
+            evidence_dir.mkdir()
+            closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
+            relative_audit_path = os.path.relpath(Path(tmp) / "audit" / "events.jsonl", evidence_dir)
+            closeout["real_invocation"]["audit_record"]["path"] = relative_audit_path
+            task_packet = json.loads(inputs["task_path"].read_text(encoding="utf-8"))
+            result_evidence = json.loads(inputs["result_path"].read_text(encoding="utf-8"))
+            closeout_without_audit = {key: value for key, value in closeout.items() if key != "audit_record"}
+            closeout["audit_record"] = append_audit_record(
+                Path(tmp),
+                executor_epoch_closeout_audit_record(closeout_without_audit, task_packet, result_evidence),
+            )
+            closeout["audit_record"]["path"] = relative_audit_path
+            closeout_path = evidence_dir / "executor-closeout.json"
+            closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+            inputs = {**inputs, "closeout_path": closeout_path}
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "controlled_loop_tick")
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+
     def test_controlled_loop_closeout_blocks_mismatched_pre_closeout_invocation(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -4481,6 +4557,44 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["valid"])
             self.assertEqual(output["recommended_next_action"], "refresh_controlled_loop_real_invocation")
             self.assertIn("controlled_real_invocation_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_blocks_updated_invocation_immutable_anchor_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
+            updated_invocation = json.loads(inputs["invocation_path"].read_text(encoding="utf-8"))
+            updated_invocation["plan_checksum"] = "sha256:" + "0" * 64
+            inputs["invocation_path"].write_text(json.dumps(updated_invocation), encoding="utf-8")
+
+            closeout["real_invocation"]["after_checksum"] = checksum_json(updated_invocation)
+            closeout["real_invocation"]["audit_record"] = append_audit_record(
+                Path(tmp),
+                real_executor_invocation_audit_record(
+                    updated_invocation,
+                    invocation_record_file=str(inputs["invocation_path"]),
+                    action="update_real_executor_invocation_closeout",
+                    reason="real executor invocation closeout status updated",
+                ),
+            )
+            task_packet = json.loads(inputs["task_path"].read_text(encoding="utf-8"))
+            result_evidence = json.loads(inputs["result_path"].read_text(encoding="utf-8"))
+            closeout_without_audit = {key: value for key, value in closeout.items() if key != "audit_record"}
+            closeout["audit_record"] = append_audit_record(
+                Path(tmp),
+                executor_epoch_closeout_audit_record(closeout_without_audit, task_packet, result_evidence),
+            )
+            inputs["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "inspect_closeout_evidence")
+            self.assertIn("real_invocation_closeout_mismatch", {blocker["code"] for blocker in output["blockers"]})
             self.assertEqual(audit_records(tmp), audit_before)
 
     def test_controlled_loop_closeout_blocks_tampered_closeout_audit_reference(self):

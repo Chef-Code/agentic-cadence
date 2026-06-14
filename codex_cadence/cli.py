@@ -4552,6 +4552,24 @@ def controlled_loop_closeout_context_path(context_file: Path, value: Any) -> Any
     return path
 
 
+def controlled_loop_closeout_runtime_anchor_path(
+    root: Path,
+    context_file: Path,
+    value: Any,
+    canonical_path: Path | None,
+) -> Any:
+    context_path = controlled_loop_closeout_context_path(context_file, value)
+    if canonical_path is None or not isinstance(value, str) or not value.strip():
+        return context_path
+    raw_path = Path(value).expanduser()
+    if raw_path.is_absolute():
+        return context_path
+    root_relative_path = root / raw_path
+    if _closeout_paths_match(root_relative_path, canonical_path):
+        return root_relative_path
+    return context_path
+
+
 def controlled_loop_closeout_false_flag_blockers(
     packet: dict[str, Any],
     *,
@@ -4734,6 +4752,7 @@ def controlled_loop_closeout_controlled_graph_blockers(
 
 def controlled_loop_closeout_audit_line_blockers(
     root: Path,
+    context_file: Path,
     audit_ref: Any,
     *,
     expected_event: str,
@@ -4746,7 +4765,9 @@ def controlled_loop_closeout_audit_line_blockers(
     audit_path_value = audit_ref.get("path")
     if not controlled_loop_real_invocation_non_empty_string(audit_path_value):
         return [controlled_loop_closeout_blocker(code, f"{label} audit reference path is required")]
-    audit_path = Path(audit_path_value).expanduser()
+    audit_path = controlled_loop_closeout_context_path(context_file, audit_path_value)
+    if not isinstance(audit_path, Path):
+        return [controlled_loop_closeout_blocker(code, f"{label} audit reference path is required")]
     expected_audit_path = audit_events_path(root)
     blockers: list[dict[str, Any]] = []
     if not _closeout_paths_match(audit_path, expected_audit_path):
@@ -4959,10 +4980,6 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
         controlled_files = controlled.get("files") if isinstance(controlled.get("files"), dict) else {}
         controlled_invocation_path = controlled_loop_closeout_context_path(controlled_path, controlled_files.get("real_invocation"))
         closeout_invocation_path = controlled_loop_closeout_context_path(closeout_path, closeout_invocation.get("path"))
-        invocation_path_matches = isinstance(controlled_invocation_path, Path) and _closeout_paths_match(
-            closeout_invocation_path,
-            controlled_invocation_path,
-        )
         if not isinstance(controlled_invocation_path, Path):
             blockers.append(
                 controlled_loop_closeout_blocker(
@@ -4971,21 +4988,11 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
                     actual=controlled_files.get("real_invocation"),
                 )
             )
-        elif not invocation_path_matches:
-            blockers.append(
-                controlled_loop_closeout_blocker(
-                    "closeout_invocation_mismatch",
-                    "executor closeout real invocation path does not match controlled real invocation input",
-                    expected=str(controlled_invocation_path),
-                    actual=closeout_invocation.get("path"),
-                )
-            )
+        invocation_path_matches = False
 
         if pre_invocation is not None:
             pre_record_path = controlled_tick_invocation_path(pre_invocation, pre_invocation.get("record_file"))
-            pre_record_path_matches = isinstance(pre_record_path, Path) and isinstance(
-                controlled_invocation_path, Path
-            ) and _closeout_paths_match(controlled_invocation_path, pre_record_path)
+            pre_record_path_matches = False
             if not isinstance(pre_record_path, Path):
                 blockers.append(
                     controlled_loop_closeout_blocker(
@@ -4994,17 +5001,9 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
                         actual=pre_invocation.get("record_file"),
                     )
                 )
-            elif not pre_record_path_matches:
-                blockers.append(
-                    controlled_loop_closeout_blocker(
-                        "controlled_real_invocation_invalid",
-                        "controlled real invocation file anchor does not match embedded real invocation record_file",
-                        expected=str(pre_record_path),
-                        actual=str(controlled_invocation_path) if isinstance(controlled_invocation_path, Path) else controlled_files.get("real_invocation"),
-                    )
-                )
             invocation_id = pre_invocation.get("invocation_id")
             canonical_path_matches = False
+            canonical_invocation_path: Path | None = None
             if not controlled_loop_real_invocation_non_empty_string(invocation_id):
                 blockers.append(
                     controlled_loop_closeout_blocker(
@@ -5026,6 +5025,49 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
                         )
                     )
                 else:
+                    controlled_invocation_path = controlled_loop_closeout_runtime_anchor_path(
+                        args.root,
+                        controlled_path,
+                        controlled_files.get("real_invocation"),
+                        canonical_invocation_path,
+                    )
+                    closeout_invocation_path = controlled_loop_closeout_runtime_anchor_path(
+                        args.root,
+                        closeout_path,
+                        closeout_invocation.get("path"),
+                        canonical_invocation_path,
+                    )
+                    invocation_path_matches = isinstance(controlled_invocation_path, Path) and _closeout_paths_match(
+                        closeout_invocation_path,
+                        controlled_invocation_path,
+                    )
+                    if isinstance(pre_record_path, Path):
+                        pre_record_path_matches = isinstance(controlled_invocation_path, Path) and _closeout_paths_match(
+                            controlled_invocation_path,
+                            pre_record_path,
+                        )
+                        if not pre_record_path_matches:
+                            blockers.append(
+                                controlled_loop_closeout_blocker(
+                                    "controlled_real_invocation_invalid",
+                                    "controlled real invocation file anchor does not match embedded real invocation record_file",
+                                    expected=str(pre_record_path),
+                                    actual=str(controlled_invocation_path)
+                                    if isinstance(controlled_invocation_path, Path)
+                                    else controlled_files.get("real_invocation"),
+                                )
+                            )
+                    if not invocation_path_matches:
+                        blockers.append(
+                            controlled_loop_closeout_blocker(
+                                "closeout_invocation_mismatch",
+                                "executor closeout real invocation path does not match controlled real invocation input",
+                                expected=str(controlled_invocation_path)
+                                if isinstance(controlled_invocation_path, Path)
+                                else controlled_files.get("real_invocation"),
+                                actual=closeout_invocation.get("path"),
+                            )
+                        )
                     canonical_path_matches = isinstance(controlled_invocation_path, Path) and _closeout_paths_match(
                         controlled_invocation_path,
                         canonical_invocation_path,
@@ -5167,6 +5209,38 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
                                 actual=updated_invocation.get(field),
                             )
                         )
+                closeout_rewritten_fields = {
+                    "closeout_status",
+                    "epoch_id",
+                    "epoch_status",
+                    "epoch_closeout_checksum",
+                    "task_file",
+                    "result_evidence_checksum",
+                    "validation_packet_checksum",
+                    "snapshot_after_checksum",
+                    "updated_at",
+                }
+                for field, expected in pre_invocation.items():
+                    if field in closeout_rewritten_fields:
+                        continue
+                    if updated_invocation.get(field) != expected:
+                        blockers.append(
+                            controlled_loop_closeout_blocker(
+                                "real_invocation_closeout_mismatch",
+                                f"updated real invocation immutable field {field} changed during closeout",
+                                expected=expected,
+                                actual=updated_invocation.get(field),
+                            )
+                        )
+                for field in updated_invocation:
+                    if field not in pre_invocation and field not in closeout_rewritten_fields:
+                        blockers.append(
+                            controlled_loop_closeout_blocker(
+                                "real_invocation_closeout_mismatch",
+                                f"updated real invocation unexpected field {field} appeared during closeout",
+                                actual=updated_invocation.get(field),
+                            )
+                        )
                 if not _closeout_paths_match(
                     controlled_tick_invocation_path(updated_invocation, updated_invocation.get("record_file")),
                     controlled_invocation_path,
@@ -5196,6 +5270,7 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
             blockers.extend(
                 controlled_loop_closeout_audit_line_blockers(
                     args.root,
+                    closeout_path,
                     closeout.get("audit_record"),
                     expected_event="executor_epoch_closeout",
                     code="closeout_audit_mismatch",
@@ -5211,6 +5286,7 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
                 blockers.extend(
                     controlled_loop_closeout_audit_line_blockers(
                         args.root,
+                        closeout_path,
                         closeout_invocation.get("audit_record"),
                         expected_event="real_executor_invocation_record",
                         code="real_invocation_audit_mismatch",
