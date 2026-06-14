@@ -33,6 +33,54 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-14 - Plan controlled loop outcomes
+
+Summary:
+- Added `controlled-loop-outcome-plan` to compose saved
+  `controlled-loop-run-summary.v1`, `controlled-loop-closeout.v1`, and
+  `controlled-loop-tick.v1` packets into one read-only terminal next-action
+  plan.
+- The packet rechecks completed statuses, summary/tick/closeout checksums,
+  file anchors, task id, epoch id, closeout status, source decision, and
+  embedded Git/PR plan readiness before recommending the next bounded operator
+  action.
+- Completed plans append no audit evidence; the command does not start a
+  runner or executor, retry an executor, continue a loop, write Git/GitHub
+  state, merge, release, publish packages, assign roles, or schedule agents.
+
+Completed slices:
+- Task 44: read-only controlled loop outcome planning.
+
+Confidence change:
+- Previous: 38%
+- New: 39%
+- Reason: Cadence can now turn completed terminal controlled run evidence into
+  a bounded next operator action, but it still does not run a continuous loop,
+  autonomously retry executors, or operate GitHub.
+
+Evidence:
+- Focused `controlled-loop-outcome-plan` unittest set (8 tests).
+- Focused `controlled-loop-run-summary` unittest set (3 tests).
+- `python -m unittest tests.test_cadence -v` (379 tests, 3 expected Windows
+  symlink skips)
+- `python -m compileall scripts codex_cadence transmission_control tests`
+- `python scripts\validate_protocol.py`
+- `python -m ruff check codex_cadence\cli.py tests\test_cadence.py`
+- `git diff --check`
+
+New risks or blockers:
+- Continuous loop execution, autonomous executor retry, Git/GitHub writes,
+  review-response execution, merge authority, release publication, role
+  assignment, and agent scheduling remain intentionally out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-14 - Summarize controlled loop runs
 
 Summary:
