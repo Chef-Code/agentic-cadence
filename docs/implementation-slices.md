@@ -2,7 +2,7 @@
 
 Status: living document
 Last updated: 2026-06-14
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only controlled closeout composition, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 28-42 complete in main or active review branches
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 28-43 complete in main or active review branches
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -141,12 +141,17 @@ recommend `invoke_real_executor` without starting or retrying an executor.
 packet with accepted closeout evidence, recheck pre/post invocation checksums,
 terminal closeout status, audit anchors, and epoch closeout checksum, and
 recommend `controlled_loop_tick` without closing epochs, rewriting records, or
+continuing the loop. `controlled-loop-run-summary` can summarize the saved
+`loop-run-plan` through `controlled-loop-tick` packet chain, rechecking
+schemas, completed statuses, file anchors, and checksums before recommending
+`review_controlled_loop_run` on success or
+`inspect_controlled_loop_run_blockers` when blocked, without appending audit or
 continuing the loop.
 Autonomous
 branch/commit/push or PR creation, automatic session launch, distributed work
 ownership, role assignment, and continuous loop orchestration remain missing.
 Current unattended-operation confidence is 25%. Progress-log entries record
-Task 42 projected capability at 37% while this stable headline remains 25%.
+Task 43 projected capability at 38% while this stable headline remains 25%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
 complete, Tasks 8-12 from
@@ -175,7 +180,8 @@ executor-invocation readiness and invocation-plan boundary. Task 41 adds
 read-only `controlled-loop-real-invocation` evidence for the recorded real
 invocation before closeout. Task 42 adds read-only
 `controlled-loop-closeout` evidence for accepted closeout before the aggregate
-controlled tick.
+controlled tick. Task 43 adds read-only `controlled-loop-run-summary` evidence
+for the saved runner-adjacent controlled packet chain after the aggregate tick.
 
 ## Vision Framing
 
@@ -290,6 +296,12 @@ Current evidence:
   invocation checksum, closeout audit, real-invocation closeout-update audit,
   and epoch closeout checksum, then recommends `controlled_loop_tick` without
   closing epochs, rewriting records, appending audit, or continuing the loop;
+- `controlled-loop-run-summary` reads saved `loop-run-plan.v1`,
+  `controlled-loop-start.v1`, `controlled-loop-invocation-plan.v1`,
+  `controlled-loop-real-invocation.v1`, `controlled-loop-closeout.v1`, and
+  `controlled-loop-tick.v1` packets, rechecks the runner-adjacent checksum
+  chain, and recommends `review_controlled_loop_run` without appending audit,
+  starting work, retrying executors, or continuing the loop;
 - no command runs a continuous governed loop tick end to end or retries failed
   real executor invocations.
 
@@ -329,6 +341,10 @@ Validation needed:
   Task 39.
 - controlled-loop-start mismatched execution-start evidence blocks without
   appending audit evidence: complete for Task 39.
+- controlled-loop-run-summary matching saved runner-adjacent packet chain:
+  complete for Task 43.
+- controlled-loop-run-summary mismatched intermediate packet evidence blocks
+  without appending audit evidence: complete for Task 43.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.

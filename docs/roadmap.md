@@ -2,8 +2,8 @@
 
 Status: living document
 Last updated: 2026-06-14
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only controlled closeout composition, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-42 complete in main or active review branches
-Current unattended-operation confidence: 25% (stable headline; progress log records Task 42 projected capability at 37%)
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-43 complete in main or active review branches
+Current unattended-operation confidence: 25% (stable headline; progress log records Task 43 projected capability at 38%)
 
 This document tracks the practical path from the current Agentic Cadence
 protocol toolkit toward GitHub-native orchestration for autonomous software
@@ -95,7 +95,7 @@ sessions, coordinate an agent pool, merge, release, publish packages, or
 continue in an unattended loop.
 
 Current confidence for unattended continuous operation is 25% as a stable
-headline; the progress log records Task 42 projected capability at 37%.
+headline; the progress log records Task 43 projected capability at 38%.
 
 The rating is low because the safety primitives are real, but the central
 autonomous build loop is not implemented. The first real unattended run would
@@ -189,6 +189,9 @@ command-policy and active-stop controls. It includes:
 - `controlled-loop-closeout` packets that compose saved controlled
   real-invocation evidence with accepted executor closeout evidence before the
   aggregate controlled tick;
+- `controlled-loop-run-summary` packets that summarize the saved
+  runner-adjacent chain from `loop-run-plan.v1` through
+  `controlled-loop-tick.v1` without appending audit or continuing the loop;
 - controlled `invoke-real-executor` local process-start records,
   `closeout-executor-result --real-invocation-file` binding, and
   `controlled-loop-tick` packets that compose saved local
@@ -486,6 +489,10 @@ evidence with accepted closeout evidence, recheck pre/post invocation
 checksums, terminal closeout status, closeout audit, real-invocation update
 audit, and epoch closeout anchors, and recommend `controlled_loop_tick`
 without closing epochs, rewriting records, or continuing the loop.
+`controlled-loop-run-summary` can summarize the saved loop-run-plan,
+controlled-start, controlled invocation-plan, controlled real-invocation,
+controlled closeout, and controlled tick packet chain without appending audit,
+retrying executors, or continuing the loop.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,
