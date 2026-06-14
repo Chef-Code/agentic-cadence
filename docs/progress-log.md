@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-13
+Last updated: 2026-06-14
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,53 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-14 - Compose controlled closeouts
+
+Summary:
+- Added `controlled-loop-closeout` to compose a saved
+  `controlled-loop-real-invocation.v1` packet with a saved
+  `executor-epoch-closeout.v1` packet.
+- The packet rechecks the pre-closeout invocation checksum, closeout-bound
+  invocation path/id, terminal closeout status, updated real-invocation record
+  checksum, closeout audit reference, real-invocation closeout-update audit
+  reference, and epoch closeout checksum before recommending
+  `controlled_loop_tick`.
+- Completed and blocked packets append no audit evidence; the command does not
+  close epochs, rewrite invocation or closeout records, start or retry an
+  executor, continue a loop, write Git/GitHub state, merge, release, publish
+  packages, assign roles, or schedule agents.
+
+Completed slices:
+- Task 42: read-only controlled closeout composition.
+
+Confidence change:
+- Previous: 36%
+- New: 37%
+- Reason: Cadence can now prove the read-only closeout boundary before the
+  aggregate controlled tick, but it still does not run a continuous loop,
+  autonomously retry executors, or operate GitHub.
+
+Evidence:
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_controlled_loop_closeout_composes_controlled_real_invocation_and_closeout tests.test_cadence.CadenceCliTests.test_controlled_loop_closeout_blocks_mismatched_pre_closeout_invocation tests.test_cadence.CadenceCliTests.test_controlled_loop_closeout_blocks_stale_updated_invocation_record tests.test_cadence.CadenceCliTests.test_controlled_loop_closeout_blocks_non_terminal_closeout tests.test_cadence.CadenceCliTests.test_controlled_loop_closeout_blocks_stale_controlled_real_invocation_packet -v`
+- `python -m unittest tests.test_cadence -v` (356 tests, 3 expected Windows symlink skips)
+- `python -m compileall scripts codex_cadence transmission_control tests`
+- `python scripts\validate_protocol.py`
+- `python -m ruff check codex_cadence\cli.py tests\test_cadence.py`
+- `git diff --check`
+
+New risks or blockers:
+- Continuous loop execution, autonomous executor retry, Git/GitHub writes,
+  review-response execution, merge authority, release publication, role
+  assignment, and agent scheduling remain intentionally out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
 
 ## 2026-06-13 - Compose controlled real invocations
 

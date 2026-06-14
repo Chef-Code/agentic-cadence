@@ -1,8 +1,8 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-06-13
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 28-41 complete in main or active review branches
+Last updated: 2026-06-14
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only controlled closeout composition, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 28-42 complete in main or active review branches
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -137,11 +137,16 @@ starting a runner or executor. `controlled-loop-invocation-plan` can compose
 that controlled start with saved executor-invocation readiness and invocation
 plan evidence, recheck task, epoch, readiness, and target checksum anchors, and
 recommend `invoke_real_executor` without starting or retrying an executor.
+`controlled-loop-closeout` can compose the saved controlled real-invocation
+packet with accepted closeout evidence, recheck pre/post invocation checksums,
+terminal closeout status, audit anchors, and epoch closeout checksum, and
+recommend `controlled_loop_tick` without closing epochs, rewriting records, or
+continuing the loop.
 Autonomous
 branch/commit/push or PR creation, automatic session launch, distributed work
 ownership, role assignment, and continuous loop orchestration remain missing.
 Current unattended-operation confidence is 25%. Progress-log entries record
-Task 41 projected capability at 36% while this stable headline remains 25%.
+Task 42 projected capability at 37% while this stable headline remains 25%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
 complete, Tasks 8-12 from
@@ -168,7 +173,9 @@ approved execution-start boundary. Task 40 adds read-only
 `controlled-loop-invocation-plan` evidence for the controlled start plus
 executor-invocation readiness and invocation-plan boundary. Task 41 adds
 read-only `controlled-loop-real-invocation` evidence for the recorded real
-invocation before closeout.
+invocation before closeout. Task 42 adds read-only
+`controlled-loop-closeout` evidence for accepted closeout before the aggregate
+controlled tick.
 
 ## Vision Framing
 
@@ -276,6 +283,13 @@ Current evidence:
   then recommends
   `closeout_executor_result` without starting or retrying an executor,
   appending audit, or continuing the loop;
+- `controlled-loop-closeout` reads a saved
+  `controlled-loop-real-invocation.v1` packet and saved
+  `executor-epoch-closeout.v1` evidence, rechecks the pre-closeout invocation
+  checksum, closeout-bound path/id, terminal closeout status, updated
+  invocation checksum, closeout audit, real-invocation closeout-update audit,
+  and epoch closeout checksum, then recommends `controlled_loop_tick` without
+  closing epochs, rewriting records, appending audit, or continuing the loop;
 - no command runs a continuous governed loop tick end to end or retries failed
   real executor invocations.
 
@@ -781,11 +795,12 @@ Current evidence:
   evidence, verify that the approved start matches the planned executor task,
   and recommend executor-invocation planning without starting a runner,
   executor, GitHub write, or loop continuation;
-- `controlled-loop-invocation-plan` and `controlled-loop-real-invocation` can
-  consume saved readiness/plan and recorded real-invocation evidence, verify
-  the task, epoch, target, result, audit, and pending-closeout anchors, and
-  recommend the next operator-controlled step without autonomous retry or
-  continuation;
+- `controlled-loop-invocation-plan`, `controlled-loop-real-invocation`, and
+  `controlled-loop-closeout` can
+  consume saved readiness/plan, recorded real-invocation, and accepted
+  closeout evidence, verify the task, epoch, target, result, audit,
+  pending-closeout, and accepted closeout anchors, and recommend the next
+  operator-controlled step without autonomous retry or continuation;
 - no branch creation, commit, push, merge, release, package publication,
   continuous reconciliation, automatic response loop execution, paid review,
   label editing, role assignment, or agent scheduling exists.

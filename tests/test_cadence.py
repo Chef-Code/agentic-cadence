@@ -3464,6 +3464,71 @@ class CadenceCliTests(unittest.TestCase):
             "result_path": Path(invocation["result_file"]),
         }
 
+    def write_controlled_loop_closeout_inputs(self, tmp, repo):
+        inputs = self.write_controlled_loop_real_invocation_inputs(tmp, repo)
+        controlled_result, controlled_real_invocation = run_cli(
+            tmp,
+            "controlled-loop-real-invocation",
+            "--controlled-invocation-plan-file",
+            str(inputs["controlled_plan_path"]),
+            "--real-invocation-file",
+            str(inputs["invocation_path"]),
+        )
+        self.assertEqual(controlled_result.returncode, 0, controlled_result.stderr)
+        controlled_real_invocation_path = Path(tmp) / "controlled-loop-real-invocation.json"
+        controlled_real_invocation_path.write_text(json.dumps(controlled_real_invocation), encoding="utf-8")
+
+        readiness = json.loads(Path(inputs["inputs"]["readiness_path"]).read_text(encoding="utf-8"))
+        task_file = Path(readiness["task"]["file"])
+        snapshot_after_path = Path(tmp) / "snapshot-after.json"
+        snapshot_after_path.write_text(
+            json.dumps(closeout_snapshot(repo, id="snapshot-after-controlled-closeout", captured_at="2999-05-22T00:20:00Z")),
+            encoding="utf-8",
+        )
+        closeout_result, closeout = run_cli(
+            tmp,
+            "closeout-executor-result",
+            "--epoch-id",
+            controlled_real_invocation["epoch_id"],
+            "--task-file",
+            str(task_file),
+            "--result-file",
+            str(inputs["result_path"]),
+            "--snapshot-after-file",
+            str(snapshot_after_path),
+            "--real-invocation-file",
+            str(inputs["invocation_path"]),
+            "--cwd",
+            repo,
+        )
+        self.assertEqual(closeout_result.returncode, 0, closeout_result.stderr)
+        closeout_path = Path(tmp) / "executor-closeout.json"
+        closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+        return {
+            **inputs,
+            "controlled_real_invocation_path": controlled_real_invocation_path,
+            "controlled_real_invocation": controlled_real_invocation,
+            "task_path": task_file,
+            "snapshot_after_path": snapshot_after_path,
+            "closeout_path": closeout_path,
+            "closeout": closeout,
+        }
+
+    def run_controlled_loop_closeout_cli(self, tmp, inputs, **overrides):
+        values = {
+            "controlled_real_invocation_file": inputs["controlled_real_invocation_path"],
+            "closeout_file": inputs["closeout_path"],
+        }
+        values.update(overrides)
+        return run_cli(
+            tmp,
+            "controlled-loop-closeout",
+            "--controlled-real-invocation-file",
+            str(values["controlled_real_invocation_file"]),
+            "--closeout-file",
+            str(values["closeout_file"]),
+        )
+
     def test_controlled_loop_start_composes_plan_and_execution_start(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -4256,6 +4321,133 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertFalse(output["valid"])
             self.assertIn("controlled_invocation_plan_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_composes_controlled_real_invocation_and_closeout(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            updated_invocation = json.loads(inputs["invocation_path"].read_text(encoding="utf-8"))
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertEqual(output["schema_version"], "controlled-loop-closeout.v1")
+            self.assertEqual(output["packet"], "controlled_loop_closeout")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["controlled_closeout_status"], "completed")
+            self.assertEqual(output["recommended_next_action"], "controlled_loop_tick")
+            self.assertEqual(output["side_effects"], [])
+            self.assertFalse(output["runner_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["epoch_started"])
+            self.assertFalse(output["pr_action_started"])
+            self.assertFalse(output["github_write_started"])
+            self.assertFalse(output["merge_started"])
+            self.assertFalse(output["release_started"])
+            self.assertFalse(output["package_publication_started"])
+            self.assertFalse(output["role_assignment_started"])
+            self.assertFalse(output["agent_scheduling_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertFalse(output["operator_confirmation_required"])
+            self.assertEqual(output["controlled_real_invocation_checksum"], checksum_json(inputs["controlled_real_invocation"]))
+            self.assertEqual(output["closeout_checksum"], checksum_json(inputs["closeout"]))
+            self.assertEqual(output["real_invocation_before_checksum"], checksum_json(inputs["controlled_real_invocation"]["real_invocation"]))
+            self.assertEqual(output["real_invocation_after_checksum"], checksum_json(updated_invocation))
+            self.assertEqual(output["epoch_closeout_checksum"], inputs["closeout"]["real_invocation"]["epoch_closeout_checksum"])
+            self.assertEqual(output["task_id"], inputs["controlled_real_invocation"]["task_id"])
+            self.assertEqual(output["epoch_id"], inputs["controlled_real_invocation"]["epoch_id"])
+            self.assertEqual(output["closeout_status"], "completed")
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_blocks_mismatched_pre_closeout_invocation(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
+            closeout["real_invocation"]["before_checksum"] = "sha256:" + "0" * 64
+            inputs["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["controlled_closeout_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "inspect_closeout_evidence")
+            self.assertIn("closeout_invocation_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_blocks_stale_updated_invocation_record(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            updated_invocation = json.loads(inputs["invocation_path"].read_text(encoding="utf-8"))
+            updated_invocation["closeout_status"] = "stale"
+            inputs["invocation_path"].write_text(json.dumps(updated_invocation), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertIn("real_invocation_closeout_mismatch", blocker_codes)
+            self.assertIn("closeout_invocation_mismatch", blocker_codes)
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_blocks_non_terminal_closeout(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
+            invocation = json.loads(inputs["invocation_path"].read_text(encoding="utf-8"))
+            closeout["closeout_status"] = "blocked"
+            invocation["closeout_status"] = "blocked"
+            closeout_core_packet = {
+                key: value
+                for key, value in closeout.items()
+                if key not in {"audit_record", "run_record", "real_invocation"}
+            }
+            epoch_closeout_checksum = checksum_json(closeout_core_packet)
+            invocation["epoch_closeout_checksum"] = epoch_closeout_checksum
+            closeout["real_invocation"]["epoch_closeout_checksum"] = epoch_closeout_checksum
+            closeout["real_invocation"]["after_checksum"] = checksum_json(invocation)
+            inputs["invocation_path"].write_text(json.dumps(invocation), encoding="utf-8")
+            inputs["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "inspect_closeout_evidence")
+            self.assertIn("closeout_not_terminal", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_blocks_stale_controlled_real_invocation_packet(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            controlled = json.loads(inputs["controlled_real_invocation_path"].read_text(encoding="utf-8"))
+            controlled["recommended_next_action"] = "inspect_real_invocation_evidence"
+            inputs["controlled_real_invocation_path"].write_text(json.dumps(controlled), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "refresh_controlled_loop_real_invocation")
+            self.assertIn("controlled_real_invocation_invalid", {blocker["code"] for blocker in output["blockers"]})
             self.assertEqual(audit_records(tmp), audit_before)
 
     def test_loop_tick_stops_at_executor_contract_for_elected_candidate(self):
