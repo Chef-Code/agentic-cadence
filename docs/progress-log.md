@@ -33,6 +33,51 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-13 - Compose controlled real invocations
+
+Summary:
+- Added `controlled-loop-real-invocation` to compose a saved
+  `controlled-loop-invocation-plan.v1` packet with a saved
+  `real-executor-invocation.v1` record.
+- The packet rechecks the embedded invocation-plan checksum, target checksum,
+  plan-file anchor, record-file anchor, invocation audit record, result
+  path/checksum, invocation id, and pending closeout status before recommending
+  `closeout_executor_result`.
+- Completed and blocked packets append no audit evidence; the command does not
+  start or retry an executor, continue a loop, write Git/GitHub state, merge,
+  release, publish packages, assign roles, or schedule agents.
+
+Completed slices:
+- Task 41: read-only controlled real-invocation composition.
+
+Confidence change:
+- Previous: 35%
+- New: 36%
+- Reason: Cadence can now prove the controlled path through an already recorded
+  real executor invocation before closeout, but it still does not run a
+  continuous loop, autonomously retry executors, or operate GitHub.
+
+Evidence:
+- `python -m unittest tests.test_cadence.CadenceCliTests.test_controlled_loop_real_invocation_composes_plan_and_recorded_invocation tests.test_cadence.CadenceCliTests.test_controlled_loop_real_invocation_blocks_mismatched_plan_checksum tests.test_cadence.CadenceCliTests.test_controlled_loop_real_invocation_blocks_missing_invocation_audit_record tests.test_cadence.CadenceCliTests.test_controlled_loop_real_invocation_blocks_invalid_invocation_id_without_traceback tests.test_cadence.CadenceCliTests.test_controlled_loop_real_invocation_blocks_invalid_invocation_audit_metadata tests.test_cadence.CadenceCliTests.test_controlled_loop_real_invocation_blocks_broken_runtime_audit_chain tests.test_cadence.CadenceCliTests.test_controlled_loop_real_invocation_does_not_read_mismatched_result_path tests.test_cadence.CadenceCliTests.test_controlled_loop_real_invocation_blocks_malformed_real_invocation_packet tests.test_cadence.CadenceCliTests.test_controlled_loop_real_invocation_blocks_completed_closeout_status tests.test_cadence.CadenceCliTests.test_controlled_loop_real_invocation_blocks_result_tampering tests.test_cadence.CadenceCliTests.test_controlled_loop_real_invocation_blocks_side_effect_contaminated_plan_packet -v`
+- `python -m unittest tests.test_cadence -v` (351 tests, 3 expected Windows symlink skips)
+- `python -m compileall scripts codex_cadence transmission_control tests`
+- `python scripts\validate_protocol.py`
+- `python -m ruff check codex_cadence\cli.py tests\test_cadence.py`
+- `git diff --check`
+
+New risks or blockers:
+- Continuous loop execution, autonomous executor retry, Git/GitHub writes,
+  review-response execution, merge authority, release publication, role
+  assignment, and agent scheduling remain intentionally out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-13 - Compose loop invocation plans
 
 Summary:
