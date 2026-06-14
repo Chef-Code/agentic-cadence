@@ -6852,6 +6852,37 @@ class CadenceCliTests(unittest.TestCase):
             str(values["controlled_loop_tick_file"]),
         )
 
+    def write_controlled_loop_run_manifest_plan_chain(self, tmp, repo):
+        chain = self.write_controlled_loop_outcome_plan_chain(tmp, repo)
+        outcome_result, outcome = self.run_controlled_loop_outcome_plan_cli(tmp, chain)
+        self.assertEqual(outcome_result.returncode, 0, outcome_result.stderr)
+        outcome_path = Path(tmp) / "controlled-loop-outcome-plan.json"
+        outcome_path.write_text(json.dumps(outcome), encoding="utf-8")
+        chain["controlled_outcome_plan_path"] = outcome_path
+        chain["controlled_outcome_plan"] = outcome
+        return chain
+
+    def run_controlled_loop_run_manifest_plan_cli(self, tmp, chain, **overrides):
+        values = {
+            "controlled_run_summary_file": chain["controlled_run_summary_path"],
+            "controlled_closeout_file": chain["controlled_closeout_path"],
+            "controlled_loop_tick_file": chain["controlled_tick_path"],
+            "controlled_outcome_plan_file": chain["controlled_outcome_plan_path"],
+        }
+        values.update(overrides)
+        return run_cli(
+            tmp,
+            "controlled-loop-run-manifest-plan",
+            "--controlled-run-summary-file",
+            str(values["controlled_run_summary_file"]),
+            "--controlled-closeout-file",
+            str(values["controlled_closeout_file"]),
+            "--controlled-loop-tick-file",
+            str(values["controlled_loop_tick_file"]),
+            "--controlled-outcome-plan-file",
+            str(values["controlled_outcome_plan_file"]),
+        )
+
     def controlled_loop_run_summary_input_file_contents(self, chain):
         return {
             name: Path(path).read_text(encoding="utf-8")
@@ -7532,6 +7563,117 @@ class CadenceCliTests(unittest.TestCase):
                     "summary": chain["controlled_run_summary_path"].read_text(encoding="utf-8"),
                     "closeout": chain["controlled_closeout_path"].read_text(encoding="utf-8"),
                     "tick": chain["controlled_tick_path"].read_text(encoding="utf-8"),
+                },
+                files_before,
+            )
+
+    def test_controlled_loop_run_manifest_plan_binds_terminal_sequence_without_side_effects(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_run_manifest_plan_chain(tmp, repo)
+            audit_before = audit_records(tmp)
+            files_before = {
+                "summary": chain["controlled_run_summary_path"].read_text(encoding="utf-8"),
+                "closeout": chain["controlled_closeout_path"].read_text(encoding="utf-8"),
+                "tick": chain["controlled_tick_path"].read_text(encoding="utf-8"),
+                "outcome": chain["controlled_outcome_plan_path"].read_text(encoding="utf-8"),
+            }
+
+            result, output = self.run_controlled_loop_run_manifest_plan_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "controlled-loop-run-manifest-plan.v1")
+            self.assertEqual(output["packet"], "controlled_loop_run_manifest_plan")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["manifest_status"], "completed")
+            self.assertEqual(output["recommended_next_action"], "review_controlled_run_manifest")
+            self.assertTrue(output["operator_confirmation_required"])
+            self.assertFalse(output["runner_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["github_write_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(output["next_controlled_action"], chain["controlled_outcome_plan"]["recommended_next_action"])
+            self.assertEqual(output["checksums"]["controlled_run_summary"], checksum_json(chain["controlled_run_summary"]))
+            self.assertEqual(output["checksums"]["controlled_closeout"], checksum_json(chain["controlled_closeout"]))
+            self.assertEqual(output["checksums"]["controlled_loop_tick"], checksum_json(chain["controlled_tick"]))
+            self.assertEqual(output["checksums"]["controlled_outcome_plan"], checksum_json(chain["controlled_outcome_plan"]))
+            evidence_files = output["run_manifest"]["evidence_files"]
+            self.assertEqual(evidence_files["loop_run_plan"], str(chain["loop_run_plan_path"]))
+            self.assertEqual(evidence_files["controlled_loop_start"], str(chain["controlled_start_path"]))
+            self.assertEqual(evidence_files["controlled_invocation_plan"], str(chain["controlled_plan_path"]))
+            self.assertEqual(evidence_files["controlled_real_invocation"], str(chain["controlled_real_path"]))
+            self.assertEqual(evidence_files["controlled_closeout"], str(chain["controlled_closeout_path"]))
+            self.assertEqual(evidence_files["controlled_loop_tick"], str(chain["controlled_tick_path"]))
+            self.assertEqual(evidence_files["controlled_run_summary"], str(chain["controlled_run_summary_path"]))
+            self.assertEqual(evidence_files["controlled_outcome_plan"], str(chain["controlled_outcome_plan_path"]))
+            self.assertEqual(evidence_files["task"], str(chain["controlled_tick"]["files"]["task"]))
+            self.assertEqual(evidence_files["result"], str(chain["controlled_tick"]["files"]["result"]))
+            self.assertEqual(
+                [step["command"] for step in output["run_manifest"]["command_sequence"]],
+                [
+                    "loop-run-plan",
+                    "start-governed-execution",
+                    "controlled-loop-start",
+                    "executor-invocation-readiness",
+                    "executor-invocation-plan",
+                    "controlled-loop-invocation-plan",
+                    "invoke-real-executor",
+                    "controlled-loop-real-invocation",
+                    "closeout-executor-result",
+                    "controlled-loop-closeout",
+                    "controlled-loop-tick",
+                    "controlled-loop-run-summary",
+                    "controlled-loop-outcome-plan",
+                ],
+            )
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(
+                {
+                    "summary": chain["controlled_run_summary_path"].read_text(encoding="utf-8"),
+                    "closeout": chain["controlled_closeout_path"].read_text(encoding="utf-8"),
+                    "tick": chain["controlled_tick_path"].read_text(encoding="utf-8"),
+                    "outcome": chain["controlled_outcome_plan_path"].read_text(encoding="utf-8"),
+                },
+                files_before,
+            )
+
+    def test_controlled_loop_run_manifest_plan_blocks_stale_outcome_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_run_manifest_plan_chain(tmp, repo)
+            outcome_plan = chain["controlled_outcome_plan"]
+            outcome_plan["checksums"]["controlled_loop_tick"] = "sha256:" + "0" * 64
+            chain["controlled_outcome_plan_path"].write_text(json.dumps(outcome_plan), encoding="utf-8")
+            audit_before = audit_records(tmp)
+            files_before = {
+                "summary": chain["controlled_run_summary_path"].read_text(encoding="utf-8"),
+                "closeout": chain["controlled_closeout_path"].read_text(encoding="utf-8"),
+                "tick": chain["controlled_tick_path"].read_text(encoding="utf-8"),
+                "outcome": chain["controlled_outcome_plan_path"].read_text(encoding="utf-8"),
+            }
+
+            result, output = self.run_controlled_loop_run_manifest_plan_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["manifest_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "refresh_controlled_loop_outcome_plan")
+            self.assertIn(
+                "controlled_outcome_plan_controlled_loop_tick_checksum_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(
+                {
+                    "summary": chain["controlled_run_summary_path"].read_text(encoding="utf-8"),
+                    "closeout": chain["controlled_closeout_path"].read_text(encoding="utf-8"),
+                    "tick": chain["controlled_tick_path"].read_text(encoding="utf-8"),
+                    "outcome": chain["controlled_outcome_plan_path"].read_text(encoding="utf-8"),
                 },
                 files_before,
             )
