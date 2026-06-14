@@ -4572,6 +4572,166 @@ def controlled_loop_closeout_false_flag_blockers(
     return blockers
 
 
+def controlled_loop_closeout_controlled_graph_blockers(
+    controlled: dict[str, Any],
+    pre_invocation: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    controlled_plan = controlled.get("controlled_invocation_plan")
+    result_evidence = controlled.get("result_evidence")
+
+    if not isinstance(controlled_plan, dict):
+        blockers.append(
+            controlled_loop_closeout_blocker(
+                "controlled_real_invocation_invalid",
+                "controlled real invocation must embed the controlled invocation plan",
+            )
+        )
+    else:
+        blockers.extend(
+            controlled_loop_closeout_type_blockers(
+                controlled_plan,
+                expected_packet="controlled_loop_invocation_plan",
+                expected_schema=CONTROLLED_LOOP_INVOCATION_PLAN_SCHEMA_VERSION,
+                label="embedded controlled invocation plan",
+                code="controlled_real_invocation_invalid",
+            )
+        )
+        controlled_plan_checksum = checksum_json(controlled_plan)
+        if controlled.get("controlled_invocation_plan_checksum") != controlled_plan_checksum:
+            blockers.append(
+                controlled_loop_closeout_blocker(
+                    "controlled_real_invocation_invalid",
+                    "controlled real invocation controlled_invocation_plan_checksum does not match embedded plan",
+                    expected=controlled_plan_checksum,
+                    actual=controlled.get("controlled_invocation_plan_checksum"),
+                )
+            )
+        for field in ("task_id", "epoch_id", "target_checksum", "invocation_plan_checksum"):
+            if controlled.get(field) != controlled_plan.get(field):
+                blockers.append(
+                    controlled_loop_closeout_blocker(
+                        "controlled_real_invocation_invalid",
+                        f"controlled real invocation {field} does not match embedded controlled invocation plan",
+                        expected=controlled_plan.get(field),
+                        actual=controlled.get(field),
+                    )
+                )
+
+        invocation_plan = controlled_plan.get("invocation_plan")
+        if not isinstance(invocation_plan, dict):
+            blockers.append(
+                controlled_loop_closeout_blocker(
+                    "controlled_real_invocation_invalid",
+                    "embedded controlled invocation plan must embed the executor invocation plan",
+                )
+            )
+        else:
+            blockers.extend(
+                controlled_loop_closeout_type_blockers(
+                    invocation_plan,
+                    expected_packet="executor_invocation_plan",
+                    expected_schema=EXECUTOR_INVOCATION_PLAN_SCHEMA_VERSION,
+                    label="embedded executor invocation plan",
+                    code="controlled_real_invocation_invalid",
+                )
+            )
+            invocation_plan_checksum = checksum_json(invocation_plan)
+            if controlled.get("invocation_plan_checksum") != invocation_plan_checksum:
+                blockers.append(
+                    controlled_loop_closeout_blocker(
+                        "controlled_real_invocation_invalid",
+                        "controlled real invocation invocation_plan_checksum does not match embedded executor invocation plan",
+                        expected=invocation_plan_checksum,
+                        actual=controlled.get("invocation_plan_checksum"),
+                    )
+                )
+            if controlled_plan.get("invocation_plan_checksum") != invocation_plan_checksum:
+                blockers.append(
+                    controlled_loop_closeout_blocker(
+                        "controlled_real_invocation_invalid",
+                        "embedded controlled invocation plan invocation_plan_checksum does not match embedded executor invocation plan",
+                        expected=invocation_plan_checksum,
+                        actual=controlled_plan.get("invocation_plan_checksum"),
+                    )
+                )
+            if controlled.get("target_checksum") != invocation_plan.get("target_checksum"):
+                blockers.append(
+                    controlled_loop_closeout_blocker(
+                        "controlled_real_invocation_invalid",
+                        "controlled real invocation target_checksum does not match embedded executor invocation plan",
+                        expected=invocation_plan.get("target_checksum"),
+                        actual=controlled.get("target_checksum"),
+                    )
+                )
+            target = invocation_plan.get("target")
+            target_checksum = invocation_plan.get("target_checksum")
+            if not isinstance(target, dict) or not controlled_loop_real_invocation_non_empty_string(target_checksum):
+                blockers.append(
+                    controlled_loop_closeout_blocker(
+                        "controlled_real_invocation_invalid",
+                        "embedded executor invocation plan target and target checksum are required",
+                    )
+                )
+            elif checksum_json(target) != target_checksum:
+                blockers.append(
+                    controlled_loop_closeout_blocker(
+                        "controlled_real_invocation_invalid",
+                        "embedded executor invocation plan target_checksum does not match target payload",
+                        expected=checksum_json(target),
+                        actual=target_checksum,
+                    )
+                )
+
+    if not isinstance(result_evidence, dict):
+        blockers.append(
+            controlled_loop_closeout_blocker(
+                "controlled_real_invocation_invalid",
+                "controlled real invocation must embed result evidence",
+            )
+        )
+    else:
+        result_evidence_checksum = checksum_json(result_evidence)
+        if controlled.get("result_evidence_checksum") != result_evidence_checksum:
+            blockers.append(
+                controlled_loop_closeout_blocker(
+                    "controlled_real_invocation_invalid",
+                    "controlled real invocation result_evidence_checksum does not match embedded result evidence",
+                    expected=result_evidence_checksum,
+                    actual=controlled.get("result_evidence_checksum"),
+                )
+            )
+        for field in ("task_id", "epoch_id"):
+            if field in result_evidence and controlled.get(field) != result_evidence.get(field):
+                blockers.append(
+                    controlled_loop_closeout_blocker(
+                        "controlled_real_invocation_invalid",
+                        f"controlled real invocation {field} does not match embedded result evidence",
+                        expected=result_evidence.get(field),
+                        actual=controlled.get(field),
+                    )
+                )
+
+    if pre_invocation is not None:
+        expected_pre_invocation_fields = {
+            "plan_checksum": controlled.get("invocation_plan_checksum"),
+            "plan_target_checksum": controlled.get("target_checksum"),
+            "result_evidence_checksum": controlled.get("result_evidence_checksum"),
+        }
+        for field, expected in expected_pre_invocation_fields.items():
+            if expected is not None and pre_invocation.get(field) != expected:
+                blockers.append(
+                    controlled_loop_closeout_blocker(
+                        "controlled_real_invocation_invalid",
+                        f"controlled real invocation embedded invocation {field} does not match controlled anchors",
+                        expected=expected,
+                        actual=pre_invocation.get(field),
+                    )
+                )
+
+    return blockers
+
+
 def controlled_loop_closeout_audit_line_blockers(
     root: Path,
     audit_ref: Any,
@@ -4598,6 +4758,7 @@ def controlled_loop_closeout_audit_line_blockers(
                 actual=str(audit_path),
             )
         )
+        return blockers
     chain_index = audit_ref.get("chain_index")
     if isinstance(chain_index, bool) or not isinstance(chain_index, int) or chain_index < 1:
         blockers.append(
@@ -4726,6 +4887,7 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
     epoch_id = None
     closeout_status = closeout.get("closeout_status") if isinstance(closeout, dict) else None
     real_invocation_file_output: str | None = None
+    safe_invocation_path_verified = False
 
     if not blockers and isinstance(controlled, dict) and isinstance(closeout, dict):
         if (
@@ -4773,6 +4935,8 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
                     )
                 )
 
+        blockers.extend(controlled_loop_closeout_controlled_graph_blockers(controlled, pre_invocation))
+
         if closeout.get("valid") is not True:
             blockers.append(controlled_loop_closeout_blocker("closeout_invalid", "executor closeout evidence must be valid"))
         if closeout.get("closeout_status") not in CONTROLLED_LOOP_CLOSEOUT_TERMINAL_STATUSES:
@@ -4795,8 +4959,6 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
         controlled_files = controlled.get("files") if isinstance(controlled.get("files"), dict) else {}
         controlled_invocation_path = controlled_loop_closeout_context_path(controlled_path, controlled_files.get("real_invocation"))
         closeout_invocation_path = controlled_loop_closeout_context_path(closeout_path, closeout_invocation.get("path"))
-        if isinstance(controlled_invocation_path, Path):
-            real_invocation_file_output = str(controlled_invocation_path)
         invocation_path_matches = isinstance(controlled_invocation_path, Path) and _closeout_paths_match(
             closeout_invocation_path,
             controlled_invocation_path,
@@ -4820,6 +4982,68 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
             )
 
         if pre_invocation is not None:
+            pre_record_path = controlled_tick_invocation_path(pre_invocation, pre_invocation.get("record_file"))
+            pre_record_path_matches = isinstance(pre_record_path, Path) and isinstance(
+                controlled_invocation_path, Path
+            ) and _closeout_paths_match(controlled_invocation_path, pre_record_path)
+            if not isinstance(pre_record_path, Path):
+                blockers.append(
+                    controlled_loop_closeout_blocker(
+                        "controlled_real_invocation_invalid",
+                        "embedded real invocation record_file is required",
+                        actual=pre_invocation.get("record_file"),
+                    )
+                )
+            elif not pre_record_path_matches:
+                blockers.append(
+                    controlled_loop_closeout_blocker(
+                        "controlled_real_invocation_invalid",
+                        "controlled real invocation file anchor does not match embedded real invocation record_file",
+                        expected=str(pre_record_path),
+                        actual=str(controlled_invocation_path) if isinstance(controlled_invocation_path, Path) else controlled_files.get("real_invocation"),
+                    )
+                )
+            invocation_id = pre_invocation.get("invocation_id")
+            canonical_path_matches = False
+            if not controlled_loop_real_invocation_non_empty_string(invocation_id):
+                blockers.append(
+                    controlled_loop_closeout_blocker(
+                        "controlled_real_invocation_invalid",
+                        "embedded real invocation invocation_id is required",
+                        actual=invocation_id,
+                    )
+                )
+            else:
+                try:
+                    canonical_invocation_path = real_executor_invocation_path(args.root, invocation_id)
+                except ValueError as exc:
+                    blockers.append(
+                        controlled_loop_closeout_blocker(
+                            "controlled_real_invocation_invalid",
+                            "embedded real invocation invocation_id is invalid",
+                            actual=invocation_id,
+                            error=str(exc),
+                        )
+                    )
+                else:
+                    canonical_path_matches = isinstance(controlled_invocation_path, Path) and _closeout_paths_match(
+                        controlled_invocation_path,
+                        canonical_invocation_path,
+                    )
+                    if not canonical_path_matches:
+                        blockers.append(
+                            controlled_loop_closeout_blocker(
+                                "controlled_real_invocation_invalid",
+                                "controlled real invocation file anchor does not match canonical runtime invocation path",
+                                expected=str(canonical_invocation_path),
+                                actual=str(controlled_invocation_path)
+                                if isinstance(controlled_invocation_path, Path)
+                                else controlled_files.get("real_invocation"),
+                            )
+                        )
+            safe_invocation_path_verified = invocation_path_matches and pre_record_path_matches and canonical_path_matches
+            if safe_invocation_path_verified and isinstance(controlled_invocation_path, Path):
+                real_invocation_file_output = str(controlled_invocation_path)
             if closeout_invocation.get("before_checksum") != pre_invocation_checksum:
                 blockers.append(
                     controlled_loop_closeout_blocker(
@@ -4887,7 +5111,7 @@ def controlled_loop_closeout_command(args: argparse.Namespace) -> int:
                 )
             )
 
-        if invocation_path_matches and not any(blocker.get("code") == "controlled_real_invocation_invalid" for blocker in blockers):
+        if safe_invocation_path_verified and not any(blocker.get("code") == "controlled_real_invocation_invalid" for blocker in blockers):
             loaded_invocation, invocation_blockers = read_controlled_loop_closeout_packet(
                 controlled_invocation_path,
                 code="real_invocation_evidence_missing",

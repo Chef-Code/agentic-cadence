@@ -1328,14 +1328,19 @@ to be valid and terminal with `closeout_status: completed` or
 to match the controlled packet's real-invocation file path, invocation id, and
 pre-closeout checksum.
 
-The command safely reads the updated real-invocation record only after the
-closeout path anchor matches the controlled real-invocation input. It then
-rechecks the closeout `after_checksum`, updated invocation `closeout_status`,
-`epoch_id`, `epoch_status`, `epoch_closeout_checksum`,
-`result_evidence_checksum`, validation checksum, task-file anchor, and record
-path. It also replays the current audit log and verifies both the closeout audit
-reference and the real-invocation closeout-update audit reference against their
-referenced audit lines. A completed packet uses
+The command revalidates the controlled packet's embedded controlled invocation
+plan, executor invocation plan, result evidence, and pre-closeout real
+invocation checksum anchors before trusting the closeout composition. It safely
+reads the updated real-invocation record only after the closeout path anchor
+matches the controlled real-invocation input, the embedded invocation
+`record_file`, and the canonical runtime invocation path derived from
+`invocation_id`. It then rechecks the closeout `after_checksum`, updated
+invocation `closeout_status`, `epoch_id`, `epoch_status`,
+`epoch_closeout_checksum`, `result_evidence_checksum`, validation checksum,
+task-file anchor, and record path. It also replays the current audit log and
+verifies both the closeout audit reference and the real-invocation
+closeout-update audit reference against their referenced audit lines. A
+completed packet uses
 `packet: controlled_loop_closeout`, `controlled_closeout_status: completed`,
 `read_only: true`, `valid: true`, and
 `recommended_next_action: controlled_loop_tick`. The top-level response envelope

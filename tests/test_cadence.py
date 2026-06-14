@@ -3400,8 +3400,8 @@ class CadenceCliTests(unittest.TestCase):
             "task_packet": task_packet,
         }
 
-    def write_controlled_loop_real_invocation_inputs(self, tmp, repo):
-        inputs, plan_path, plan = self.write_real_executor_invocation_plan(tmp, repo)
+    def write_controlled_loop_real_invocation_inputs(self, tmp, repo, *, result_status="succeeded"):
+        inputs, plan_path, plan = self.write_real_executor_invocation_plan(tmp, repo, result_status=result_status)
         readiness = json.loads(Path(inputs["readiness_path"]).read_text(encoding="utf-8"))
         task = readiness["task"]
         epoch = readiness["active_epoch"]
@@ -3464,8 +3464,8 @@ class CadenceCliTests(unittest.TestCase):
             "result_path": Path(invocation["result_file"]),
         }
 
-    def write_controlled_loop_closeout_inputs(self, tmp, repo):
-        inputs = self.write_controlled_loop_real_invocation_inputs(tmp, repo)
+    def write_controlled_loop_closeout_inputs(self, tmp, repo, *, result_status="succeeded"):
+        inputs = self.write_controlled_loop_real_invocation_inputs(tmp, repo, result_status=result_status)
         controlled_result, controlled_real_invocation = run_cli(
             tmp,
             "controlled-loop-real-invocation",
@@ -3528,6 +3528,13 @@ class CadenceCliTests(unittest.TestCase):
             "--closeout-file",
             str(values["closeout_file"]),
         )
+
+    def controlled_loop_closeout_supplied_file_texts(self, inputs):
+        return {
+            "controlled_real_invocation": inputs["controlled_real_invocation_path"].read_text(encoding="utf-8"),
+            "closeout": inputs["closeout_path"].read_text(encoding="utf-8"),
+            "real_invocation": inputs["invocation_path"].read_text(encoding="utf-8"),
+        }
 
     def test_controlled_loop_start_composes_plan_and_execution_start(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
@@ -4329,6 +4336,7 @@ class CadenceCliTests(unittest.TestCase):
             inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
             updated_invocation = json.loads(inputs["invocation_path"].read_text(encoding="utf-8"))
             audit_before = audit_records(tmp)
+            files_before = self.controlled_loop_closeout_supplied_file_texts(inputs)
 
             result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
 
@@ -4363,6 +4371,31 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["closeout_status"], "completed")
             self.assertEqual(output["blockers"], [])
             self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(self.controlled_loop_closeout_supplied_file_texts(inputs), files_before)
+
+    def test_controlled_loop_closeout_accepts_terminal_failed_closeout(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo, result_status="blocked")
+            updated_invocation = json.loads(inputs["invocation_path"].read_text(encoding="utf-8"))
+            audit_before = audit_records(tmp)
+            files_before = self.controlled_loop_closeout_supplied_file_texts(inputs)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["controlled_closeout_status"], "completed")
+            self.assertEqual(output["recommended_next_action"], "controlled_loop_tick")
+            self.assertEqual(output["closeout_status"], "failed")
+            self.assertEqual(output["closeout"]["closeout_status"], "failed")
+            self.assertEqual(output["closeout"]["executor_result_status"], "blocked")
+            self.assertEqual(output["real_invocation"]["closeout_status"], "failed")
+            self.assertEqual(output["real_invocation_after_checksum"], checksum_json(updated_invocation))
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(self.controlled_loop_closeout_supplied_file_texts(inputs), files_before)
 
     def test_controlled_loop_closeout_blocks_mismatched_pre_closeout_invocation(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
@@ -4437,7 +4470,7 @@ class CadenceCliTests(unittest.TestCase):
             init_committed_repo(repo)
             inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
             controlled = json.loads(inputs["controlled_real_invocation_path"].read_text(encoding="utf-8"))
-            controlled["recommended_next_action"] = "inspect_real_invocation_evidence"
+            controlled["real_invocation"]["closeout_status"] = "stale"
             inputs["controlled_real_invocation_path"].write_text(json.dumps(controlled), encoding="utf-8")
             audit_before = audit_records(tmp)
 
@@ -4448,6 +4481,108 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["valid"])
             self.assertEqual(output["recommended_next_action"], "refresh_controlled_loop_real_invocation")
             self.assertIn("controlled_real_invocation_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_blocks_tampered_closeout_audit_reference(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
+            closeout["audit_record"]["event_hash"] = "sha256:" + "0" * 64
+            inputs["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "inspect_closeout_evidence")
+            self.assertIn("closeout_audit_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_blocks_tampered_real_invocation_audit_reference(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
+            closeout["real_invocation"]["audit_record"]["event_hash"] = "sha256:" + "0" * 64
+            inputs["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "inspect_closeout_evidence")
+            self.assertIn("real_invocation_audit_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_does_not_read_mismatched_invocation_path(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            secret_path = Path(tmp) / "secret.json"
+            secret_path.write_text(json.dumps({"secret": "do-not-emit"}), encoding="utf-8")
+            controlled = json.loads(inputs["controlled_real_invocation_path"].read_text(encoding="utf-8"))
+            closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
+            controlled["files"]["real_invocation"] = str(secret_path)
+            closeout["real_invocation"]["path"] = str(secret_path)
+            inputs["controlled_real_invocation_path"].write_text(json.dumps(controlled), encoding="utf-8")
+            inputs["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            audit_before = audit_records(tmp)
+            files_before = self.controlled_loop_closeout_supplied_file_texts(inputs)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertIsNone(output["real_invocation"])
+            self.assertNotIn("do-not-emit", result.stdout)
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertIn("controlled_real_invocation_invalid", blocker_codes)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(self.controlled_loop_closeout_supplied_file_texts(inputs), files_before)
+
+    def test_controlled_loop_closeout_blocks_tampered_controlled_task_id(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            controlled = json.loads(inputs["controlled_real_invocation_path"].read_text(encoding="utf-8"))
+            controlled["task_id"] = "forged-task-id"
+            inputs["controlled_real_invocation_path"].write_text(json.dumps(controlled), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["recommended_next_action"], "refresh_controlled_loop_real_invocation")
+            self.assertIn("controlled_real_invocation_invalid", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_closeout_does_not_read_mismatched_audit_path(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            inputs = self.write_controlled_loop_closeout_inputs(tmp, repo)
+            closeout = json.loads(inputs["closeout_path"].read_text(encoding="utf-8"))
+            closeout["audit_record"]["path"] = str(Path(tmp) / "not-the-audit-log.jsonl")
+            inputs["closeout_path"].write_text(json.dumps(closeout), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_closeout_cli(tmp, inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIsNotNone(output)
+            self.assertFalse(output["valid"])
+            closeout_audit_blockers = [
+                blocker for blocker in output["blockers"] if blocker["code"] == "closeout_audit_mismatch"
+            ]
+            self.assertTrue(closeout_audit_blockers)
+            self.assertFalse(any("line could not be read" in blocker["message"] for blocker in closeout_audit_blockers))
             self.assertEqual(audit_records(tmp), audit_before)
 
     def test_loop_tick_stops_at_executor_contract_for_elected_candidate(self):
@@ -5823,6 +5958,7 @@ class CadenceCliTests(unittest.TestCase):
         stderr_text=None,
         invalid_output=False,
         files_changed=None,
+        result_status="succeeded",
         task_mutator=None,
         readiness_task_file_arg=None,
         readiness_cwd=None,
@@ -5855,7 +5991,7 @@ class CadenceCliTests(unittest.TestCase):
             "retarget_branch": retarget_branch,
             "required_checks": inputs["task_packet"]["required_checks"],
             "sleep_seconds": sleep_seconds,
-            "status": "succeeded",
+            "status": result_status,
             "stderr_text": stderr_text,
             "stdout_text": stdout_text,
             "task_id": inputs["task_packet"]["task"]["id"],
