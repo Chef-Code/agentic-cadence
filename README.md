@@ -591,7 +591,7 @@ saved controlled run manifest plan. The approval must use purpose
 `controlled-loop-run-manifest-plan.v1` packet:
 
 ```bash
-agentic-cadence --root examples/first-run/work/runtime controlled-loop-run-manifest-approval --controlled-run-manifest-plan-file controlled-loop-run-manifest-plan.json --approval-file controlled-loop-run-manifest-approval.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-run-manifest-approval --controlled-run-manifest-plan-file controlled-loop-run-manifest-plan.json --approval-file operator-approval-controlled-run-manifest.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET > controlled-loop-run-manifest-approval.json
 ```
 
 Completed approvals recommend `review_controlled_run_manifest_approval`; stale

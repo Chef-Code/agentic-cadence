@@ -1155,7 +1155,8 @@ execute work.
 local checks and tests. The command verifies an `hmac-sha256:` signature over
 the approval fields and emits `operator-approval-verification.v1`. Supported purposes are
 `start_governed_execution`, `git_pr_materialization`,
-`real_executor_invocation`, `release`, and `package_publication`.
+`real_executor_invocation`, `controlled_loop_run_manifest`, `release`, and
+`package_publication`.
 
 An `operator-approval.v1` packet must include `target_checksum`, `purpose`,
 `operator_id`, `key_id`, `issued_at`, `expires_at`, and `signature`. The
@@ -1656,12 +1657,16 @@ commands, call GitHub, create branches, commit, push, create PRs, merge,
 release, publish packages, assign roles, or schedule agents. Stable blockers
 include `controlled_run_manifest_plan_evidence_missing`,
 `controlled_run_manifest_plan_packet_mismatch`,
-`controlled_run_manifest_plan_not_completed`, and the
-`operator_approval_*` blockers emitted by `operator-approval.v1` verification,
-including `operator_approval_file_unreadable`,
+`controlled_run_manifest_plan_not_completed`,
+`controlled_run_manifest_plan_blockers_present`,
+`controlled_run_manifest_plan_steps_blocked`,
+`controlled_run_manifest_plan_authority_flags_invalid`,
+`controlled_run_manifest_plan_operator_confirmation_missing`,
+`controlled_run_manifest_plan_command_sequence_mismatch`, and the
+`operator_approval_*` blockers emitted by `operator-approval.v1`
+verification, including `operator_approval_file_unreadable`,
 `operator_approval_target_mismatch`, `operator_approval_purpose_mismatch`,
-`operator_approval_signature_invalid`, and
-`operator_approval_secret_missing`.
+`operator_approval_signature_invalid`, and `operator_approval_secret_missing`.
 
 ## Git/PR Dry-Run Planning
 

@@ -47,6 +47,10 @@ Summary:
   epoch, execute Git commands, call GitHub, create branches, commit, push,
   create PRs, merge, release, publish packages, assign roles, or schedule
   agents.
+- Review follow-up hardened the approval gate against internally inconsistent
+  completed manifest packets, including non-empty blockers, blocked steps,
+  started authority flags, missing operator confirmation, or command-sequence
+  drift.
 
 Completed slices:
 - Task 46: read-only controlled loop run manifest approval.
@@ -59,13 +63,13 @@ Confidence change:
   continuous loop, retry executors, or operate GitHub autonomously.
 
 Evidence:
-- Focused `controlled-loop-run-manifest-approval` unittest set: 2 tests passed.
+- Focused `controlled-loop-run-manifest-approval` unittest set: 4 tests passed.
 - Adjacent `controlled-loop-run-manifest-plan` plus
-  `controlled-loop-run-manifest-approval` unittest set: 6 tests passed.
-- Full `tests.test_cadence` unittest module: 385 tests passed with 3 Windows
+  `controlled-loop-run-manifest-approval` unittest set: 8 tests passed.
+- Full `tests.test_cadence` unittest module: 387 tests passed with 3 Windows
   symlink skips.
 - Full repo unittest discovery with `python -m unittest discover -s tests -v`:
-  1048 tests passed with 7 Windows symlink skips.
+  1050 tests passed with 7 Windows symlink skips.
 - `ruff` check passed for changed Python files.
 - `scripts/validate_protocol.py`, `compileall`, and `git diff --check` passed.
 - `scripts/verify_package.py` passed.
