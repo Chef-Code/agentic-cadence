@@ -608,11 +608,12 @@ packages, assign roles, or schedule agents.
 `controlled-loop-runner-plan` composes the saved manifest plan and saved
 manifest approval evidence into a read-only dry-run runner plan. It recomputes
 the manifest and approval checksums, rechecks the approval evidence target,
-and rereads the saved operator approval file before listing the approved
-one-cycle command sequence:
+rereads and rehashes the saved operator approval file, verifies that checksum
+against the approval evidence, and re-verifies the operator approval signature
+before listing the approved one-cycle command sequence:
 
 ```bash
-agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-plan --controlled-run-manifest-plan-file controlled-loop-run-manifest-plan.json --controlled-run-manifest-approval-file controlled-loop-run-manifest-approval.json
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-plan --controlled-run-manifest-plan-file controlled-loop-run-manifest-plan.json --controlled-run-manifest-approval-file controlled-loop-run-manifest-approval.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET
 ```
 
 Completed runner plans recommend `review_controlled_runner_plan`; stale
@@ -1039,12 +1040,14 @@ agent-scheduling authority.
 approved controlled run manifest. It composes a saved
 `controlled-loop-run-manifest-plan.v1` packet and a saved
 `controlled-loop-run-manifest-approval.v1` packet, rechecks that the approval
-evidence still targets the exact manifest checksum, rereads the saved
-operator-approval file, and emits `controlled-loop-runner-plan.v1` with the
-approved command sequence marked `not_started`. It appends no audit evidence,
-starts no runner or executor, and grants no loop-continuation, epoch, Git,
-GitHub, branch, commit, push, PR, merge, release, package publication,
-role-assignment, or agent-scheduling authority.
+evidence still targets the exact manifest checksum, rereads and rehashes the
+saved operator-approval file, matches that checksum back to the approval
+evidence, re-verifies the operator approval signature, and emits
+`controlled-loop-runner-plan.v1` with the approved command sequence marked
+`not_started`. It appends no audit evidence, starts no runner or executor, and
+grants no loop-continuation, epoch, Git, GitHub, branch, commit, push, PR,
+merge, release, package publication, role-assignment, or agent-scheduling
+authority.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can

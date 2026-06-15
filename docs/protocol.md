@@ -1676,7 +1676,10 @@ completed `controlled-loop-run-manifest-plan.v1`, verifies the approval packet
 is a completed `controlled-loop-run-manifest-approval.v1`, recomputes the
 manifest and approval checksums, rechecks the approval target and file anchors,
 and rereads the saved `operator-approval.v1` file referenced by the approval
-evidence. The command emits `controlled-loop-runner-plan.v1` with `packet:
+evidence. The reread operator approval file is rehashed, its checksum is
+matched back to the approval evidence, and its signature is re-verified before
+a completed runner plan can be emitted. The command emits
+`controlled-loop-runner-plan.v1` with `packet:
 controlled_loop_runner_plan`, `read_only: true`, `side_effects: []`,
 `runner_plan_status` of `completed` or `blocked`, `approved_manifest`,
 `manifest_approval`, `runner_plan`, checksums, blockers, and
@@ -1705,7 +1708,8 @@ include `controlled_runner_manifest_evidence_missing`,
 `controlled_runner_operator_approval_file_missing`,
 `controlled_runner_operator_approval_file_unreadable`,
 `controlled_runner_operator_approval_checksum_mismatch`, and
-`controlled_runner_operator_approval_target_mismatch`.
+`controlled_runner_operator_approval_target_mismatch`, and
+`controlled_runner_operator_approval_verification_failed`.
 
 ## Git/PR Dry-Run Planning
 

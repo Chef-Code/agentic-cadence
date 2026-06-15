@@ -40,8 +40,9 @@ Summary:
   run manifest and its saved manifest-approval evidence into a read-only
   dry-run runner plan.
 - The command recomputes manifest and approval checksums, rechecks approval
-  target/file anchors, rereads the saved operator approval file, and marks the
-  approved one-cycle command stages `not_started`.
+  target/file anchors, rereads and rehashes the saved operator approval file,
+  re-verifies the operator approval signature, and marks the approved one-cycle
+  command stages `not_started`.
 - Completed runner plans append no audit evidence; the command does not start
   a runner or executor, retry an executor, continue a loop, start or close an
   epoch, execute Git commands, call GitHub, create branches, commit, push,
@@ -59,14 +60,14 @@ Confidence change:
   execute a continuous loop, retry executors, or operate GitHub autonomously.
 
 Evidence:
-- Focused `controlled-loop-runner-plan` unittest set: 3 tests passed.
+- Focused `controlled-loop-runner-plan` unittest set: 4 tests passed.
 - Adjacent `controlled-loop-run-manifest-plan`,
   `controlled-loop-run-manifest-approval`, and
-  `controlled-loop-runner-plan` unittest set: 11 tests passed.
-- Full `tests.test_cadence` unittest module: 390 tests passed with 3 Windows
+  `controlled-loop-runner-plan` unittest set: 12 tests passed.
+- Full `tests.test_cadence` unittest module: 391 tests passed with 3 Windows
   symlink skips.
 - Full repo unittest discovery with `python -m unittest discover -s tests`:
-  1053 tests passed with 7 Windows symlink skips.
+  1054 tests passed with 7 Windows symlink skips.
 - `ruff` check passed for changed Python files.
 - `scripts/validate_protocol.py`, `compileall`, and `git diff --check` passed.
 

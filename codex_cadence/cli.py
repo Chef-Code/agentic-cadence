@@ -7926,6 +7926,8 @@ def controlled_loop_runner_plan_recommendation(blockers: list[dict[str, Any]]) -
         }
     ):
         return "refresh_controlled_run_manifest_approval", "controlled run manifest approval evidence is stale"
+    if "controlled_runner_operator_approval_verification_failed" in blocker_codes:
+        return "fix_controlled_run_manifest_approval", "operator approval file no longer verifies"
     if any(
         code in blocker_codes
         for code in {
@@ -8150,6 +8152,23 @@ def controlled_loop_runner_plan_command(args: argparse.Namespace) -> int:
             blockers.extend(operator_approval_blockers)
             if isinstance(operator_approval, dict):
                 operator_approval_checksum = checksum_json(operator_approval)
+                operator_verification = build_operator_approval_verification_packet(
+                    approval=operator_approval,
+                    approval_file=Path(operator_approval_path),
+                    expected_target_checksum=manifest_checksum,
+                    expected_purpose=CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_PURPOSE,
+                    approval_secret=operator_approval_secret_from_args(args),
+                )
+                if operator_verification.get("valid") is not True:
+                    blockers.append(
+                        controlled_loop_runner_plan_blocker(
+                            "controlled_runner_operator_approval_verification_failed",
+                            "operator approval file no longer verifies for the supplied controlled run manifest",
+                            approval_state=operator_verification.get("approval_state"),
+                            signature_verified=operator_verification.get("signature_verified"),
+                            approval_blockers=operator_verification.get("blockers", []),
+                        )
+                    )
                 operator_checksum_fields = {
                     "approval.checksum": approval_details.get("checksum"),
                     "checksums.operator_approval": approval_checksums.get("operator_approval"),
@@ -10455,6 +10474,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     controlled_loop_runner_plan_parser.add_argument("--controlled-run-manifest-plan-file", required=True)
     controlled_loop_runner_plan_parser.add_argument("--controlled-run-manifest-approval-file", required=True)
+    controlled_loop_runner_plan_parser.add_argument("--approval-secret")
+    controlled_loop_runner_plan_parser.add_argument("--approval-secret-env", default=OPERATOR_APPROVAL_SECRET_ENV)
     controlled_loop_runner_plan_parser.set_defaults(
         func=controlled_loop_runner_plan_command,
         requires_root=True,
