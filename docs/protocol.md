@@ -1741,7 +1741,7 @@ include `controlled_runner_plan_evidence_missing`,
 `controlled_runner_plan_authority_flags_invalid`,
 `controlled_runner_plan_command_sequence_mismatch`,
 `controlled_runner_plan_mode_invalid`,
-`controlled_runner_plan_steps_started`, and the `operator_approval_*` blockers
+`controlled_runner_plan_steps_mismatch`, and the `operator_approval_*` blockers
 emitted by `operator-approval.v1` verification, including
 `operator_approval_file_unreadable`, `operator_approval_target_mismatch`,
 `operator_approval_purpose_mismatch`, `operator_approval_signature_invalid`,

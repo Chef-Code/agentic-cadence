@@ -8426,28 +8426,14 @@ def controlled_loop_runner_execution_approval_plan_blockers(
         )
 
     planned_steps = plan_details.get("planned_steps")
-    invalid_steps: list[dict[str, Any]] = []
-    if not isinstance(planned_steps, list):
-        invalid_steps.append({"step": None, "command": None, "status": None})
-    else:
-        for step in planned_steps:
-            if not isinstance(step, dict):
-                invalid_steps.append({"step": None, "command": None, "status": None})
-                continue
-            if step.get("status") != "not_started":
-                invalid_steps.append(
-                    {
-                        "step": step.get("step"),
-                        "command": step.get("command"),
-                        "status": step.get("status"),
-                    }
-                )
-    if invalid_steps:
+    expected_planned_steps = controlled_loop_runner_planned_steps(CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE)
+    if planned_steps != expected_planned_steps:
         blockers.append(
             controlled_loop_runner_execution_approval_blocker(
-                "controlled_runner_plan_steps_started",
-                "controlled runner plan steps must all remain not_started",
-                steps=invalid_steps,
+                "controlled_runner_plan_steps_mismatch",
+                "controlled runner plan steps must match the approved not-started command sequence",
+                expected=expected_planned_steps,
+                actual=planned_steps,
             )
         )
     return blockers

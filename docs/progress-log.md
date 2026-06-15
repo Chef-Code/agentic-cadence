@@ -60,15 +60,15 @@ Confidence change:
   GitHub autonomously.
 
 Evidence:
-- Focused `controlled-loop-runner-execution-approval` unittest set: 4 tests
+- Focused `controlled-loop-runner-execution-approval` unittest set: 5 tests
   passed.
 - Adjacent `controlled-loop-run-manifest-plan`,
   `controlled-loop-run-manifest-approval`, `controlled-loop-runner-plan`, and
-  `controlled-loop-runner-execution-approval` unittest set: 16 tests passed.
-- Full `tests.test_cadence` unittest module: 395 tests passed with 3 Windows
+  `controlled-loop-runner-execution-approval` unittest set: 17 tests passed.
+- Full `tests.test_cadence` unittest module: 396 tests passed with 3 Windows
   symlink skips.
 - Full repo unittest discovery with `python -m unittest discover -s tests`:
-  1058 tests passed with 7 Windows symlink skips.
+  1059 tests passed with 7 Windows symlink skips.
 - `ruff` check passed for changed Python files.
 - `scripts/validate_protocol.py`, `compileall`, `git diff --check`, and
   `scripts/verify_package.py` passed.

@@ -8309,6 +8309,70 @@ class CadenceCliTests(unittest.TestCase):
             self.assertNotIn("audit_record", output)
             self.assertEqual(audit_records(tmp), audit_before)
 
+    def test_controlled_loop_runner_execution_approval_blocks_tampered_runner_plan_invariants(self):
+        def tamper_mode(runner_plan):
+            plan_details = dict(runner_plan["runner_plan"])
+            plan_details["mode"] = "live"
+            runner_plan["runner_plan"] = plan_details
+
+        def tamper_authority_flag(runner_plan):
+            runner_plan["runner_started"] = True
+
+        def tamper_missing_steps(runner_plan):
+            plan_details = dict(runner_plan["runner_plan"])
+            plan_details["planned_steps"] = []
+            runner_plan["runner_plan"] = plan_details
+
+        def tamper_started_step(runner_plan):
+            plan_details = dict(runner_plan["runner_plan"])
+            planned_steps = [dict(step) for step in plan_details["planned_steps"]]
+            planned_steps[0]["status"] = "started"
+            plan_details["planned_steps"] = planned_steps
+            runner_plan["runner_plan"] = plan_details
+
+        def tamper_step_command(runner_plan):
+            plan_details = dict(runner_plan["runner_plan"])
+            planned_steps = [dict(step) for step in plan_details["planned_steps"]]
+            planned_steps[0]["command"] = "tampered-command"
+            plan_details["planned_steps"] = planned_steps
+            runner_plan["runner_plan"] = plan_details
+
+        cases = [
+            ("mode", tamper_mode, "controlled_runner_plan_mode_invalid"),
+            ("authority-flag", tamper_authority_flag, "controlled_runner_plan_authority_flags_invalid"),
+            ("missing-steps", tamper_missing_steps, "controlled_runner_plan_steps_mismatch"),
+            ("started-step", tamper_started_step, "controlled_runner_plan_steps_mismatch"),
+            ("step-command", tamper_step_command, "controlled_runner_plan_steps_mismatch"),
+        ]
+        for name, tamper, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    chain = self.write_controlled_loop_runner_execution_approval_chain(tmp, repo)
+                    runner_plan = dict(chain["controlled_loop_runner_plan"])
+                    tamper(runner_plan)
+                    chain["controlled_loop_runner_plan_path"].write_text(json.dumps(runner_plan), encoding="utf-8")
+                    approval_path, _approval = write_operator_approval(
+                        chain["controlled_loop_runner_execution_approval_path"],
+                        target_checksum=checksum_json(runner_plan),
+                        purpose="controlled_loop_runner_execution",
+                    )
+                    chain["controlled_loop_runner_execution_approval_path"] = approval_path
+                    audit_before = audit_records(tmp)
+
+                    result, output = self.run_controlled_loop_runner_execution_approval_cli(tmp, chain)
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["approval_status"], "blocked")
+                    self.assertEqual(output["recommended_next_action"], "refresh_controlled_runner_plan")
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertTrue(output["approval"]["signature_verified"])
+                    self.assertEqual(output["approval"]["blocker_codes"], [])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertNotIn("audit_record", output)
+                    self.assertEqual(audit_records(tmp), audit_before)
+
     def test_controlled_loop_runner_execution_approval_blocks_mismatched_approval_target(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
