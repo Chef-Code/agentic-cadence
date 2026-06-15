@@ -1155,8 +1155,8 @@ execute work.
 local checks and tests. The command verifies an `hmac-sha256:` signature over
 the approval fields and emits `operator-approval-verification.v1`. Supported purposes are
 `start_governed_execution`, `git_pr_materialization`,
-`real_executor_invocation`, `controlled_loop_run_manifest`, `release`, and
-`package_publication`.
+`real_executor_invocation`, `controlled_loop_run_manifest`,
+`controlled_loop_runner_execution`, `release`, and `package_publication`.
 
 An `operator-approval.v1` packet must include `target_checksum`, `purpose`,
 `operator_id`, `key_id`, `issued_at`, `expires_at`, and `signature`. The
@@ -1710,6 +1710,42 @@ include `controlled_runner_manifest_evidence_missing`,
 `controlled_runner_operator_approval_checksum_mismatch`, and
 `controlled_runner_operator_approval_target_mismatch`, and
 `controlled_runner_operator_approval_verification_failed`.
+
+`controlled-loop-runner-execution-approval` is the read-only approval gate for a
+reviewed controlled runner plan. It reads
+`--controlled-loop-runner-plan-file` and `--approval-file`, verifies the runner
+plan packet is a completed `controlled-loop-runner-plan.v1`, and verifies the
+`operator-approval.v1` packet with purpose
+`controlled_loop_runner_execution` against the exact checksum of the supplied
+runner plan. The command emits
+`controlled-loop-runner-execution-approval.v1` with `packet:
+controlled_loop_runner_execution_approval`, `read_only: true`,
+`side_effects: []`, `approval_status` of `completed` or `blocked`, runner-plan
+and approval checksums, approval identity fields, blockers, and
+`next_controlled_action`.
+
+When valid, the command recommends
+`review_controlled_runner_execution_approval` with operator confirmation
+required and reports
+`next_controlled_action: review_approved_controlled_runner_execution`. Stale or
+blocked runner-plan evidence recommends `refresh_controlled_runner_plan`.
+Invalid approval evidence recommends `fix_controlled_runner_execution_approval`.
+
+The command appends no audit evidence and does not start a runner or executor,
+retry an executor, continue a loop, start or close an epoch, execute Git
+commands, call GitHub, create branches, commit, push, create PRs, merge,
+release, publish packages, assign roles, or schedule agents. Stable blockers
+include `controlled_runner_plan_evidence_missing`,
+`controlled_runner_plan_packet_mismatch`,
+`controlled_runner_plan_not_completed`,
+`controlled_runner_plan_authority_flags_invalid`,
+`controlled_runner_plan_command_sequence_mismatch`,
+`controlled_runner_plan_mode_invalid`,
+`controlled_runner_plan_steps_mismatch`, and the `operator_approval_*` blockers
+emitted by `operator-approval.v1` verification, including
+`operator_approval_file_unreadable`, `operator_approval_target_mismatch`,
+`operator_approval_purpose_mismatch`, `operator_approval_signature_invalid`,
+and `operator_approval_secret_missing`.
 
 ## Git/PR Dry-Run Planning
 
