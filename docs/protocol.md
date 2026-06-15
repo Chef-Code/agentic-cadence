@@ -1632,6 +1632,37 @@ include `controlled_run_summary_evidence_missing`,
 `controlled_outcome_plan_epoch_mismatch`, and
 `controlled_outcome_plan_git_pr_plan_mismatch`.
 
+`controlled-loop-run-manifest-approval` is the read-only approval gate for a
+completed controlled run manifest. It reads
+`--controlled-run-manifest-plan-file` and `--approval-file`, verifies the
+manifest packet is a completed `controlled-loop-run-manifest-plan.v1`, and
+verifies the `operator-approval.v1` packet with purpose
+`controlled_loop_run_manifest` against the exact checksum of the supplied
+manifest. The command emits `controlled-loop-run-manifest-approval.v1` with
+`packet: controlled_loop_run_manifest_approval`, `read_only: true`,
+`side_effects: []`, `approval_status` of `completed` or `blocked`, manifest and
+approval checksums, approval identity fields, blockers, and
+`next_controlled_action`.
+
+When valid, the command recommends `review_controlled_run_manifest_approval`
+with operator confirmation required and reports
+`next_controlled_action: review_approved_controlled_run_manifest`. Stale or
+blocked manifest evidence recommends `refresh_controlled_run_manifest_plan`.
+Invalid approval evidence recommends `fix_controlled_run_manifest_approval`.
+
+The command appends no audit evidence and does not start a runner or executor,
+retry an executor, continue a loop, start or close an epoch, execute Git
+commands, call GitHub, create branches, commit, push, create PRs, merge,
+release, publish packages, assign roles, or schedule agents. Stable blockers
+include `controlled_run_manifest_plan_evidence_missing`,
+`controlled_run_manifest_plan_packet_mismatch`,
+`controlled_run_manifest_plan_not_completed`, and the
+`operator_approval_*` blockers emitted by `operator-approval.v1` verification,
+including `operator_approval_file_unreadable`,
+`operator_approval_target_mismatch`, `operator_approval_purpose_mismatch`,
+`operator_approval_signature_invalid`, and
+`operator_approval_secret_missing`.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from

@@ -6862,6 +6862,23 @@ class CadenceCliTests(unittest.TestCase):
         chain["controlled_outcome_plan"] = outcome
         return chain
 
+    def write_controlled_loop_run_manifest_approval_chain(self, tmp, repo):
+        chain = self.write_controlled_loop_run_manifest_plan_chain(tmp, repo)
+        manifest_result, manifest = self.run_controlled_loop_run_manifest_plan_cli(tmp, chain)
+        self.assertEqual(manifest_result.returncode, 0, manifest_result.stderr)
+        manifest_path = Path(tmp) / "controlled-loop-run-manifest-plan.json"
+        manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+        chain["controlled_run_manifest_plan_path"] = manifest_path
+        chain["controlled_run_manifest_plan"] = manifest
+        approval_path, approval = write_operator_approval(
+            Path(tmp) / "controlled-loop-run-manifest-approval.json",
+            target_checksum=checksum_json(manifest),
+            purpose="controlled_loop_run_manifest",
+        )
+        chain["controlled_run_manifest_approval_path"] = approval_path
+        chain["controlled_run_manifest_approval"] = approval
+        return chain
+
     def run_controlled_loop_run_manifest_plan_cli(self, tmp, chain, **overrides):
         values = {
             "controlled_run_summary_file": chain["controlled_run_summary_path"],
@@ -6881,6 +6898,24 @@ class CadenceCliTests(unittest.TestCase):
             str(values["controlled_loop_tick_file"]),
             "--controlled-outcome-plan-file",
             str(values["controlled_outcome_plan_file"]),
+        )
+
+    def run_controlled_loop_run_manifest_approval_cli(self, tmp, chain, **overrides):
+        values = {
+            "controlled_run_manifest_plan_file": chain["controlled_run_manifest_plan_path"],
+            "approval_file": chain["controlled_run_manifest_approval_path"],
+            "approval_secret": OPERATOR_APPROVAL_SECRET,
+        }
+        values.update(overrides)
+        return run_cli(
+            tmp,
+            "controlled-loop-run-manifest-approval",
+            "--controlled-run-manifest-plan-file",
+            str(values["controlled_run_manifest_plan_file"]),
+            "--approval-file",
+            str(values["approval_file"]),
+            "--approval-secret",
+            str(values["approval_secret"]),
         )
 
     def controlled_loop_run_summary_input_file_contents(self, chain):
@@ -7739,6 +7774,92 @@ class CadenceCliTests(unittest.TestCase):
                     "closeout": chain["controlled_closeout_path"].read_text(encoding="utf-8"),
                     "tick": chain["controlled_tick_path"].read_text(encoding="utf-8"),
                     "outcome": chain["controlled_outcome_plan_path"].read_text(encoding="utf-8"),
+                },
+                files_before,
+            )
+
+    def test_controlled_loop_run_manifest_approval_accepts_target_bound_operator_approval_without_side_effects(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_run_manifest_approval_chain(tmp, repo)
+            audit_before = audit_records(tmp)
+            files_before = {
+                "manifest": chain["controlled_run_manifest_plan_path"].read_text(encoding="utf-8"),
+                "approval": chain["controlled_run_manifest_approval_path"].read_text(encoding="utf-8"),
+            }
+
+            result, output = self.run_controlled_loop_run_manifest_approval_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "controlled-loop-run-manifest-approval.v1")
+            self.assertEqual(output["packet"], "controlled_loop_run_manifest_approval")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["approval_status"], "completed")
+            self.assertEqual(output["recommended_next_action"], "review_controlled_run_manifest_approval")
+            self.assertTrue(output["operator_confirmation_required"])
+            for flag in [
+                "runner_started",
+                "executor_started",
+                "epoch_started",
+                "pr_action_started",
+                "github_write_started",
+                "merge_started",
+                "release_started",
+                "package_publication_started",
+                "role_assignment_started",
+                "agent_scheduling_started",
+                "loop_continuation_started",
+            ]:
+                self.assertFalse(output[flag], flag)
+            self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(output["controlled_run_manifest_plan"]["checksum"], checksum_json(chain["controlled_run_manifest_plan"]))
+            self.assertEqual(output["approval"]["state"], "approved")
+            self.assertEqual(output["approval"]["target_checksum"], checksum_json(chain["controlled_run_manifest_plan"]))
+            self.assertEqual(output["approval"]["purpose"], "controlled_loop_run_manifest")
+            self.assertTrue(output["approval"]["signature_verified"])
+            self.assertEqual(output["next_controlled_action"], "review_approved_controlled_run_manifest")
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(
+                {
+                    "manifest": chain["controlled_run_manifest_plan_path"].read_text(encoding="utf-8"),
+                    "approval": chain["controlled_run_manifest_approval_path"].read_text(encoding="utf-8"),
+                },
+                files_before,
+            )
+
+    def test_controlled_loop_run_manifest_approval_blocks_mismatched_approval_target_without_side_effects(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_run_manifest_approval_chain(tmp, repo)
+            approval_path, _approval = write_operator_approval(
+                chain["controlled_run_manifest_approval_path"],
+                target_checksum="sha256:" + "0" * 64,
+                purpose="controlled_loop_run_manifest",
+            )
+            chain["controlled_run_manifest_approval_path"] = approval_path
+            audit_before = audit_records(tmp)
+            files_before = {
+                "manifest": chain["controlled_run_manifest_plan_path"].read_text(encoding="utf-8"),
+                "approval": chain["controlled_run_manifest_approval_path"].read_text(encoding="utf-8"),
+            }
+
+            result, output = self.run_controlled_loop_run_manifest_approval_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["approval_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "fix_controlled_run_manifest_approval")
+            self.assertIn("operator_approval_target_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(
+                {
+                    "manifest": chain["controlled_run_manifest_plan_path"].read_text(encoding="utf-8"),
+                    "approval": chain["controlled_run_manifest_approval_path"].read_text(encoding="utf-8"),
                 },
                 files_before,
             )

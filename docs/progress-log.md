@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-14
+Last updated: 2026-06-15
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,64 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-15 - Approve controlled run manifests
+
+Summary:
+- Added `controlled-loop-run-manifest-approval` to verify a target-bound
+  `operator-approval.v1` for a completed controlled run manifest plan.
+- The command requires purpose `controlled_loop_run_manifest`, verifies the
+  approval signature and target checksum against the saved manifest, and emits
+  read-only approval evidence for operator review before any future dry-run
+  runner consumes it.
+- Completed approvals append no audit evidence; the command does not start a
+  runner or executor, retry an executor, continue a loop, start or close an
+  epoch, execute Git commands, call GitHub, create branches, commit, push,
+  create PRs, merge, release, publish packages, assign roles, or schedule
+  agents.
+
+Completed slices:
+- Task 46: read-only controlled loop run manifest approval.
+
+Confidence change:
+- Previous: 40%
+- New: 41%
+- Reason: Cadence can now prove explicit operator approval for the reviewed
+  one-cycle manifest, but it still does not run a dry-run runner, execute a
+  continuous loop, retry executors, or operate GitHub autonomously.
+
+Evidence:
+- Focused `controlled-loop-run-manifest-approval` unittest set: 2 tests passed.
+- Adjacent `controlled-loop-run-manifest-plan` plus
+  `controlled-loop-run-manifest-approval` unittest set: 6 tests passed.
+- Full `tests.test_cadence` unittest module: 385 tests passed with 3 Windows
+  symlink skips.
+- Full repo unittest discovery with `python -m unittest discover -s tests -v`:
+  1048 tests passed with 7 Windows symlink skips.
+- `ruff` check passed for changed Python files.
+- `scripts/validate_protocol.py`, `compileall`, and `git diff --check` passed.
+- `scripts/verify_package.py` passed.
+- Windows PowerShell first-run example passed from an isolated temp venv with
+  the installed `agentic-cadence` console script on `PATH`.
+- Adapter smoke, generic host-signal, generic shell host-binding, shell replay,
+  host/shell parity, external host-binding conformance, and adapter contract
+  runner examples passed on Windows. POSIX first-run was not counted locally
+  because this machine exposes only the Windows WSL bash launcher without a
+  configured `/bin/bash`.
+
+New risks or blockers:
+- Dry-run controlled one-cycle runner execution, continuous loop execution,
+  autonomous executor retry, Git/GitHub writes, merge authority, release
+  publication, role assignment, and agent scheduling remain intentionally out
+  of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
 
 ## 2026-06-14 - Plan controlled run manifests
 
