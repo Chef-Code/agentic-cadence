@@ -49,6 +49,7 @@ read-only `controlled-loop-run-summary`,
 read-only `controlled-loop-outcome-plan`,
 read-only `controlled-loop-run-manifest-plan`,
 read-only `controlled-loop-run-manifest-approval`,
+read-only `controlled-loop-runner-plan`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -83,7 +84,9 @@ assigning roles, or scheduling agents, and
 `controlled-loop-run-manifest-approval` evidence that verifies a
 target-checksum-bound operator approval for that manifest without granting
 runner, executor, continuation, Git/GitHub, merge, release, publication, role,
-or scheduling authority.
+or scheduling authority, and `controlled-loop-runner-plan` evidence that
+turns the approved manifest into a dry-run runner plan without starting a
+runner or granting execution authority.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -602,6 +605,24 @@ executor, continue a loop, start or close an epoch, execute Git commands, call
 GitHub, create branches, commit, push, create PRs, merge, release, publish
 packages, assign roles, or schedule agents.
 
+`controlled-loop-runner-plan` composes the saved manifest plan and saved
+manifest approval evidence into a read-only dry-run runner plan. It recomputes
+the manifest and approval checksums, rechecks the approval evidence target,
+rereads and rehashes the saved operator approval file, verifies that checksum
+against the approval evidence, and re-verifies the operator approval signature
+before listing the approved one-cycle command sequence:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-plan --controlled-run-manifest-plan-file controlled-loop-run-manifest-plan.json --controlled-run-manifest-approval-file controlled-loop-run-manifest-approval.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET
+```
+
+Completed runner plans recommend `review_controlled_runner_plan`; stale
+manifest approval evidence recommends `refresh_controlled_run_manifest_approval`.
+The command appends no audit evidence and does not start a runner or executor,
+retry an executor, continue a loop, start or close an epoch, execute Git
+commands, call GitHub, create branches, commit, push, create PRs, merge,
+release, publish packages, assign roles, or schedule agents.
+
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor
 closeout, real-executor invocation records, and accepted controlled single-tick
@@ -1014,6 +1035,19 @@ packet whose `target_checksum` equals the manifest checksum and whose purpose is
 grants no runner, executor, loop-continuation, epoch, Git, GitHub, branch,
 commit, push, PR, merge, release, package publication, role-assignment, or
 agent-scheduling authority.
+
+`controlled-loop-runner-plan` is the read-only dry-run runner planner for an
+approved controlled run manifest. It composes a saved
+`controlled-loop-run-manifest-plan.v1` packet and a saved
+`controlled-loop-run-manifest-approval.v1` packet, rechecks that the approval
+evidence still targets the exact manifest checksum, rereads and rehashes the
+saved operator-approval file, matches that checksum back to the approval
+evidence, re-verifies the operator approval signature, and emits
+`controlled-loop-runner-plan.v1` with the approved command sequence marked
+`not_started`. It appends no audit evidence, starts no runner or executor, and
+grants no loop-continuation, epoch, Git, GitHub, branch, commit, push, PR,
+merge, release, package publication, role-assignment, or agent-scheduling
+authority.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can

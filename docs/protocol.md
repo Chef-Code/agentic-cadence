@@ -1668,6 +1668,49 @@ verification, including `operator_approval_file_unreadable`,
 `operator_approval_target_mismatch`, `operator_approval_purpose_mismatch`,
 `operator_approval_signature_invalid`, and `operator_approval_secret_missing`.
 
+`controlled-loop-runner-plan` is the read-only dry-run runner planner for an
+approved controlled run manifest. It reads
+`--controlled-run-manifest-plan-file` and
+`--controlled-run-manifest-approval-file`, verifies the manifest packet is a
+completed `controlled-loop-run-manifest-plan.v1`, verifies the approval packet
+is a completed `controlled-loop-run-manifest-approval.v1`, recomputes the
+manifest and approval checksums, rechecks the approval target and file anchors,
+and rereads the saved `operator-approval.v1` file referenced by the approval
+evidence. The reread operator approval file is rehashed, its checksum is
+matched back to the approval evidence, and its signature is re-verified before
+a completed runner plan can be emitted. The command emits
+`controlled-loop-runner-plan.v1` with `packet:
+controlled_loop_runner_plan`, `read_only: true`, `side_effects: []`,
+`runner_plan_status` of `completed` or `blocked`, `approved_manifest`,
+`manifest_approval`, `runner_plan`, checksums, blockers, and
+`next_controlled_action`.
+
+When valid, the command recommends `review_controlled_runner_plan` with
+operator confirmation required and reports
+`next_controlled_action: request_controlled_runner_execution_approval`. Stale
+manifest approval evidence recommends
+`refresh_controlled_run_manifest_approval`. Blocked approval evidence
+recommends `fix_controlled_run_manifest_approval`.
+
+The command appends no audit evidence and does not start a runner or executor,
+retry an executor, continue a loop, start or close an epoch, execute Git
+commands, call GitHub, create branches, commit, push, create PRs, merge,
+release, publish packages, assign roles, or schedule agents. Stable blockers
+include `controlled_runner_manifest_evidence_missing`,
+`controlled_runner_manifest_packet_mismatch`,
+`controlled_runner_manifest_plan_not_completed`,
+`controlled_runner_manifest_command_sequence_mismatch`,
+`controlled_runner_manifest_approval_evidence_missing`,
+`controlled_runner_manifest_approval_packet_mismatch`,
+`controlled_runner_manifest_approval_not_completed`,
+`controlled_runner_manifest_approval_checksum_mismatch`,
+`controlled_runner_manifest_approval_file_mismatch`,
+`controlled_runner_operator_approval_file_missing`,
+`controlled_runner_operator_approval_file_unreadable`,
+`controlled_runner_operator_approval_checksum_mismatch`, and
+`controlled_runner_operator_approval_target_mismatch`, and
+`controlled_runner_operator_approval_verification_failed`.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from
