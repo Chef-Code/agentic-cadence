@@ -33,6 +33,57 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-15 - Dry-run approved controlled runner execution
+
+Summary:
+- Added `controlled-loop-runner-dry-run` to consume a saved completed
+  `controlled-loop-runner-plan.v1` plus saved completed
+  `controlled-loop-runner-execution-approval.v1`.
+- The command recomputes runner-plan and approval-evidence checksums, rechecks
+  file anchors, rereads and re-verifies the saved operator approval file, and
+  emits approved command stages as `would_process`.
+- Completed dry runs append no audit evidence; the command does not start a
+  runner or executor, invoke or retry an executor, continue a loop, start or
+  close an epoch, execute Git commands, call GitHub, create branches, commit,
+  push, create PRs, merge, release, publish packages, assign roles, or schedule
+  agents.
+
+Completed slices:
+- Task 49: read-only controlled loop runner dry-run packet.
+
+Confidence change:
+- Previous: 43%
+- New: 44%
+- Reason: Cadence can now dry-run the approved runner command stages with
+  local evidence rechecks and explicit non-execution guarantees, but it still
+  does not start a continuous runner or perform autonomous GitHub operations.
+
+Evidence:
+- Focused `controlled-loop-runner-dry-run` unittest set: 6 tests passed.
+- Adjacent `controlled-loop-runner-plan`,
+  `controlled-loop-runner-execution-approval`, and
+  `controlled-loop-runner-dry-run` unittest set: 15 tests passed.
+- Non-`test_cadence.py` unittest modules: 663 tests passed with 4 Windows
+  symlink skips.
+- `scripts/validate_protocol.py`, `compileall`, `ruff` on changed Python
+  files, `git diff --check`, and `scripts/verify_package.py` passed.
+
+New risks or blockers:
+- Continuous loop execution, autonomous executor retry, Git/GitHub writes,
+  merge authority, release publication, role assignment, and agent scheduling
+  remain intentionally out of scope.
+- Full `python -m unittest discover -s tests` timed out locally after 15
+  minutes before emitting a summary; focused cadence coverage and all
+  non-cadence modules passed.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-15 - Approve controlled runner execution
 
 Summary:

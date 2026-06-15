@@ -224,6 +224,12 @@ command-policy and active-stop controls. It includes:
   without appending audit evidence, starting a runner or executor, continuing
   the loop, writing Git/GitHub state, merging, releasing, publishing packages,
   assigning roles, or scheduling agents;
+- `controlled-loop-runner-dry-run` packets that consume a completed controlled
+  runner plan and completed runner execution approval, recheck checksums, file
+  anchors, and operator approval, and emit would-process command-stage evidence
+  without appending audit evidence, starting a runner or executor, retrying an
+  executor, continuing the loop, writing Git/GitHub state, merging, releasing,
+  publishing packages, assigning roles, or scheduling agents;
 - controlled `invoke-real-executor` local process-start records,
   `closeout-executor-result --real-invocation-file` binding, and
   `controlled-loop-tick` packets that compose saved local
@@ -547,6 +553,10 @@ starting a runner or executor or granting continuation/write authority.
 `controlled-loop-runner-execution-approval` can then verify a target-bound
 operator approval for that saved runner plan without starting a runner or
 granting runner-start authority.
+`controlled-loop-runner-dry-run` can then recheck the approved runner plan and
+execution approval and emit would-process command-stage evidence without
+starting a runner or executor or granting retry, continuation, or write
+authority.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,

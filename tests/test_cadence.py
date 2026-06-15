@@ -6906,6 +6906,16 @@ class CadenceCliTests(unittest.TestCase):
         chain["controlled_loop_runner_execution_approval"] = approval
         return chain
 
+    def write_controlled_loop_runner_dry_run_chain(self, tmp, repo):
+        chain = self.write_controlled_loop_runner_execution_approval_chain(tmp, repo)
+        approval_result, approval_evidence = self.run_controlled_loop_runner_execution_approval_cli(tmp, chain)
+        self.assertEqual(approval_result.returncode, 0, approval_result.stderr)
+        approval_evidence_path = Path(tmp) / "controlled-loop-runner-execution-approval.json"
+        approval_evidence_path.write_text(json.dumps(approval_evidence), encoding="utf-8")
+        chain["controlled_loop_runner_execution_approval_evidence_path"] = approval_evidence_path
+        chain["controlled_loop_runner_execution_approval_evidence"] = approval_evidence
+        return chain
+
     def run_controlled_loop_run_manifest_plan_cli(self, tmp, chain, **overrides):
         values = {
             "controlled_run_summary_file": chain["controlled_run_summary_path"],
@@ -6983,6 +6993,29 @@ class CadenceCliTests(unittest.TestCase):
             str(values["controlled_loop_runner_plan_file"]),
             "--approval-file",
             str(values["approval_file"]),
+        ]
+        if values["approval_secret"] is not None:
+            args.extend(["--approval-secret", str(values["approval_secret"])])
+        if values["approval_secret_env"] is not None:
+            args.extend(["--approval-secret-env", str(values["approval_secret_env"])])
+        return run_cli(tmp, *args)
+
+    def run_controlled_loop_runner_dry_run_cli(self, tmp, chain, **overrides):
+        values = {
+            "controlled_loop_runner_plan_file": chain["controlled_loop_runner_plan_path"],
+            "controlled_loop_runner_execution_approval_file": chain[
+                "controlled_loop_runner_execution_approval_evidence_path"
+            ],
+            "approval_secret": OPERATOR_APPROVAL_SECRET,
+            "approval_secret_env": None,
+        }
+        values.update(overrides)
+        args = [
+            "controlled-loop-runner-dry-run",
+            "--controlled-loop-runner-plan-file",
+            str(values["controlled_loop_runner_plan_file"]),
+            "--controlled-loop-runner-execution-approval-file",
+            str(values["controlled_loop_runner_execution_approval_file"]),
         ]
         if values["approval_secret"] is not None:
             args.extend(["--approval-secret", str(values["approval_secret"])])
@@ -8399,6 +8432,237 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["side_effects"], [])
             self.assertNotIn("audit_record", output)
             self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_dry_run_accepts_approved_execution_without_side_effects(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_dry_run_chain(tmp, repo)
+            audit_before = audit_records(tmp)
+            files_before = {
+                "runner_plan": chain["controlled_loop_runner_plan_path"].read_text(encoding="utf-8"),
+                "execution_approval": chain[
+                    "controlled_loop_runner_execution_approval_evidence_path"
+                ].read_text(encoding="utf-8"),
+                "operator_approval": chain["controlled_loop_runner_execution_approval_path"].read_text(encoding="utf-8"),
+            }
+
+            result, output = self.run_controlled_loop_runner_dry_run_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "controlled-loop-runner-dry-run.v1")
+            self.assertEqual(output["packet"], "controlled_loop_runner_dry_run")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["runner_dry_run_status"], "completed")
+            self.assertEqual(output["recommended_next_action"], "review_controlled_runner_dry_run")
+            self.assertEqual(output["next_controlled_action"], "stop_after_controlled_runner_dry_run")
+            self.assertTrue(output["operator_confirmation_required"])
+            for flag in [
+                "runner_started",
+                "executor_started",
+                "epoch_started",
+                "pr_action_started",
+                "github_write_started",
+                "merge_started",
+                "release_started",
+                "package_publication_started",
+                "role_assignment_started",
+                "agent_scheduling_started",
+                "loop_continuation_started",
+            ]:
+                self.assertFalse(output[flag], flag)
+            self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(output["controlled_loop_runner_plan"]["checksum"], checksum_json(chain["controlled_loop_runner_plan"]))
+            self.assertEqual(
+                output["controlled_loop_runner_execution_approval"]["checksum"],
+                checksum_json(chain["controlled_loop_runner_execution_approval_evidence"]),
+            )
+            self.assertEqual(output["approval"]["state"], "approved")
+            self.assertEqual(output["approval"]["target_checksum"], checksum_json(chain["controlled_loop_runner_plan"]))
+            self.assertEqual(output["approval"]["purpose"], "controlled_loop_runner_execution")
+            self.assertTrue(output["approval"]["signature_verified"])
+            self.assertEqual(output["approval"]["blocker_codes"], [])
+            self.assertEqual(output["runner_dry_run"]["mode"], "dry_run")
+            self.assertEqual(
+                [stage["command"] for stage in output["runner_dry_run"]["stages"]],
+                [
+                    "loop-run-plan",
+                    "start-governed-execution",
+                    "controlled-loop-start",
+                    "executor-invocation-readiness",
+                    "executor-invocation-plan",
+                    "controlled-loop-invocation-plan",
+                    "invoke-real-executor",
+                    "controlled-loop-real-invocation",
+                    "closeout-executor-result",
+                    "controlled-loop-closeout",
+                    "controlled-loop-tick",
+                    "controlled-loop-run-summary",
+                    "controlled-loop-outcome-plan",
+                ],
+            )
+            self.assertEqual({stage["status"] for stage in output["runner_dry_run"]["stages"]}, {"would_process"})
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(
+                {
+                    "runner_plan": chain["controlled_loop_runner_plan_path"].read_text(encoding="utf-8"),
+                    "execution_approval": chain[
+                        "controlled_loop_runner_execution_approval_evidence_path"
+                    ].read_text(encoding="utf-8"),
+                    "operator_approval": chain["controlled_loop_runner_execution_approval_path"].read_text(encoding="utf-8"),
+                },
+                files_before,
+            )
+
+    def test_controlled_loop_runner_dry_run_blocks_runner_plan_drift_after_execution_approval(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_dry_run_chain(tmp, repo)
+            runner_plan = dict(chain["controlled_loop_runner_plan"])
+            runner_plan["generated_at"] = "2099-01-01T00:00:00Z"
+            chain["controlled_loop_runner_plan_path"].write_text(json.dumps(runner_plan), encoding="utf-8")
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_runner_dry_run_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["runner_dry_run_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "refresh_controlled_runner_execution_approval")
+            self.assertIn(
+                "controlled_runner_dry_run_execution_approval_plan_checksum_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_dry_run_blocks_mismatched_execution_approval(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_dry_run_chain(tmp, repo)
+            approval_evidence = json.loads(json.dumps(chain["controlled_loop_runner_execution_approval_evidence"]))
+            approval_details = dict(approval_evidence["approval"])
+            approval_details["approval_target_checksum"] = "sha256:" + "0" * 64
+            approval_evidence["approval"] = approval_details
+            chain["controlled_loop_runner_execution_approval_evidence_path"].write_text(
+                json.dumps(approval_evidence),
+                encoding="utf-8",
+            )
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_runner_dry_run_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["runner_dry_run_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "refresh_controlled_runner_execution_approval")
+            self.assertIn(
+                "controlled_runner_dry_run_execution_approval_plan_checksum_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertTrue(output["approval"]["signature_verified"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_dry_run_blocks_started_authority_flags(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_dry_run_chain(tmp, repo)
+            approval_evidence = dict(chain["controlled_loop_runner_execution_approval_evidence"])
+            approval_evidence["runner_started"] = True
+            chain["controlled_loop_runner_execution_approval_evidence_path"].write_text(
+                json.dumps(approval_evidence),
+                encoding="utf-8",
+            )
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_runner_dry_run_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["runner_dry_run_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "refresh_controlled_runner_execution_approval")
+            self.assertIn(
+                "controlled_runner_dry_run_execution_approval_authority_flags_invalid",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_dry_run_blocks_malformed_planned_steps(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_dry_run_chain(tmp, repo)
+            runner_plan = json.loads(json.dumps(chain["controlled_loop_runner_plan"]))
+            runner_plan_details = dict(runner_plan["runner_plan"])
+            runner_plan_details["planned_steps"] = []
+            runner_plan["runner_plan"] = runner_plan_details
+            chain["controlled_loop_runner_plan_path"].write_text(json.dumps(runner_plan), encoding="utf-8")
+            approval_path, approval = write_operator_approval(
+                chain["controlled_loop_runner_execution_approval_path"],
+                target_checksum=checksum_json(runner_plan),
+                purpose="controlled_loop_runner_execution",
+            )
+            chain["controlled_loop_runner_execution_approval_path"] = approval_path
+            approval_evidence = json.loads(json.dumps(chain["controlled_loop_runner_execution_approval_evidence"]))
+            approval_evidence["controlled_loop_runner_plan"]["checksum"] = checksum_json(runner_plan)
+            approval_evidence["approval"]["checksum"] = checksum_json(approval)
+            approval_evidence["approval"]["target_checksum"] = checksum_json(runner_plan)
+            approval_evidence["approval"]["approval_target_checksum"] = checksum_json(runner_plan)
+            approval_evidence["checksums"]["controlled_loop_runner_plan"] = checksum_json(runner_plan)
+            approval_evidence["checksums"]["operator_approval"] = checksum_json(approval)
+            chain["controlled_loop_runner_execution_approval_evidence_path"].write_text(
+                json.dumps(approval_evidence),
+                encoding="utf-8",
+            )
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_runner_dry_run_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["runner_dry_run_status"], "blocked")
+            self.assertEqual(output["recommended_next_action"], "refresh_controlled_runner_plan")
+            self.assertIn(
+                "controlled_runner_plan_steps_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertTrue(output["approval"]["signature_verified"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_dry_run_reports_explicit_non_execution_guarantees(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_dry_run_chain(tmp, repo)
+
+            result, output = self.run_controlled_loop_runner_dry_run_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(
+                output["non_execution_guarantees"],
+                [
+                    "does_not_start_runner",
+                    "does_not_invoke_executor",
+                    "does_not_retry_executor",
+                    "does_not_continue_loop",
+                    "does_not_write_git_or_github_state",
+                    "does_not_merge",
+                    "does_not_release",
+                    "does_not_assign_roles",
+                    "does_not_schedule_agents",
+                ],
+            )
+            for stage in output["runner_dry_run"]["stages"]:
+                self.assertFalse(stage["runner_started"])
+                self.assertFalse(stage["executor_started"])
+                self.assertEqual(stage["status"], "would_process")
 
     def test_controlled_loop_tick_accepts_existing_real_invocation_closeout_chain(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
