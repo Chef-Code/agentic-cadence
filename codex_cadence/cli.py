@@ -6995,6 +6995,594 @@ def controlled_loop_outcome_plan_command(args: argparse.Namespace) -> int:
     return 0 if valid else 2
 
 
+CONTROLLED_LOOP_RUN_MANIFEST_PLAN_SCHEMA_VERSION = "controlled-loop-run-manifest-plan.v1"
+
+CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE = [
+    {
+        "step": 1,
+        "command": "loop-run-plan",
+        "evidence_files": ["loop_run_plan", "loop_tick", "task"],
+        "execution_authority": "read_only",
+        "allowed_side_effects_when_executed": [],
+    },
+    {
+        "step": 2,
+        "command": "start-governed-execution",
+        "evidence_files": ["execution_start"],
+        "execution_authority": "operator_approved",
+        "allowed_side_effects_when_executed": ["epoch_started"],
+    },
+    {
+        "step": 3,
+        "command": "controlled-loop-start",
+        "evidence_files": ["controlled_loop_start"],
+        "execution_authority": "read_only",
+        "allowed_side_effects_when_executed": [],
+    },
+    {
+        "step": 4,
+        "command": "executor-invocation-readiness",
+        "evidence_files": ["readiness"],
+        "execution_authority": "read_only",
+        "allowed_side_effects_when_executed": [],
+    },
+    {
+        "step": 5,
+        "command": "executor-invocation-plan",
+        "evidence_files": ["invocation_plan"],
+        "execution_authority": "read_only",
+        "allowed_side_effects_when_executed": [],
+    },
+    {
+        "step": 6,
+        "command": "controlled-loop-invocation-plan",
+        "evidence_files": ["controlled_invocation_plan"],
+        "execution_authority": "read_only",
+        "allowed_side_effects_when_executed": [],
+    },
+    {
+        "step": 7,
+        "command": "invoke-real-executor",
+        "evidence_files": ["real_invocation", "result"],
+        "execution_authority": "operator_approved",
+        "allowed_side_effects_when_executed": ["executor_process_started"],
+    },
+    {
+        "step": 8,
+        "command": "controlled-loop-real-invocation",
+        "evidence_files": ["controlled_real_invocation"],
+        "execution_authority": "read_only",
+        "allowed_side_effects_when_executed": [],
+    },
+    {
+        "step": 9,
+        "command": "closeout-executor-result",
+        "evidence_files": ["snapshot_after", "closeout"],
+        "execution_authority": "operator_approved",
+        "allowed_side_effects_when_executed": ["epoch_closed_or_failed", "real_invocation_closeout_updated"],
+    },
+    {
+        "step": 10,
+        "command": "controlled-loop-closeout",
+        "evidence_files": ["controlled_closeout"],
+        "execution_authority": "read_only",
+        "allowed_side_effects_when_executed": [],
+    },
+    {
+        "step": 11,
+        "command": "controlled-loop-tick",
+        "evidence_files": ["controlled_loop_tick"],
+        "execution_authority": "read_only",
+        "allowed_side_effects_when_executed": ["controlled_loop_tick_audit_appended"],
+    },
+    {
+        "step": 12,
+        "command": "controlled-loop-run-summary",
+        "evidence_files": ["controlled_run_summary"],
+        "execution_authority": "read_only",
+        "allowed_side_effects_when_executed": [],
+    },
+    {
+        "step": 13,
+        "command": "controlled-loop-outcome-plan",
+        "evidence_files": ["controlled_outcome_plan"],
+        "execution_authority": "read_only",
+        "allowed_side_effects_when_executed": [],
+    },
+]
+
+
+def controlled_loop_run_manifest_plan_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def read_controlled_loop_run_manifest_plan_packet(
+    path: Path,
+    *,
+    code: str,
+    label: str,
+) -> tuple[Any | None, list[dict[str, Any]]]:
+    try:
+        packet = read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, [
+            controlled_loop_run_manifest_plan_blocker(
+                code,
+                f"{label} could not be read as JSON",
+                path=str(path),
+                error=str(exc),
+            )
+        ]
+    if not isinstance(packet, dict):
+        return None, [controlled_loop_run_manifest_plan_blocker(code, f"{label} must be a JSON object", path=str(path))]
+    return packet, []
+
+
+def controlled_loop_run_manifest_plan_type_blockers(
+    packet: dict[str, Any],
+    *,
+    label: str,
+    expected_packet: str,
+    expected_schema: str,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if packet.get("schema_version") != expected_schema:
+        blockers.append(
+            controlled_loop_run_manifest_plan_blocker(
+                "controlled_run_manifest_packet_mismatch",
+                f"{label} schema_version is invalid",
+                expected=expected_schema,
+                actual=packet.get("schema_version"),
+            )
+        )
+    if packet.get("packet") != expected_packet:
+        blockers.append(
+            controlled_loop_run_manifest_plan_blocker(
+                "controlled_run_manifest_packet_mismatch",
+                f"{label} packet is invalid",
+                expected=expected_packet,
+                actual=packet.get("packet"),
+            )
+        )
+    return blockers
+
+
+def controlled_loop_run_manifest_plan_step(
+    name: str,
+    path: Path,
+    packet: Any,
+    blockers: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "name": name,
+        "status": "accepted" if not blockers else "blocked",
+        "file": str(path),
+        "checksum": checksum_json(packet) if isinstance(packet, dict) else None,
+        "blocker_codes": [blocker["code"] for blocker in blockers],
+    }
+
+
+def controlled_loop_run_manifest_plan_add_blocker(
+    blockers: list[dict[str, Any]],
+    step_blockers: dict[str, list[dict[str, Any]]],
+    step: str,
+    code: str,
+    message: str,
+    **extra: Any,
+) -> None:
+    blocker = controlled_loop_run_manifest_plan_blocker(code, message, **extra)
+    step_blockers[step].append(blocker)
+    blockers.append(blocker)
+
+
+def controlled_loop_run_manifest_plan_file_matches(context_file: Path, value: Any, expected_path: Path) -> bool:
+    return _closeout_paths_match(controlled_tick_context_path(context_file, value), expected_path)
+
+
+def controlled_loop_run_manifest_plan_recommendation(blockers: list[dict[str, Any]]) -> tuple[str, bool, str]:
+    if not blockers:
+        return "review_controlled_run_manifest", True, "controlled run manifest is ready for operator review"
+    blocker_codes = {blocker.get("code") for blocker in blockers}
+    if any(
+        code in blocker_codes
+        for code in {
+            "controlled_run_summary_evidence_missing",
+            "controlled_closeout_evidence_missing",
+            "controlled_loop_tick_evidence_missing",
+            "controlled_outcome_plan_evidence_missing",
+            "controlled_run_summary_not_completed",
+            "controlled_closeout_not_completed",
+            "controlled_loop_tick_not_completed",
+            "controlled_outcome_plan_not_completed",
+            "controlled_outcome_plan_controlled_run_summary_checksum_mismatch",
+            "controlled_outcome_plan_controlled_closeout_checksum_mismatch",
+            "controlled_outcome_plan_controlled_loop_tick_checksum_mismatch",
+            "controlled_outcome_plan_controlled_run_summary_file_mismatch",
+            "controlled_outcome_plan_controlled_closeout_file_mismatch",
+            "controlled_outcome_plan_controlled_loop_tick_file_mismatch",
+            "controlled_run_manifest_controlled_closeout_checksum_mismatch",
+            "controlled_run_manifest_controlled_loop_tick_checksum_mismatch",
+            "controlled_outcome_plan_source_decision_mismatch",
+            "controlled_outcome_plan_recommended_next_action_mismatch",
+            "controlled_outcome_plan_operator_confirmation_mismatch",
+            "controlled_outcome_plan_task_mismatch",
+            "controlled_outcome_plan_epoch_mismatch",
+            "controlled_outcome_plan_git_pr_plan_mismatch",
+        }
+    ):
+        return "refresh_controlled_loop_outcome_plan", True, "controlled run outcome evidence is stale"
+    return "inspect_controlled_run_manifest_blockers", True, "controlled run manifest evidence is blocked"
+
+
+def controlled_loop_run_manifest_plan_command(args: argparse.Namespace) -> int:
+    packet_inputs = {
+        "controlled_run_summary": Path(args.controlled_run_summary_file),
+        "controlled_closeout": Path(args.controlled_closeout_file),
+        "controlled_loop_tick": Path(args.controlled_loop_tick_file),
+        "controlled_outcome_plan": Path(args.controlled_outcome_plan_file),
+    }
+    read_codes = {
+        "controlled_run_summary": "controlled_run_summary_evidence_missing",
+        "controlled_closeout": "controlled_closeout_evidence_missing",
+        "controlled_loop_tick": "controlled_loop_tick_evidence_missing",
+        "controlled_outcome_plan": "controlled_outcome_plan_evidence_missing",
+    }
+    packets: dict[str, Any] = {}
+    blockers: list[dict[str, Any]] = []
+    step_blockers: dict[str, list[dict[str, Any]]] = {}
+    for name, path in packet_inputs.items():
+        packet, packet_blockers = read_controlled_loop_run_manifest_plan_packet(
+            path,
+            code=read_codes[name],
+            label=name.replace("_", " "),
+        )
+        packets[name] = packet
+        step_blockers[name] = list(packet_blockers)
+        blockers.extend(packet_blockers)
+
+    if not blockers:
+        expected_types = {
+            "controlled_run_summary": ("controlled_loop_run_summary", CONTROLLED_LOOP_RUN_SUMMARY_SCHEMA_VERSION),
+            "controlled_closeout": ("controlled_loop_closeout", CONTROLLED_LOOP_CLOSEOUT_SCHEMA_VERSION),
+            "controlled_loop_tick": ("controlled_loop_tick", CONTROLLED_LOOP_TICK_SCHEMA_VERSION),
+            "controlled_outcome_plan": ("controlled_loop_outcome_plan", CONTROLLED_LOOP_OUTCOME_PLAN_SCHEMA_VERSION),
+        }
+        for name, (expected_packet, expected_schema) in expected_types.items():
+            packet_blockers = controlled_loop_run_manifest_plan_type_blockers(
+                packets[name],
+                label=name.replace("_", " "),
+                expected_packet=expected_packet,
+                expected_schema=expected_schema,
+            )
+            step_blockers[name].extend(packet_blockers)
+            blockers.extend(packet_blockers)
+
+    if not blockers:
+        summary = packets["controlled_run_summary"]
+        controlled_closeout = packets["controlled_closeout"]
+        controlled_tick = packets["controlled_loop_tick"]
+        outcome_plan = packets["controlled_outcome_plan"]
+
+        if (
+            summary.get("valid") is not True
+            or summary.get("controlled_run_status") != "completed"
+            or summary.get("side_effects") != []
+        ):
+            controlled_loop_run_manifest_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_run_summary",
+                "controlled_run_summary_not_completed",
+                "controlled run summary must be valid and completed",
+                valid=summary.get("valid"),
+                status=summary.get("controlled_run_status"),
+                side_effects=summary.get("side_effects"),
+            )
+        if (
+            controlled_closeout.get("valid") is not True
+            or controlled_closeout.get("controlled_closeout_status") != "completed"
+            or controlled_closeout.get("side_effects") != []
+        ):
+            controlled_loop_run_manifest_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_closeout",
+                "controlled_closeout_not_completed",
+                "controlled closeout must be valid and completed",
+                valid=controlled_closeout.get("valid"),
+                status=controlled_closeout.get("controlled_closeout_status"),
+                side_effects=controlled_closeout.get("side_effects"),
+            )
+        if (
+            controlled_tick.get("valid") is not True
+            or controlled_tick.get("controlled_tick_status") != "completed"
+            or controlled_tick.get("recommended_next_action") != "controlled_tick_complete"
+        ):
+            controlled_loop_run_manifest_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_loop_tick",
+                "controlled_loop_tick_not_completed",
+                "controlled loop tick must be valid and completed",
+                valid=controlled_tick.get("valid"),
+                status=controlled_tick.get("controlled_tick_status"),
+                recommended_next_action=controlled_tick.get("recommended_next_action"),
+            )
+        if (
+            outcome_plan.get("valid") is not True
+            or outcome_plan.get("outcome_plan_status") != "completed"
+            or outcome_plan.get("side_effects") != []
+        ):
+            controlled_loop_run_manifest_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_outcome_plan",
+                "controlled_outcome_plan_not_completed",
+                "controlled outcome plan must be valid and completed",
+                valid=outcome_plan.get("valid"),
+                status=outcome_plan.get("outcome_plan_status"),
+                side_effects=outcome_plan.get("side_effects"),
+            )
+
+        outcome_checksums = outcome_plan.get("checksums") if isinstance(outcome_plan.get("checksums"), dict) else {}
+        for name, packet in {
+            "controlled_run_summary": summary,
+            "controlled_closeout": controlled_closeout,
+            "controlled_loop_tick": controlled_tick,
+        }.items():
+            actual_checksum = checksum_json(packet)
+            if outcome_checksums.get(name) != actual_checksum:
+                controlled_loop_run_manifest_plan_add_blocker(
+                    blockers,
+                    step_blockers,
+                    "controlled_outcome_plan",
+                    f"controlled_outcome_plan_{name}_checksum_mismatch",
+                    f"controlled outcome plan checksum for {name} does not match supplied evidence",
+                    expected=outcome_checksums.get(name),
+                    actual=actual_checksum,
+                )
+
+        outcome_files = outcome_plan.get("files") if isinstance(outcome_plan.get("files"), dict) else {}
+        for name, path in {
+            "controlled_run_summary": packet_inputs["controlled_run_summary"],
+            "controlled_closeout": packet_inputs["controlled_closeout"],
+            "controlled_loop_tick": packet_inputs["controlled_loop_tick"],
+        }.items():
+            if name not in outcome_files:
+                controlled_loop_run_manifest_plan_add_blocker(
+                    blockers,
+                    step_blockers,
+                    "controlled_outcome_plan",
+                    f"controlled_outcome_plan_{name}_file_mismatch",
+                    f"controlled outcome plan files.{name} anchor is missing",
+                    expected=str(path),
+                    actual=outcome_plan.get("files"),
+                )
+            elif not controlled_loop_run_manifest_plan_file_matches(packet_inputs["controlled_outcome_plan"], outcome_files.get(name), path):
+                controlled_loop_run_manifest_plan_add_blocker(
+                    blockers,
+                    step_blockers,
+                    "controlled_outcome_plan",
+                    f"controlled_outcome_plan_{name}_file_mismatch",
+                    f"controlled outcome plan files.{name} does not match supplied evidence path",
+                    expected=str(path),
+                    actual=outcome_files.get(name),
+                )
+
+        summary_checksums = summary.get("checksums") if isinstance(summary.get("checksums"), dict) else {}
+        if summary_checksums.get("controlled_closeout") != checksum_json(controlled_closeout):
+            controlled_loop_run_manifest_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_run_summary",
+                "controlled_run_manifest_controlled_closeout_checksum_mismatch",
+                "controlled closeout checksum does not match controlled run summary",
+                expected=summary_checksums.get("controlled_closeout"),
+                actual=checksum_json(controlled_closeout),
+            )
+        if summary_checksums.get("controlled_loop_tick") != checksum_json(controlled_tick):
+            controlled_loop_run_manifest_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_run_summary",
+                "controlled_run_manifest_controlled_loop_tick_checksum_mismatch",
+                "controlled loop tick checksum does not match controlled run summary",
+                expected=summary_checksums.get("controlled_loop_tick"),
+                actual=checksum_json(controlled_tick),
+            )
+
+        closeout = controlled_closeout.get("closeout") if isinstance(controlled_closeout.get("closeout"), dict) else {}
+        source_decision = controlled_tick.get("next_decision") if isinstance(controlled_tick.get("next_decision"), dict) else {}
+        git_pr_plan = closeout.get("git_pr_plan") if isinstance(closeout.get("git_pr_plan"), dict) else None
+        expected_outcome_action, expected_operator_confirmation, _expected_reason = controlled_loop_outcome_recommendation(
+            [],
+            source_decision=source_decision,
+            git_pr_plan=git_pr_plan,
+        )
+        tick_task = controlled_tick.get("task") if isinstance(controlled_tick.get("task"), dict) else {}
+        tick_epoch = controlled_tick.get("epoch") if isinstance(controlled_tick.get("epoch"), dict) else {}
+        expected_task = {
+            "id": tick_task.get("id"),
+            "checksum": tick_task.get("checksum"),
+        }
+        expected_epoch = {
+            "id": tick_epoch.get("id"),
+            "closeout_status": tick_epoch.get("closeout_status") or controlled_closeout.get("closeout_status"),
+            "epoch_status": tick_epoch.get("epoch_status") or controlled_closeout.get("epoch_status"),
+        }
+        if outcome_plan.get("source_decision") != source_decision:
+            controlled_loop_run_manifest_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_outcome_plan",
+                "controlled_outcome_plan_source_decision_mismatch",
+                "controlled outcome plan source_decision does not match supplied controlled loop tick",
+                expected=source_decision,
+                actual=outcome_plan.get("source_decision"),
+            )
+        if outcome_plan.get("recommended_next_action") != expected_outcome_action:
+            controlled_loop_run_manifest_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_outcome_plan",
+                "controlled_outcome_plan_recommended_next_action_mismatch",
+                "controlled outcome plan recommended_next_action does not match supplied terminal evidence",
+                expected=expected_outcome_action,
+                actual=outcome_plan.get("recommended_next_action"),
+            )
+        if outcome_plan.get("operator_confirmation_required") != expected_operator_confirmation:
+            controlled_loop_run_manifest_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_outcome_plan",
+                "controlled_outcome_plan_operator_confirmation_mismatch",
+                "controlled outcome plan operator_confirmation_required does not match supplied terminal evidence",
+                expected=expected_operator_confirmation,
+                actual=outcome_plan.get("operator_confirmation_required"),
+            )
+        if outcome_plan.get("task") != expected_task:
+            controlled_loop_run_manifest_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_outcome_plan",
+                "controlled_outcome_plan_task_mismatch",
+                "controlled outcome plan task does not match supplied controlled loop tick",
+                expected=expected_task,
+                actual=outcome_plan.get("task"),
+            )
+        if outcome_plan.get("epoch") != expected_epoch:
+            controlled_loop_run_manifest_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_outcome_plan",
+                "controlled_outcome_plan_epoch_mismatch",
+                "controlled outcome plan epoch does not match supplied controlled evidence",
+                expected=expected_epoch,
+                actual=outcome_plan.get("epoch"),
+            )
+        if outcome_plan.get("git_pr_plan") != git_pr_plan:
+            controlled_loop_run_manifest_plan_add_blocker(
+                blockers,
+                step_blockers,
+                "controlled_outcome_plan",
+                "controlled_outcome_plan_git_pr_plan_mismatch",
+                "controlled outcome plan git_pr_plan does not match supplied closeout evidence",
+                expected=git_pr_plan,
+                actual=outcome_plan.get("git_pr_plan"),
+            )
+
+    valid = not blockers
+    summary = packets.get("controlled_run_summary") if isinstance(packets.get("controlled_run_summary"), dict) else {}
+    controlled_tick = packets.get("controlled_loop_tick") if isinstance(packets.get("controlled_loop_tick"), dict) else {}
+    outcome_plan = packets.get("controlled_outcome_plan") if isinstance(packets.get("controlled_outcome_plan"), dict) else {}
+    controlled_closeout = packets.get("controlled_closeout") if isinstance(packets.get("controlled_closeout"), dict) else {}
+    summary_files = summary.get("files") if isinstance(summary.get("files"), dict) else {}
+    summary_checksums = summary.get("checksums") if isinstance(summary.get("checksums"), dict) else {}
+    tick_files = controlled_tick.get("files") if isinstance(controlled_tick.get("files"), dict) else {}
+    tick_checksums = controlled_tick.get("checksums") if isinstance(controlled_tick.get("checksums"), dict) else {}
+    closeout = controlled_closeout.get("closeout") if isinstance(controlled_closeout.get("closeout"), dict) else {}
+    source_decision = controlled_tick.get("next_decision") if isinstance(controlled_tick.get("next_decision"), dict) else {}
+    git_pr_plan = closeout.get("git_pr_plan") if isinstance(closeout.get("git_pr_plan"), dict) else None
+    expected_outcome_action, _expected_operator_confirmation, _expected_outcome_reason = controlled_loop_outcome_recommendation(
+        [],
+        source_decision=source_decision,
+        git_pr_plan=git_pr_plan,
+    )
+    evidence_files = {
+        "controlled_run_summary": str(packet_inputs["controlled_run_summary"]),
+        "controlled_closeout": str(packet_inputs["controlled_closeout"]),
+        "controlled_loop_tick": str(packet_inputs["controlled_loop_tick"]),
+        "controlled_outcome_plan": str(packet_inputs["controlled_outcome_plan"]),
+    }
+    for key in [
+        "loop_run_plan",
+        "controlled_loop_start",
+        "controlled_invocation_plan",
+        "controlled_real_invocation",
+    ]:
+        if key in summary_files:
+            evidence_files[key] = str(controlled_tick_context_path(packet_inputs["controlled_run_summary"], summary_files[key]))
+    for key, value in tick_files.items():
+        if isinstance(key, str):
+            evidence_files[key] = str(controlled_tick_context_path(packet_inputs["controlled_loop_tick"], value))
+
+    manifest_checksums = {
+        name: checksum_json(packet)
+        for name, packet in packets.items()
+        if isinstance(packet, dict)
+    }
+    for key, value in summary_checksums.items():
+        if isinstance(key, str):
+            manifest_checksums.setdefault(key, value)
+    for key, value in tick_checksums.items():
+        if isinstance(key, str):
+            manifest_checksums.setdefault(key, value)
+    recommended_next_action, operator_confirmation_required, reason = controlled_loop_run_manifest_plan_recommendation(blockers)
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": CONTROLLED_LOOP_RUN_MANIFEST_PLAN_SCHEMA_VERSION,
+        "packet": "controlled_loop_run_manifest_plan",
+        "generated_at": utc_now(),
+        "read_only": True,
+        "valid": valid,
+        "manifest_status": "completed" if valid else "blocked",
+        "reason": reason,
+        "runner_started": False,
+        "executor_started": False,
+        "epoch_started": False,
+        "pr_action_started": False,
+        "github_write_started": False,
+        "merge_started": False,
+        "release_started": False,
+        "package_publication_started": False,
+        "role_assignment_started": False,
+        "agent_scheduling_started": False,
+        "loop_continuation_started": False,
+        "operator_confirmation_required": operator_confirmation_required,
+        "side_effects": [],
+        "recommended_next_action": recommended_next_action,
+        "next_controlled_action": expected_outcome_action,
+        "run_manifest": {
+            "sequence_version": "controlled-loop-run-sequence.v1",
+            "evidence_files": evidence_files,
+            "checksums": manifest_checksums,
+            "command_sequence": CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE,
+        },
+        "files": {name: str(path) for name, path in packet_inputs.items()},
+        "checksums": manifest_checksums,
+        "steps": [
+            controlled_loop_run_manifest_plan_step(name, path, packets.get(name), step_blockers.get(name, []))
+            for name, path in packet_inputs.items()
+        ],
+        "blockers": blockers,
+        "limitations": [
+            "plans_existing_controlled_loop_run_manifest_only",
+            "does_not_start_runner",
+            "does_not_start_executor",
+            "does_not_retry_executor",
+            "does_not_continue_loop",
+            "does_not_start_epoch",
+            "does_not_close_epoch",
+            "does_not_append_audit",
+            "does_not_execute_git_commands",
+            "does_not_call_github",
+            "does_not_create_branch",
+            "does_not_commit",
+            "does_not_push",
+            "does_not_create_pr",
+            "does_not_merge",
+            "does_not_release",
+            "does_not_publish_packages",
+            "does_not_assign_roles",
+            "does_not_schedule_agents",
+        ],
+    }
+    emit(payload)
+    return 0 if valid else 2
+
+
 def build_executor_result_validation_payload(
     *,
     root: Path | None,
@@ -9124,6 +9712,20 @@ def build_parser() -> argparse.ArgumentParser:
     controlled_loop_outcome_plan_parser.add_argument("--controlled-loop-tick-file", required=True)
     controlled_loop_outcome_plan_parser.set_defaults(
         func=controlled_loop_outcome_plan_command,
+        requires_root=True,
+        guards_runtime_root_only=True,
+    )
+
+    controlled_loop_run_manifest_plan_parser = subparsers.add_parser(
+        "controlled-loop-run-manifest-plan",
+        help="Plan the saved controlled loop run evidence manifest without starting a runner",
+    )
+    controlled_loop_run_manifest_plan_parser.add_argument("--controlled-run-summary-file", required=True)
+    controlled_loop_run_manifest_plan_parser.add_argument("--controlled-closeout-file", required=True)
+    controlled_loop_run_manifest_plan_parser.add_argument("--controlled-loop-tick-file", required=True)
+    controlled_loop_run_manifest_plan_parser.add_argument("--controlled-outcome-plan-file", required=True)
+    controlled_loop_run_manifest_plan_parser.set_defaults(
+        func=controlled_loop_run_manifest_plan_command,
         requires_root=True,
         guards_runtime_root_only=True,
     )

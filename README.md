@@ -47,6 +47,7 @@ read-only `controlled-loop-real-invocation`,
 read-only `controlled-loop-closeout`,
 read-only `controlled-loop-run-summary`,
 read-only `controlled-loop-outcome-plan`,
+read-only `controlled-loop-run-manifest-plan`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -72,7 +73,12 @@ aggregate tick, and `controlled-loop-run-summary` evidence that summarizes the
 saved runner-adjacent controlled packet chain without continuing the loop, and
 `controlled-loop-outcome-plan` evidence that turns completed terminal
 controlled run evidence into the next bounded operator action without starting
-a continuation or writing Git/GitHub state.
+a continuation or writing Git/GitHub state, and
+`controlled-loop-run-manifest-plan` evidence that binds the saved one-cycle
+controlled run evidence files and command stages without appending audit
+evidence, starting a runner or executor, retrying executors, continuing the
+loop, writing Git/GitHub state, merging, releasing, publishing packages,
+assigning roles, or scheduling agents.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -557,6 +563,23 @@ command maps completed `continue`, `handoff`, `stop`, and
 allowlist. It appends no audit evidence, starts no runner or executor, retries
 nothing, continues no loop, and writes no Git/GitHub state.
 
+`controlled-loop-run-manifest-plan` composes the saved controlled run summary,
+controlled closeout, controlled tick, and outcome plan into a read-only manifest
+packet. It rechecks the outcome-plan file and checksum anchors for the supplied
+terminal evidence, then records the evidence files and controlled command-stage
+sequence needed to review a future one-cycle runner:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-run-manifest-plan --controlled-run-summary-file controlled-loop-run-summary.json --controlled-closeout-file controlled-loop-closeout.json --controlled-loop-tick-file controlled-loop-tick.json --controlled-outcome-plan-file controlled-loop-outcome-plan.json
+```
+
+Completed manifests recommend `review_controlled_run_manifest`; stale outcome
+evidence recommends `refresh_controlled_loop_outcome_plan`. The command appends
+no audit evidence and does not start a runner or executor, retry an executor,
+continue a loop, start or close an epoch, execute Git commands, call GitHub,
+create branches, commit, push, create PRs, merge, release, publish packages,
+assign roles, or schedule agents.
+
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor
 closeout, real-executor invocation records, and accepted controlled single-tick
@@ -949,6 +972,16 @@ validates the source decision/action, and requires any ready Git/PR plan to
 match the controlled tick's saved file/checksum anchor before recommending the
 next bounded operator action. It grants no runner, executor, loop-continuation,
 Git, GitHub, or merge authority.
+
+`controlled-loop-run-manifest-plan` is the read-only manifest planner for a
+completed terminal controlled run. It composes saved
+`controlled-loop-run-summary.v1`, `controlled-loop-closeout.v1`,
+`controlled-loop-tick.v1`, and `controlled-loop-outcome-plan.v1` evidence into
+`controlled-loop-run-manifest-plan.v1`, rechecks outcome-plan file/checksum
+anchors, and records the evidence-file manifest plus controlled command-stage
+sequence for operator review. It grants no audit append, runner, executor,
+loop-continuation, epoch, Git, GitHub, branch, commit, push, PR, merge, release,
+package publication, role-assignment, or agent-scheduling authority.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can

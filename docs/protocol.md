@@ -1581,6 +1581,57 @@ codes such as `git_pr_plan_checksum_mismatch`, `git_pr_plan_unanchored`,
 `git_pr_plan_evidence_missing`, `git_pr_plan_file_mismatch`,
 `git_pr_plan_not_ready`, and `git_pr_plan_approval_state_invalid`.
 
+`controlled-loop-run-manifest-plan` is the read-only manifest planner for a
+completed terminal controlled run. It reads
+`--controlled-run-summary-file`, `--controlled-closeout-file`,
+`--controlled-loop-tick-file`, and `--controlled-outcome-plan-file`, then emits
+`controlled-loop-run-manifest-plan.v1` with `packet:
+controlled_loop_run_manifest_plan`, `read_only: true`, `side_effects: []`,
+`manifest_status` of `completed` or `blocked`, step checksums, files,
+blockers, `next_controlled_action`, and a `run_manifest` containing
+`evidence_files`, `checksums`, and the controlled one-cycle
+`command_sequence`.
+
+The command verifies that the summary, closeout, tick, and outcome plan are
+completed and side-effect-free as saved planner evidence. It rechecks the
+outcome-plan checksums and file anchors for the supplied run summary,
+controlled closeout, and controlled tick, and rechecks the run-summary
+checksums for the controlled closeout and controlled tick. It also recomputes
+the outcome-plan source decision, recommended next action, operator
+confirmation requirement, task, epoch, and optional Git/PR plan from the
+supplied terminal evidence instead of trusting copied outcome-plan fields.
+When valid, it
+recommends `review_controlled_run_manifest` with operator confirmation
+required. Stale terminal or outcome evidence recommends
+`refresh_controlled_loop_outcome_plan`.
+
+The command appends no audit evidence and does not start a runner or executor,
+retry an executor, continue a loop, start or close an epoch, execute Git
+commands, call GitHub, create branches, commit, push, create PRs, merge,
+release, publish packages, assign roles, or schedule agents. Stable blockers
+include `controlled_run_summary_evidence_missing`,
+`controlled_closeout_evidence_missing`,
+`controlled_loop_tick_evidence_missing`,
+`controlled_outcome_plan_evidence_missing`,
+`controlled_run_manifest_packet_mismatch`,
+`controlled_run_summary_not_completed`,
+`controlled_closeout_not_completed`, `controlled_loop_tick_not_completed`,
+`controlled_outcome_plan_not_completed`,
+`controlled_outcome_plan_controlled_run_summary_checksum_mismatch`,
+`controlled_outcome_plan_controlled_closeout_checksum_mismatch`,
+`controlled_outcome_plan_controlled_loop_tick_checksum_mismatch`,
+`controlled_outcome_plan_controlled_run_summary_file_mismatch`,
+`controlled_outcome_plan_controlled_closeout_file_mismatch`,
+`controlled_outcome_plan_controlled_loop_tick_file_mismatch`,
+`controlled_run_manifest_controlled_closeout_checksum_mismatch`, and
+`controlled_run_manifest_controlled_loop_tick_checksum_mismatch`,
+`controlled_outcome_plan_source_decision_mismatch`,
+`controlled_outcome_plan_recommended_next_action_mismatch`,
+`controlled_outcome_plan_operator_confirmation_mismatch`,
+`controlled_outcome_plan_task_mismatch`,
+`controlled_outcome_plan_epoch_mismatch`, and
+`controlled_outcome_plan_git_pr_plan_mismatch`.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from
