@@ -2,8 +2,8 @@
 
 Status: living document
 Last updated: 2026-06-15
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-47 complete in main or active review branches
-Current unattended-operation confidence: 25% (stable headline; progress log records Task 47 projected capability at 42%)
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-48 complete in main or active review branches
+Current unattended-operation confidence: 25% (stable headline; progress log records Task 48 projected capability at 43%)
 
 This document tracks the practical path from the current Agentic Cadence
 protocol toolkit toward GitHub-native orchestration for autonomous software
@@ -89,14 +89,15 @@ dry-run Git/PR planning, then compose the saved local chain into
 `controlled-loop-tick.v1`, write exact approved PR body/comment responses,
 compose the saved PR/review/post-write chain into `controlled-pr-cycle.v1`, plan
 merge readiness from saved evidence without merging, and produce a dry-run
-runner plan from an approved controlled run manifest. It still cannot
+runner plan from an approved controlled run manifest, then verify a
+target-bound runner execution approval for that saved plan. It still cannot
 independently implement code outside approved command evidence, autonomously
 push branches, autonomously open pull requests, assign agent roles, launch fresh
 sessions, coordinate an agent pool, merge, release, publish packages, or
 continue in an unattended loop.
 
 Current confidence for unattended continuous operation is 25% as a stable
-headline; the progress log records Task 47 projected capability at 42%.
+headline; the progress log records Task 48 projected capability at 43%.
 
 The rating is low because the safety primitives are real, but the central
 autonomous build loop is not implemented. The first real unattended run would
@@ -218,6 +219,11 @@ command-policy and active-stop controls. It includes:
   epoch, executing Git commands, calling GitHub, creating branches, committing,
   pushing, creating PRs, merging, releasing, publishing packages, assigning
   roles, or scheduling agents;
+- `controlled-loop-runner-execution-approval` packets that verify a
+  target-bound `operator-approval.v1` for a completed controlled runner plan
+  without appending audit evidence, starting a runner or executor, continuing
+  the loop, writing Git/GitHub state, merging, releasing, publishing packages,
+  assigning roles, or scheduling agents;
 - controlled `invoke-real-executor` local process-start records,
   `closeout-executor-result --real-invocation-file` binding, and
   `controlled-loop-tick` packets that compose saved local
@@ -538,6 +544,9 @@ role-assignment, or agent-scheduling authority.
 approval evidence into a dry-run runner plan, reread the saved operator
 approval file, and mark every approved command stage `not_started` without
 starting a runner or executor or granting continuation/write authority.
+`controlled-loop-runner-execution-approval` can then verify a target-bound
+operator approval for that saved runner plan without starting a runner or
+granting runner-start authority.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,

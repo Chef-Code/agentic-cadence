@@ -17,6 +17,7 @@ OPERATOR_APPROVAL_PURPOSES = {
     "git_pr_materialization",
     "real_executor_invocation",
     "controlled_loop_run_manifest",
+    "controlled_loop_runner_execution",
     "release",
     "package_publication",
 }

@@ -33,6 +33,60 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-15 - Approve controlled runner execution
+
+Summary:
+- Added `controlled-loop-runner-execution-approval` to verify a
+  target-checksum-bound `operator-approval.v1` for a saved completed
+  `controlled-loop-runner-plan.v1`.
+- The command checks the runner plan is completed, read-only, side-effect-free,
+  still in dry-run mode, and still has every planned command stage
+  `not_started` before accepting the approval.
+- Completed approvals append no audit evidence; the command does not start a
+  runner or executor, retry an executor, continue a loop, start or close an
+  epoch, execute Git commands, call GitHub, create branches, commit, push,
+  create PRs, merge, release, publish packages, assign roles, or schedule
+  agents.
+
+Completed slices:
+- Task 48: read-only controlled loop runner execution approval.
+
+Confidence change:
+- Previous: 42%
+- New: 43%
+- Reason: Cadence can now prove that a reviewed dry-run runner plan has
+  explicit operator approval before any future runner start, but it still does
+  not execute the plan, run a continuous loop, retry executors, or operate
+  GitHub autonomously.
+
+Evidence:
+- Focused `controlled-loop-runner-execution-approval` unittest set: 4 tests
+  passed.
+- Adjacent `controlled-loop-run-manifest-plan`,
+  `controlled-loop-run-manifest-approval`, `controlled-loop-runner-plan`, and
+  `controlled-loop-runner-execution-approval` unittest set: 16 tests passed.
+- Full `tests.test_cadence` unittest module: 395 tests passed with 3 Windows
+  symlink skips.
+- Full repo unittest discovery with `python -m unittest discover -s tests`:
+  1058 tests passed with 7 Windows symlink skips.
+- `ruff` check passed for changed Python files.
+- `scripts/validate_protocol.py`, `compileall`, `git diff --check`, and
+  `scripts/verify_package.py` passed.
+
+New risks or blockers:
+- Dry-run controlled one-cycle runner execution, continuous loop execution,
+  autonomous executor retry, Git/GitHub writes, merge authority, release
+  publication, role assignment, and agent scheduling remain intentionally out
+  of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-15 - Plan approved controlled runners
 
 Summary:
