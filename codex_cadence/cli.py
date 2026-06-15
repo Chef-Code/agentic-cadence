@@ -7871,6 +7871,423 @@ def controlled_loop_run_manifest_approval_command(args: argparse.Namespace) -> i
     return 0 if valid else 2
 
 
+CONTROLLED_LOOP_RUNNER_PLAN_SCHEMA_VERSION = "controlled-loop-runner-plan.v1"
+
+
+def controlled_loop_runner_plan_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def read_controlled_loop_runner_plan_packet(
+    path: Path,
+    *,
+    code: str,
+    label: str,
+) -> tuple[Any | None, list[dict[str, Any]]]:
+    try:
+        packet = read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, [
+            controlled_loop_runner_plan_blocker(
+                code,
+                f"{label} could not be read as JSON",
+                path=str(path),
+                error=str(exc),
+            )
+        ]
+    if not isinstance(packet, dict):
+        return None, [controlled_loop_runner_plan_blocker(code, f"{label} must be a JSON object", path=str(path))]
+    return packet, []
+
+
+def controlled_loop_runner_plan_file_matches(context_file: Path, value: Any, expected_path: Path) -> bool:
+    return _closeout_paths_match(controlled_tick_context_path(context_file, value), expected_path)
+
+
+def controlled_loop_runner_plan_recommendation(blockers: list[dict[str, Any]]) -> tuple[str, str]:
+    if not blockers:
+        return "review_controlled_runner_plan", "approved controlled runner dry-run plan is ready for review"
+    blocker_codes = {blocker.get("code") for blocker in blockers}
+    if "controlled_runner_manifest_approval_not_completed" in blocker_codes:
+        return "fix_controlled_run_manifest_approval", "controlled run manifest approval evidence is blocked"
+    if any(
+        code in blocker_codes
+        for code in {
+            "controlled_runner_manifest_approval_evidence_missing",
+            "controlled_runner_manifest_approval_packet_mismatch",
+            "controlled_runner_manifest_approval_checksum_mismatch",
+            "controlled_runner_manifest_approval_file_mismatch",
+            "controlled_runner_operator_approval_file_missing",
+            "controlled_runner_operator_approval_file_unreadable",
+            "controlled_runner_operator_approval_checksum_mismatch",
+            "controlled_runner_operator_approval_target_mismatch",
+        }
+    ):
+        return "refresh_controlled_run_manifest_approval", "controlled run manifest approval evidence is stale"
+    if any(
+        code in blocker_codes
+        for code in {
+            "controlled_runner_manifest_evidence_missing",
+            "controlled_runner_manifest_packet_mismatch",
+            "controlled_runner_manifest_plan_not_completed",
+            "controlled_runner_manifest_command_sequence_mismatch",
+            "controlled_run_manifest_plan_blockers_present",
+            "controlled_run_manifest_plan_steps_blocked",
+            "controlled_run_manifest_plan_authority_flags_invalid",
+            "controlled_run_manifest_plan_operator_confirmation_missing",
+            "controlled_run_manifest_plan_command_sequence_mismatch",
+        }
+    ):
+        return "refresh_controlled_run_manifest_plan", "controlled run manifest plan evidence is stale or blocked"
+    return "inspect_controlled_runner_plan_blockers", "controlled runner plan evidence is blocked"
+
+
+def controlled_loop_runner_planned_steps(command_sequence: Any) -> list[dict[str, Any]]:
+    if not isinstance(command_sequence, list):
+        return []
+    planned_steps: list[dict[str, Any]] = []
+    for item in command_sequence:
+        if not isinstance(item, dict):
+            continue
+        planned_steps.append(
+            {
+                "step": item.get("step"),
+                "command": item.get("command"),
+                "status": "not_started",
+                "evidence_files": item.get("evidence_files"),
+                "execution_authority": item.get("execution_authority"),
+                "allowed_side_effects_when_executed": item.get("allowed_side_effects_when_executed"),
+            }
+        )
+    return planned_steps
+
+
+def controlled_loop_runner_plan_command(args: argparse.Namespace) -> int:
+    manifest_path = Path(args.controlled_run_manifest_plan_file)
+    approval_path = Path(args.controlled_run_manifest_approval_file)
+    manifest, manifest_blockers = read_controlled_loop_runner_plan_packet(
+        manifest_path,
+        code="controlled_runner_manifest_evidence_missing",
+        label="controlled run manifest plan",
+    )
+    approval_evidence, approval_blockers = read_controlled_loop_runner_plan_packet(
+        approval_path,
+        code="controlled_runner_manifest_approval_evidence_missing",
+        label="controlled run manifest approval",
+    )
+    blockers: list[dict[str, Any]] = list(manifest_blockers) + list(approval_blockers)
+
+    if isinstance(manifest, dict):
+        if (
+            manifest.get("schema_version") != CONTROLLED_LOOP_RUN_MANIFEST_PLAN_SCHEMA_VERSION
+            or manifest.get("packet") != "controlled_loop_run_manifest_plan"
+        ):
+            blockers.append(
+                controlled_loop_runner_plan_blocker(
+                    "controlled_runner_manifest_packet_mismatch",
+                    "controlled run manifest plan packet type is invalid",
+                    expected_schema_version=CONTROLLED_LOOP_RUN_MANIFEST_PLAN_SCHEMA_VERSION,
+                    actual_schema_version=manifest.get("schema_version"),
+                    expected_packet="controlled_loop_run_manifest_plan",
+                    actual_packet=manifest.get("packet"),
+                )
+            )
+        if (
+            manifest.get("valid") is not True
+            or manifest.get("manifest_status") != "completed"
+            or manifest.get("read_only") is not True
+            or manifest.get("side_effects") != []
+            or manifest.get("recommended_next_action") != "review_controlled_run_manifest"
+        ):
+            blockers.append(
+                controlled_loop_runner_plan_blocker(
+                    "controlled_runner_manifest_plan_not_completed",
+                    "controlled run manifest plan must be completed and ready for review",
+                    valid=manifest.get("valid"),
+                    manifest_status=manifest.get("manifest_status"),
+                    read_only=manifest.get("read_only"),
+                    side_effects=manifest.get("side_effects"),
+                    recommended_next_action=manifest.get("recommended_next_action"),
+                )
+            )
+        blockers.extend(controlled_loop_run_manifest_approval_manifest_consistency_blockers(manifest))
+
+    if isinstance(approval_evidence, dict):
+        if (
+            approval_evidence.get("schema_version") != CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_SCHEMA_VERSION
+            or approval_evidence.get("packet") != "controlled_loop_run_manifest_approval"
+        ):
+            blockers.append(
+                controlled_loop_runner_plan_blocker(
+                    "controlled_runner_manifest_approval_packet_mismatch",
+                    "controlled run manifest approval packet type is invalid",
+                    expected_schema_version=CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_SCHEMA_VERSION,
+                    actual_schema_version=approval_evidence.get("schema_version"),
+                    expected_packet="controlled_loop_run_manifest_approval",
+                    actual_packet=approval_evidence.get("packet"),
+                )
+            )
+        approval_details = approval_evidence.get("approval") if isinstance(approval_evidence.get("approval"), dict) else {}
+        invalid_flags = {
+            flag: approval_evidence.get(flag)
+            for flag in CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_FORBIDDEN_TRUE_FLAGS
+            if approval_evidence.get(flag) is not False
+        }
+        if (
+            approval_evidence.get("valid") is not True
+            or approval_evidence.get("approval_status") != "completed"
+            or approval_evidence.get("read_only") is not True
+            or approval_evidence.get("side_effects") != []
+            or approval_evidence.get("recommended_next_action") != "review_controlled_run_manifest_approval"
+            or approval_evidence.get("next_controlled_action") != "review_approved_controlled_run_manifest"
+            or approval_evidence.get("operator_confirmation_required") is not True
+            or approval_evidence.get("blockers") != []
+            or approval_details.get("state") != "approved"
+            or approval_details.get("purpose") != CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_PURPOSE
+            or approval_details.get("approval_purpose") != CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_PURPOSE
+            or approval_details.get("signature_verified") is not True
+            or approval_details.get("blocker_codes") != []
+            or invalid_flags
+        ):
+            blockers.append(
+                controlled_loop_runner_plan_blocker(
+                    "controlled_runner_manifest_approval_not_completed",
+                    "controlled run manifest approval must be completed and target-bound",
+                    valid=approval_evidence.get("valid"),
+                    approval_status=approval_evidence.get("approval_status"),
+                    read_only=approval_evidence.get("read_only"),
+                    side_effects=approval_evidence.get("side_effects"),
+                    recommended_next_action=approval_evidence.get("recommended_next_action"),
+                    next_controlled_action=approval_evidence.get("next_controlled_action"),
+                    operator_confirmation_required=approval_evidence.get("operator_confirmation_required"),
+                    blocker_codes=approval_evidence.get("blockers"),
+                    approval=approval_details,
+                    invalid_flags=invalid_flags,
+                )
+            )
+
+    manifest_checksum = checksum_json(manifest) if isinstance(manifest, dict) else None
+    approval_checksum = checksum_json(approval_evidence) if isinstance(approval_evidence, dict) else None
+    operator_approval_checksum: str | None = None
+    if isinstance(manifest, dict) and isinstance(approval_evidence, dict):
+        approval_manifest = (
+            approval_evidence.get("controlled_run_manifest_plan")
+            if isinstance(approval_evidence.get("controlled_run_manifest_plan"), dict)
+            else {}
+        )
+        approval_details = approval_evidence.get("approval") if isinstance(approval_evidence.get("approval"), dict) else {}
+        approval_files = approval_evidence.get("files") if isinstance(approval_evidence.get("files"), dict) else {}
+        approval_checksums = approval_evidence.get("checksums") if isinstance(approval_evidence.get("checksums"), dict) else {}
+
+        manifest_checksum_fields = {
+            "controlled_run_manifest_plan.checksum": approval_manifest.get("checksum"),
+            "checksums.controlled_run_manifest_plan": approval_checksums.get("controlled_run_manifest_plan"),
+            "approval.target_checksum": approval_details.get("target_checksum"),
+            "approval.approval_target_checksum": approval_details.get("approval_target_checksum"),
+        }
+        mismatched_manifest_checksum_fields = {
+            field: value for field, value in manifest_checksum_fields.items() if value != manifest_checksum
+        }
+        if mismatched_manifest_checksum_fields:
+            blockers.append(
+                controlled_loop_runner_plan_blocker(
+                    "controlled_runner_manifest_approval_checksum_mismatch",
+                    "controlled run manifest approval does not target the supplied manifest checksum",
+                    expected=manifest_checksum,
+                    actual=mismatched_manifest_checksum_fields,
+                )
+            )
+
+        if approval_manifest.get("status") != "completed":
+            blockers.append(
+                controlled_loop_runner_plan_blocker(
+                    "controlled_runner_manifest_approval_checksum_mismatch",
+                    "controlled run manifest approval does not reference a completed manifest",
+                    actual=approval_manifest.get("status"),
+                )
+            )
+        if not controlled_loop_runner_plan_file_matches(approval_path, approval_manifest.get("file"), manifest_path):
+            blockers.append(
+                controlled_loop_runner_plan_blocker(
+                    "controlled_runner_manifest_approval_file_mismatch",
+                    "controlled run manifest approval manifest file anchor does not match supplied manifest",
+                    expected=str(manifest_path),
+                    actual=approval_manifest.get("file"),
+                )
+            )
+        if not controlled_loop_runner_plan_file_matches(
+            approval_path,
+            approval_files.get("controlled_run_manifest_plan"),
+            manifest_path,
+        ):
+            blockers.append(
+                controlled_loop_runner_plan_blocker(
+                    "controlled_runner_manifest_approval_file_mismatch",
+                    "controlled run manifest approval files.controlled_run_manifest_plan does not match supplied manifest",
+                    expected=str(manifest_path),
+                    actual=approval_files.get("controlled_run_manifest_plan"),
+                )
+            )
+
+        operator_approval_file = approval_files.get("operator_approval")
+        if not isinstance(operator_approval_file, str) or not operator_approval_file.strip():
+            blockers.append(
+                controlled_loop_runner_plan_blocker(
+                    "controlled_runner_operator_approval_file_missing",
+                    "controlled run manifest approval must include operator approval file evidence",
+                    actual=operator_approval_file,
+                )
+            )
+        else:
+            operator_approval_path = controlled_tick_context_path(approval_path, operator_approval_file)
+            operator_approval, operator_approval_blockers = read_controlled_loop_runner_plan_packet(
+                Path(operator_approval_path),
+                code="controlled_runner_operator_approval_file_unreadable",
+                label="operator approval",
+            )
+            blockers.extend(operator_approval_blockers)
+            if isinstance(operator_approval, dict):
+                operator_approval_checksum = checksum_json(operator_approval)
+                operator_checksum_fields = {
+                    "approval.checksum": approval_details.get("checksum"),
+                    "checksums.operator_approval": approval_checksums.get("operator_approval"),
+                }
+                mismatched_operator_checksum_fields = {
+                    field: value for field, value in operator_checksum_fields.items() if value != operator_approval_checksum
+                }
+                if mismatched_operator_checksum_fields:
+                    blockers.append(
+                        controlled_loop_runner_plan_blocker(
+                            "controlled_runner_operator_approval_checksum_mismatch",
+                            "controlled run manifest approval does not match the saved operator approval file",
+                            expected=operator_approval_checksum,
+                            actual=mismatched_operator_checksum_fields,
+                        )
+                    )
+                if (
+                    operator_approval.get("target_checksum") != manifest_checksum
+                    or operator_approval.get("purpose") != CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_PURPOSE
+                ):
+                    blockers.append(
+                        controlled_loop_runner_plan_blocker(
+                            "controlled_runner_operator_approval_target_mismatch",
+                            "operator approval file does not target the supplied controlled run manifest",
+                            expected_target_checksum=manifest_checksum,
+                            actual_target_checksum=operator_approval.get("target_checksum"),
+                            expected_purpose=CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_PURPOSE,
+                            actual_purpose=operator_approval.get("purpose"),
+                        )
+                    )
+
+        run_manifest = manifest.get("run_manifest") if isinstance(manifest.get("run_manifest"), dict) else {}
+        if run_manifest.get("command_sequence") != CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE:
+            blockers.append(
+                controlled_loop_runner_plan_blocker(
+                    "controlled_runner_manifest_command_sequence_mismatch",
+                    "controlled run manifest command sequence is invalid",
+                    expected=CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE,
+                    actual=run_manifest.get("command_sequence"),
+                )
+            )
+
+    valid = not blockers
+    recommended_next_action, reason = controlled_loop_runner_plan_recommendation(blockers)
+    run_manifest = manifest.get("run_manifest") if isinstance(manifest, dict) and isinstance(manifest.get("run_manifest"), dict) else {}
+    command_sequence = run_manifest.get("command_sequence")
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": CONTROLLED_LOOP_RUNNER_PLAN_SCHEMA_VERSION,
+        "packet": "controlled_loop_runner_plan",
+        "generated_at": utc_now(),
+        "read_only": True,
+        "valid": valid,
+        "runner_plan_status": "completed" if valid else "blocked",
+        "reason": reason,
+        "runner_started": False,
+        "executor_started": False,
+        "epoch_started": False,
+        "pr_action_started": False,
+        "github_write_started": False,
+        "merge_started": False,
+        "release_started": False,
+        "package_publication_started": False,
+        "role_assignment_started": False,
+        "agent_scheduling_started": False,
+        "loop_continuation_started": False,
+        "operator_confirmation_required": True,
+        "side_effects": [],
+        "recommended_next_action": recommended_next_action,
+        "next_controlled_action": "request_controlled_runner_execution_approval" if valid else recommended_next_action,
+        "approved_manifest": {
+            "file": str(manifest_path),
+            "checksum": manifest_checksum,
+            "status": manifest.get("manifest_status") if isinstance(manifest, dict) else None,
+            "next_controlled_action": manifest.get("next_controlled_action") if isinstance(manifest, dict) else None,
+        },
+        "manifest_approval": {
+            "file": str(approval_path),
+            "checksum": approval_checksum,
+            "status": approval_evidence.get("approval_status") if isinstance(approval_evidence, dict) else None,
+            "target_checksum": (
+                approval_evidence.get("approval", {}).get("target_checksum")
+                if isinstance(approval_evidence, dict) and isinstance(approval_evidence.get("approval"), dict)
+                else None
+            ),
+            "approval_target_checksum": (
+                approval_evidence.get("approval", {}).get("approval_target_checksum")
+                if isinstance(approval_evidence, dict) and isinstance(approval_evidence.get("approval"), dict)
+                else None
+            ),
+            "operator_approval_checksum": operator_approval_checksum,
+        },
+        "runner_plan": {
+            "mode": "dry_run",
+            "manifest_checksum": manifest_checksum,
+            "approval_checksum": approval_checksum,
+            "evidence_files": run_manifest.get("evidence_files") if isinstance(run_manifest, dict) else {},
+            "checksums": run_manifest.get("checksums") if isinstance(run_manifest, dict) else {},
+            "planned_command_sequence": command_sequence if isinstance(command_sequence, list) else [],
+            "planned_steps": controlled_loop_runner_planned_steps(command_sequence),
+        },
+        "files": {
+            "controlled_run_manifest_plan": str(manifest_path),
+            "controlled_run_manifest_approval": str(approval_path),
+        },
+        "checksums": {
+            "controlled_run_manifest_plan": manifest_checksum,
+            "controlled_run_manifest_approval": approval_checksum,
+            "operator_approval": operator_approval_checksum,
+        },
+        "blockers": blockers,
+        "limitations": [
+            "plans_approved_controlled_loop_run_manifest_only",
+            "dry_run_only",
+            "does_not_start_runner",
+            "does_not_start_executor",
+            "does_not_retry_executor",
+            "does_not_continue_loop",
+            "does_not_start_epoch",
+            "does_not_close_epoch",
+            "does_not_append_audit",
+            "does_not_execute_git_commands",
+            "does_not_call_github",
+            "does_not_create_branch",
+            "does_not_commit",
+            "does_not_push",
+            "does_not_create_pr",
+            "does_not_merge",
+            "does_not_release",
+            "does_not_publish_packages",
+            "does_not_assign_roles",
+            "does_not_schedule_agents",
+        ],
+    }
+    emit(payload)
+    return 0 if valid else 2
+
+
 def build_executor_result_validation_payload(
     *,
     root: Path | None,
@@ -10028,6 +10445,18 @@ def build_parser() -> argparse.ArgumentParser:
     controlled_loop_run_manifest_approval_parser.add_argument("--approval-secret-env", default=OPERATOR_APPROVAL_SECRET_ENV)
     controlled_loop_run_manifest_approval_parser.set_defaults(
         func=controlled_loop_run_manifest_approval_command,
+        requires_root=True,
+        guards_runtime_root_only=True,
+    )
+
+    controlled_loop_runner_plan_parser = subparsers.add_parser(
+        "controlled-loop-runner-plan",
+        help="Plan an approved controlled loop runner dry run without starting a runner",
+    )
+    controlled_loop_runner_plan_parser.add_argument("--controlled-run-manifest-plan-file", required=True)
+    controlled_loop_runner_plan_parser.add_argument("--controlled-run-manifest-approval-file", required=True)
+    controlled_loop_runner_plan_parser.set_defaults(
+        func=controlled_loop_runner_plan_command,
         requires_root=True,
         guards_runtime_root_only=True,
     )

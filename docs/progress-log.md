@@ -33,6 +33,57 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-15 - Plan approved controlled runners
+
+Summary:
+- Added `controlled-loop-runner-plan` to compose a saved completed controlled
+  run manifest and its saved manifest-approval evidence into a read-only
+  dry-run runner plan.
+- The command recomputes manifest and approval checksums, rechecks approval
+  target/file anchors, rereads the saved operator approval file, and marks the
+  approved one-cycle command stages `not_started`.
+- Completed runner plans append no audit evidence; the command does not start
+  a runner or executor, retry an executor, continue a loop, start or close an
+  epoch, execute Git commands, call GitHub, create branches, commit, push,
+  create PRs, merge, release, publish packages, assign roles, or schedule
+  agents.
+
+Completed slices:
+- Task 47: read-only controlled loop runner planning.
+
+Confidence change:
+- Previous: 41%
+- New: 42%
+- Reason: Cadence can now turn a reviewed and approved manifest into a
+  dry-run runner plan, but it still does not run the planned commands,
+  execute a continuous loop, retry executors, or operate GitHub autonomously.
+
+Evidence:
+- Focused `controlled-loop-runner-plan` unittest set: 3 tests passed.
+- Adjacent `controlled-loop-run-manifest-plan`,
+  `controlled-loop-run-manifest-approval`, and
+  `controlled-loop-runner-plan` unittest set: 11 tests passed.
+- Full `tests.test_cadence` unittest module: 390 tests passed with 3 Windows
+  symlink skips.
+- Full repo unittest discovery with `python -m unittest discover -s tests`:
+  1053 tests passed with 7 Windows symlink skips.
+- `ruff` check passed for changed Python files.
+- `scripts/validate_protocol.py`, `compileall`, and `git diff --check` passed.
+
+New risks or blockers:
+- Dry-run controlled one-cycle runner execution, continuous loop execution,
+  autonomous executor retry, Git/GitHub writes, merge authority, release
+  publication, role assignment, and agent scheduling remain intentionally out
+  of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-15 - Approve controlled run manifests
 
 Summary:
