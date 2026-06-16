@@ -2,8 +2,8 @@
 
 Status: living document
 Last updated: 2026-06-16
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-50 complete in main or active review branches
-Current unattended-operation confidence: 25% (deliberately stable headline token; progress-log records Task 50 projected capability at 45%)
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, executor closeout, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-51 complete in main or active review branches
+Current unattended-operation confidence: 25% (deliberately stable headline token; progress-log records Task 51 projected capability at 46%)
 
 This document answers how close Agentic Cadence is to the "press start and
 build continuously" experience. The first usable path is a governed
@@ -496,11 +496,13 @@ Reasoning:
   `controlled-loop-runner-dry-run` rechecks both before emitting would-process
   stage evidence, and `controlled-loop-runner-start-readiness` revalidates the
   supplied runner plan and approval while rechecking the completed dry-run
-  stage sequence before any future runner start, all without appending audit
-  evidence, starting a runner or executor, retrying an executor, continuing the
-  loop, starting or closing an epoch, executing Git commands, calling GitHub,
-  creating branches, committing, pushing, creating PRs, merging, releasing,
-  publishing packages, assigning roles, or scheduling agents.
+  stage sequence before any future runner start, and
+  `controlled-loop-runner-start-approval` verifies target-bound operator
+  approval for that readiness packet, all without appending audit evidence,
+  starting a runner or executor, retrying an executor, continuing the loop,
+  starting or closing an epoch, executing Git commands, calling GitHub, creating
+  branches, committing, pushing, creating PRs, merging, releasing, publishing
+  packages, assigning roles, or scheduling agents.
 - The generic executor task/result contract is now explicit and testable, and
   is wired through read-only executor invocation readiness, read-only invocation
   planning, fake controlled executor fixtures, and controlled one-command real

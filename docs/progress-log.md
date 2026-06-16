@@ -33,6 +33,47 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-16 - Read-only controlled runner start approval
+
+Summary:
+- Added `controlled-loop-runner-start-approval` to consume a saved completed
+  `controlled-loop-runner-start-readiness.v1` plus a target-bound
+  `operator-approval.v1`.
+- The command verifies purpose `controlled_loop_runner_start`, revalidates the
+  readiness packet, rechecks authority flags and readiness stages, and emits
+  approval-only evidence for a future runner start.
+- Completed start-approval packets append no audit evidence; the command does
+  not start a runner or executor, invoke or retry an executor, continue a loop,
+  start or close an epoch, execute Git commands, call GitHub, create branches,
+  commit, push, create PRs, merge, release, publish packages, assign roles, or
+  schedule agents.
+
+Completed slices:
+- Task 51: read-only controlled loop runner start-approval packet.
+
+Confidence change:
+- Previous: 45%
+- New: 46%
+- Reason: Cadence can now prove explicit operator approval for a completed
+  runner start-readiness packet, but it still does not start the runner or
+  perform autonomous GitHub operations.
+
+Evidence:
+- Focused `controlled-loop-runner-start-approval` unittest set: 3 tests passed.
+
+New risks or blockers:
+- Actual one-cycle runner execution, continuous loop execution, autonomous
+  executor retry, Git/GitHub writes, merge authority, release publication, role
+  assignment, and agent scheduling remain intentionally out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-16 - Read-only controlled runner start readiness
 
 Summary:
