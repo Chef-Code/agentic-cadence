@@ -53,6 +53,7 @@ read-only `controlled-loop-runner-plan`,
 read-only `controlled-loop-runner-execution-approval`,
 read-only `controlled-loop-runner-dry-run`,
 read-only `controlled-loop-runner-start-readiness`,
+read-only `controlled-loop-runner-start-approval`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -98,7 +99,9 @@ plan and execution approval before emitting would-process stage evidence
 without starting a runner or executor, and
 `controlled-loop-runner-start-readiness` evidence that validates the completed
 dry run before any future runner start while still granting no runner-start
-authority.
+authority, and `controlled-loop-runner-start-approval` evidence that verifies
+target-checksum-bound operator approval for that readiness packet without
+starting the runner.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -691,6 +694,25 @@ or close an epoch, execute Git commands, call GitHub, create branches, commit,
 push, create PRs, merge, release, publish packages, assign roles, or schedule
 agents.
 
+`controlled-loop-runner-start-approval` consumes a saved completed
+`controlled-loop-runner-start-readiness.v1` packet plus an
+`operator-approval.v1` whose `target_checksum` equals the start-readiness
+checksum and whose purpose is `controlled_loop_runner_start`. It revalidates
+the readiness packet, verifies the target-bound approval, and emits
+approval-only evidence without starting the runner:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-start-approval --controlled-loop-runner-start-readiness-file controlled-loop-runner-start-readiness.json --approval-file operator-approval-controlled-runner-start.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET
+```
+
+Completed start-approval packets recommend
+`review_controlled_runner_start_approval` and stop at
+`review_approved_controlled_runner_start`. The command appends no audit
+evidence and does not start a runner or executor, invoke or retry an executor,
+continue a loop, start or close an epoch, execute Git commands, call GitHub,
+create branches, commit, push, create PRs, merge, release, publish packages,
+assign roles, or schedule agents.
+
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor
 closeout, real-executor invocation records, and accepted controlled single-tick
@@ -1146,6 +1168,16 @@ rechecks anchors and checksums, verifies the dry-run command sequence and stage
 list still match the approved runner plan, verifies each stage remains
 `would_process`, and emits
 `controlled-loop-runner-start-readiness.v1`. It appends no audit evidence,
+starts no runner or executor, invokes or retries no executor, continues no
+loop, and grants no epoch, Git, GitHub, branch, commit, push, PR, merge,
+release, package publication, role-assignment, or agent-scheduling authority.
+
+`controlled-loop-runner-start-approval` is the read-only approval packet after
+runner start-readiness. It composes the saved start-readiness packet with a
+target-bound `operator-approval.v1` whose purpose is
+`controlled_loop_runner_start`, revalidates the readiness packet, verifies the
+approval identity and target checksum, and emits
+`controlled-loop-runner-start-approval.v1`. It appends no audit evidence,
 starts no runner or executor, invokes or retries no executor, continues no
 loop, and grants no epoch, Git, GitHub, branch, commit, push, PR, merge,
 release, package publication, role-assignment, or agent-scheduling authority.

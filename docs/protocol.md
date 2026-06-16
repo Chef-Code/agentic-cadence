@@ -1156,7 +1156,8 @@ local checks and tests. The command verifies an `hmac-sha256:` signature over
 the approval fields and emits `operator-approval-verification.v1`. Supported purposes are
 `start_governed_execution`, `git_pr_materialization`,
 `real_executor_invocation`, `controlled_loop_run_manifest`,
-`controlled_loop_runner_execution`, `release`, and `package_publication`.
+`controlled_loop_runner_execution`, `controlled_loop_runner_start`, `release`,
+and `package_publication`.
 
 An `operator-approval.v1` packet must include `target_checksum`, `purpose`,
 `operator_id`, `key_id`, `issued_at`, `expires_at`, and `signature`. The
@@ -1856,6 +1857,48 @@ blockers include `controlled_runner_start_readiness_dry_run_evidence_missing`,
 `controlled_runner_start_readiness_stage_malformed`,
 `controlled_runner_start_readiness_stage_not_would_process`, and
 `controlled_runner_start_readiness_stage_sequence_mismatch`.
+
+`controlled-loop-runner-start-approval` is the read-only approval packet after
+completed controlled runner start-readiness evidence. It reads
+`--controlled-loop-runner-start-readiness-file` and `--approval-file`, verifies
+the saved start-readiness packet is `controlled-loop-runner-start-readiness.v1`
+and still ready, verifies all authority flags remain false, verifies readiness
+stages remain non-executed and ready, and verifies a target-bound
+`operator-approval.v1` packet with purpose `controlled_loop_runner_start`
+against the exact checksum of the supplied start-readiness packet. The command
+emits `controlled-loop-runner-start-approval.v1` with `packet:
+controlled_loop_runner_start_approval`, `read_only: true`, `side_effects: []`,
+`approval_status` of `completed` or `blocked`, `runner_start_authority:
+operator_approved_not_started` when valid, approval identity evidence, checksums,
+blockers, and `next_controlled_action`.
+
+When valid, the command recommends
+`review_controlled_runner_start_approval`, requires operator confirmation, and
+reports `next_controlled_action: review_approved_controlled_runner_start`.
+Blocked start-readiness evidence recommends
+`refresh_controlled_runner_start_readiness`; blocked operator approval evidence
+recommends `fix_controlled_runner_start_approval`.
+
+The command appends no audit evidence and does not start a runner or executor,
+invoke an executor, retry an executor, continue a loop, start or close an
+epoch, execute Git commands, call GitHub, create branches, commit, push, create
+PRs, merge, release, publish packages, assign roles, or schedule agents. Stable
+blockers include `controlled_runner_start_readiness_evidence_missing`,
+`controlled_runner_start_readiness_packet_mismatch`,
+`controlled_runner_start_readiness_not_ready`,
+`controlled_runner_start_readiness_authority_flags_invalid`,
+`controlled_runner_start_readiness_stage_sequence_mismatch`,
+`controlled_runner_start_readiness_mode_invalid`,
+`controlled_runner_start_readiness_stage_malformed`,
+`operator_approval_file_unreadable`, and the
+`operator_approval_*` blockers emitted by `operator-approval.v1` verification,
+including `operator_approval_invalid`, `operator_approval_schema_invalid`,
+`operator_approval_target_invalid`, `operator_approval_target_mismatch`,
+`operator_approval_purpose_missing`, `operator_approval_purpose_mismatch`,
+`operator_approval_operator_missing`, `operator_approval_key_id_weak`,
+`operator_approval_timestamp_invalid`, `operator_approval_window_too_long`,
+`operator_approval_expired`, `operator_approval_issued_in_future`,
+`operator_approval_signature_invalid`, and `operator_approval_secret_missing`.
 
 ## Git/PR Dry-Run Planning
 
