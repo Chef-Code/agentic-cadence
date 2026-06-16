@@ -721,8 +721,8 @@ assign roles, or schedule agents.
 `controlled-loop-runner-start-approval.v1` packet plus the saved
 start-readiness, dry-run, runner-plan, and execution-approval packets. It
 rechecks file anchors, checksums, operator approval identity, readiness stages,
-dry-run stages, and runner-plan stages before recording the approved one-cycle
-runner-start boundary:
+dry-run stages, runner-plan stages, and execution-approval anchors/checksums
+before recording the approved one-cycle runner-start boundary:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-start --controlled-loop-runner-start-approval-file controlled-loop-runner-start-approval.json --controlled-loop-runner-start-readiness-file controlled-loop-runner-start-readiness.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-execution-approval-file controlled-loop-runner-execution-approval.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET

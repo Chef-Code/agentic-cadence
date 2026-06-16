@@ -1913,8 +1913,10 @@ execution-approval file anchors and checksums, verifies stage sequences still
 match the approved controlled-run manifest, and emits
 `controlled-loop-runner-start.v1` with `packet:
 controlled_loop_runner_start`, `runner_start_status` of `started` or
-`blocked`, `runner_start_authority: operator_approved_started` when valid,
-the approved command sequence, checksums, blockers, and
+`blocked`, `runner_started: true`, `executor_started: false`,
+`loop_continuation_started: false`, `runner_start_authority:
+operator_approved_started` when valid, the approved command sequence,
+checksums, blockers, and
 `next_controlled_action`.
 
 When valid, the command recommends `review_controlled_runner_start`, appends
@@ -1936,7 +1938,9 @@ schedules no agents. Stable blockers include
 `controlled_runner_start_readiness_checksum_mismatch`,
 `controlled_runner_start_readiness_file_mismatch`,
 `controlled_runner_start_dry_run_evidence_missing`,
+`controlled_runner_start_dry_run_authority_flags_invalid`,
 `controlled_runner_start_dry_run_checksum_mismatch`,
+`controlled_runner_start_dry_run_non_execution_guarantees_missing`,
 `controlled_runner_start_dry_run_stage_sequence_mismatch`,
 `controlled_runner_start_runner_plan_evidence_missing`,
 `controlled_runner_start_runner_plan_checksum_mismatch`,

@@ -25,6 +25,7 @@ from codex_cadence.policy_audit import (
     append_audit_record,
     audit_event_hash,
     checksum_json,
+    controlled_loop_runner_start_audit_record,
     execution_start_audit_record,
     executor_epoch_closeout_audit_record,
     operator_approval_verification_audit_record,
@@ -9528,6 +9529,18 @@ class CadenceCliTests(unittest.TestCase):
             )
             chain["controlled_loop_runner_start_approval_evidence"] = approval_evidence
 
+        def write_dry_run_and_refresh_readiness(chain, dry_run):
+            chain["controlled_loop_runner_dry_run_path"].write_text(json.dumps(dry_run), encoding="utf-8")
+            chain["controlled_loop_runner_dry_run"] = dry_run
+            dry_run_checksum = checksum_json(dry_run)
+            readiness = json.loads(json.dumps(chain["controlled_loop_runner_start_readiness"]))
+            readiness["controlled_loop_runner_dry_run"]["checksum"] = dry_run_checksum
+            readiness["checksums"]["controlled_loop_runner_dry_run"] = dry_run_checksum
+            readiness["runner_start_readiness"]["dry_run_checksum"] = dry_run_checksum
+            chain["controlled_loop_runner_start_readiness_path"].write_text(json.dumps(readiness), encoding="utf-8")
+            chain["controlled_loop_runner_start_readiness"] = readiness
+            rewrite_start_approval(chain)
+
         def blocked_start_approval(chain):
             approval = json.loads(json.dumps(chain["controlled_loop_runner_start_approval_evidence"]))
             approval["valid"] = False
@@ -9588,15 +9601,17 @@ class CadenceCliTests(unittest.TestCase):
             dry_run = json.loads(json.dumps(chain["controlled_loop_runner_dry_run"]))
             dry_run["files"]["controlled_loop_runner_plan"] = "wrong-plan.json"
             dry_run["controlled_loop_runner_plan"]["file"] = "wrong-plan.json"
-            chain["controlled_loop_runner_dry_run_path"].write_text(json.dumps(dry_run), encoding="utf-8")
-            dry_run_checksum = checksum_json(dry_run)
-            readiness = json.loads(json.dumps(chain["controlled_loop_runner_start_readiness"]))
-            readiness["controlled_loop_runner_dry_run"]["checksum"] = dry_run_checksum
-            readiness["checksums"]["controlled_loop_runner_dry_run"] = dry_run_checksum
-            readiness["runner_start_readiness"]["dry_run_checksum"] = dry_run_checksum
-            chain["controlled_loop_runner_start_readiness_path"].write_text(json.dumps(readiness), encoding="utf-8")
-            chain["controlled_loop_runner_start_readiness"] = readiness
-            rewrite_start_approval(chain)
+            write_dry_run_and_refresh_readiness(chain, dry_run)
+
+        def self_consistent_dry_run_started_flag(chain):
+            dry_run = json.loads(json.dumps(chain["controlled_loop_runner_dry_run"]))
+            dry_run["runner_started"] = True
+            write_dry_run_and_refresh_readiness(chain, dry_run)
+
+        def self_consistent_dry_run_missing_guarantee(chain):
+            dry_run = json.loads(json.dumps(chain["controlled_loop_runner_dry_run"]))
+            dry_run["non_execution_guarantees"] = dry_run["non_execution_guarantees"][:-1]
+            write_dry_run_and_refresh_readiness(chain, dry_run)
 
         cases = [
             ("blocked-start-approval", blocked_start_approval, "controlled_runner_start_approval_not_completed"),
@@ -9626,6 +9641,16 @@ class CadenceCliTests(unittest.TestCase):
                 "self-consistent-malformed-dry-run-anchor",
                 self_consistent_malformed_dry_run_anchor,
                 "controlled_runner_start_dry_run_file_mismatch",
+            ),
+            (
+                "self-consistent-dry-run-started-flag",
+                self_consistent_dry_run_started_flag,
+                "controlled_runner_start_dry_run_authority_flags_invalid",
+            ),
+            (
+                "self-consistent-dry-run-missing-guarantee",
+                self_consistent_dry_run_missing_guarantee,
+                "controlled_runner_start_dry_run_non_execution_guarantees_missing",
             ),
         ]
         for name, mutate, expected_code in cases:
@@ -9658,6 +9683,10 @@ class CadenceCliTests(unittest.TestCase):
 
             result, output = self.run_controlled_loop_runner_start_cli(tmp, chain)
             self.assertEqual(result.returncode, 0, result.stderr)
+            invalid_payload = json.loads(json.dumps(output))
+            invalid_payload["github_write_started"] = True
+            with self.assertRaisesRegex(ValueError, "github_write_started"):
+                controlled_loop_runner_start_audit_record(invalid_payload)
             records = audit_records(tmp)
             records[-1]["github_write_started"] = True
             records[-1]["event_hash"] = audit_event_hash(records[-1])

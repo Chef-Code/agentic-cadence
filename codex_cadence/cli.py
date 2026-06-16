@@ -10454,6 +10454,33 @@ def controlled_loop_runner_start_command(args: argparse.Namespace) -> int:
                     blocker_codes=dry_run.get("blockers"),
                 )
             )
+        invalid_dry_run_flags = {
+            flag: dry_run.get(flag)
+            for flag in CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_FORBIDDEN_TRUE_FLAGS
+            if dry_run.get(flag) is not False
+        }
+        if invalid_dry_run_flags:
+            blockers.append(
+                controlled_loop_runner_start_blocker(
+                    "controlled_runner_start_dry_run_authority_flags_invalid",
+                    "controlled runner dry-run evidence must not report started authority flags",
+                    flags=invalid_dry_run_flags,
+                )
+            )
+        guarantees = dry_run.get("non_execution_guarantees")
+        missing_guarantees = [
+            guarantee
+            for guarantee in CONTROLLED_LOOP_RUNNER_DRY_RUN_NON_EXECUTION_GUARANTEES
+            if not isinstance(guarantees, list) or guarantee not in guarantees
+        ]
+        if missing_guarantees:
+            blockers.append(
+                controlled_loop_runner_start_blocker(
+                    "controlled_runner_start_dry_run_non_execution_guarantees_missing",
+                    "controlled runner dry-run evidence is missing required non-execution guarantees",
+                    missing=missing_guarantees,
+                )
+            )
         dry_files = dry_run.get("files") if isinstance(dry_run.get("files"), dict) else {}
         dry_checksums = dry_run.get("checksums") if isinstance(dry_run.get("checksums"), dict) else {}
         dry_plan = (
@@ -10679,7 +10706,7 @@ def controlled_loop_runner_start_command(args: argparse.Namespace) -> int:
             if audit_blockers:
                 raise ValueError(f"controlled_loop_runner_start audit record is invalid: {audit_blockers[0]['code']}")
             payload["audit_record"] = append_audit_record(args.root, audit_record)
-        except Exception as exc:
+        except (OSError, RuntimeError, ValueError) as exc:
             payload["valid"] = False
             payload["runner_started"] = False
             payload["runner_start_status"] = "blocked"

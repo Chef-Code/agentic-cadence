@@ -820,21 +820,23 @@ def validate_controlled_loop_tick_audit_record(record: dict[str, Any], line: int
     return blockers
 
 
+CONTROLLED_LOOP_RUNNER_START_FORBIDDEN_TRUE_FLAGS = (
+    "executor_started",
+    "epoch_started",
+    "pr_action_started",
+    "github_write_started",
+    "merge_started",
+    "release_started",
+    "package_publication_started",
+    "role_assignment_started",
+    "agent_scheduling_started",
+    "loop_continuation_started",
+)
+
+
 def validate_controlled_loop_runner_start_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
     """Validate controlled runner-start audit fields."""
     blockers: list[dict[str, Any]] = []
-    forbidden_true_flags = (
-        "executor_started",
-        "epoch_started",
-        "pr_action_started",
-        "github_write_started",
-        "merge_started",
-        "release_started",
-        "package_publication_started",
-        "role_assignment_started",
-        "agent_scheduling_started",
-        "loop_continuation_started",
-    )
     for field in (
         "action",
         "reason",
@@ -845,7 +847,7 @@ def validate_controlled_loop_runner_start_audit_record(record: dict[str, Any], l
         "controlled_loop_runner_execution_approval_file",
     ):
         blockers.extend(required_string(record, field, line))
-    for field in ("valid", "runner_started", *forbidden_true_flags):
+    for field in ("valid", "runner_started", *CONTROLLED_LOOP_RUNNER_START_FORBIDDEN_TRUE_FLAGS):
         blockers.extend(required_bool(record, field, line))
     for field in (
         "payload_checksum",
@@ -880,7 +882,7 @@ def validate_controlled_loop_runner_start_audit_record(record: dict[str, Any], l
                 line,
             )
         )
-    for field in forbidden_true_flags:
+    for field in CONTROLLED_LOOP_RUNNER_START_FORBIDDEN_TRUE_FLAGS:
         if record.get(field) is not False:
             blockers.append(
                 audit_replay_blocker(
@@ -1726,6 +1728,13 @@ def controlled_loop_tick_audit_record(payload: dict[str, Any]) -> dict[str, Any]
 
 def controlled_loop_runner_start_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
     """Build the audit record for a bounded controlled runner start."""
+    if payload.get("valid") is not True:
+        raise ValueError("controlled_loop_runner_start audit records are only allowed for valid starts")
+    if payload.get("runner_started") is not True:
+        raise ValueError("controlled_loop_runner_start audit records must mark runner_started")
+    for field in CONTROLLED_LOOP_RUNNER_START_FORBIDDEN_TRUE_FLAGS:
+        if payload.get(field) is not False:
+            raise ValueError(f"controlled_loop_runner_start audit records must not mark {field}")
     files = payload.get("files") if isinstance(payload.get("files"), dict) else {}
     checksums = payload.get("checksums") if isinstance(payload.get("checksums"), dict) else {}
     record = {
