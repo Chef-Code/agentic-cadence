@@ -8565,6 +8565,453 @@ def controlled_loop_runner_execution_approval_command(args: argparse.Namespace) 
     return 0 if valid else 2
 
 
+CONTROLLED_LOOP_RUNNER_DRY_RUN_SCHEMA_VERSION = "controlled-loop-runner-dry-run.v1"
+
+CONTROLLED_LOOP_RUNNER_DRY_RUN_NON_EXECUTION_GUARANTEES = [
+    "does_not_start_runner",
+    "does_not_invoke_executor",
+    "does_not_retry_executor",
+    "does_not_continue_loop",
+    "does_not_write_git_or_github_state",
+    "does_not_merge",
+    "does_not_release",
+    "does_not_assign_roles",
+    "does_not_schedule_agents",
+]
+
+
+def controlled_loop_runner_dry_run_blocker(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def read_controlled_loop_runner_dry_run_packet(
+    path: Path,
+    *,
+    code: str,
+    label: str,
+) -> tuple[Any | None, list[dict[str, Any]]]:
+    try:
+        packet = read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, [
+            controlled_loop_runner_dry_run_blocker(
+                code,
+                f"{label} could not be read as JSON",
+                path=str(path),
+                error=str(exc),
+            )
+        ]
+    if not isinstance(packet, dict):
+        return None, [controlled_loop_runner_dry_run_blocker(code, f"{label} must be a JSON object", path=str(path))]
+    return packet, []
+
+
+def controlled_loop_runner_dry_run_recommendation(
+    blockers: list[dict[str, Any]],
+) -> tuple[str, str]:
+    if not blockers:
+        return "review_controlled_runner_dry_run", "controlled runner dry-run evidence is ready for review"
+    blocker_codes = {blocker.get("code") for blocker in blockers}
+    if any(isinstance(code, str) and code.startswith("controlled_runner_plan_") for code in blocker_codes):
+        return "refresh_controlled_runner_plan", "controlled runner plan evidence is stale or blocked"
+    if any(
+        isinstance(code, str) and code.startswith("controlled_runner_dry_run_execution_approval_")
+        for code in blocker_codes
+    ):
+        return "refresh_controlled_runner_execution_approval", "controlled runner execution approval is stale or blocked"
+    if any(
+        isinstance(code, str)
+        and (code.startswith("operator_approval_") or code.startswith("controlled_runner_dry_run_operator_approval_"))
+        for code in blocker_codes
+    ):
+        return "fix_controlled_runner_execution_approval", "controlled runner operator approval evidence is blocked"
+    return "inspect_controlled_runner_dry_run_blockers", "controlled runner dry run is blocked"
+
+
+def controlled_loop_runner_dry_run_stages(runner_plan: dict[str, Any] | None) -> list[dict[str, Any]]:
+    plan_details = runner_plan.get("runner_plan") if isinstance(runner_plan, dict) and isinstance(runner_plan.get("runner_plan"), dict) else {}
+    planned_steps = plan_details.get("planned_steps")
+    if not isinstance(planned_steps, list):
+        return []
+
+    stages: list[dict[str, Any]] = []
+    for step in planned_steps:
+        if not isinstance(step, dict):
+            continue
+        stages.append(
+            {
+                "step": step.get("step"),
+                "command": step.get("command"),
+                "status": "would_process",
+                "evidence_files": step.get("evidence_files"),
+                "execution_authority": step.get("execution_authority"),
+                "allowed_side_effects_when_executed": step.get("allowed_side_effects_when_executed"),
+                "runner_started": False,
+                "executor_started": False,
+                "side_effects": [],
+                "guarantees": [
+                    "dry_run_only",
+                    "no_runner_process_started",
+                    "no_executor_process_started",
+                    "no_state_written",
+                ],
+            }
+        )
+    return stages
+
+
+def controlled_loop_runner_dry_run_command(args: argparse.Namespace) -> int:
+    runner_plan_path = Path(args.controlled_loop_runner_plan_file)
+    execution_approval_path = Path(args.controlled_loop_runner_execution_approval_file)
+    runner_plan, runner_plan_blockers = read_controlled_loop_runner_dry_run_packet(
+        runner_plan_path,
+        code="controlled_runner_plan_evidence_missing",
+        label="controlled runner plan",
+    )
+    execution_approval, execution_approval_blockers = read_controlled_loop_runner_dry_run_packet(
+        execution_approval_path,
+        code="controlled_runner_dry_run_execution_approval_evidence_missing",
+        label="controlled runner execution approval",
+    )
+    blockers: list[dict[str, Any]] = list(runner_plan_blockers) + list(execution_approval_blockers)
+
+    if isinstance(runner_plan, dict):
+        if (
+            runner_plan.get("schema_version") != CONTROLLED_LOOP_RUNNER_PLAN_SCHEMA_VERSION
+            or runner_plan.get("packet") != "controlled_loop_runner_plan"
+        ):
+            blockers.append(
+                controlled_loop_runner_dry_run_blocker(
+                    "controlled_runner_plan_packet_mismatch",
+                    "controlled runner plan packet type is invalid",
+                    expected_schema_version=CONTROLLED_LOOP_RUNNER_PLAN_SCHEMA_VERSION,
+                    actual_schema_version=runner_plan.get("schema_version"),
+                    expected_packet="controlled_loop_runner_plan",
+                    actual_packet=runner_plan.get("packet"),
+                )
+            )
+        blockers.extend(controlled_loop_runner_execution_approval_plan_blockers(runner_plan))
+
+    if isinstance(execution_approval, dict):
+        if (
+            execution_approval.get("schema_version") != CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_SCHEMA_VERSION
+            or execution_approval.get("packet") != "controlled_loop_runner_execution_approval"
+        ):
+            blockers.append(
+                controlled_loop_runner_dry_run_blocker(
+                    "controlled_runner_dry_run_execution_approval_packet_mismatch",
+                    "controlled runner execution approval packet type is invalid",
+                    expected_schema_version=CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_SCHEMA_VERSION,
+                    actual_schema_version=execution_approval.get("schema_version"),
+                    expected_packet="controlled_loop_runner_execution_approval",
+                    actual_packet=execution_approval.get("packet"),
+                )
+            )
+
+        invalid_flags = {
+            flag: execution_approval.get(flag)
+            for flag in CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_FORBIDDEN_TRUE_FLAGS
+            if execution_approval.get(flag) is not False
+        }
+        if invalid_flags:
+            blockers.append(
+                controlled_loop_runner_dry_run_blocker(
+                    "controlled_runner_dry_run_execution_approval_authority_flags_invalid",
+                    "controlled runner execution approval must not report started authority flags",
+                    flags=invalid_flags,
+                )
+            )
+        if (
+            execution_approval.get("valid") is not True
+            or execution_approval.get("approval_status") != "completed"
+            or execution_approval.get("read_only") is not True
+            or execution_approval.get("side_effects") != []
+            or execution_approval.get("recommended_next_action") != "review_controlled_runner_execution_approval"
+            or execution_approval.get("next_controlled_action") != "review_approved_controlled_runner_execution"
+            or execution_approval.get("operator_confirmation_required") is not True
+            or execution_approval.get("blockers") != []
+        ):
+            blockers.append(
+                controlled_loop_runner_dry_run_blocker(
+                    "controlled_runner_dry_run_execution_approval_not_completed",
+                    "controlled runner execution approval must be completed and ready for dry-run review",
+                    valid=execution_approval.get("valid"),
+                    approval_status=execution_approval.get("approval_status"),
+                    read_only=execution_approval.get("read_only"),
+                    side_effects=execution_approval.get("side_effects"),
+                    recommended_next_action=execution_approval.get("recommended_next_action"),
+                    next_controlled_action=execution_approval.get("next_controlled_action"),
+                    operator_confirmation_required=execution_approval.get("operator_confirmation_required"),
+                    blocker_codes=execution_approval.get("blockers"),
+                )
+            )
+
+    runner_plan_checksum = checksum_json(runner_plan) if isinstance(runner_plan, dict) else None
+    execution_approval_checksum = checksum_json(execution_approval) if isinstance(execution_approval, dict) else None
+    operator_approval_path: Path | None = None
+    operator_approval_checksum: str | None = None
+    approval_verification: dict[str, Any] = {
+        "approval_state": None,
+        "approval_target_checksum": None,
+        "approval_purpose": None,
+        "operator_id": None,
+        "key_id": None,
+        "issued_at": None,
+        "expires_at": None,
+        "signature_verified": False,
+        "blockers": [],
+    }
+
+    if isinstance(runner_plan, dict) and isinstance(execution_approval, dict):
+        approval_plan = (
+            execution_approval.get("controlled_loop_runner_plan")
+            if isinstance(execution_approval.get("controlled_loop_runner_plan"), dict)
+            else {}
+        )
+        approval_details = execution_approval.get("approval") if isinstance(execution_approval.get("approval"), dict) else {}
+        approval_files = execution_approval.get("files") if isinstance(execution_approval.get("files"), dict) else {}
+        approval_checksums = execution_approval.get("checksums") if isinstance(execution_approval.get("checksums"), dict) else {}
+
+        runner_plan_checksum_fields = {
+            "controlled_loop_runner_plan.checksum": approval_plan.get("checksum"),
+            "checksums.controlled_loop_runner_plan": approval_checksums.get("controlled_loop_runner_plan"),
+            "approval.target_checksum": approval_details.get("target_checksum"),
+            "approval.approval_target_checksum": approval_details.get("approval_target_checksum"),
+        }
+        mismatched_runner_plan_checksum_fields = {
+            field: value for field, value in runner_plan_checksum_fields.items() if value != runner_plan_checksum
+        }
+        if mismatched_runner_plan_checksum_fields:
+            blockers.append(
+                controlled_loop_runner_dry_run_blocker(
+                    "controlled_runner_dry_run_execution_approval_plan_checksum_mismatch",
+                    "controlled runner execution approval does not target the supplied runner plan checksum",
+                    expected=runner_plan_checksum,
+                    actual=mismatched_runner_plan_checksum_fields,
+                )
+            )
+        if approval_plan.get("status") != "completed":
+            blockers.append(
+                controlled_loop_runner_dry_run_blocker(
+                    "controlled_runner_dry_run_execution_approval_plan_checksum_mismatch",
+                    "controlled runner execution approval does not reference a completed runner plan",
+                    actual=approval_plan.get("status"),
+                )
+            )
+        if not controlled_loop_runner_plan_file_matches(execution_approval_path, approval_plan.get("file"), runner_plan_path):
+            blockers.append(
+                controlled_loop_runner_dry_run_blocker(
+                    "controlled_runner_dry_run_execution_approval_file_mismatch",
+                    "controlled runner execution approval runner-plan file anchor does not match supplied runner plan",
+                    expected=str(runner_plan_path),
+                    actual=approval_plan.get("file"),
+                )
+            )
+        if not controlled_loop_runner_plan_file_matches(
+            execution_approval_path,
+            approval_files.get("controlled_loop_runner_plan"),
+            runner_plan_path,
+        ):
+            blockers.append(
+                controlled_loop_runner_dry_run_blocker(
+                    "controlled_runner_dry_run_execution_approval_file_mismatch",
+                    "controlled runner execution approval files.controlled_loop_runner_plan does not match supplied runner plan",
+                    expected=str(runner_plan_path),
+                    actual=approval_files.get("controlled_loop_runner_plan"),
+                )
+            )
+
+        if (
+            approval_details.get("state") != "approved"
+            or approval_details.get("purpose") != CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_PURPOSE
+            or approval_details.get("approval_purpose") != CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_PURPOSE
+            or approval_details.get("signature_verified") is not True
+            or approval_details.get("blocker_codes") != []
+        ):
+            blockers.append(
+                controlled_loop_runner_dry_run_blocker(
+                    "controlled_runner_dry_run_execution_approval_approval_mismatch",
+                    "controlled runner execution approval must carry accepted approval identity evidence",
+                    approval=approval_details,
+                )
+            )
+
+        operator_approval_file = approval_files.get("operator_approval")
+        if not isinstance(operator_approval_file, str) or not operator_approval_file.strip():
+            blockers.append(
+                controlled_loop_runner_dry_run_blocker(
+                    "controlled_runner_dry_run_operator_approval_file_missing",
+                    "controlled runner execution approval must include operator approval file evidence",
+                    actual=operator_approval_file,
+                )
+            )
+        else:
+            operator_approval_path = Path(controlled_tick_context_path(execution_approval_path, operator_approval_file))
+            if not controlled_loop_runner_plan_file_matches(
+                execution_approval_path,
+                approval_details.get("file"),
+                operator_approval_path,
+            ):
+                blockers.append(
+                    controlled_loop_runner_dry_run_blocker(
+                        "controlled_runner_dry_run_operator_approval_file_mismatch",
+                        "controlled runner execution approval approval.file anchor does not match saved operator approval",
+                        expected=str(operator_approval_path),
+                        actual=approval_details.get("file"),
+                    )
+                )
+            operator_approval, operator_approval_blockers = read_controlled_loop_runner_dry_run_packet(
+                operator_approval_path,
+                code="controlled_runner_dry_run_operator_approval_file_unreadable",
+                label="operator approval",
+            )
+            blockers.extend(operator_approval_blockers)
+            if isinstance(operator_approval, dict):
+                operator_approval_checksum = checksum_json(operator_approval)
+                approval_verification = build_operator_approval_verification_packet(
+                    approval=operator_approval,
+                    approval_file=operator_approval_path,
+                    expected_target_checksum=runner_plan_checksum,
+                    expected_purpose=CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_PURPOSE,
+                    approval_secret=operator_approval_secret_from_args(args),
+                )
+                blockers.extend(approval_verification.get("blockers", []))
+                operator_checksum_fields = {
+                    "approval.checksum": approval_details.get("checksum"),
+                    "checksums.operator_approval": approval_checksums.get("operator_approval"),
+                }
+                mismatched_operator_checksum_fields = {
+                    field: value for field, value in operator_checksum_fields.items() if value != operator_approval_checksum
+                }
+                if mismatched_operator_checksum_fields:
+                    blockers.append(
+                        controlled_loop_runner_dry_run_blocker(
+                            "controlled_runner_dry_run_operator_approval_checksum_mismatch",
+                            "controlled runner execution approval does not match the saved operator approval file",
+                            expected=operator_approval_checksum,
+                            actual=mismatched_operator_checksum_fields,
+                        )
+                    )
+                if (
+                    operator_approval.get("target_checksum") != runner_plan_checksum
+                    or operator_approval.get("purpose") != CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_PURPOSE
+                ):
+                    blockers.append(
+                        controlled_loop_runner_dry_run_blocker(
+                            "controlled_runner_dry_run_operator_approval_target_mismatch",
+                            "operator approval file does not target the supplied controlled runner plan",
+                            expected_target_checksum=runner_plan_checksum,
+                            actual_target_checksum=operator_approval.get("target_checksum"),
+                            expected_purpose=CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_PURPOSE,
+                            actual_purpose=operator_approval.get("purpose"),
+                        )
+                    )
+
+    valid = not blockers
+    recommended_next_action, reason = controlled_loop_runner_dry_run_recommendation(blockers)
+    runner_plan_details = runner_plan.get("runner_plan") if isinstance(runner_plan, dict) and isinstance(runner_plan.get("runner_plan"), dict) else {}
+    command_sequence = runner_plan_details.get("planned_command_sequence")
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": CONTROLLED_LOOP_RUNNER_DRY_RUN_SCHEMA_VERSION,
+        "packet": "controlled_loop_runner_dry_run",
+        "generated_at": utc_now(),
+        "read_only": True,
+        "valid": valid,
+        "runner_dry_run_status": "completed" if valid else "blocked",
+        "reason": reason,
+        "runner_started": False,
+        "executor_started": False,
+        "epoch_started": False,
+        "pr_action_started": False,
+        "github_write_started": False,
+        "merge_started": False,
+        "release_started": False,
+        "package_publication_started": False,
+        "role_assignment_started": False,
+        "agent_scheduling_started": False,
+        "loop_continuation_started": False,
+        "operator_confirmation_required": True,
+        "side_effects": [],
+        "recommended_next_action": recommended_next_action,
+        "next_controlled_action": "stop_after_controlled_runner_dry_run" if valid else recommended_next_action,
+        "controlled_loop_runner_plan": {
+            "file": str(runner_plan_path),
+            "checksum": runner_plan_checksum,
+            "status": runner_plan.get("runner_plan_status") if isinstance(runner_plan, dict) else None,
+            "next_controlled_action": runner_plan.get("next_controlled_action") if isinstance(runner_plan, dict) else None,
+        },
+        "controlled_loop_runner_execution_approval": {
+            "file": str(execution_approval_path),
+            "checksum": execution_approval_checksum,
+            "status": execution_approval.get("approval_status") if isinstance(execution_approval, dict) else None,
+            "next_controlled_action": execution_approval.get("next_controlled_action") if isinstance(execution_approval, dict) else None,
+        },
+        "approval": {
+            "state": approval_verification.get("approval_state"),
+            "file": str(operator_approval_path) if operator_approval_path is not None else None,
+            "checksum": operator_approval_checksum,
+            "target_checksum": runner_plan_checksum,
+            "approval_target_checksum": approval_verification.get("approval_target_checksum"),
+            "purpose": CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_PURPOSE,
+            "approval_purpose": approval_verification.get("approval_purpose"),
+            "operator_id": approval_verification.get("operator_id"),
+            "key_id": approval_verification.get("key_id"),
+            "issued_at": approval_verification.get("issued_at"),
+            "expires_at": approval_verification.get("expires_at"),
+            "signature_verified": approval_verification.get("signature_verified"),
+            "blocker_codes": [blocker["code"] for blocker in approval_verification.get("blockers", [])],
+        },
+        "runner_dry_run": {
+            "mode": "dry_run",
+            "runner_plan_checksum": runner_plan_checksum,
+            "execution_approval_checksum": execution_approval_checksum,
+            "planned_command_sequence": command_sequence if isinstance(command_sequence, list) else [],
+            "stages": controlled_loop_runner_dry_run_stages(runner_plan if isinstance(runner_plan, dict) else None),
+        },
+        "files": {
+            "controlled_loop_runner_plan": str(runner_plan_path),
+            "controlled_loop_runner_execution_approval": str(execution_approval_path),
+            "operator_approval": str(operator_approval_path) if operator_approval_path is not None else None,
+        },
+        "checksums": {
+            "controlled_loop_runner_plan": runner_plan_checksum,
+            "controlled_loop_runner_execution_approval": execution_approval_checksum,
+            "operator_approval": operator_approval_checksum,
+        },
+        "blockers": blockers,
+        "non_execution_guarantees": CONTROLLED_LOOP_RUNNER_DRY_RUN_NON_EXECUTION_GUARANTEES,
+        "limitations": [
+            "dry_run_only",
+            "consumes_approved_controlled_loop_runner_plan_only",
+            "consumes_approved_controlled_loop_runner_execution_approval_only",
+            "does_not_start_runner",
+            "does_not_start_executor",
+            "does_not_invoke_executor",
+            "does_not_retry_executor",
+            "does_not_continue_loop",
+            "does_not_start_epoch",
+            "does_not_close_epoch",
+            "does_not_append_audit",
+            "does_not_execute_git_commands",
+            "does_not_call_github",
+            "does_not_create_branch",
+            "does_not_commit",
+            "does_not_push",
+            "does_not_create_pr",
+            "does_not_merge",
+            "does_not_release",
+            "does_not_publish_packages",
+            "does_not_assign_roles",
+            "does_not_schedule_agents",
+        ],
+    }
+    emit(payload)
+    return 0 if valid else 2
+
+
 def build_executor_result_validation_payload(
     *,
     root: Path | None,
@@ -10753,6 +11200,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     controlled_loop_runner_execution_approval_parser.set_defaults(
         func=controlled_loop_runner_execution_approval_command,
+        requires_root=True,
+        guards_runtime_root_only=True,
+    )
+
+    controlled_loop_runner_dry_run_parser = subparsers.add_parser(
+        "controlled-loop-runner-dry-run",
+        help="Dry-run one approved controlled loop runner cycle without starting a runner",
+    )
+    controlled_loop_runner_dry_run_parser.add_argument("--controlled-loop-runner-plan-file", required=True)
+    controlled_loop_runner_dry_run_parser.add_argument("--controlled-loop-runner-execution-approval-file", required=True)
+    controlled_loop_runner_dry_run_parser.add_argument("--approval-secret")
+    controlled_loop_runner_dry_run_parser.add_argument(
+        "--approval-secret-env",
+        default=OPERATOR_APPROVAL_SECRET_ENV,
+    )
+    controlled_loop_runner_dry_run_parser.set_defaults(
+        func=controlled_loop_runner_dry_run_command,
         requires_root=True,
         guards_runtime_root_only=True,
     )

@@ -1747,6 +1747,63 @@ emitted by `operator-approval.v1` verification, including
 `operator_approval_purpose_mismatch`, `operator_approval_signature_invalid`,
 and `operator_approval_secret_missing`.
 
+`controlled-loop-runner-dry-run` is the read-only dry-run execution packet for
+an approved controlled runner plan. It reads
+`--controlled-loop-runner-plan-file` and
+`--controlled-loop-runner-execution-approval-file`, verifies the runner plan is
+a completed `controlled-loop-runner-plan.v1`, verifies the execution approval
+is a completed `controlled-loop-runner-execution-approval.v1`, recomputes the
+runner-plan and execution-approval checksums, rechecks file anchors, rereads
+the saved `operator-approval.v1` file referenced by the approval evidence, and
+re-verifies that approval against the current runner-plan checksum and purpose
+`controlled_loop_runner_execution`. The command emits
+`controlled-loop-runner-dry-run.v1` with `packet:
+controlled_loop_runner_dry_run`, `read_only: true`, `side_effects: []`,
+`runner_dry_run_status` of `completed` or `blocked`,
+`non_execution_guarantees`, a `runner_dry_run.stages` list with `status:
+would_process` evidence for each planned command, checksums, blockers, and
+`next_controlled_action`.
+
+When valid, the command recommends `review_controlled_runner_dry_run` with
+operator confirmation required and reports
+`next_controlled_action: stop_after_controlled_runner_dry_run`. Stale or
+blocked runner-plan evidence recommends `refresh_controlled_runner_plan`.
+Stale execution-approval evidence recommends
+`refresh_controlled_runner_execution_approval`. Invalid operator approval
+evidence recommends `fix_controlled_runner_execution_approval`.
+
+The command appends no audit evidence and does not start a runner or executor,
+invoke an executor, retry an executor, continue a loop, start or close an
+epoch, execute Git commands, call GitHub, create branches, commit, push, create
+PRs, merge, release, publish packages, assign roles, or schedule agents.
+Stable blockers include `controlled_runner_plan_evidence_missing`,
+`controlled_runner_plan_packet_mismatch`,
+`controlled_runner_plan_not_completed`,
+`controlled_runner_plan_authority_flags_invalid`,
+`controlled_runner_plan_command_sequence_mismatch`,
+`controlled_runner_plan_mode_invalid`,
+`controlled_runner_plan_steps_mismatch`,
+`controlled_runner_dry_run_execution_approval_evidence_missing`,
+`controlled_runner_dry_run_execution_approval_packet_mismatch`,
+`controlled_runner_dry_run_execution_approval_not_completed`,
+`controlled_runner_dry_run_execution_approval_authority_flags_invalid`,
+`controlled_runner_dry_run_execution_approval_approval_mismatch`,
+`controlled_runner_dry_run_execution_approval_plan_checksum_mismatch`,
+`controlled_runner_dry_run_execution_approval_file_mismatch`,
+`controlled_runner_dry_run_operator_approval_file_missing`,
+`controlled_runner_dry_run_operator_approval_file_mismatch`,
+`controlled_runner_dry_run_operator_approval_file_unreadable`,
+`controlled_runner_dry_run_operator_approval_checksum_mismatch`,
+`controlled_runner_dry_run_operator_approval_target_mismatch`, and the
+`operator_approval_*` blockers emitted by `operator-approval.v1` verification,
+including `operator_approval_invalid`, `operator_approval_schema_invalid`,
+`operator_approval_target_invalid`, `operator_approval_target_mismatch`,
+`operator_approval_purpose_missing`, `operator_approval_purpose_mismatch`,
+`operator_approval_operator_missing`, `operator_approval_key_id_weak`,
+`operator_approval_timestamp_invalid`, `operator_approval_window_too_long`,
+`operator_approval_expired`, `operator_approval_issued_in_future`,
+`operator_approval_signature_invalid`, and `operator_approval_secret_missing`.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from
