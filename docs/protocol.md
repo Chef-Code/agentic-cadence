@@ -1889,7 +1889,8 @@ blockers include `controlled_runner_start_readiness_evidence_missing`,
 `controlled_runner_start_readiness_authority_flags_invalid`,
 `controlled_runner_start_readiness_stage_sequence_mismatch`,
 `controlled_runner_start_readiness_mode_invalid`,
-`controlled_runner_start_readiness_stage_malformed`, and the
+`controlled_runner_start_readiness_stage_malformed`,
+`operator_approval_file_unreadable`, and the
 `operator_approval_*` blockers emitted by `operator-approval.v1` verification,
 including `operator_approval_invalid`, `operator_approval_schema_invalid`,
 `operator_approval_target_invalid`, `operator_approval_target_mismatch`,

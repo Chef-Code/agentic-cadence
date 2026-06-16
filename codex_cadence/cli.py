@@ -9802,6 +9802,21 @@ def controlled_loop_runner_start_approval_readiness_blockers(
             )
         )
     stages = readiness_details.get("stages")
+    expected_stages: list[dict[str, Any]] = []
+    if command_sequence == CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE:
+        for step in CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE:
+            expected_stages.append(
+                {
+                    "step": step.get("step"),
+                    "command": step.get("command"),
+                    "dry_run_status": "would_process",
+                    "readiness": "ready_after_operator_start_approval",
+                    "execution_authority": "none",
+                    "runner_started": False,
+                    "executor_started": False,
+                    "side_effects": [],
+                }
+            )
     if not isinstance(stages, list) or not stages:
         blockers.append(
             controlled_loop_runner_start_approval_blocker(
@@ -9811,6 +9826,7 @@ def controlled_loop_runner_start_approval_readiness_blockers(
             )
         )
     else:
+        stage_sequence_comparable = True
         for index, stage in enumerate(stages):
             if (
                 not isinstance(stage, dict)
@@ -9821,6 +9837,7 @@ def controlled_loop_runner_start_approval_readiness_blockers(
                 or stage.get("executor_started") is not False
                 or stage.get("side_effects") != []
             ):
+                stage_sequence_comparable = False
                 blockers.append(
                     controlled_loop_runner_start_approval_blocker(
                         "controlled_runner_start_readiness_stage_malformed",
@@ -9830,6 +9847,15 @@ def controlled_loop_runner_start_approval_readiness_blockers(
                     )
                 )
                 break
+        if stage_sequence_comparable and expected_stages and stages != expected_stages:
+            blockers.append(
+                controlled_loop_runner_start_approval_blocker(
+                    "controlled_runner_start_readiness_stage_sequence_mismatch",
+                    "controlled runner start-readiness stages must match the approved command sequence",
+                    expected=expected_stages,
+                    actual=stages,
+                )
+            )
     return blockers
 
 

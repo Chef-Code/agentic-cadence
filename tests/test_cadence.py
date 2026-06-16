@@ -9218,6 +9218,29 @@ class CadenceCliTests(unittest.TestCase):
                 checksum_json(chain["controlled_loop_runner_start_readiness"]),
             )
             self.assertEqual(output["files"]["operator_approval"], str(chain["controlled_loop_runner_start_approval_path"]))
+            self.assertEqual(
+                output["limitations"],
+                [
+                    "approval_evidence_only",
+                    "does_not_start_runner",
+                    "does_not_start_executor",
+                    "does_not_invoke_executor",
+                    "does_not_retry_executor",
+                    "does_not_continue_loop",
+                    "does_not_append_audit",
+                    "does_not_execute_git_commands",
+                    "does_not_call_github",
+                    "does_not_create_branch",
+                    "does_not_commit",
+                    "does_not_push",
+                    "does_not_create_pr",
+                    "does_not_merge",
+                    "does_not_release",
+                    "does_not_publish_packages",
+                    "does_not_assign_roles",
+                    "does_not_schedule_agents",
+                ],
+            )
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
@@ -9257,15 +9280,57 @@ class CadenceCliTests(unittest.TestCase):
             readiness["runner_start_readiness_status"] = "blocked"
             readiness["blockers"] = [{"code": "example_blocker", "message": "blocked"}]
 
+        def packet_mismatch(readiness):
+            readiness["packet"] = "controlled_loop_runner_start_readiness.v0"
+
+        def not_read_only(readiness):
+            readiness["read_only"] = False
+
         def started_authority(readiness):
             readiness["runner_started"] = True
+
+        def invalid_mode(readiness):
+            readiness["runner_start_readiness"]["mode"] = "start"
+
+        def truncated_command_sequence(readiness):
+            readiness["runner_start_readiness"]["planned_command_sequence"] = readiness["runner_start_readiness"][
+                "planned_command_sequence"
+            ][:1]
+
+        def empty_stages(readiness):
+            readiness["runner_start_readiness"]["stages"] = []
+
+        def non_list_stages(readiness):
+            readiness["runner_start_readiness"]["stages"] = {"readiness": "ready_after_operator_start_approval"}
+
+        def truncated_stages(readiness):
+            readiness["runner_start_readiness"]["stages"] = readiness["runner_start_readiness"]["stages"][:1]
+
+        def altered_stage_command(readiness):
+            readiness["runner_start_readiness"]["stages"][0]["command"] = "start-runner-now"
+
+        def malformed_stage_status(readiness):
+            readiness["runner_start_readiness"]["stages"][0]["dry_run_status"] = "started"
 
         def malformed_stage(readiness):
             readiness["runner_start_readiness"]["stages"][0]["side_effects"] = ["runner_started"]
 
         cases = [
             ("blocked-readiness", blocked_readiness, "controlled_runner_start_readiness_not_ready"),
+            ("packet-mismatch", packet_mismatch, "controlled_runner_start_readiness_packet_mismatch"),
+            ("not-read-only", not_read_only, "controlled_runner_start_readiness_not_ready"),
             ("started-authority", started_authority, "controlled_runner_start_readiness_authority_flags_invalid"),
+            ("invalid-mode", invalid_mode, "controlled_runner_start_readiness_mode_invalid"),
+            (
+                "truncated-command-sequence",
+                truncated_command_sequence,
+                "controlled_runner_start_readiness_stage_sequence_mismatch",
+            ),
+            ("empty-stages", empty_stages, "controlled_runner_start_readiness_stage_malformed"),
+            ("non-list-stages", non_list_stages, "controlled_runner_start_readiness_stage_malformed"),
+            ("truncated-stages", truncated_stages, "controlled_runner_start_readiness_stage_sequence_mismatch"),
+            ("altered-stage-command", altered_stage_command, "controlled_runner_start_readiness_stage_sequence_mismatch"),
+            ("malformed-stage-status", malformed_stage_status, "controlled_runner_start_readiness_stage_malformed"),
             ("malformed-stage", malformed_stage, "controlled_runner_start_readiness_stage_malformed"),
         ]
         for name, mutate, expected_code in cases:
