@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-15
+Last updated: 2026-06-16
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,48 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-16 - Read-only controlled runner start readiness
+
+Summary:
+- Added `controlled-loop-runner-start-readiness` to consume a saved completed
+  `controlled-loop-runner-dry-run.v1` plus the runner plan and execution
+  approval files referenced by that dry run.
+- The command recomputes dry-run, runner-plan, and approval-evidence checksums,
+  rechecks file anchors, verifies all authority flags remain false, and verifies
+  every dry-run command stage remains `would_process`.
+- Completed readiness packets append no audit evidence; the command does not
+  start a runner or executor, invoke or retry an executor, continue a loop,
+  start or close an epoch, execute Git commands, call GitHub, create branches,
+  commit, push, create PRs, merge, release, publish packages, assign roles, or
+  schedule agents.
+
+Completed slices:
+- Task 50: read-only controlled loop runner start-readiness packet.
+
+Confidence change:
+- Previous: 44%
+- New: 45%
+- Reason: Cadence can now validate that approved dry-run runner evidence is
+  still anchored and ready for a future separately approved runner start, but it
+  still does not start a runner or perform autonomous GitHub operations.
+
+Evidence:
+- Focused `controlled-loop-runner-start-readiness` unittest set: 3 tests passed.
+
+New risks or blockers:
+- Runner-start approval, actual one-cycle runner execution, continuous loop
+  execution, autonomous executor retry, Git/GitHub writes, merge authority,
+  release publication, role assignment, and agent scheduling remain
+  intentionally out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
 
 ## 2026-06-15 - Dry-run approved controlled runner execution
 

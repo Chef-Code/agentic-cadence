@@ -52,6 +52,7 @@ read-only `controlled-loop-run-manifest-approval`,
 read-only `controlled-loop-runner-plan`,
 read-only `controlled-loop-runner-execution-approval`,
 read-only `controlled-loop-runner-dry-run`,
+read-only `controlled-loop-runner-start-readiness`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -94,7 +95,10 @@ target-checksum-bound operator approval for that runner plan without starting a
 runner or granting runner-start authority, and
 `controlled-loop-runner-dry-run` evidence that rechecks the approved runner
 plan and execution approval before emitting would-process stage evidence
-without starting a runner or executor.
+without starting a runner or executor, and
+`controlled-loop-runner-start-readiness` evidence that validates the completed
+dry run before any future runner start while still granting no runner-start
+authority.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -667,6 +671,24 @@ start or close an epoch, execute Git commands, call GitHub, create branches,
 commit, push, create PRs, merge, release, publish packages, assign roles, or
 schedule agents.
 
+`controlled-loop-runner-start-readiness` consumes a saved completed
+`controlled-loop-runner-dry-run.v1` packet plus the runner plan and execution
+approval files that dry run referenced. It recomputes all three checksums,
+rechecks the dry-run file anchors, verifies every dry-run command stage remains
+`would_process`, and emits readiness-only evidence for a future runner start:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-start-readiness --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-execution-approval-file controlled-loop-runner-execution-approval.json
+```
+
+Completed readiness packets recommend
+`review_controlled_runner_start_readiness` and stop at
+`stop_before_runner_start`. The command appends no audit evidence and does not
+start a runner or executor, invoke or retry an executor, continue a loop, start
+or close an epoch, execute Git commands, call GitHub, create branches, commit,
+push, create PRs, merge, release, publish packages, assign roles, or schedule
+agents.
+
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor
 closeout, real-executor invocation records, and accepted controlled single-tick
@@ -1113,6 +1135,16 @@ each approved command stage marked `would_process`. It appends no audit
 evidence, starts no runner or executor, retries no executor, continues no loop,
 and grants no epoch, Git, GitHub, branch, commit, push, PR, merge, release,
 package publication, role-assignment, or agent-scheduling authority.
+
+`controlled-loop-runner-start-readiness` is the read-only readiness packet
+after a completed controlled runner dry run. It composes the saved
+`controlled-loop-runner-dry-run.v1` packet with the saved runner plan and
+execution approval files, rechecks dry-run anchors and checksums, verifies each
+stage remains `would_process`, and emits
+`controlled-loop-runner-start-readiness.v1`. It appends no audit evidence,
+starts no runner or executor, invokes or retries no executor, continues no
+loop, and grants no epoch, Git, GitHub, branch, commit, push, PR, merge,
+release, package publication, role-assignment, or agent-scheduling authority.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can

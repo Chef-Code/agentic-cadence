@@ -1804,6 +1804,42 @@ including `operator_approval_invalid`, `operator_approval_schema_invalid`,
 `operator_approval_expired`, `operator_approval_issued_in_future`,
 `operator_approval_signature_invalid`, and `operator_approval_secret_missing`.
 
+`controlled-loop-runner-start-readiness` is the read-only readiness packet after
+a completed controlled runner dry run. It reads
+`--controlled-loop-runner-dry-run-file`, `--controlled-loop-runner-plan-file`,
+and `--controlled-loop-runner-execution-approval-file`, verifies the dry-run
+packet is a completed `controlled-loop-runner-dry-run.v1`, recomputes dry-run,
+runner-plan, and execution-approval checksums, rechecks dry-run file anchors,
+verifies all runner and executor authority flags remain false, and verifies
+each dry-run stage remains `status: would_process` with no side effects. The
+command emits `controlled-loop-runner-start-readiness.v1` with `packet:
+controlled_loop_runner_start_readiness`, `read_only: true`, `side_effects: []`,
+`runner_start_ready`, `runner_start_readiness_status` of `ready` or `blocked`,
+`runner_start_authority: none`, `runner_start_readiness.stages`, checksums,
+blockers, and `next_controlled_action`.
+
+When valid, the command recommends
+`review_controlled_runner_start_readiness` with operator confirmation required
+and reports `next_controlled_action: stop_before_runner_start`. Stale or
+blocked dry-run evidence recommends `refresh_controlled_runner_dry_run`.
+
+The command appends no audit evidence and does not start a runner or executor,
+invoke an executor, retry an executor, continue a loop, start or close an
+epoch, execute Git commands, call GitHub, create branches, commit, push, create
+PRs, merge, release, publish packages, assign roles, or schedule agents. Stable
+blockers include `controlled_runner_start_readiness_dry_run_evidence_missing`,
+`controlled_runner_start_readiness_runner_plan_evidence_missing`,
+`controlled_runner_start_readiness_execution_approval_evidence_missing`,
+`controlled_runner_start_readiness_dry_run_packet_mismatch`,
+`controlled_runner_start_readiness_dry_run_not_completed`,
+`controlled_runner_start_readiness_authority_flags_invalid`,
+`controlled_runner_start_readiness_non_execution_guarantees_missing`,
+`controlled_runner_start_readiness_runner_plan_file_mismatch`,
+`controlled_runner_start_readiness_execution_approval_file_mismatch`,
+`controlled_runner_start_readiness_runner_plan_checksum_mismatch`,
+`controlled_runner_start_readiness_execution_approval_checksum_mismatch`, and
+`controlled_runner_start_readiness_stage_malformed`.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from
