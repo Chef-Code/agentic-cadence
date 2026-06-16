@@ -33,6 +33,48 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-16 - Controlled runner start boundary
+
+Summary:
+- Added `controlled-loop-runner-start` to consume saved completed
+  start-approval, start-readiness, dry-run, runner-plan, and
+  execution-approval packets.
+- The command rechecks anchors, checksums, operator approval identity,
+  readiness stages, dry-run stages, and runner-plan stages before recording the
+  approved one-cycle runner-start boundary.
+- Completed start packets append one `controlled_loop_runner_start` audit
+  record, mark the runner boundary as started, and still do not start or invoke
+  an executor, retry an executor, continue a loop, start or close an epoch,
+  execute Git commands, call GitHub, create branches, commit, push, create PRs,
+  merge, release, publish packages, assign roles, or schedule agents.
+
+Completed slices:
+- Task 52: controlled loop runner start packet.
+
+Confidence change:
+- Previous: 46%
+- New: 47%
+- Reason: Cadence can now record the first approved runner-start boundary with
+  audit evidence, but it still does not invoke an executor or run an unattended
+  continuous loop.
+
+Evidence:
+- Focused `controlled-loop-runner-start` unittest set: 3 tests passed.
+
+New risks or blockers:
+- Actual command-stage execution, executor invocation from the runner,
+  continuous loop execution, autonomous executor retry, Git/GitHub writes,
+  merge authority, release publication, role assignment, and agent scheduling
+  remain intentionally out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-16 - Read-only controlled runner start approval
 
 Summary:

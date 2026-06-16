@@ -1900,6 +1900,67 @@ including `operator_approval_invalid`, `operator_approval_schema_invalid`,
 `operator_approval_expired`, `operator_approval_issued_in_future`,
 `operator_approval_signature_invalid`, and `operator_approval_secret_missing`.
 
+`controlled-loop-runner-start` is the controlled one-cycle runner-start packet
+after completed runner start approval. It reads
+`--controlled-loop-runner-start-approval-file`,
+`--controlled-loop-runner-start-readiness-file`,
+`--controlled-loop-runner-dry-run-file`, `--controlled-loop-runner-plan-file`,
+and `--controlled-loop-runner-execution-approval-file`. It verifies the saved
+start-approval packet is `controlled-loop-runner-start-approval.v1` and
+completed, revalidates the target-bound operator approval file, revalidates the
+saved start-readiness packet, rechecks dry-run, runner-plan, and
+execution-approval file anchors and checksums, rereads the execution-approval
+operator approval file, verifies stage sequences still match the approved
+controlled-run manifest, and emits
+`controlled-loop-runner-start.v1` with `packet:
+controlled_loop_runner_start`, `runner_start_status` of `started` or
+`blocked`, `runner_started: true`, `executor_started: false`,
+`loop_continuation_started: false`, `runner_start_authority:
+operator_approved_started` when valid, the approved command sequence,
+checksums, blockers, and
+`next_controlled_action`.
+
+When valid, the command recommends `review_controlled_runner_start`, appends
+one `controlled_loop_runner_start` audit record, reports `runner_started:
+true`, and stops at `stop_after_controlled_runner_start`. Blocked input packets
+recommend refreshing the stale or blocked packet type and append no audit
+record.
+
+The command starts no executor, invokes no executor, retries no executor,
+continues no loop, starts or closes no epoch, executes no Git commands, calls
+no GitHub APIs, creates no branches, commits, pushes, creates no PRs, merges no
+PRs, releases no artifacts, publishes no packages, assigns no roles, and
+schedules no agents. Stable blockers include
+`controlled_runner_start_approval_evidence_missing`,
+`controlled_runner_start_approval_packet_mismatch`,
+`controlled_runner_start_approval_not_completed`,
+`controlled_runner_start_approval_authority_flags_invalid`,
+`controlled_runner_start_readiness_evidence_missing`,
+`controlled_runner_start_readiness_checksum_mismatch`,
+`controlled_runner_start_readiness_file_mismatch`,
+`controlled_runner_start_dry_run_evidence_missing`,
+`controlled_runner_start_dry_run_authority_flags_invalid`,
+`controlled_runner_start_dry_run_checksum_mismatch`,
+`controlled_runner_start_dry_run_non_execution_guarantees_missing`,
+`controlled_runner_start_dry_run_stage_sequence_mismatch`,
+`controlled_runner_start_runner_plan_evidence_missing`,
+`controlled_runner_start_runner_plan_checksum_mismatch`,
+`controlled_runner_start_execution_approval_evidence_missing`,
+`controlled_runner_start_execution_approval_checksum_mismatch`,
+`controlled_runner_start_execution_approval_not_completed`,
+`controlled_runner_start_execution_approval_operator_file_missing`,
+`controlled_runner_start_execution_approval_operator_file_mismatch`,
+`controlled_runner_start_execution_approval_operator_file_unreadable`,
+`controlled_runner_start_execution_approval_operator_checksum_mismatch`,
+`controlled_runner_start_execution_approval_operator_target_mismatch`,
+`controlled_runner_start_approval_operator_checksum_mismatch`,
+`controlled_runner_start_approval_operator_file_missing`,
+`controlled_runner_start_audit_append_failed`, and the
+`controlled_runner_start_readiness_*`,
+`controlled_runner_start_readiness_runner_plan_*`,
+`controlled_runner_start_readiness_execution_approval_*`, and
+`operator_approval_*` blockers emitted by the revalidated upstream gates.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from
