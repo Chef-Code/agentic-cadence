@@ -8587,31 +8587,64 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(audit_records(tmp), audit_before)
 
     def test_controlled_loop_runner_dry_run_reverifies_operator_approval_file(self):
-        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
-            init_committed_repo(repo)
-            chain = self.write_controlled_loop_runner_dry_run_chain(tmp, repo)
+        def stale_secret(_chain):
+            return {"approval_secret": None, "approval_secret_env": "CADENCE_TEST_MISSING_OPERATOR_APPROVAL_SECRET"}
+
+        def wrong_purpose(chain):
+            write_operator_approval(
+                chain["controlled_loop_runner_execution_approval_path"],
+                target_checksum=checksum_json(chain["controlled_loop_runner_plan"]),
+                purpose="controlled_loop_run_manifest",
+            )
+            return {}
+
+        def wrong_target(chain):
+            write_operator_approval(
+                chain["controlled_loop_runner_execution_approval_path"],
+                target_checksum="sha256:" + "0" * 64,
+                purpose="controlled_loop_runner_execution",
+            )
+            return {}
+
+        def bad_signature(chain):
             operator_approval = dict(chain["controlled_loop_runner_execution_approval"])
             operator_approval["signature"] = "hmac-sha256:" + "0" * 64
             chain["controlled_loop_runner_execution_approval_path"].write_text(
                 json.dumps(operator_approval),
                 encoding="utf-8",
             )
-            audit_before = audit_records(tmp)
+            return {}
 
-            result, output = self.run_controlled_loop_runner_dry_run_cli(tmp, chain)
+        cases = [
+            ("stale-secret", stale_secret, "operator_approval_secret_missing", False),
+            ("wrong-purpose", wrong_purpose, "operator_approval_purpose_mismatch", True),
+            ("wrong-target", wrong_target, "operator_approval_target_mismatch", True),
+            ("bad-signature", bad_signature, "operator_approval_signature_invalid", False),
+        ]
+        for name, mutate, expected_code, expected_signature_verified in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    chain = self.write_controlled_loop_runner_dry_run_chain(tmp, repo)
+                    cli_overrides = mutate(chain)
+                    audit_before = audit_records(tmp)
 
-            self.assertEqual(result.returncode, 2, result.stderr)
-            self.assertFalse(output["valid"])
-            self.assertEqual(output["runner_dry_run_status"], "blocked")
-            self.assertEqual(output["recommended_next_action"], "fix_controlled_runner_execution_approval")
-            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
-            self.assertIn("controlled_runner_dry_run_operator_approval_checksum_mismatch", blocker_codes)
-            self.assertIn("controlled_runner_dry_run_operator_approval_verification_failed", blocker_codes)
-            self.assertFalse(output["approval"]["signature_verified"])
-            self.assertIn("operator_approval_signature_invalid", output["approval"]["blocker_codes"])
-            self.assertEqual(output["side_effects"], [])
-            self.assertNotIn("audit_record", output)
-            self.assertEqual(audit_records(tmp), audit_before)
+                    result, output = self.run_controlled_loop_runner_dry_run_cli(tmp, chain, **cli_overrides)
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["runner_dry_run_status"], "blocked")
+                    self.assertEqual(output["recommended_next_action"], "fix_controlled_runner_execution_approval")
+                    blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+                    self.assertIn(expected_code, blocker_codes)
+                    self.assertNotIn("controlled_runner_dry_run_operator_approval_verification_failed", blocker_codes)
+                    if name != "stale-secret":
+                        self.assertIn("controlled_runner_dry_run_operator_approval_checksum_mismatch", blocker_codes)
+                    self.assertEqual(output["approval"]["signature_verified"], expected_signature_verified)
+                    self.assertIn(expected_code, output["approval"]["blocker_codes"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertNotIn("audit_record", output)
+                    self.assertEqual(audit_records(tmp), audit_before)
 
     def test_controlled_loop_runner_dry_run_blocks_stale_file_anchors(self):
         cases = [

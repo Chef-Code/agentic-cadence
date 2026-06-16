@@ -1760,7 +1760,8 @@ re-verifies that approval against the current runner-plan checksum and purpose
 `controlled-loop-runner-dry-run.v1` with `packet:
 controlled_loop_runner_dry_run`, `read_only: true`, `side_effects: []`,
 `runner_dry_run_status` of `completed` or `blocked`,
-`non_execution_guarantees`, `runner_dry_run.stages`, checksums, blockers, and
+`non_execution_guarantees`, a `runner_dry_run.stages` list with `status:
+would_process` evidence for each planned command, checksums, blockers, and
 `next_controlled_action`.
 
 When valid, the command recommends `review_controlled_runner_dry_run` with
@@ -1793,8 +1794,15 @@ Stable blockers include `controlled_runner_plan_evidence_missing`,
 `controlled_runner_dry_run_operator_approval_file_mismatch`,
 `controlled_runner_dry_run_operator_approval_file_unreadable`,
 `controlled_runner_dry_run_operator_approval_checksum_mismatch`,
-`controlled_runner_dry_run_operator_approval_target_mismatch`, and
-`controlled_runner_dry_run_operator_approval_verification_failed`.
+`controlled_runner_dry_run_operator_approval_target_mismatch`, and the
+`operator_approval_*` blockers emitted by `operator-approval.v1` verification,
+including `operator_approval_invalid`, `operator_approval_schema_invalid`,
+`operator_approval_target_invalid`, `operator_approval_target_mismatch`,
+`operator_approval_purpose_missing`, `operator_approval_purpose_mismatch`,
+`operator_approval_operator_missing`, `operator_approval_key_id_weak`,
+`operator_approval_timestamp_invalid`, `operator_approval_window_too_long`,
+`operator_approval_expired`, `operator_approval_issued_in_future`,
+`operator_approval_signature_invalid`, and `operator_approval_secret_missing`.
 
 ## Git/PR Dry-Run Planning
 

@@ -8877,16 +8877,7 @@ def controlled_loop_runner_dry_run_command(args: argparse.Namespace) -> int:
                     expected_purpose=CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_PURPOSE,
                     approval_secret=operator_approval_secret_from_args(args),
                 )
-                if approval_verification.get("valid") is not True:
-                    blockers.append(
-                        controlled_loop_runner_dry_run_blocker(
-                            "controlled_runner_dry_run_operator_approval_verification_failed",
-                            "operator approval file no longer verifies for the supplied controlled runner plan",
-                            approval_state=approval_verification.get("approval_state"),
-                            signature_verified=approval_verification.get("signature_verified"),
-                            approval_blockers=approval_verification.get("blockers", []),
-                        )
-                    )
+                blockers.extend(approval_verification.get("blockers", []))
                 operator_checksum_fields = {
                     "approval.checksum": approval_details.get("checksum"),
                     "checksums.operator_approval": approval_checksums.get("operator_approval"),
