@@ -558,6 +558,9 @@ Validation needed:
 - controlled-loop-runner-next-stage blocked start, stale runner-plan checksum,
   stale dry-run checksum, or unsupported later stage block without side
   effects: complete for Task 53.
+- controlled-loop-runner-next-stage hand-edited runner-start packets missing
+  recorded start stages or audit proof block without side effects: complete for
+  Task 53.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.

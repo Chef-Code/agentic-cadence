@@ -9605,6 +9605,41 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertEqual(audit_records(tmp), audit_before)
                     self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
+    def test_controlled_loop_runner_next_stage_requires_recorded_start_boundary(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_start_chain(tmp, repo)
+            start_result, start_output = self.run_controlled_loop_runner_start_cli(tmp, chain)
+            self.assertEqual(start_result.returncode, 0, start_result.stderr)
+            tampered_start = json.loads(json.dumps(start_output))
+            tampered_start.pop("audit_record", None)
+            tampered_start["side_effects"] = []
+            tampered_start["runner_start"]["stages"] = []
+            start_path = Path(tmp) / "controlled-loop-runner-start.json"
+            start_path.write_text(json.dumps(tampered_start), encoding="utf-8")
+            chain["controlled_loop_runner_start_path"] = start_path
+            chain["controlled_loop_runner_start"] = tampered_start
+            audit_before = audit_records(tmp)
+            runtime_before = runtime_tree_manifest(tmp)
+
+            result, output = self.run_controlled_loop_runner_next_stage_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["runner_next_stage_status"], "blocked")
+            self.assertFalse(output["runner_started"])
+            self.assertFalse(output["stage_execution_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertIsNone(output["selected_stage"])
+            self.assertIn(
+                "controlled_runner_next_stage_start_boundary_unrecorded",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
     def test_controlled_loop_runner_next_stage_only_supports_first_stage_for_task_53(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)

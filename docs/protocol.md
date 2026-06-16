@@ -1976,12 +1976,40 @@ still matches the approved runner plan, and emits
 
 When valid, the command recommends `review_controlled_runner_next_stage`,
 sets `next_controlled_action: prepare_controlled_runner_stage_execution`, and
-selects the first stage (`loop-run-plan`) as `selected_not_executed`. It
-starts no executor, invokes no executor, retries no executor, continues no
+selects the first stage (`loop-run-plan`) as `selected_not_executed`. The
+`selected_stage` object binds `step`, `command`, `evidence_files`,
+`execution_authority`, and `allowed_side_effects_when_executed` from the
+approved manifest command sequence while adding `stage_status:
+selected_not_executed`, `runner_started: true`, `stage_execution_started:
+false`, `executor_started: false`, and `side_effects: []`. The packet also
+includes `controlled_loop_runner_start`, `controlled_loop_runner_plan`, and
+`controlled_loop_runner_dry_run` summary objects with `file` and `checksum`,
+matching `files` and `checksums` objects keyed by the same three evidence
+names. `blockers` is an array of `{code, message, ...}` objects and is empty
+when valid; `side_effects` is always `[]` because the command is read-only.
+
+It starts no executor, invokes no executor, retries no executor, continues no
 loop, appends no audit evidence, executes no Git commands, calls no GitHub
 APIs, creates no branches, commits, pushes, creates no PRs, merges no PRs,
 releases no artifacts, publishes no packages, assigns no roles, and schedules
-no agents.
+no agents. Stable blockers include
+`controlled_runner_next_stage_start_evidence_missing`,
+`controlled_runner_next_stage_runner_plan_evidence_missing`,
+`controlled_runner_next_stage_dry_run_evidence_missing`,
+`controlled_runner_next_stage_unsupported_stage`,
+`controlled_runner_next_stage_start_packet_mismatch`,
+`controlled_runner_next_stage_start_not_started`,
+`controlled_runner_next_stage_start_boundary_unrecorded`,
+`controlled_runner_next_stage_runner_plan_file_mismatch`,
+`controlled_runner_next_stage_dry_run_file_mismatch`,
+`controlled_runner_next_stage_runner_plan_checksum_mismatch`,
+`controlled_runner_next_stage_dry_run_checksum_mismatch`,
+`controlled_runner_next_stage_dry_run_packet_mismatch`,
+`controlled_runner_next_stage_dry_run_not_completed`,
+`controlled_runner_next_stage_dry_run_stage_sequence_mismatch`,
+`controlled_runner_next_stage_unknown_stage`, and the
+`controlled_runner_start_readiness_runner_plan_*` blockers emitted by
+runner-plan revalidation.
 
 ## Git/PR Dry-Run Planning
 

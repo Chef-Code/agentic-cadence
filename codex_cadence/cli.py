@@ -10884,6 +10884,116 @@ def controlled_loop_runner_next_stage_from_sequence(stage_number: int) -> dict[s
     return None
 
 
+def controlled_loop_runner_next_stage_start_boundary_blockers(
+    *,
+    start: dict[str, Any],
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    runner_start = start.get("runner_start") if isinstance(start.get("runner_start"), dict) else {}
+    planned_sequence = runner_start.get("planned_command_sequence")
+    stages = runner_start.get("stages")
+    malformed_stages: list[dict[str, Any]] = []
+    if planned_sequence != CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE or not isinstance(stages, list):
+        malformed_stages.append(
+            {
+                "planned_command_sequence": planned_sequence,
+                "stage_count": len(stages) if isinstance(stages, list) else None,
+            }
+        )
+    elif len(stages) != len(CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE):
+        malformed_stages.append(
+            {
+                "expected_stage_count": len(CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE),
+                "actual_stage_count": len(stages),
+            }
+        )
+    else:
+        for expected_stage, actual_stage in zip(CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE, stages, strict=True):
+            if not isinstance(actual_stage, dict):
+                malformed_stages.append({"expected": expected_stage, "actual": actual_stage})
+                continue
+            if (
+                actual_stage.get("step") != expected_stage.get("step")
+                or actual_stage.get("command") != expected_stage.get("command")
+                or actual_stage.get("start_status") != "accepted"
+                or actual_stage.get("execution_authority") != "runner_started_no_executor"
+                or actual_stage.get("runner_started") is not True
+                or actual_stage.get("executor_started") is not False
+                or actual_stage.get("side_effects") != []
+            ):
+                malformed_stages.append({"expected": expected_stage, "actual": actual_stage})
+
+    audit_summary = start.get("audit_record") if isinstance(start.get("audit_record"), dict) else None
+    audit_blockers: list[dict[str, Any]] = []
+    audit_mismatches: dict[str, Any] = {}
+    if audit_summary is None:
+        audit_blockers.append(
+            {
+                "code": "controlled_runner_next_stage_start_audit_missing",
+                "message": "runner-start audit record summary is missing",
+            }
+        )
+    else:
+        expected_audit_fields: dict[str, Any] = {
+            "event": "controlled_loop_runner_start",
+        }
+        audit_mismatches = {
+            field: audit_summary.get(field)
+            for field, expected in expected_audit_fields.items()
+            if audit_summary.get(field) != expected
+        }
+        missing_summary_fields = [
+            field
+            for field in ("path", "recorded_at", "event_hash", "previous_event_hash", "audit_chain_version", "chain_index")
+            if audit_summary.get(field) in (None, "")
+        ]
+        if missing_summary_fields:
+            audit_blockers.append(
+                {
+                    "code": "controlled_runner_next_stage_start_audit_summary_incomplete",
+                    "message": "runner-start audit record summary is incomplete",
+                    "missing": missing_summary_fields,
+                }
+            )
+        for field in ("event_hash", "previous_event_hash"):
+            value = audit_summary.get(field)
+            if not isinstance(value, str) or not value.startswith("sha256:") or len(value) != 71:
+                audit_blockers.append(
+                    {
+                        "code": "controlled_runner_next_stage_start_audit_summary_checksum_invalid",
+                        "message": "runner-start audit summary checksum field is invalid",
+                        "field": field,
+                        "actual": value,
+                    }
+                )
+        if not isinstance(audit_summary.get("chain_index"), int):
+            audit_blockers.append(
+                {
+                    "code": "controlled_runner_next_stage_start_audit_summary_chain_index_invalid",
+                    "message": "runner-start audit summary chain index must be an integer",
+                    "actual": audit_summary.get("chain_index"),
+                }
+            )
+
+    if (
+        start.get("side_effects") != ["controlled_runner_start_audit_appended"]
+        or malformed_stages
+        or audit_blockers
+        or audit_mismatches
+    ):
+        blockers.append(
+            controlled_loop_runner_next_stage_blocker(
+                "controlled_runner_next_stage_start_boundary_unrecorded",
+                "controlled runner start evidence must include recorded start stages and audit proof",
+                side_effects=start.get("side_effects"),
+                malformed_stages=malformed_stages,
+                audit_blockers=audit_blockers,
+                audit_mismatches=audit_mismatches,
+            )
+        )
+    return blockers
+
+
 def controlled_loop_runner_next_stage_command(args: argparse.Namespace) -> int:
     start_path = Path(args.controlled_loop_runner_start_file)
     runner_plan_path = Path(args.controlled_loop_runner_plan_file)
@@ -11002,6 +11112,11 @@ def controlled_loop_runner_next_stage_command(args: argparse.Namespace) -> int:
                     actual=start_checksums.get("controlled_loop_runner_dry_run"),
                 )
             )
+        blockers.extend(
+            controlled_loop_runner_next_stage_start_boundary_blockers(
+                start=start,
+            )
+        )
 
     if isinstance(runner_plan, dict):
         blockers.extend(controlled_loop_runner_start_readiness_runner_plan_blockers(runner_plan))

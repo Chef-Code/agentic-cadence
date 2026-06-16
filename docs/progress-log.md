@@ -55,7 +55,7 @@ Confidence change:
   continue unattended.
 
 Evidence:
-- Focused `controlled-loop-runner-next-stage` unittest set: 3 tests passed.
+- Focused `controlled-loop-runner-next-stage` unittest set: 4 tests passed.
 
 New risks or blockers:
 - Actual stage execution, executor invocation from the runner, continuous loop
