@@ -674,8 +674,10 @@ schedule agents.
 `controlled-loop-runner-start-readiness` consumes a saved completed
 `controlled-loop-runner-dry-run.v1` packet plus the runner plan and execution
 approval files that dry run referenced. It recomputes all three checksums,
-rechecks the dry-run file anchors, verifies every dry-run command stage remains
-`would_process`, and emits readiness-only evidence for a future runner start:
+revalidates the supplied plan and approval packets, rechecks file anchors,
+verifies the dry-run command sequence and stage list still match the approved
+runner plan, verifies every dry-run command stage remains `would_process`, and
+emits readiness-only evidence for a future runner start:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-start-readiness --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-execution-approval-file controlled-loop-runner-execution-approval.json
@@ -1139,8 +1141,10 @@ package publication, role-assignment, or agent-scheduling authority.
 `controlled-loop-runner-start-readiness` is the read-only readiness packet
 after a completed controlled runner dry run. It composes the saved
 `controlled-loop-runner-dry-run.v1` packet with the saved runner plan and
-execution approval files, rechecks dry-run anchors and checksums, verifies each
-stage remains `would_process`, and emits
+execution approval files, revalidates all three packet schemas and statuses,
+rechecks anchors and checksums, verifies the dry-run command sequence and stage
+list still match the approved runner plan, verifies each stage remains
+`would_process`, and emits
 `controlled-loop-runner-start-readiness.v1`. It appends no audit evidence,
 starts no runner or executor, invokes or retries no executor, continues no
 loop, and grants no epoch, Git, GitHub, branch, commit, push, PR, merge,

@@ -1808,11 +1808,14 @@ including `operator_approval_invalid`, `operator_approval_schema_invalid`,
 a completed controlled runner dry run. It reads
 `--controlled-loop-runner-dry-run-file`, `--controlled-loop-runner-plan-file`,
 and `--controlled-loop-runner-execution-approval-file`, verifies the dry-run
-packet is a completed `controlled-loop-runner-dry-run.v1`, recomputes dry-run,
-runner-plan, and execution-approval checksums, rechecks dry-run file anchors,
-verifies all runner and executor authority flags remain false, and verifies
-each dry-run stage remains `status: would_process` with no side effects. The
-command emits `controlled-loop-runner-start-readiness.v1` with `packet:
+packet is a completed `controlled-loop-runner-dry-run.v1`, revalidates the
+supplied runner-plan and execution-approval packet schemas, statuses, approval
+identity, authority flags, file anchors, and checksums, and recomputes dry-run,
+runner-plan, and execution-approval checksums. It also verifies that the dry-run
+planned command sequence and stage list still match the approved runner plan,
+that all runner and executor authority flags remain false, and that each
+dry-run stage remains `status: would_process` with no side effects. The command
+emits `controlled-loop-runner-start-readiness.v1` with `packet:
 controlled_loop_runner_start_readiness`, `read_only: true`, `side_effects: []`,
 `runner_start_ready`, `runner_start_readiness_status` of `ready` or `blocked`,
 `runner_start_authority: none`, `runner_start_readiness.stages`, checksums,
@@ -1834,11 +1837,25 @@ blockers include `controlled_runner_start_readiness_dry_run_evidence_missing`,
 `controlled_runner_start_readiness_dry_run_not_completed`,
 `controlled_runner_start_readiness_authority_flags_invalid`,
 `controlled_runner_start_readiness_non_execution_guarantees_missing`,
+`controlled_runner_start_readiness_runner_plan_packet_mismatch`,
+`controlled_runner_start_readiness_runner_plan_not_completed`,
+`controlled_runner_start_readiness_runner_plan_authority_flags_invalid`,
+`controlled_runner_start_readiness_runner_plan_command_sequence_mismatch`,
+`controlled_runner_start_readiness_runner_plan_mode_invalid`,
+`controlled_runner_start_readiness_runner_plan_steps_mismatch`,
 `controlled_runner_start_readiness_runner_plan_file_mismatch`,
-`controlled_runner_start_readiness_execution_approval_file_mismatch`,
 `controlled_runner_start_readiness_runner_plan_checksum_mismatch`,
+`controlled_runner_start_readiness_execution_approval_packet_mismatch`,
+`controlled_runner_start_readiness_execution_approval_not_completed`,
+`controlled_runner_start_readiness_execution_approval_authority_flags_invalid`,
+`controlled_runner_start_readiness_execution_approval_approval_mismatch`,
+`controlled_runner_start_readiness_execution_approval_plan_checksum_mismatch`,
+`controlled_runner_start_readiness_execution_approval_plan_status_mismatch`,
+`controlled_runner_start_readiness_execution_approval_file_mismatch`,
 `controlled_runner_start_readiness_execution_approval_checksum_mismatch`, and
-`controlled_runner_start_readiness_stage_malformed`.
+`controlled_runner_start_readiness_stage_malformed`,
+`controlled_runner_start_readiness_stage_not_would_process`, and
+`controlled_runner_start_readiness_stage_sequence_mismatch`.
 
 ## Git/PR Dry-Run Planning
 

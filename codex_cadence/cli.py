@@ -9036,6 +9036,8 @@ def controlled_loop_runner_start_readiness_recommendation(
         "controlled_runner_start_readiness_authority_flags_invalid",
         "controlled_runner_start_readiness_non_execution_guarantees_missing",
         "controlled_runner_start_readiness_stage_malformed",
+        "controlled_runner_start_readiness_stage_not_would_process",
+        "controlled_runner_start_readiness_stage_sequence_mismatch",
     }:
         return "refresh_controlled_runner_dry_run", "controlled runner dry-run evidence is malformed"
     if any(
@@ -9048,6 +9050,238 @@ def controlled_loop_runner_start_readiness_recommendation(
     ):
         return "refresh_controlled_runner_dry_run", "controlled runner start-readiness anchors are stale"
     return "inspect_controlled_runner_start_readiness_blockers", "controlled runner start readiness is blocked"
+
+
+def controlled_loop_runner_start_readiness_runner_plan_blockers(
+    runner_plan: dict[str, Any],
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if (
+        runner_plan.get("schema_version") != CONTROLLED_LOOP_RUNNER_PLAN_SCHEMA_VERSION
+        or runner_plan.get("packet") != "controlled_loop_runner_plan"
+    ):
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_runner_plan_packet_mismatch",
+                "controlled runner plan packet type is invalid",
+                expected_schema_version=CONTROLLED_LOOP_RUNNER_PLAN_SCHEMA_VERSION,
+                actual_schema_version=runner_plan.get("schema_version"),
+                expected_packet="controlled_loop_runner_plan",
+                actual_packet=runner_plan.get("packet"),
+            )
+        )
+
+    if (
+        runner_plan.get("valid") is not True
+        or runner_plan.get("runner_plan_status") != "completed"
+        or runner_plan.get("read_only") is not True
+        or runner_plan.get("side_effects") != []
+        or runner_plan.get("recommended_next_action") != "review_controlled_runner_plan"
+        or runner_plan.get("next_controlled_action") != "request_controlled_runner_execution_approval"
+        or runner_plan.get("operator_confirmation_required") is not True
+        or runner_plan.get("blockers") != []
+    ):
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_runner_plan_not_completed",
+                "controlled runner plan must be completed before runner start readiness",
+                valid=runner_plan.get("valid"),
+                runner_plan_status=runner_plan.get("runner_plan_status"),
+                read_only=runner_plan.get("read_only"),
+                side_effects=runner_plan.get("side_effects"),
+                recommended_next_action=runner_plan.get("recommended_next_action"),
+                next_controlled_action=runner_plan.get("next_controlled_action"),
+                operator_confirmation_required=runner_plan.get("operator_confirmation_required"),
+                blocker_codes=runner_plan.get("blockers"),
+            )
+        )
+
+    invalid_flags = {
+        flag: runner_plan.get(flag)
+        for flag in CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_FORBIDDEN_TRUE_FLAGS
+        if runner_plan.get(flag) is not False
+    }
+    if invalid_flags:
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_runner_plan_authority_flags_invalid",
+                "controlled runner plan must not report started authority flags",
+                flags=invalid_flags,
+            )
+        )
+
+    plan_details = runner_plan.get("runner_plan") if isinstance(runner_plan.get("runner_plan"), dict) else {}
+    command_sequence = plan_details.get("planned_command_sequence")
+    if command_sequence != CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE:
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_runner_plan_command_sequence_mismatch",
+                "controlled runner plan command sequence is invalid",
+                expected=CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE,
+                actual=command_sequence,
+            )
+        )
+    if plan_details.get("mode") != "dry_run":
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_runner_plan_mode_invalid",
+                "controlled runner plan must remain in dry-run mode",
+                actual=plan_details.get("mode"),
+            )
+        )
+
+    planned_steps = plan_details.get("planned_steps")
+    expected_planned_steps = controlled_loop_runner_planned_steps(CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE)
+    if planned_steps != expected_planned_steps:
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_runner_plan_steps_mismatch",
+                "controlled runner plan steps must match the approved not-started command sequence",
+                expected=expected_planned_steps,
+                actual=planned_steps,
+            )
+        )
+    return blockers
+
+
+def controlled_loop_runner_start_readiness_execution_approval_blockers(
+    *,
+    execution_approval: dict[str, Any],
+    execution_approval_path: Path,
+    runner_plan: dict[str, Any] | None,
+    runner_plan_path: Path,
+    runner_plan_checksum: str | None,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if (
+        execution_approval.get("schema_version") != CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_SCHEMA_VERSION
+        or execution_approval.get("packet") != "controlled_loop_runner_execution_approval"
+    ):
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_execution_approval_packet_mismatch",
+                "controlled runner execution approval packet type is invalid",
+                expected_schema_version=CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_SCHEMA_VERSION,
+                actual_schema_version=execution_approval.get("schema_version"),
+                expected_packet="controlled_loop_runner_execution_approval",
+                actual_packet=execution_approval.get("packet"),
+            )
+        )
+
+    invalid_flags = {
+        flag: execution_approval.get(flag)
+        for flag in CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_FORBIDDEN_TRUE_FLAGS
+        if execution_approval.get(flag) is not False
+    }
+    if invalid_flags:
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_execution_approval_authority_flags_invalid",
+                "controlled runner execution approval must not report started authority flags",
+                flags=invalid_flags,
+            )
+        )
+
+    if (
+        execution_approval.get("valid") is not True
+        or execution_approval.get("approval_status") != "completed"
+        or execution_approval.get("read_only") is not True
+        or execution_approval.get("side_effects") != []
+        or execution_approval.get("recommended_next_action") != "review_controlled_runner_execution_approval"
+        or execution_approval.get("next_controlled_action") != "review_approved_controlled_runner_execution"
+        or execution_approval.get("operator_confirmation_required") is not True
+        or execution_approval.get("blockers") != []
+    ):
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_execution_approval_not_completed",
+                "controlled runner execution approval must be completed before runner start readiness",
+                valid=execution_approval.get("valid"),
+                approval_status=execution_approval.get("approval_status"),
+                read_only=execution_approval.get("read_only"),
+                side_effects=execution_approval.get("side_effects"),
+                recommended_next_action=execution_approval.get("recommended_next_action"),
+                next_controlled_action=execution_approval.get("next_controlled_action"),
+                operator_confirmation_required=execution_approval.get("operator_confirmation_required"),
+                blocker_codes=execution_approval.get("blockers"),
+            )
+        )
+
+    approval_details = execution_approval.get("approval") if isinstance(execution_approval.get("approval"), dict) else {}
+    if (
+        approval_details.get("state") != "approved"
+        or approval_details.get("purpose") != CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_PURPOSE
+        or approval_details.get("approval_purpose") != CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_PURPOSE
+        or approval_details.get("signature_verified") is not True
+        or approval_details.get("blocker_codes") != []
+    ):
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_execution_approval_approval_mismatch",
+                "controlled runner execution approval must carry accepted approval identity evidence",
+                approval=approval_details,
+            )
+        )
+
+    if runner_plan is None:
+        return blockers
+
+    approval_plan = (
+        execution_approval.get("controlled_loop_runner_plan")
+        if isinstance(execution_approval.get("controlled_loop_runner_plan"), dict)
+        else {}
+    )
+    approval_files = execution_approval.get("files") if isinstance(execution_approval.get("files"), dict) else {}
+    approval_checksums = execution_approval.get("checksums") if isinstance(execution_approval.get("checksums"), dict) else {}
+    runner_plan_checksum_fields = {
+        "controlled_loop_runner_plan.checksum": approval_plan.get("checksum"),
+        "checksums.controlled_loop_runner_plan": approval_checksums.get("controlled_loop_runner_plan"),
+        "approval.target_checksum": approval_details.get("target_checksum"),
+        "approval.approval_target_checksum": approval_details.get("approval_target_checksum"),
+    }
+    mismatched_runner_plan_checksum_fields = {
+        field: value for field, value in runner_plan_checksum_fields.items() if value != runner_plan_checksum
+    }
+    if mismatched_runner_plan_checksum_fields:
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_execution_approval_plan_checksum_mismatch",
+                "controlled runner execution approval does not target the supplied runner plan checksum",
+                expected=runner_plan_checksum,
+                actual=mismatched_runner_plan_checksum_fields,
+            )
+        )
+    if approval_plan.get("status") != "completed":
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_execution_approval_plan_status_mismatch",
+                "controlled runner execution approval does not reference a completed runner plan",
+                actual=approval_plan.get("status"),
+            )
+        )
+    if not controlled_loop_runner_plan_file_matches(execution_approval_path, approval_plan.get("file"), runner_plan_path):
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_execution_approval_file_mismatch",
+                "controlled runner execution approval runner-plan file anchor does not match supplied runner plan",
+                expected=str(runner_plan_path),
+                actual=approval_plan.get("file"),
+            )
+        )
+    if not controlled_loop_runner_plan_file_matches(
+        execution_approval_path,
+        approval_files.get("controlled_loop_runner_plan"),
+        runner_plan_path,
+    ):
+        blockers.append(
+            controlled_loop_runner_start_readiness_blocker(
+                "controlled_runner_start_readiness_execution_approval_file_mismatch",
+                "controlled runner execution approval files.controlled_loop_runner_plan does not match supplied runner plan",
+                expected=str(runner_plan_path),
+                actual=approval_files.get("controlled_loop_runner_plan"),
+            )
+        )
+    return blockers
 
 
 def controlled_loop_runner_start_readiness_stages(dry_run: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -9105,6 +9339,19 @@ def controlled_loop_runner_start_readiness_command(args: argparse.Namespace) -> 
     dry_run_checksum = checksum_json(dry_run) if isinstance(dry_run, dict) else None
     runner_plan_checksum = checksum_json(runner_plan) if isinstance(runner_plan, dict) else None
     execution_approval_checksum = checksum_json(execution_approval) if isinstance(execution_approval, dict) else None
+
+    if isinstance(runner_plan, dict):
+        blockers.extend(controlled_loop_runner_start_readiness_runner_plan_blockers(runner_plan))
+    if isinstance(execution_approval, dict):
+        blockers.extend(
+            controlled_loop_runner_start_readiness_execution_approval_blockers(
+                execution_approval=execution_approval,
+                execution_approval_path=execution_approval_path,
+                runner_plan=runner_plan if isinstance(runner_plan, dict) else None,
+                runner_plan_path=runner_plan_path,
+                runner_plan_checksum=runner_plan_checksum,
+            )
+        )
 
     if isinstance(dry_run, dict):
         if (
@@ -9265,6 +9512,23 @@ def controlled_loop_runner_start_readiness_command(args: argparse.Namespace) -> 
                 )
             )
         stages = dry_runner.get("stages")
+        expected_stages = controlled_loop_runner_dry_run_stages(runner_plan if isinstance(runner_plan, dict) else None)
+        dry_run_command_sequence = dry_runner.get("planned_command_sequence")
+        expected_command_sequence = CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE
+        if isinstance(runner_plan, dict) and isinstance(runner_plan.get("runner_plan"), dict):
+            expected_command_sequence = runner_plan["runner_plan"].get("planned_command_sequence")
+        if (
+            dry_run_command_sequence != CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE
+            or dry_run_command_sequence != expected_command_sequence
+        ):
+            blockers.append(
+                controlled_loop_runner_start_readiness_blocker(
+                    "controlled_runner_start_readiness_stage_sequence_mismatch",
+                    "controlled runner dry-run command sequence must match the approved runner plan",
+                    expected=expected_command_sequence,
+                    actual=dry_run_command_sequence,
+                )
+            )
         if not isinstance(stages, list) or not stages:
             blockers.append(
                 controlled_loop_runner_start_readiness_blocker(
@@ -9274,23 +9538,44 @@ def controlled_loop_runner_start_readiness_command(args: argparse.Namespace) -> 
                 )
             )
         else:
+            stage_sequence_comparable = True
             for index, stage in enumerate(stages):
                 if (
                     not isinstance(stage, dict)
-                    or stage.get("status") != "would_process"
                     or stage.get("runner_started") is not False
                     or stage.get("executor_started") is not False
                     or stage.get("side_effects") != []
                 ):
+                    stage_sequence_comparable = False
                     blockers.append(
                         controlled_loop_runner_start_readiness_blocker(
                             "controlled_runner_start_readiness_stage_malformed",
-                            "controlled runner dry-run stage is not a non-executed would-process stage",
+                            "controlled runner dry-run stage is not a non-executed stage",
                             index=index,
                             stage=stage,
                         )
                     )
                     break
+                if stage.get("status") != "would_process":
+                    stage_sequence_comparable = False
+                    blockers.append(
+                        controlled_loop_runner_start_readiness_blocker(
+                            "controlled_runner_start_readiness_stage_not_would_process",
+                            "controlled runner dry-run stage must remain would-process",
+                            index=index,
+                            stage=stage,
+                        )
+                    )
+                    break
+            if stage_sequence_comparable and expected_stages and stages != expected_stages:
+                blockers.append(
+                    controlled_loop_runner_start_readiness_blocker(
+                        "controlled_runner_start_readiness_stage_sequence_mismatch",
+                        "controlled runner dry-run stages must match the approved runner plan",
+                        expected=expected_stages,
+                        actual=stages,
+                    )
+                )
 
     valid = not blockers
     recommended_next_action, reason = controlled_loop_runner_start_readiness_recommendation(blockers)

@@ -568,9 +568,9 @@ execution approval and emit would-process command-stage evidence without
 starting a runner or executor or granting retry, continuation, or write
 authority.
 `controlled-loop-runner-start-readiness` can then validate that completed
-dry-run evidence, recheck anchors and checksums, and stop before any future
-runner start without granting runner-start, executor, continuation, or write
-authority.
+dry-run evidence, revalidate the supplied runner plan and approval, recheck
+anchors, checksums, and stage sequence, and stop before any future runner start
+without granting runner-start, executor, continuation, or write authority.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,

@@ -231,8 +231,10 @@ runner start. Task 49 adds read-only `controlled-loop-runner-dry-run` evidence
 that consumes the approved runner plan and execution approval and emits
 would-process command stages without starting a runner.
 Task 50 adds read-only `controlled-loop-runner-start-readiness` evidence that
-validates the completed dry-run packet, rechecks anchors and checksums, and
-stops before any runner start.
+validates the completed dry-run packet, revalidates the supplied runner plan
+and execution approval packets, rechecks anchors and checksums, verifies the
+dry-run stage sequence still matches the approved runner plan, and stops before
+any runner start.
 
 ## Vision Framing
 
@@ -475,8 +477,10 @@ Validation needed:
   readiness-only stage evidence without appending audit evidence: complete for
   Task 50.
 - controlled-loop-runner-start-readiness stale runner-plan or approval anchors,
-  started authority flags, missing non-execution guarantees, or malformed
-  dry-run stages block without appending audit evidence: complete for Task 50.
+  blocked plan or approval evidence, started authority flags, missing
+  non-execution guarantees, malformed dry-run stages, non-would-process stages,
+  or stage sequence mismatches block without appending audit evidence: complete
+  for Task 50.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.

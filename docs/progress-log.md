@@ -40,8 +40,10 @@ Summary:
   `controlled-loop-runner-dry-run.v1` plus the runner plan and execution
   approval files referenced by that dry run.
 - The command recomputes dry-run, runner-plan, and approval-evidence checksums,
-  rechecks file anchors, verifies all authority flags remain false, and verifies
-  every dry-run command stage remains `would_process`.
+  revalidates the supplied runner-plan and execution-approval packets, rechecks
+  file anchors, verifies all authority flags remain false, verifies every
+  dry-run command stage remains `would_process`, and verifies the dry-run stage
+  sequence still matches the approved runner plan.
 - Completed readiness packets append no audit evidence; the command does not
   start a runner or executor, invoke or retry an executor, continue a loop,
   start or close an epoch, execute Git commands, call GitHub, create branches,
@@ -59,7 +61,7 @@ Confidence change:
   still does not start a runner or perform autonomous GitHub operations.
 
 Evidence:
-- Focused `controlled-loop-runner-start-readiness` unittest set: 3 tests passed.
+- Focused `controlled-loop-runner-start-readiness` unittest set: 4 tests passed.
 
 New risks or blockers:
 - Runner-start approval, actual one-cycle runner execution, continuous loop

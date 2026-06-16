@@ -494,8 +494,9 @@ Reasoning:
   runner plan, `controlled-loop-runner-execution-approval` verifies
   target-bound operator approval for that runner plan, and
   `controlled-loop-runner-dry-run` rechecks both before emitting would-process
-  stage evidence, and `controlled-loop-runner-start-readiness` rechecks the
-  completed dry-run before any future runner start, all without appending audit
+  stage evidence, and `controlled-loop-runner-start-readiness` revalidates the
+  supplied runner plan and approval while rechecking the completed dry-run
+  stage sequence before any future runner start, all without appending audit
   evidence, starting a runner or executor, retrying an executor, continuing the
   loop, starting or closing an epoch, executing Git commands, calling GitHub,
   creating branches, committing, pushing, creating PRs, merging, releasing,
