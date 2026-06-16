@@ -9588,6 +9588,16 @@ class CadenceCliTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+        def stale_execution_approval_operator_file(chain):
+            operator_approval = json.loads(
+                chain["controlled_loop_runner_execution_approval_path"].read_text(encoding="utf-8")
+            )
+            operator_approval["signature"] = "hmac-sha256:" + "0" * 64
+            chain["controlled_loop_runner_execution_approval_path"].write_text(
+                json.dumps(operator_approval),
+                encoding="utf-8",
+            )
+
         def tampered_start_approval_identity(chain):
             approval = json.loads(json.dumps(chain["controlled_loop_runner_start_approval_evidence"]))
             approval["approval"]["operator_id"] = "mallory"
@@ -9631,6 +9641,11 @@ class CadenceCliTests(unittest.TestCase):
                 "blocked-execution-approval",
                 blocked_execution_approval,
                 "controlled_runner_start_execution_approval_not_completed",
+            ),
+            (
+                "stale-execution-approval-operator-file",
+                stale_execution_approval_operator_file,
+                "controlled_runner_start_execution_approval_operator_checksum_mismatch",
             ),
             (
                 "tampered-start-approval-identity",

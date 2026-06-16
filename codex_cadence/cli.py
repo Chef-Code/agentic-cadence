@@ -10252,6 +10252,93 @@ def controlled_loop_runner_start_approval_blockers(
     return blockers
 
 
+def controlled_loop_runner_start_execution_approval_operator_blockers(
+    *,
+    execution_approval: dict[str, Any],
+    execution_approval_path: Path,
+    runner_plan_checksum: str | None,
+    args: argparse.Namespace,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    approval_details = execution_approval.get("approval") if isinstance(execution_approval.get("approval"), dict) else {}
+    approval_files = execution_approval.get("files") if isinstance(execution_approval.get("files"), dict) else {}
+    approval_checksums = execution_approval.get("checksums") if isinstance(execution_approval.get("checksums"), dict) else {}
+    operator_approval_file = approval_files.get("operator_approval")
+    if not isinstance(operator_approval_file, str) or not operator_approval_file.strip():
+        blockers.append(
+            controlled_loop_runner_start_blocker(
+                "controlled_runner_start_execution_approval_operator_file_missing",
+                "controlled runner execution approval must include operator approval file evidence",
+                actual=operator_approval_file,
+            )
+        )
+        return blockers
+
+    operator_approval_path = Path(controlled_tick_context_path(execution_approval_path, operator_approval_file))
+    if not controlled_loop_runner_plan_file_matches(
+        execution_approval_path,
+        approval_details.get("file"),
+        operator_approval_path,
+    ):
+        blockers.append(
+            controlled_loop_runner_start_blocker(
+                "controlled_runner_start_execution_approval_operator_file_mismatch",
+                "controlled runner execution approval approval.file anchor does not match saved operator approval",
+                expected=str(operator_approval_path),
+                actual=approval_details.get("file"),
+            )
+        )
+    operator_approval, operator_approval_blockers = read_controlled_loop_runner_start_packet(
+        operator_approval_path,
+        code="controlled_runner_start_execution_approval_operator_file_unreadable",
+        label="operator approval",
+    )
+    blockers.extend(operator_approval_blockers)
+    if not isinstance(operator_approval, dict):
+        return blockers
+
+    operator_approval_checksum = checksum_json(operator_approval)
+    approval_verification = build_operator_approval_verification_packet(
+        approval=operator_approval,
+        approval_file=operator_approval_path,
+        expected_target_checksum=runner_plan_checksum if runner_plan_checksum is not None else "sha256:" + "0" * 64,
+        expected_purpose=CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_PURPOSE,
+        approval_secret=operator_approval_secret_from_args(args),
+    )
+    blockers.extend(approval_verification.get("blockers", []))
+    operator_checksum_fields = {
+        "approval.checksum": approval_details.get("checksum"),
+        "checksums.operator_approval": approval_checksums.get("operator_approval"),
+    }
+    mismatched_operator_checksum_fields = {
+        field: value for field, value in operator_checksum_fields.items() if value != operator_approval_checksum
+    }
+    if mismatched_operator_checksum_fields:
+        blockers.append(
+            controlled_loop_runner_start_blocker(
+                "controlled_runner_start_execution_approval_operator_checksum_mismatch",
+                "controlled runner execution approval does not match the saved operator approval file",
+                expected=operator_approval_checksum,
+                actual=mismatched_operator_checksum_fields,
+            )
+        )
+    if (
+        operator_approval.get("target_checksum") != runner_plan_checksum
+        or operator_approval.get("purpose") != CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_PURPOSE
+    ):
+        blockers.append(
+            controlled_loop_runner_start_blocker(
+                "controlled_runner_start_execution_approval_operator_target_mismatch",
+                "operator approval file does not target the supplied controlled runner plan",
+                expected_target_checksum=runner_plan_checksum,
+                actual_target_checksum=operator_approval.get("target_checksum"),
+                expected_purpose=CONTROLLED_LOOP_RUNNER_EXECUTION_APPROVAL_PURPOSE,
+                actual_purpose=operator_approval.get("purpose"),
+            )
+        )
+    return blockers
+
+
 def controlled_loop_runner_start_command(args: argparse.Namespace) -> int:
     start_approval_path = Path(args.controlled_loop_runner_start_approval_file)
     readiness_path = Path(args.controlled_loop_runner_start_readiness_file)
@@ -10419,6 +10506,14 @@ def controlled_loop_runner_start_command(args: argparse.Namespace) -> int:
                 runner_plan=runner_plan if isinstance(runner_plan, dict) else None,
                 runner_plan_path=runner_plan_path,
                 runner_plan_checksum=runner_plan_checksum,
+            )
+        )
+        blockers.extend(
+            controlled_loop_runner_start_execution_approval_operator_blockers(
+                execution_approval=execution_approval,
+                execution_approval_path=execution_approval_path,
+                runner_plan_checksum=runner_plan_checksum,
+                args=args,
             )
         )
     if isinstance(dry_run, dict):

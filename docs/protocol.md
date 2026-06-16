@@ -1909,8 +1909,9 @@ and `--controlled-loop-runner-execution-approval-file`. It verifies the saved
 start-approval packet is `controlled-loop-runner-start-approval.v1` and
 completed, revalidates the target-bound operator approval file, revalidates the
 saved start-readiness packet, rechecks dry-run, runner-plan, and
-execution-approval file anchors and checksums, verifies stage sequences still
-match the approved controlled-run manifest, and emits
+execution-approval file anchors and checksums, rereads the execution-approval
+operator approval file, verifies stage sequences still match the approved
+controlled-run manifest, and emits
 `controlled-loop-runner-start.v1` with `packet:
 controlled_loop_runner_start`, `runner_start_status` of `started` or
 `blocked`, `runner_started: true`, `executor_started: false`,
@@ -1947,6 +1948,11 @@ schedules no agents. Stable blockers include
 `controlled_runner_start_execution_approval_evidence_missing`,
 `controlled_runner_start_execution_approval_checksum_mismatch`,
 `controlled_runner_start_execution_approval_not_completed`,
+`controlled_runner_start_execution_approval_operator_file_missing`,
+`controlled_runner_start_execution_approval_operator_file_mismatch`,
+`controlled_runner_start_execution_approval_operator_file_unreadable`,
+`controlled_runner_start_execution_approval_operator_checksum_mismatch`,
+`controlled_runner_start_execution_approval_operator_target_mismatch`,
 `controlled_runner_start_approval_operator_checksum_mismatch`,
 `controlled_runner_start_approval_operator_file_missing`,
 `controlled_runner_start_audit_append_failed`, and the
