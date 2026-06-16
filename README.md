@@ -54,6 +54,7 @@ read-only `controlled-loop-runner-execution-approval`,
 read-only `controlled-loop-runner-dry-run`,
 read-only `controlled-loop-runner-start-readiness`,
 read-only `controlled-loop-runner-start-approval`,
+controlled `controlled-loop-runner-start`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -101,7 +102,10 @@ without starting a runner or executor, and
 dry run before any future runner start while still granting no runner-start
 authority, and `controlled-loop-runner-start-approval` evidence that verifies
 target-checksum-bound operator approval for that readiness packet without
-starting the runner.
+starting the runner, and `controlled-loop-runner-start` evidence that records
+the approved one-cycle runner-start boundary while still not invoking an
+executor, continuing the loop, writing Git/GitHub state, merging, releasing,
+publishing packages, assigning roles, or scheduling agents.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -713,6 +717,25 @@ continue a loop, start or close an epoch, execute Git commands, call GitHub,
 create branches, commit, push, create PRs, merge, release, publish packages,
 assign roles, or schedule agents.
 
+`controlled-loop-runner-start` consumes a saved completed
+`controlled-loop-runner-start-approval.v1` packet plus the saved
+start-readiness, dry-run, runner-plan, and execution-approval packets. It
+rechecks file anchors, checksums, operator approval identity, readiness stages,
+dry-run stages, and runner-plan stages before recording the approved one-cycle
+runner-start boundary:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-start --controlled-loop-runner-start-approval-file controlled-loop-runner-start-approval.json --controlled-loop-runner-start-readiness-file controlled-loop-runner-start-readiness.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-execution-approval-file controlled-loop-runner-execution-approval.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET
+```
+
+Completed start packets recommend `review_controlled_runner_start`, append one
+`controlled_loop_runner_start` audit record, and stop at
+`stop_after_controlled_runner_start`. The command starts no executor, invokes
+or retries no executor, continues no loop, starts or closes no epoch, executes
+no Git commands, calls no GitHub APIs, creates no branches, commits, pushes,
+opens no PRs, merges no PRs, releases no artifacts, publishes no packages,
+assigns no roles, and schedules no agents.
+
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor
 closeout, real-executor invocation records, and accepted controlled single-tick
@@ -1181,6 +1204,17 @@ approval identity and target checksum, and emits
 starts no runner or executor, invokes or retries no executor, continues no
 loop, and grants no epoch, Git, GitHub, branch, commit, push, PR, merge,
 release, package publication, role-assignment, or agent-scheduling authority.
+
+`controlled-loop-runner-start` is the controlled one-cycle runner-start packet
+after start approval. It consumes the saved start-approval, start-readiness,
+dry-run, runner-plan, and execution-approval packets, revalidates anchors,
+checksums, approval identity, and stage sequences, emits
+`controlled-loop-runner-start.v1`, and appends one
+`controlled_loop_runner_start` audit record on success. It starts only the
+bounded runner boundary; it starts no executor, invokes or retries no executor,
+continues no loop, starts or closes no epoch, and grants no Git, GitHub,
+branch, commit, push, PR, merge, release, package publication,
+role-assignment, or agent-scheduling authority.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can

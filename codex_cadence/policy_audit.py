@@ -820,6 +820,73 @@ def validate_controlled_loop_tick_audit_record(record: dict[str, Any], line: int
     return blockers
 
 
+def validate_controlled_loop_runner_start_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate controlled runner-start audit fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in (
+        "action",
+        "reason",
+        "controlled_loop_runner_start_approval_file",
+        "controlled_loop_runner_start_readiness_file",
+        "controlled_loop_runner_dry_run_file",
+        "controlled_loop_runner_plan_file",
+        "controlled_loop_runner_execution_approval_file",
+    ):
+        blockers.extend(required_string(record, field, line))
+    for field in ("valid", "runner_started", "executor_started", "loop_continuation_started"):
+        blockers.extend(required_bool(record, field, line))
+    for field in (
+        "payload_checksum",
+        "controlled_loop_runner_start_approval_checksum",
+        "controlled_loop_runner_start_readiness_checksum",
+        "controlled_loop_runner_dry_run_checksum",
+        "controlled_loop_runner_plan_checksum",
+        "controlled_loop_runner_execution_approval_checksum",
+    ):
+        blockers.extend(required_checksum_present(record, field, line))
+    if record.get("action") != "start_controlled_runner_cycle":
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_runner_start_action_invalid",
+                "controlled_loop_runner_start action must be start_controlled_runner_cycle",
+                line,
+            )
+        )
+    if record.get("valid") is not True:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_runner_start_valid_invalid",
+                "controlled_loop_runner_start audit records are only appended for valid starts",
+                line,
+            )
+        )
+    if record.get("runner_started") is not True:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_runner_start_not_started",
+                "controlled_loop_runner_start audit records must mark the runner boundary as started",
+                line,
+            )
+        )
+    if record.get("executor_started") is not False:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_runner_start_executor_started",
+                "controlled_loop_runner_start audit records must not mark executor start",
+                line,
+            )
+        )
+    if record.get("loop_continuation_started") is not False:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_runner_start_continued_loop",
+                "controlled_loop_runner_start audit records must not continue the loop",
+                line,
+            )
+        )
+    return blockers
+
+
 def validate_controlled_pr_cycle_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
     """Validate controlled PR-cycle composition audit fields."""
     blockers: list[dict[str, Any]] = []
@@ -1112,6 +1179,8 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
         blockers.extend(validate_execution_start_audit_record(record, line))
     elif event == "controlled_loop_tick":
         blockers.extend(validate_controlled_loop_tick_audit_record(record, line))
+    elif event == "controlled_loop_runner_start":
+        blockers.extend(validate_controlled_loop_runner_start_audit_record(record, line))
     elif event == "controlled_pr_cycle":
         blockers.extend(validate_controlled_pr_cycle_audit_record(record, line))
     elif event == "work_ownership_mutation":
@@ -1646,6 +1715,33 @@ def controlled_loop_tick_audit_record(payload: dict[str, Any]) -> dict[str, Any]
         "snapshot_after_checksum": checksums.get("snapshot_after"),
         "closeout_checksum": checksums.get("closeout"),
         "git_pr_plan_checksum": checksums.get("git_pr_plan"),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def controlled_loop_runner_start_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
+    """Build the audit record for a bounded controlled runner start."""
+    files = payload.get("files") if isinstance(payload.get("files"), dict) else {}
+    checksums = payload.get("checksums") if isinstance(payload.get("checksums"), dict) else {}
+    record = {
+        "event": "controlled_loop_runner_start",
+        "action": "start_controlled_runner_cycle",
+        "reason": payload.get("reason"),
+        "valid": payload.get("valid"),
+        "runner_started": payload.get("runner_started"),
+        "executor_started": payload.get("executor_started"),
+        "loop_continuation_started": payload.get("loop_continuation_started"),
+        "controlled_loop_runner_start_approval_file": files.get("controlled_loop_runner_start_approval"),
+        "controlled_loop_runner_start_readiness_file": files.get("controlled_loop_runner_start_readiness"),
+        "controlled_loop_runner_dry_run_file": files.get("controlled_loop_runner_dry_run"),
+        "controlled_loop_runner_plan_file": files.get("controlled_loop_runner_plan"),
+        "controlled_loop_runner_execution_approval_file": files.get("controlled_loop_runner_execution_approval"),
+        "payload_checksum": checksum_json(payload),
+        "controlled_loop_runner_start_approval_checksum": checksums.get("controlled_loop_runner_start_approval"),
+        "controlled_loop_runner_start_readiness_checksum": checksums.get("controlled_loop_runner_start_readiness"),
+        "controlled_loop_runner_dry_run_checksum": checksums.get("controlled_loop_runner_dry_run"),
+        "controlled_loop_runner_plan_checksum": checksums.get("controlled_loop_runner_plan"),
+        "controlled_loop_runner_execution_approval_checksum": checksums.get("controlled_loop_runner_execution_approval"),
     }
     return {key: value for key, value in record.items() if value is not None}
 
