@@ -33,6 +33,44 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-16 - Read-only controlled runner next-stage selection
+
+Summary:
+- Added `controlled-loop-runner-next-stage` to consume saved completed
+  runner-start, runner-plan, and dry-run packets.
+- The command rechecks anchors, checksums, and stage sequences, then selects
+  the first controlled runner command stage without executing it.
+- Completed next-stage packets append no audit evidence and still do not
+  invoke an executor, continue a loop, write Git/GitHub state, merge, release,
+  publish packages, assign roles, or schedule agents.
+
+Completed slices:
+- Task 53: read-only controlled loop runner next-stage packet.
+
+Confidence change:
+- Previous: 47%
+- New: 48%
+- Reason: Cadence can now advance from a recorded runner-start boundary to a
+  reviewable selected runner stage, but it still does not execute that stage or
+  continue unattended.
+
+Evidence:
+- Focused `controlled-loop-runner-next-stage` unittest set: 3 tests passed.
+
+New risks or blockers:
+- Actual stage execution, executor invocation from the runner, continuous loop
+  execution, autonomous executor retry, Git/GitHub writes, merge authority,
+  release publication, role assignment, and agent scheduling remain out of
+  scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-16 - Controlled runner start boundary
 
 Summary:

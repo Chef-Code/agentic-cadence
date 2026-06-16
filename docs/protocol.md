@@ -1961,6 +1961,28 @@ schedules no agents. Stable blockers include
 `controlled_runner_start_readiness_execution_approval_*`, and
 `operator_approval_*` blockers emitted by the revalidated upstream gates.
 
+`controlled-loop-runner-next-stage` is the read-only stage-selection packet
+after the controlled runner-start boundary. It reads
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, and optional `--stage-number`.
+Task 53 only supports `--stage-number 1`. It verifies the saved start packet is
+`controlled-loop-runner-start.v1` and started, rechecks supplied runner-plan
+and dry-run file anchors and checksums, verifies the dry-run stage sequence
+still matches the approved runner plan, and emits
+`controlled-loop-runner-next-stage.v1` with
+`packet: controlled_loop_runner_next_stage`, `read_only: true`, `runner_started: true`,
+`stage_execution_started: false`, `executor_started: false`, and
+`loop_continuation_started: false`.
+
+When valid, the command recommends `review_controlled_runner_next_stage`,
+sets `next_controlled_action: prepare_controlled_runner_stage_execution`, and
+selects the first stage (`loop-run-plan`) as `selected_not_executed`. It
+starts no executor, invokes no executor, retries no executor, continues no
+loop, appends no audit evidence, executes no Git commands, calls no GitHub
+APIs, creates no branches, commits, pushes, creates no PRs, merges no PRs,
+releases no artifacts, publishes no packages, assigns no roles, and schedules
+no agents.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from
