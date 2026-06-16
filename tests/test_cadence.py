@@ -23,6 +23,7 @@ from codex_cadence.executor_runner import run_controlled_executor_fixture
 from codex_cadence.model import estimate_task
 from codex_cadence.policy_audit import (
     append_audit_record,
+    audit_event_hash,
     checksum_json,
     execution_start_audit_record,
     executor_epoch_closeout_audit_record,
@@ -9504,12 +9505,29 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["runner_started"])
             self.assertFalse(output["executor_started"])
             self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["runner_start"]["stages"], [])
             self.assertIn("controlled_runner_start_readiness_checksum_mismatch", {blocker["code"] for blocker in output["blockers"]})
             self.assertEqual(output["side_effects"], [])
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
     def test_controlled_loop_runner_start_revalidates_start_approval_and_saved_chain(self):
+        def rewrite_start_approval(chain):
+            approval_path, approval = write_operator_approval(
+                chain["controlled_loop_runner_start_approval_path"],
+                target_checksum=checksum_json(json.loads(chain["controlled_loop_runner_start_readiness_path"].read_text(encoding="utf-8"))),
+                purpose="controlled_loop_runner_start",
+            )
+            chain["controlled_loop_runner_start_approval_path"] = approval_path
+            chain["controlled_loop_runner_start_approval"] = approval
+            approval_result, approval_evidence = self.run_controlled_loop_runner_start_approval_cli(tmp, chain)
+            self.assertEqual(approval_result.returncode, 0, approval_result.stderr)
+            chain["controlled_loop_runner_start_approval_evidence_path"].write_text(
+                json.dumps(approval_evidence),
+                encoding="utf-8",
+            )
+            chain["controlled_loop_runner_start_approval_evidence"] = approval_evidence
+
         def blocked_start_approval(chain):
             approval = json.loads(json.dumps(chain["controlled_loop_runner_start_approval_evidence"]))
             approval["valid"] = False
@@ -9557,6 +9575,29 @@ class CadenceCliTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
+        def tampered_start_approval_identity(chain):
+            approval = json.loads(json.dumps(chain["controlled_loop_runner_start_approval_evidence"]))
+            approval["approval"]["operator_id"] = "mallory"
+            approval["approval"]["key_id"] = "mallory-key"
+            chain["controlled_loop_runner_start_approval_evidence_path"].write_text(
+                json.dumps(approval),
+                encoding="utf-8",
+            )
+
+        def self_consistent_malformed_dry_run_anchor(chain):
+            dry_run = json.loads(json.dumps(chain["controlled_loop_runner_dry_run"]))
+            dry_run["files"]["controlled_loop_runner_plan"] = "wrong-plan.json"
+            dry_run["controlled_loop_runner_plan"]["file"] = "wrong-plan.json"
+            chain["controlled_loop_runner_dry_run_path"].write_text(json.dumps(dry_run), encoding="utf-8")
+            dry_run_checksum = checksum_json(dry_run)
+            readiness = json.loads(json.dumps(chain["controlled_loop_runner_start_readiness"]))
+            readiness["controlled_loop_runner_dry_run"]["checksum"] = dry_run_checksum
+            readiness["checksums"]["controlled_loop_runner_dry_run"] = dry_run_checksum
+            readiness["runner_start_readiness"]["dry_run_checksum"] = dry_run_checksum
+            chain["controlled_loop_runner_start_readiness_path"].write_text(json.dumps(readiness), encoding="utf-8")
+            chain["controlled_loop_runner_start_readiness"] = readiness
+            rewrite_start_approval(chain)
+
         cases = [
             ("blocked-start-approval", blocked_start_approval, "controlled_runner_start_approval_not_completed"),
             ("started-authority", started_authority, "controlled_runner_start_approval_authority_flags_invalid"),
@@ -9576,6 +9617,16 @@ class CadenceCliTests(unittest.TestCase):
                 blocked_execution_approval,
                 "controlled_runner_start_execution_approval_not_completed",
             ),
+            (
+                "tampered-start-approval-identity",
+                tampered_start_approval_identity,
+                "controlled_runner_start_approval_identity_mismatch",
+            ),
+            (
+                "self-consistent-malformed-dry-run-anchor",
+                self_consistent_malformed_dry_run_anchor,
+                "controlled_runner_start_dry_run_file_mismatch",
+            ),
         ]
         for name, mutate, expected_code in cases:
             with self.subTest(name=name):
@@ -9594,10 +9645,33 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertFalse(output["runner_started"])
                     self.assertFalse(output["executor_started"])
                     self.assertFalse(output["loop_continuation_started"])
+                    self.assertEqual(output["runner_start"]["stages"], [])
                     self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
                     self.assertEqual(output["side_effects"], [])
                     self.assertEqual(audit_records(tmp), audit_before)
                     self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_start_audit_replay_rejects_forbidden_side_effect_flags(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_start_chain(tmp, repo)
+
+            result, output = self.run_controlled_loop_runner_start_cli(tmp, chain)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            records = audit_records(tmp)
+            records[-1]["github_write_started"] = True
+            records[-1]["event_hash"] = audit_event_hash(records[-1])
+            audit_path = Path(tmp) / "audit" / "events.jsonl"
+            audit_path.write_text("\n".join(json.dumps(record) for record in records) + "\n", encoding="utf-8")
+
+            replay_result, replay_output = run_cli(tmp, "audit-replay")
+
+            self.assertEqual(replay_result.returncode, 1, replay_result.stderr)
+            self.assertFalse(replay_output["valid"])
+            self.assertIn(
+                "audit_controlled_runner_start_github_write_started",
+                {blocker["code"] for blocker in replay_output["blockers"]},
+            )
 
     def test_controlled_loop_tick_accepts_existing_real_invocation_closeout_chain(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

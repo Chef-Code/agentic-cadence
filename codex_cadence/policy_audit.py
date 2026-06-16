@@ -823,6 +823,18 @@ def validate_controlled_loop_tick_audit_record(record: dict[str, Any], line: int
 def validate_controlled_loop_runner_start_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
     """Validate controlled runner-start audit fields."""
     blockers: list[dict[str, Any]] = []
+    forbidden_true_flags = (
+        "executor_started",
+        "epoch_started",
+        "pr_action_started",
+        "github_write_started",
+        "merge_started",
+        "release_started",
+        "package_publication_started",
+        "role_assignment_started",
+        "agent_scheduling_started",
+        "loop_continuation_started",
+    )
     for field in (
         "action",
         "reason",
@@ -833,7 +845,7 @@ def validate_controlled_loop_runner_start_audit_record(record: dict[str, Any], l
         "controlled_loop_runner_execution_approval_file",
     ):
         blockers.extend(required_string(record, field, line))
-    for field in ("valid", "runner_started", "executor_started", "loop_continuation_started"):
+    for field in ("valid", "runner_started", *forbidden_true_flags):
         blockers.extend(required_bool(record, field, line))
     for field in (
         "payload_checksum",
@@ -868,22 +880,15 @@ def validate_controlled_loop_runner_start_audit_record(record: dict[str, Any], l
                 line,
             )
         )
-    if record.get("executor_started") is not False:
-        blockers.append(
-            audit_replay_blocker(
-                "audit_controlled_runner_start_executor_started",
-                "controlled_loop_runner_start audit records must not mark executor start",
-                line,
+    for field in forbidden_true_flags:
+        if record.get(field) is not False:
+            blockers.append(
+                audit_replay_blocker(
+                    f"audit_controlled_runner_start_{field}",
+                    f"controlled_loop_runner_start audit records must not mark {field}",
+                    line,
+                )
             )
-        )
-    if record.get("loop_continuation_started") is not False:
-        blockers.append(
-            audit_replay_blocker(
-                "audit_controlled_runner_start_continued_loop",
-                "controlled_loop_runner_start audit records must not continue the loop",
-                line,
-            )
-        )
     return blockers
 
 
@@ -1730,6 +1735,14 @@ def controlled_loop_runner_start_audit_record(payload: dict[str, Any]) -> dict[s
         "valid": payload.get("valid"),
         "runner_started": payload.get("runner_started"),
         "executor_started": payload.get("executor_started"),
+        "epoch_started": payload.get("epoch_started"),
+        "pr_action_started": payload.get("pr_action_started"),
+        "github_write_started": payload.get("github_write_started"),
+        "merge_started": payload.get("merge_started"),
+        "release_started": payload.get("release_started"),
+        "package_publication_started": payload.get("package_publication_started"),
+        "role_assignment_started": payload.get("role_assignment_started"),
+        "agent_scheduling_started": payload.get("agent_scheduling_started"),
         "loop_continuation_started": payload.get("loop_continuation_started"),
         "controlled_loop_runner_start_approval_file": files.get("controlled_loop_runner_start_approval"),
         "controlled_loop_runner_start_readiness_file": files.get("controlled_loop_runner_start_readiness"),
