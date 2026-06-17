@@ -1968,7 +1968,9 @@ after the controlled runner-start boundary. It reads
 Task 53 only supports `--stage-number 1`. It verifies the saved start packet is
 `controlled-loop-runner-start.v1` and started, rechecks supplied runner-plan
 and dry-run file anchors and checksums, verifies the dry-run stage sequence
-still matches the approved runner plan, and emits
+still matches the approved runner plan, verifies dry-run read-only flags and
+non-execution guarantees, verifies the runner-start audit summary against the
+recorded audit log line and payload checksum, and emits
 `controlled-loop-runner-next-stage.v1` with
 `packet: controlled_loop_runner_next_stage`, `read_only: true`, `runner_started: true`,
 `stage_execution_started: false`, `executor_started: false`, and
@@ -2005,11 +2007,33 @@ no agents. Stable blockers include
 `controlled_runner_next_stage_runner_plan_checksum_mismatch`,
 `controlled_runner_next_stage_dry_run_checksum_mismatch`,
 `controlled_runner_next_stage_dry_run_packet_mismatch`,
+`controlled_runner_next_stage_dry_run_authority_flags_invalid`,
 `controlled_runner_next_stage_dry_run_not_completed`,
+`controlled_runner_next_stage_dry_run_non_execution_guarantees_missing`,
+`controlled_runner_next_stage_dry_run_non_execution_guarantees_invalid`,
+`controlled_runner_next_stage_dry_run_runner_plan_file_mismatch`,
+`controlled_runner_next_stage_dry_run_runner_plan_checksum_mismatch`,
+`controlled_runner_next_stage_dry_run_stage_malformed`,
+`controlled_runner_next_stage_dry_run_stage_not_would_process`,
 `controlled_runner_next_stage_dry_run_stage_sequence_mismatch`,
 `controlled_runner_next_stage_unknown_stage`, and the
 `controlled_runner_start_readiness_runner_plan_*` blockers emitted by
-runner-plan revalidation.
+runner-plan revalidation. The
+`controlled_runner_next_stage_start_boundary_unrecorded` blocker may include
+nested diagnostic `audit_blockers` with codes
+`controlled_runner_next_stage_start_audit_missing`,
+`controlled_runner_next_stage_start_audit_summary_incomplete`,
+`controlled_runner_next_stage_start_audit_summary_checksum_invalid`,
+`controlled_runner_next_stage_start_audit_summary_chain_index_invalid`,
+`controlled_runner_next_stage_start_audit_path_mismatch`,
+`controlled_runner_next_stage_start_audit_line_unreadable`,
+`controlled_runner_next_stage_start_audit_line_malformed`,
+`controlled_runner_next_stage_start_audit_chain_invalid`,
+`controlled_runner_next_stage_start_audit_line_invalid`,
+`controlled_runner_next_stage_start_audit_event_mismatch`,
+`controlled_runner_next_stage_start_audit_summary_mismatch`,
+`controlled_runner_next_stage_start_audit_event_hash_mismatch`, and
+`controlled_runner_next_stage_start_audit_payload_checksum_mismatch`.
 
 ## Git/PR Dry-Run Planning
 

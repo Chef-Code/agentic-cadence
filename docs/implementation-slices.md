@@ -193,8 +193,8 @@ assigning no roles, and scheduling no agents.
 `controlled-loop-runner-next-stage` can then consume the recorded runner-start
 boundary plus saved runner-plan and dry-run evidence, recheck anchors,
 checksums, and stage sequences, and select the first runner command stage
-without executing it, appending audit evidence, invoking an executor, continuing
-the loop, or writing Git/GitHub state.
+without executing it, without appending audit evidence, without invoking an
+executor, without continuing the loop, and without writing Git/GitHub state.
 Autonomous
 branch/commit/push or PR creation, automatic session launch, distributed work
 ownership, role assignment, and continuous loop orchestration remain missing.

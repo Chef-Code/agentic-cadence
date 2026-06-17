@@ -258,9 +258,10 @@ command-policy and active-stop controls. It includes:
 - `controlled-loop-runner-next-stage` packets that consume completed
   runner-start, runner-plan, and dry-run evidence, recheck anchors, checksums,
   and stage sequence, and select the first runner stage without executing it,
-  appending audit evidence, invoking an executor, retrying an executor,
-  continuing the loop, writing Git/GitHub state, merging, releasing, publishing
-  packages, assigning roles, or scheduling agents;
+  without appending audit evidence, without invoking an executor, without
+  retrying an executor, without continuing the loop, without writing Git/GitHub
+  state, without merging, without releasing, without publishing packages,
+  without assigning roles, and without scheduling agents;
 - controlled `invoke-real-executor` local process-start records,
   `closeout-executor-result --real-invocation-file` binding, and
   `controlled-loop-tick` packets that compose saved local
@@ -603,8 +604,8 @@ Git/GitHub state.
 `controlled-loop-runner-next-stage` can then consume the saved runner-start
 boundary, runner-plan, and dry-run evidence, recheck anchors, checksums, and
 stage sequence, and select the first runner stage without executing it,
-appending audit evidence, invoking an executor, continuing the loop, or writing
-Git/GitHub state.
+without appending audit evidence, without invoking an executor, without
+continuing the loop, and without writing Git/GitHub state.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,

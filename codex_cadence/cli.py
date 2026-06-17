@@ -87,6 +87,7 @@ from codex_cadence.ownership import (
 from codex_cadence.policy_audit import (
     append_audit_record,
     audit_chain_blockers,
+    AUDIT_CHAIN_ROOT_HASH,
     audit_event_hash,
     audit_events_path,
     controlled_loop_tick_audit_record,
@@ -10861,6 +10862,11 @@ def controlled_loop_runner_next_stage_recommendation(blockers: list[dict[str, An
         return "refresh_controlled_runner_start", "controlled runner start evidence is stale or blocked"
     if any(isinstance(code, str) and code.startswith("controlled_runner_next_stage_runner_plan") for code in blocker_codes):
         return "refresh_controlled_runner_plan", "controlled runner plan evidence is stale or blocked"
+    if any(
+        isinstance(code, str) and code.startswith("controlled_runner_start_readiness_runner_plan_")
+        for code in blocker_codes
+    ):
+        return "refresh_controlled_runner_plan", "controlled runner plan evidence is stale or blocked"
     if any(isinstance(code, str) and code.startswith("controlled_runner_next_stage_dry_run") for code in blocker_codes):
         return "refresh_controlled_runner_dry_run", "controlled runner dry-run evidence is stale or blocked"
     return "inspect_controlled_runner_next_stage_blockers", "controlled runner next-stage selection is blocked"
@@ -10887,6 +10893,8 @@ def controlled_loop_runner_next_stage_from_sequence(stage_number: int) -> dict[s
 def controlled_loop_runner_next_stage_start_boundary_blockers(
     *,
     start: dict[str, Any],
+    start_path: Path,
+    root: Path,
 ) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
     runner_start = start.get("runner_start") if isinstance(start.get("runner_start"), dict) else {}
@@ -10966,14 +10974,171 @@ def controlled_loop_runner_next_stage_start_boundary_blockers(
                         "actual": value,
                     }
                 )
-        if not isinstance(audit_summary.get("chain_index"), int):
+        chain_index = audit_summary.get("chain_index")
+        if isinstance(chain_index, bool) or not isinstance(chain_index, int) or chain_index < 1:
             audit_blockers.append(
                 {
                     "code": "controlled_runner_next_stage_start_audit_summary_chain_index_invalid",
-                    "message": "runner-start audit summary chain index must be an integer",
-                    "actual": audit_summary.get("chain_index"),
+                    "message": "runner-start audit summary chain index must be a positive integer",
+                    "actual": chain_index,
                 }
             )
+        else:
+            audit_path = controlled_loop_closeout_context_path(start_path, audit_summary.get("path"))
+            expected_audit_path = audit_events_path(root)
+            if not _closeout_paths_match(audit_path, expected_audit_path):
+                audit_blockers.append(
+                    {
+                        "code": "controlled_runner_next_stage_start_audit_path_mismatch",
+                        "message": "runner-start audit reference path must match runtime audit log",
+                        "expected": str(expected_audit_path),
+                        "actual": str(audit_path),
+                    }
+                )
+            else:
+                try:
+                    lines = expected_audit_path.read_text(encoding="utf-8").splitlines()
+                    audit_record = json.loads(lines[chain_index - 1])
+                except (IndexError, OSError, ValueError, json.JSONDecodeError) as exc:
+                    audit_blockers.append(
+                        {
+                            "code": "controlled_runner_next_stage_start_audit_line_unreadable",
+                            "message": "runner-start audit reference line could not be read",
+                            "line": chain_index,
+                            "error": str(exc),
+                        }
+                    )
+                else:
+                    if not isinstance(audit_record, dict):
+                        audit_blockers.append(
+                            {
+                                "code": "controlled_runner_next_stage_start_audit_line_malformed",
+                                "message": "runner-start audit reference line must be a JSON object",
+                                "line": chain_index,
+                            }
+                        )
+                    else:
+                        expected_previous_hash = AUDIT_CHAIN_ROOT_HASH
+                        seen_chain_indexes: set[int] = set()
+                        chain_started = False
+                        for line_number, raw_line in enumerate(lines[:chain_index], start=1):
+                            try:
+                                chain_record = json.loads(raw_line)
+                            except (ValueError, json.JSONDecodeError) as exc:
+                                audit_blockers.append(
+                                    {
+                                        "code": "controlled_runner_next_stage_start_audit_chain_invalid",
+                                        "message": "runner-start audit chain line could not be read",
+                                        "line": line_number,
+                                        "error": str(exc),
+                                    }
+                                )
+                                break
+                            if not isinstance(chain_record, dict):
+                                audit_blockers.append(
+                                    {
+                                        "code": "controlled_runner_next_stage_start_audit_chain_invalid",
+                                        "message": "runner-start audit chain line must be a JSON object",
+                                        "line": line_number,
+                                    }
+                                )
+                                break
+                            chain_blockers, chain_head, chained = audit_chain_blockers(
+                                chain_record,
+                                line_number,
+                                expected_previous_hash=expected_previous_hash,
+                                seen_chain_indexes=seen_chain_indexes,
+                                chain_started=chain_started,
+                            )
+                            if chain_blockers:
+                                audit_blockers.append(
+                                    {
+                                        "code": "controlled_runner_next_stage_start_audit_chain_invalid",
+                                        "message": "runner-start audit chain metadata is invalid",
+                                        "line": line_number,
+                                        "nested_blockers": chain_blockers,
+                                    }
+                                )
+                                break
+                            if chained:
+                                chain_started = True
+                                seen_chain_indexes.add(chain_record["chain_index"])
+                            if chain_head is not None:
+                                expected_previous_hash = chain_head
+                        event, nested_audit_blockers = validate_audit_record(audit_record, chain_index)
+                        for nested_blocker in nested_audit_blockers:
+                            audit_blockers.append(
+                                {
+                                    "code": "controlled_runner_next_stage_start_audit_line_invalid",
+                                    "message": "runner-start audit reference line is invalid",
+                                    "line": chain_index,
+                                    "nested_blocker": nested_blocker,
+                                }
+                            )
+                        if event != "controlled_loop_runner_start":
+                            audit_blockers.append(
+                                {
+                                    "code": "controlled_runner_next_stage_start_audit_event_mismatch",
+                                    "message": "runner-start audit reference event is invalid",
+                                    "expected": "controlled_loop_runner_start",
+                                    "actual": event,
+                                    "line": chain_index,
+                                }
+                            )
+                        for field in (
+                            "event",
+                            "recorded_at",
+                            "audit_chain_version",
+                            "chain_index",
+                            "previous_event_hash",
+                            "event_hash",
+                        ):
+                            if audit_record.get(field) != audit_summary.get(field):
+                                audit_blockers.append(
+                                    {
+                                        "code": "controlled_runner_next_stage_start_audit_summary_mismatch",
+                                        "message": "runner-start audit summary does not match audit line",
+                                        "field": field,
+                                        "expected": audit_summary.get(field),
+                                        "actual": audit_record.get(field),
+                                        "line": chain_index,
+                                    }
+                                )
+                        computed_event_hash = audit_event_hash(audit_record)
+                        if audit_record.get("event_hash") != computed_event_hash:
+                            audit_blockers.append(
+                                {
+                                    "code": "controlled_runner_next_stage_start_audit_event_hash_mismatch",
+                                    "message": "runner-start audit event_hash does not match audit line payload",
+                                    "expected": audit_record.get("event_hash"),
+                                    "actual": computed_event_hash,
+                                    "line": chain_index,
+                                }
+                            )
+                        start_payload = {key: value for key, value in start.items() if key != "audit_record"}
+                        start_payload_checksum = checksum_json(start_payload)
+                        summary_payload_checksum = audit_summary.get("payload_checksum")
+                        if summary_payload_checksum is not None and summary_payload_checksum != audit_record.get("payload_checksum"):
+                            audit_blockers.append(
+                                {
+                                    "code": "controlled_runner_next_stage_start_audit_summary_mismatch",
+                                    "message": "runner-start audit summary does not match audit line",
+                                    "field": "payload_checksum",
+                                    "expected": summary_payload_checksum,
+                                    "actual": audit_record.get("payload_checksum"),
+                                    "line": chain_index,
+                                }
+                            )
+                        if audit_record.get("payload_checksum") != start_payload_checksum:
+                            audit_blockers.append(
+                                {
+                                    "code": "controlled_runner_next_stage_start_audit_payload_checksum_mismatch",
+                                    "message": "runner-start audit payload checksum does not match supplied start packet",
+                                    "expected": start_payload_checksum,
+                                    "actual": audit_record.get("payload_checksum"),
+                                    "line": chain_index,
+                                }
+                            )
 
     if (
         start.get("side_effects") != ["controlled_runner_start_audit_appended"]
@@ -10994,7 +11159,207 @@ def controlled_loop_runner_next_stage_start_boundary_blockers(
     return blockers
 
 
+def controlled_loop_runner_next_stage_dry_run_blockers(
+    *,
+    dry_run: dict[str, Any],
+    dry_run_path: Path,
+    runner_plan: dict[str, Any] | None,
+    runner_plan_path: Path,
+    runner_plan_checksum: str | None,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if (
+        dry_run.get("schema_version") != CONTROLLED_LOOP_RUNNER_DRY_RUN_SCHEMA_VERSION
+        or dry_run.get("packet") != "controlled_loop_runner_dry_run"
+    ):
+        blockers.append(
+            controlled_loop_runner_next_stage_blocker(
+                "controlled_runner_next_stage_dry_run_packet_mismatch",
+                "controlled runner dry-run packet type is invalid",
+                expected_schema_version=CONTROLLED_LOOP_RUNNER_DRY_RUN_SCHEMA_VERSION,
+                actual_schema_version=dry_run.get("schema_version"),
+                expected_packet="controlled_loop_runner_dry_run",
+                actual_packet=dry_run.get("packet"),
+            )
+        )
+    invalid_flags = {
+        flag: dry_run.get(flag)
+        for flag in CONTROLLED_LOOP_RUN_MANIFEST_APPROVAL_FORBIDDEN_TRUE_FLAGS
+        if dry_run.get(flag) is not False
+    }
+    if invalid_flags:
+        blockers.append(
+            controlled_loop_runner_next_stage_blocker(
+                "controlled_runner_next_stage_dry_run_authority_flags_invalid",
+                "controlled runner dry-run evidence must not report started authority flags",
+                flags=invalid_flags,
+            )
+        )
+    if (
+        dry_run.get("valid") is not True
+        or dry_run.get("runner_dry_run_status") != "completed"
+        or dry_run.get("read_only") is not True
+        or dry_run.get("side_effects") != []
+        or dry_run.get("recommended_next_action") != "review_controlled_runner_dry_run"
+        or dry_run.get("next_controlled_action") != "stop_after_controlled_runner_dry_run"
+        or dry_run.get("operator_confirmation_required") is not True
+        or dry_run.get("blockers") != []
+    ):
+        blockers.append(
+            controlled_loop_runner_next_stage_blocker(
+                "controlled_runner_next_stage_dry_run_not_completed",
+                "controlled runner dry-run evidence must be completed before selecting a stage",
+                valid=dry_run.get("valid"),
+                runner_dry_run_status=dry_run.get("runner_dry_run_status"),
+                read_only=dry_run.get("read_only"),
+                side_effects=dry_run.get("side_effects"),
+                recommended_next_action=dry_run.get("recommended_next_action"),
+                next_controlled_action=dry_run.get("next_controlled_action"),
+                operator_confirmation_required=dry_run.get("operator_confirmation_required"),
+                blocker_codes=dry_run.get("blockers"),
+            )
+        )
+    guarantees = dry_run.get("non_execution_guarantees")
+    missing_guarantees = [
+        guarantee
+        for guarantee in CONTROLLED_LOOP_RUNNER_DRY_RUN_NON_EXECUTION_GUARANTEES
+        if not isinstance(guarantees, list) or guarantee not in guarantees
+    ]
+    unexpected_guarantees = (
+        [
+            guarantee
+            for guarantee in guarantees
+            if guarantee not in CONTROLLED_LOOP_RUNNER_DRY_RUN_NON_EXECUTION_GUARANTEES
+        ]
+        if isinstance(guarantees, list)
+        else []
+    )
+    if missing_guarantees:
+        blockers.append(
+            controlled_loop_runner_next_stage_blocker(
+                "controlled_runner_next_stage_dry_run_non_execution_guarantees_missing",
+                "controlled runner dry-run evidence is missing required non-execution guarantees",
+                missing=missing_guarantees,
+            )
+        )
+    if unexpected_guarantees:
+        blockers.append(
+            controlled_loop_runner_next_stage_blocker(
+                "controlled_runner_next_stage_dry_run_non_execution_guarantees_invalid",
+                "controlled runner dry-run evidence contains unrecognized non-execution guarantees",
+                unexpected=unexpected_guarantees,
+            )
+        )
+
+    dry_files = dry_run.get("files") if isinstance(dry_run.get("files"), dict) else {}
+    dry_checksums = dry_run.get("checksums") if isinstance(dry_run.get("checksums"), dict) else {}
+    dry_plan = dry_run.get("controlled_loop_runner_plan") if isinstance(dry_run.get("controlled_loop_runner_plan"), dict) else {}
+    dry_runner = dry_run.get("runner_dry_run") if isinstance(dry_run.get("runner_dry_run"), dict) else {}
+    if not controlled_loop_runner_plan_file_matches(dry_run_path, dry_files.get("controlled_loop_runner_plan"), runner_plan_path):
+        blockers.append(
+            controlled_loop_runner_next_stage_blocker(
+                "controlled_runner_next_stage_dry_run_runner_plan_file_mismatch",
+                "controlled runner dry-run runner-plan file anchor does not match supplied runner plan",
+                expected=str(runner_plan_path),
+                actual=dry_files.get("controlled_loop_runner_plan"),
+            )
+        )
+    if not controlled_loop_runner_plan_file_matches(dry_run_path, dry_plan.get("file"), runner_plan_path):
+        blockers.append(
+            controlled_loop_runner_next_stage_blocker(
+                "controlled_runner_next_stage_dry_run_runner_plan_file_mismatch",
+                "controlled runner dry-run controlled_loop_runner_plan.file does not match supplied runner plan",
+                expected=str(runner_plan_path),
+                actual=dry_plan.get("file"),
+            )
+        )
+    runner_plan_checksum_fields = {
+        "controlled_loop_runner_plan.checksum": dry_plan.get("checksum"),
+        "checksums.controlled_loop_runner_plan": dry_checksums.get("controlled_loop_runner_plan"),
+        "runner_dry_run.runner_plan_checksum": dry_runner.get("runner_plan_checksum"),
+    }
+    mismatched_runner_plan_checksum_fields = {
+        field: value for field, value in runner_plan_checksum_fields.items() if value != runner_plan_checksum
+    }
+    if mismatched_runner_plan_checksum_fields:
+        blockers.append(
+            controlled_loop_runner_next_stage_blocker(
+                "controlled_runner_next_stage_dry_run_runner_plan_checksum_mismatch",
+                "controlled runner dry-run evidence does not match the supplied runner plan checksum",
+                expected=runner_plan_checksum,
+                actual=mismatched_runner_plan_checksum_fields,
+            )
+        )
+    expected_dry_run_stages = controlled_loop_runner_dry_run_stages(runner_plan)
+    dry_run_command_sequence = dry_runner.get("planned_command_sequence")
+    expected_command_sequence = CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE
+    if isinstance(runner_plan, dict) and isinstance(runner_plan.get("runner_plan"), dict):
+        expected_command_sequence = runner_plan["runner_plan"].get("planned_command_sequence")
+    if (
+        dry_run_command_sequence != CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE
+        or dry_run_command_sequence != expected_command_sequence
+    ):
+        blockers.append(
+            controlled_loop_runner_next_stage_blocker(
+                "controlled_runner_next_stage_dry_run_stage_sequence_mismatch",
+                "controlled runner dry-run command sequence must match the approved runner plan",
+                expected=expected_command_sequence,
+                actual=dry_run_command_sequence,
+            )
+        )
+    stages = dry_runner.get("stages")
+    if not isinstance(stages, list) or not stages:
+        blockers.append(
+            controlled_loop_runner_next_stage_blocker(
+                "controlled_runner_next_stage_dry_run_stage_malformed",
+                "controlled runner dry-run evidence must include would-process stages",
+                actual=stages,
+            )
+        )
+    else:
+        stage_sequence_comparable = True
+        for index, stage in enumerate(stages):
+            if (
+                not isinstance(stage, dict)
+                or stage.get("runner_started") is not False
+                or stage.get("executor_started") is not False
+                or stage.get("side_effects") != []
+            ):
+                stage_sequence_comparable = False
+                blockers.append(
+                    controlled_loop_runner_next_stage_blocker(
+                        "controlled_runner_next_stage_dry_run_stage_malformed",
+                        "controlled runner dry-run stage is not a non-executed stage",
+                        index=index,
+                        stage=stage,
+                    )
+                )
+                break
+            if stage.get("status") != "would_process":
+                stage_sequence_comparable = False
+                blockers.append(
+                    controlled_loop_runner_next_stage_blocker(
+                        "controlled_runner_next_stage_dry_run_stage_not_would_process",
+                        "controlled runner dry-run stage must remain would-process",
+                        index=index,
+                        stage=stage,
+                    )
+                )
+                break
+        if stage_sequence_comparable and expected_dry_run_stages and stages != expected_dry_run_stages:
+            blockers.append(
+                controlled_loop_runner_next_stage_blocker(
+                    "controlled_runner_next_stage_dry_run_stage_sequence_mismatch",
+                    "controlled runner dry-run stages must match the supplied runner plan",
+                    expected=expected_dry_run_stages,
+                    actual=stages,
+                )
+            )
+    return blockers
+
+
 def controlled_loop_runner_next_stage_command(args: argparse.Namespace) -> int:
+    root = (args.root if args.root is not None else default_root()).expanduser().resolve()
     start_path = Path(args.controlled_loop_runner_start_file)
     runner_plan_path = Path(args.controlled_loop_runner_plan_file)
     dry_run_path = Path(args.controlled_loop_runner_dry_run_file)
@@ -11115,56 +11480,23 @@ def controlled_loop_runner_next_stage_command(args: argparse.Namespace) -> int:
         blockers.extend(
             controlled_loop_runner_next_stage_start_boundary_blockers(
                 start=start,
+                start_path=start_path,
+                root=root,
             )
         )
 
     if isinstance(runner_plan, dict):
         blockers.extend(controlled_loop_runner_start_readiness_runner_plan_blockers(runner_plan))
     if isinstance(dry_run, dict):
-        dry_runner = dry_run.get("runner_dry_run") if isinstance(dry_run.get("runner_dry_run"), dict) else {}
-        expected_dry_run_stages = controlled_loop_runner_dry_run_stages(runner_plan if isinstance(runner_plan, dict) else None)
-        if (
-            dry_run.get("schema_version") != CONTROLLED_LOOP_RUNNER_DRY_RUN_SCHEMA_VERSION
-            or dry_run.get("packet") != "controlled_loop_runner_dry_run"
-        ):
-            blockers.append(
-                controlled_loop_runner_next_stage_blocker(
-                    "controlled_runner_next_stage_dry_run_packet_mismatch",
-                    "controlled runner dry-run packet type is invalid",
-                    expected_schema_version=CONTROLLED_LOOP_RUNNER_DRY_RUN_SCHEMA_VERSION,
-                    actual_schema_version=dry_run.get("schema_version"),
-                    expected_packet="controlled_loop_runner_dry_run",
-                    actual_packet=dry_run.get("packet"),
-                )
+        blockers.extend(
+            controlled_loop_runner_next_stage_dry_run_blockers(
+                dry_run=dry_run,
+                dry_run_path=dry_run_path,
+                runner_plan=runner_plan if isinstance(runner_plan, dict) else None,
+                runner_plan_path=runner_plan_path,
+                runner_plan_checksum=runner_plan_checksum,
             )
-        if dry_run.get("valid") is not True or dry_run.get("runner_dry_run_status") != "completed" or dry_run.get("blockers") != []:
-            blockers.append(
-                controlled_loop_runner_next_stage_blocker(
-                    "controlled_runner_next_stage_dry_run_not_completed",
-                    "controlled runner dry-run evidence must be completed before selecting a stage",
-                    valid=dry_run.get("valid"),
-                    runner_dry_run_status=dry_run.get("runner_dry_run_status"),
-                    blocker_codes=dry_run.get("blockers"),
-                )
-            )
-        if dry_runner.get("planned_command_sequence") != CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE:
-            blockers.append(
-                controlled_loop_runner_next_stage_blocker(
-                    "controlled_runner_next_stage_dry_run_stage_sequence_mismatch",
-                    "controlled runner dry-run command sequence must match the approved manifest",
-                    expected=CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE,
-                    actual=dry_runner.get("planned_command_sequence"),
-                )
-            )
-        if dry_runner.get("stages") != expected_dry_run_stages:
-            blockers.append(
-                controlled_loop_runner_next_stage_blocker(
-                    "controlled_runner_next_stage_dry_run_stage_sequence_mismatch",
-                    "controlled runner dry-run stages must match the supplied runner plan",
-                    expected=expected_dry_run_stages,
-                    actual=dry_runner.get("stages"),
-                )
-            )
+        )
 
     selected_stage = controlled_loop_runner_next_stage_from_sequence(stage_number)
     if selected_stage is None:
@@ -13524,8 +13856,8 @@ def build_parser() -> argparse.ArgumentParser:
     runner_next_stage_parser.add_argument("--stage-number", type=int, default=1)
     runner_next_stage_parser.set_defaults(
         func=controlled_loop_runner_next_stage_command,
-        requires_root=True,
-        guards_runtime_root_only=True,
+        requires_root=False,
+        guards_runtime_root_only=False,
     )
 
     controlled_pr_cycle_parser = subparsers.add_parser(
