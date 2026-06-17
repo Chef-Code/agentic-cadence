@@ -55,6 +55,7 @@ read-only `controlled-loop-runner-dry-run`,
 read-only `controlled-loop-runner-start-readiness`,
 read-only `controlled-loop-runner-start-approval`,
 controlled `controlled-loop-runner-start`,
+read-only `controlled-loop-runner-next-stage`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -105,7 +106,10 @@ target-checksum-bound operator approval for that readiness packet without
 starting the runner, and `controlled-loop-runner-start` evidence that records
 the approved one-cycle runner-start boundary while still not invoking an
 executor, continuing the loop, writing Git/GitHub state, merging, releasing,
-publishing packages, assigning roles, or scheduling agents.
+publishing packages, assigning roles, or scheduling agents, and
+`controlled-loop-runner-next-stage` evidence that rechecks the recorded start,
+runner-plan, and dry-run packets before selecting the first runner command
+stage without executing it.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -737,6 +741,20 @@ no Git commands, calls no GitHub APIs, creates no branches, commits, pushes,
 opens no PRs, merges no PRs, releases no artifacts, publishes no packages,
 assigns no roles, and schedules no agents.
 
+`controlled-loop-runner-next-stage` consumes saved completed
+`controlled-loop-runner-start.v1`, `controlled-loop-runner-plan.v1`, and
+`controlled-loop-runner-dry-run.v1` packets. It rechecks anchors, checksums,
+and stage sequences, then selects the first controlled runner stage without
+executing it:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-next-stage --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --stage-number 1
+```
+
+Completed next-stage packets recommend `review_controlled_runner_next_stage`,
+select `loop-run-plan` with `stage_status: selected_not_executed`, report
+`stage_execution_started: false`, and append no audit evidence.
+
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor
 closeout, real-executor invocation records, and accepted controlled single-tick
@@ -1216,6 +1234,17 @@ bounded runner boundary; it starts no executor, invokes or retries no executor,
 continues no loop, starts or closes no epoch, and grants no Git, GitHub,
 branch, commit, push, PR, merge, release, package publication,
 role-assignment, or agent-scheduling authority.
+
+`controlled-loop-runner-next-stage` is the read-only stage-selection packet
+after the controlled runner-start boundary. It consumes the saved start packet
+plus the saved runner-plan and dry-run packets, rechecks file anchors,
+checksums, and stage sequences, and emits
+`controlled-loop-runner-next-stage.v1` with exactly one selected stage. Task 53
+only supports stage `1`; valid packets select `loop-run-plan` as
+`selected_not_executed`, recommend `review_controlled_runner_next_stage`, set
+`next_controlled_action: prepare_controlled_runner_stage_execution`, append no
+audit evidence, and report `stage_execution_started: false`,
+`executor_started: false`, and `loop_continuation_started: false`.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can

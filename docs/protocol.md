@@ -1961,6 +1961,87 @@ schedules no agents. Stable blockers include
 `controlled_runner_start_readiness_execution_approval_*`, and
 `operator_approval_*` blockers emitted by the revalidated upstream gates.
 
+`controlled-loop-runner-next-stage` is the read-only stage-selection packet
+after the controlled runner-start boundary. It reads
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, and optional `--stage-number`.
+Task 53 only supports `--stage-number 1`. It verifies the saved start packet is
+`controlled-loop-runner-start.v1` and started, rechecks supplied runner-plan
+and dry-run file anchors and checksums, verifies the dry-run stage sequence
+still matches the approved runner plan, verifies dry-run read-only flags and
+non-execution guarantees, verifies the runner-start audit summary against the
+recorded audit log line, audit-chain metadata, denormalized audit fields, and
+payload checksum, and emits
+`controlled-loop-runner-next-stage.v1` with
+`packet: controlled_loop_runner_next_stage`, `read_only: true`,
+`stage_execution_started: false`, `executor_started: false`, and
+`loop_continuation_started: false`.
+
+When valid, the command recommends `review_controlled_runner_next_stage`,
+sets `runner_started: true`,
+`next_controlled_action: prepare_controlled_runner_stage_execution`, and selects
+the first stage (`loop-run-plan`) as `selected_not_executed`. The
+valid packet's `selected_stage` object binds `step`, `command`, `evidence_files`,
+`execution_authority`, and `allowed_side_effects_when_executed` from the
+approved manifest command sequence while adding `stage_status:
+selected_not_executed`, `runner_started: true`, `stage_execution_started:
+false`, `executor_started: false`, and `side_effects: []`. The packet also
+includes `controlled_loop_runner_start`, `controlled_loop_runner_plan`, and
+`controlled_loop_runner_dry_run` summary objects with `file` and `checksum`,
+matching `files` and `checksums` objects keyed by the same three evidence
+names. `blockers` is an array of `{code, message, ...}` objects and is empty
+when valid. When blocked, the packet sets `runner_started: false`,
+`runner_next_stage_status: blocked`, `selected_stage: null`, and
+`next_controlled_action` to the blocker-specific recommendation. `side_effects`
+is always `[]` because the command is read-only.
+
+It starts no executor, invokes no executor, retries no executor, continues no
+loop, appends no audit evidence, executes no Git commands, calls no GitHub
+APIs, creates no branches, commits, pushes, creates no PRs, merges no PRs,
+releases no artifacts, publishes no packages, assigns no roles, and schedules
+no agents. Stable blockers include
+`controlled_runner_next_stage_start_evidence_missing`,
+`controlled_runner_next_stage_runner_plan_evidence_missing`,
+`controlled_runner_next_stage_dry_run_evidence_missing`,
+`controlled_runner_next_stage_unsupported_stage`,
+`controlled_runner_next_stage_start_packet_mismatch`,
+`controlled_runner_next_stage_start_not_started`,
+`controlled_runner_next_stage_start_authority_flags_invalid`,
+`controlled_runner_next_stage_start_boundary_unrecorded`,
+`controlled_runner_next_stage_runner_plan_file_mismatch`,
+`controlled_runner_next_stage_dry_run_file_mismatch`,
+`controlled_runner_next_stage_runner_plan_checksum_mismatch`,
+`controlled_runner_next_stage_dry_run_checksum_mismatch`,
+`controlled_runner_next_stage_dry_run_packet_mismatch`,
+`controlled_runner_next_stage_dry_run_authority_flags_invalid`,
+`controlled_runner_next_stage_dry_run_not_completed`,
+`controlled_runner_next_stage_dry_run_non_execution_guarantees_missing`,
+`controlled_runner_next_stage_dry_run_non_execution_guarantees_invalid`,
+`controlled_runner_next_stage_dry_run_runner_plan_file_mismatch`,
+`controlled_runner_next_stage_dry_run_runner_plan_checksum_mismatch`,
+`controlled_runner_next_stage_dry_run_stage_malformed`,
+`controlled_runner_next_stage_dry_run_stage_not_would_process`,
+`controlled_runner_next_stage_dry_run_stage_sequence_mismatch`,
+`controlled_runner_next_stage_unknown_stage`, and the
+`controlled_runner_start_readiness_runner_plan_*` blockers emitted by
+runner-plan revalidation. The
+`controlled_runner_next_stage_start_boundary_unrecorded` blocker may include
+nested diagnostic `audit_blockers` with codes
+`controlled_runner_next_stage_start_audit_missing`,
+`controlled_runner_next_stage_start_audit_summary_incomplete`,
+`controlled_runner_next_stage_start_audit_summary_checksum_invalid`,
+`controlled_runner_next_stage_start_audit_summary_chain_index_invalid`,
+`controlled_runner_next_stage_start_audit_path_mismatch`,
+`controlled_runner_next_stage_start_audit_line_unreadable`,
+`controlled_runner_next_stage_start_audit_line_malformed`,
+`controlled_runner_next_stage_start_audit_chain_invalid`,
+`controlled_runner_next_stage_start_audit_line_invalid`,
+`controlled_runner_next_stage_start_audit_event_mismatch`,
+`controlled_runner_next_stage_start_audit_summary_mismatch`,
+`controlled_runner_next_stage_start_audit_event_hash_mismatch`, and
+`controlled_runner_next_stage_start_audit_field_mismatch`, and
+`controlled_runner_next_stage_start_audit_payload_checksum_mismatch`.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from
