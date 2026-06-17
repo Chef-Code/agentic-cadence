@@ -90,6 +90,7 @@ from codex_cadence.policy_audit import (
     AUDIT_CHAIN_ROOT_HASH,
     audit_event_hash,
     audit_events_path,
+    CONTROLLED_LOOP_RUNNER_START_FORBIDDEN_TRUE_FLAGS,
     controlled_loop_tick_audit_record,
     controlled_loop_runner_start_audit_record,
     execution_start_audit_record,
@@ -11139,6 +11140,52 @@ def controlled_loop_runner_next_stage_start_boundary_blockers(
                                     "line": chain_index,
                                 }
                             )
+                        start_files = start.get("files") if isinstance(start.get("files"), dict) else {}
+                        start_checksums = start.get("checksums") if isinstance(start.get("checksums"), dict) else {}
+                        expected_audit_fields = {
+                            "action": "start_controlled_runner_cycle",
+                            "reason": start.get("reason"),
+                            "valid": start.get("valid"),
+                            "runner_started": start.get("runner_started"),
+                            "controlled_loop_runner_start_approval_file": start_files.get(
+                                "controlled_loop_runner_start_approval"
+                            ),
+                            "controlled_loop_runner_start_readiness_file": start_files.get(
+                                "controlled_loop_runner_start_readiness"
+                            ),
+                            "controlled_loop_runner_dry_run_file": start_files.get("controlled_loop_runner_dry_run"),
+                            "controlled_loop_runner_plan_file": start_files.get("controlled_loop_runner_plan"),
+                            "controlled_loop_runner_execution_approval_file": start_files.get(
+                                "controlled_loop_runner_execution_approval"
+                            ),
+                            "controlled_loop_runner_start_approval_checksum": start_checksums.get(
+                                "controlled_loop_runner_start_approval"
+                            ),
+                            "controlled_loop_runner_start_readiness_checksum": start_checksums.get(
+                                "controlled_loop_runner_start_readiness"
+                            ),
+                            "controlled_loop_runner_dry_run_checksum": start_checksums.get(
+                                "controlled_loop_runner_dry_run"
+                            ),
+                            "controlled_loop_runner_plan_checksum": start_checksums.get("controlled_loop_runner_plan"),
+                            "controlled_loop_runner_execution_approval_checksum": start_checksums.get(
+                                "controlled_loop_runner_execution_approval"
+                            ),
+                        }
+                        for field in CONTROLLED_LOOP_RUNNER_START_FORBIDDEN_TRUE_FLAGS:
+                            expected_audit_fields[field] = start.get(field)
+                        for field, expected in expected_audit_fields.items():
+                            if audit_record.get(field) != expected:
+                                audit_blockers.append(
+                                    {
+                                        "code": "controlled_runner_next_stage_start_audit_field_mismatch",
+                                        "message": "runner-start audit line field does not match supplied start packet",
+                                        "field": field,
+                                        "expected": expected,
+                                        "actual": audit_record.get(field),
+                                        "line": chain_index,
+                                    }
+                                )
 
     if (
         start.get("side_effects") != ["controlled_runner_start_audit_appended"]
@@ -11225,15 +11272,6 @@ def controlled_loop_runner_next_stage_dry_run_blockers(
         for guarantee in CONTROLLED_LOOP_RUNNER_DRY_RUN_NON_EXECUTION_GUARANTEES
         if not isinstance(guarantees, list) or guarantee not in guarantees
     ]
-    unexpected_guarantees = (
-        [
-            guarantee
-            for guarantee in guarantees
-            if guarantee not in CONTROLLED_LOOP_RUNNER_DRY_RUN_NON_EXECUTION_GUARANTEES
-        ]
-        if isinstance(guarantees, list)
-        else []
-    )
     if missing_guarantees:
         blockers.append(
             controlled_loop_runner_next_stage_blocker(
@@ -11242,11 +11280,16 @@ def controlled_loop_runner_next_stage_dry_run_blockers(
                 missing=missing_guarantees,
             )
         )
-    if unexpected_guarantees:
+    if isinstance(guarantees, list) and guarantees != CONTROLLED_LOOP_RUNNER_DRY_RUN_NON_EXECUTION_GUARANTEES:
+        unexpected_guarantees = [
+            guarantee for guarantee in guarantees if guarantee not in CONTROLLED_LOOP_RUNNER_DRY_RUN_NON_EXECUTION_GUARANTEES
+        ]
         blockers.append(
             controlled_loop_runner_next_stage_blocker(
                 "controlled_runner_next_stage_dry_run_non_execution_guarantees_invalid",
-                "controlled runner dry-run evidence contains unrecognized non-execution guarantees",
+                "controlled runner dry-run evidence must match the required non-execution guarantees exactly",
+                expected=CONTROLLED_LOOP_RUNNER_DRY_RUN_NON_EXECUTION_GUARANTEES,
+                actual=guarantees,
                 unexpected=unexpected_guarantees,
             )
         )
@@ -11433,6 +11476,30 @@ def controlled_loop_runner_next_stage_command(args: argparse.Namespace) -> int:
             )
         start_files = start.get("files") if isinstance(start.get("files"), dict) else {}
         start_checksums = start.get("checksums") if isinstance(start.get("checksums"), dict) else {}
+        start_plan = (
+            start.get("controlled_loop_runner_plan")
+            if isinstance(start.get("controlled_loop_runner_plan"), dict)
+            else {}
+        )
+        start_dry_run = (
+            start.get("controlled_loop_runner_dry_run")
+            if isinstance(start.get("controlled_loop_runner_dry_run"), dict)
+            else {}
+        )
+        start_details = start.get("runner_start") if isinstance(start.get("runner_start"), dict) else {}
+        invalid_start_flags = {
+            flag: start.get(flag)
+            for flag in CONTROLLED_LOOP_RUNNER_START_FORBIDDEN_TRUE_FLAGS
+            if start.get(flag) is not False
+        }
+        if invalid_start_flags:
+            blockers.append(
+                controlled_loop_runner_next_stage_blocker(
+                    "controlled_runner_next_stage_start_authority_flags_invalid",
+                    "controlled runner start evidence must not report forbidden authority flags",
+                    flags=invalid_start_flags,
+                )
+            )
         if not controlled_loop_runner_plan_file_matches(
             start_path,
             start_files.get("controlled_loop_runner_plan"),
@@ -11448,6 +11515,19 @@ def controlled_loop_runner_next_stage_command(args: argparse.Namespace) -> int:
             )
         if not controlled_loop_runner_plan_file_matches(
             start_path,
+            start_plan.get("file"),
+            runner_plan_path,
+        ):
+            blockers.append(
+                controlled_loop_runner_next_stage_blocker(
+                    "controlled_runner_next_stage_runner_plan_file_mismatch",
+                    "controlled runner start controlled_loop_runner_plan.file does not match supplied runner plan",
+                    expected=str(runner_plan_path),
+                    actual=start_plan.get("file"),
+                )
+            )
+        if not controlled_loop_runner_plan_file_matches(
+            start_path,
             start_files.get("controlled_loop_runner_dry_run"),
             dry_run_path,
         ):
@@ -11459,22 +11539,51 @@ def controlled_loop_runner_next_stage_command(args: argparse.Namespace) -> int:
                     actual=start_files.get("controlled_loop_runner_dry_run"),
                 )
             )
-        if start_checksums.get("controlled_loop_runner_plan") != runner_plan_checksum:
+        if not controlled_loop_runner_plan_file_matches(
+            start_path,
+            start_dry_run.get("file"),
+            dry_run_path,
+        ):
+            blockers.append(
+                controlled_loop_runner_next_stage_blocker(
+                    "controlled_runner_next_stage_dry_run_file_mismatch",
+                    "controlled runner start controlled_loop_runner_dry_run.file does not match supplied dry run",
+                    expected=str(dry_run_path),
+                    actual=start_dry_run.get("file"),
+                )
+            )
+        runner_plan_checksum_fields = {
+            "checksums.controlled_loop_runner_plan": start_checksums.get("controlled_loop_runner_plan"),
+            "controlled_loop_runner_plan.checksum": start_plan.get("checksum"),
+            "runner_start.runner_plan_checksum": start_details.get("runner_plan_checksum"),
+        }
+        mismatched_runner_plan_checksum_fields = {
+            field: value for field, value in runner_plan_checksum_fields.items() if value != runner_plan_checksum
+        }
+        if mismatched_runner_plan_checksum_fields:
             blockers.append(
                 controlled_loop_runner_next_stage_blocker(
                     "controlled_runner_next_stage_runner_plan_checksum_mismatch",
                     "controlled runner start does not match supplied runner-plan checksum",
                     expected=runner_plan_checksum,
-                    actual=start_checksums.get("controlled_loop_runner_plan"),
+                    actual=mismatched_runner_plan_checksum_fields,
                 )
             )
-        if start_checksums.get("controlled_loop_runner_dry_run") != dry_run_checksum:
+        dry_run_checksum_fields = {
+            "checksums.controlled_loop_runner_dry_run": start_checksums.get("controlled_loop_runner_dry_run"),
+            "controlled_loop_runner_dry_run.checksum": start_dry_run.get("checksum"),
+            "runner_start.dry_run_checksum": start_details.get("dry_run_checksum"),
+        }
+        mismatched_dry_run_checksum_fields = {
+            field: value for field, value in dry_run_checksum_fields.items() if value != dry_run_checksum
+        }
+        if mismatched_dry_run_checksum_fields:
             blockers.append(
                 controlled_loop_runner_next_stage_blocker(
                     "controlled_runner_next_stage_dry_run_checksum_mismatch",
                     "controlled runner start does not match supplied dry-run checksum",
                     expected=dry_run_checksum,
-                    actual=start_checksums.get("controlled_loop_runner_dry_run"),
+                    actual=mismatched_dry_run_checksum_fields,
                 )
             )
         blockers.extend(

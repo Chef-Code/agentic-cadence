@@ -1970,16 +1970,18 @@ Task 53 only supports `--stage-number 1`. It verifies the saved start packet is
 and dry-run file anchors and checksums, verifies the dry-run stage sequence
 still matches the approved runner plan, verifies dry-run read-only flags and
 non-execution guarantees, verifies the runner-start audit summary against the
-recorded audit log line and payload checksum, and emits
+recorded audit log line, audit-chain metadata, denormalized audit fields, and
+payload checksum, and emits
 `controlled-loop-runner-next-stage.v1` with
-`packet: controlled_loop_runner_next_stage`, `read_only: true`, `runner_started: true`,
+`packet: controlled_loop_runner_next_stage`, `read_only: true`,
 `stage_execution_started: false`, `executor_started: false`, and
 `loop_continuation_started: false`.
 
 When valid, the command recommends `review_controlled_runner_next_stage`,
-sets `next_controlled_action: prepare_controlled_runner_stage_execution`, and
-selects the first stage (`loop-run-plan`) as `selected_not_executed`. The
-`selected_stage` object binds `step`, `command`, `evidence_files`,
+sets `runner_started: true`,
+`next_controlled_action: prepare_controlled_runner_stage_execution`, and selects
+the first stage (`loop-run-plan`) as `selected_not_executed`. The
+valid packet's `selected_stage` object binds `step`, `command`, `evidence_files`,
 `execution_authority`, and `allowed_side_effects_when_executed` from the
 approved manifest command sequence while adding `stage_status:
 selected_not_executed`, `runner_started: true`, `stage_execution_started:
@@ -1988,7 +1990,10 @@ includes `controlled_loop_runner_start`, `controlled_loop_runner_plan`, and
 `controlled_loop_runner_dry_run` summary objects with `file` and `checksum`,
 matching `files` and `checksums` objects keyed by the same three evidence
 names. `blockers` is an array of `{code, message, ...}` objects and is empty
-when valid; `side_effects` is always `[]` because the command is read-only.
+when valid. When blocked, the packet sets `runner_started: false`,
+`runner_next_stage_status: blocked`, `selected_stage: null`, and
+`next_controlled_action` to the blocker-specific recommendation. `side_effects`
+is always `[]` because the command is read-only.
 
 It starts no executor, invokes no executor, retries no executor, continues no
 loop, appends no audit evidence, executes no Git commands, calls no GitHub
@@ -2001,6 +2006,7 @@ no agents. Stable blockers include
 `controlled_runner_next_stage_unsupported_stage`,
 `controlled_runner_next_stage_start_packet_mismatch`,
 `controlled_runner_next_stage_start_not_started`,
+`controlled_runner_next_stage_start_authority_flags_invalid`,
 `controlled_runner_next_stage_start_boundary_unrecorded`,
 `controlled_runner_next_stage_runner_plan_file_mismatch`,
 `controlled_runner_next_stage_dry_run_file_mismatch`,
@@ -2033,6 +2039,7 @@ nested diagnostic `audit_blockers` with codes
 `controlled_runner_next_stage_start_audit_event_mismatch`,
 `controlled_runner_next_stage_start_audit_summary_mismatch`,
 `controlled_runner_next_stage_start_audit_event_hash_mismatch`, and
+`controlled_runner_next_stage_start_audit_field_mismatch`, and
 `controlled_runner_next_stage_start_audit_payload_checksum_mismatch`.
 
 ## Git/PR Dry-Run Planning

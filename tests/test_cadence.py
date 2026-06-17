@@ -7176,6 +7176,35 @@ class CadenceCliTests(unittest.TestCase):
         ]
         return run_cli(tmp, *args)
 
+    def write_controlled_loop_runner_next_stage_forged_start(
+        self,
+        tmp,
+        chain,
+        start,
+        *,
+        mutate_audit_record=None,
+    ):
+        records = audit_records(tmp)
+        audit_ref = start["audit_record"]
+        record_index = audit_ref["chain_index"] - 1
+        audit_record = records[record_index]
+        audit_record["payload_checksum"] = checksum_json({key: value for key, value in start.items() if key != "audit_record"})
+        if mutate_audit_record is not None:
+            mutate_audit_record(audit_record)
+        audit_record["event_hash"] = audit_event_hash(audit_record)
+        records[record_index] = audit_record
+        audit_path = Path(audit_ref["path"])
+        audit_path.write_text(
+            "\n".join(json.dumps(record, sort_keys=True, separators=(",", ":")) for record in records) + "\n",
+            encoding="utf-8",
+        )
+        for field in ("recorded_at", "audit_chain_version", "chain_index", "previous_event_hash", "event_hash"):
+            start["audit_record"][field] = audit_record[field]
+        start_path = Path(tmp) / "controlled-loop-runner-start.json"
+        start_path.write_text(json.dumps(start), encoding="utf-8")
+        chain["controlled_loop_runner_start_path"] = start_path
+        chain["controlled_loop_runner_start"] = start
+
     def controlled_loop_run_summary_input_file_contents(self, chain):
         return {
             name: Path(path).read_text(encoding="utf-8")
@@ -9746,6 +9775,92 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
+    def test_controlled_loop_runner_next_stage_revalidates_start_authority_flags_and_duplicate_anchors(self):
+        def started_github_write(start):
+            start["github_write_started"] = True
+
+        def stale_runner_plan_summary_checksum(start):
+            start["controlled_loop_runner_plan"]["checksum"] = "sha256:" + "0" * 64
+
+        def stale_dry_run_summary_file(start):
+            start["controlled_loop_runner_dry_run"]["file"] = "not-the-dry-run.json"
+
+        def stale_runner_start_plan_checksum(start):
+            start["runner_start"]["runner_plan_checksum"] = "sha256:" + "0" * 64
+
+        cases = [
+            ("started-github-write", started_github_write, "controlled_runner_next_stage_start_authority_flags_invalid"),
+            (
+                "stale-runner-plan-summary-checksum",
+                stale_runner_plan_summary_checksum,
+                "controlled_runner_next_stage_runner_plan_checksum_mismatch",
+            ),
+            (
+                "stale-dry-run-summary-file",
+                stale_dry_run_summary_file,
+                "controlled_runner_next_stage_dry_run_file_mismatch",
+            ),
+            (
+                "stale-runner-start-plan-checksum",
+                stale_runner_start_plan_checksum,
+                "controlled_runner_next_stage_runner_plan_checksum_mismatch",
+            ),
+        ]
+        for name, mutate, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    chain = self.write_controlled_loop_runner_start_chain(tmp, repo)
+                    start_result, start_output = self.run_controlled_loop_runner_start_cli(tmp, chain)
+                    self.assertEqual(start_result.returncode, 0, start_result.stderr)
+                    tampered_start = json.loads(json.dumps(start_output))
+                    mutate(tampered_start)
+                    self.write_controlled_loop_runner_next_stage_forged_start(tmp, chain, tampered_start)
+                    audit_before = audit_records(tmp)
+                    runtime_before = runtime_tree_manifest(tmp)
+
+                    result, output = self.run_controlled_loop_runner_next_stage_cli(tmp, chain)
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertIsNone(output["selected_stage"])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertEqual(audit_records(tmp), audit_before)
+                    self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_next_stage_rejects_runner_start_audit_line_field_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_start_chain(tmp, repo)
+            start_result, start_output = self.run_controlled_loop_runner_start_cli(tmp, chain)
+            self.assertEqual(start_result.returncode, 0, start_result.stderr)
+            tampered_start = json.loads(json.dumps(start_output))
+            self.write_controlled_loop_runner_next_stage_forged_start(
+                tmp,
+                chain,
+                tampered_start,
+                mutate_audit_record=lambda record: record.__setitem__(
+                    "controlled_loop_runner_plan_checksum",
+                    "sha256:" + "0" * 64,
+                ),
+            )
+            audit_before = audit_records(tmp)
+            runtime_before = runtime_tree_manifest(tmp)
+
+            result, output = self.run_controlled_loop_runner_next_stage_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIsNone(output["selected_stage"])
+            self.assertIn(
+                "controlled_runner_next_stage_start_boundary_unrecorded",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
     def test_controlled_loop_runner_next_stage_requires_recorded_start_boundary(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -9807,6 +9922,9 @@ class CadenceCliTests(unittest.TestCase):
         def extra_guarantee(dry_run):
             dry_run["non_execution_guarantees"].append("does_not_execute_git_commands")
 
+        def reordered_guarantees(dry_run):
+            dry_run["non_execution_guarantees"] = list(reversed(dry_run["non_execution_guarantees"]))
+
         def stale_plan_file_anchor(dry_run):
             dry_run["files"]["controlled_loop_runner_plan"] = "not-the-runner-plan.json"
 
@@ -9827,6 +9945,11 @@ class CadenceCliTests(unittest.TestCase):
             (
                 "extra-guarantee",
                 extra_guarantee,
+                "controlled_runner_next_stage_dry_run_non_execution_guarantees_invalid",
+            ),
+            (
+                "reordered-guarantees",
+                reordered_guarantees,
                 "controlled_runner_next_stage_dry_run_non_execution_guarantees_invalid",
             ),
             (
