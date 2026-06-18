@@ -7317,11 +7317,13 @@ class CadenceCliTests(unittest.TestCase):
             "stage_cwd": chain["stage_cwd"],
             "stage_output_file": chain["stage_output_file"],
             "stage_timeout_seconds": 300,
+            "expected_operator_id": "operator@example.test",
+            "approval_secret": OPERATOR_APPROVAL_SECRET,
+            "approval_secret_env": None,
             "stage_number": 1,
         }
         values.update(overrides)
-        return run_cli(
-            tmp,
+        args = [
             "controlled-loop-runner-stage-invocation-boundary",
             "--controlled-loop-runner-stage-execution-approval-file",
             str(values["controlled_loop_runner_stage_execution_approval_file"]),
@@ -7341,9 +7343,16 @@ class CadenceCliTests(unittest.TestCase):
             str(values["stage_output_file"]),
             "--stage-timeout-seconds",
             str(values["stage_timeout_seconds"]),
+            "--expected-operator-id",
+            str(values["expected_operator_id"]),
             "--stage-number",
             str(values["stage_number"]),
-        )
+        ]
+        if values["approval_secret"] is not None:
+            args.extend(["--approval-secret", str(values["approval_secret"])])
+        if values["approval_secret_env"] is not None:
+            args.extend(["--approval-secret-env", str(values["approval_secret_env"])])
+        return run_cli(tmp, *args)
 
     def write_controlled_loop_runner_next_stage_forged_start(
         self,
@@ -11044,9 +11053,20 @@ class CadenceCliTests(unittest.TestCase):
                     "loop-run-plan",
                     "--cwd",
                     str(Path(repo).resolve()),
+                    "--discovery-mode",
+                    "off",
                 ],
             )
-            self.assertEqual(boundary["normalized_arguments"], {"cwd": str(Path(repo).resolve())})
+            self.assertEqual(
+                boundary["normalized_arguments"],
+                {"cwd": str(Path(repo).resolve()), "discovery_mode": "off"},
+            )
+            import codex_cadence.cli as cadence_cli
+
+            parsed_boundary_args = cadence_cli.build_parser().parse_args(boundary["argv"][1:])
+            self.assertEqual(parsed_boundary_args.command, "loop-run-plan")
+            self.assertEqual(parsed_boundary_args.discovery_mode, "off")
+            self.assertIsNone(parsed_boundary_args.intent)
             self.assertEqual(
                 boundary["working_directory_policy"],
                 {"mode": "fixed", "cwd": str(Path(repo).resolve()), "must_exist": True},
@@ -11097,6 +11117,14 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
             self.assertFalse(chain["stage_output_file"].exists())
 
+            second_result, second_output = self.run_controlled_loop_runner_stage_invocation_boundary_cli(tmp, chain)
+
+            self.assertEqual(second_result.returncode, 0, second_result.stderr)
+            self.assertEqual(
+                second_output["invocation_boundary_checksum"],
+                output["invocation_boundary_checksum"],
+            )
+
     def test_controlled_loop_runner_stage_invocation_boundary_blocks_mutated_chain_or_policy(self):
         def mutate_approval_command(chain):
             approval = json.loads(chain["controlled_loop_runner_stage_execution_approval_evidence_path"].read_text(encoding="utf-8"))
@@ -11111,10 +11139,25 @@ class CadenceCliTests(unittest.TestCase):
             runner_plan["runner_plan"]["planned_steps"][0].pop("allowed_side_effects_when_executed", None)
             chain["controlled_loop_runner_plan_path"].write_text(json.dumps(runner_plan), encoding="utf-8")
 
+        def mutate_runner_plan_execution_authority(chain):
+            runner_plan = json.loads(chain["controlled_loop_runner_plan_path"].read_text(encoding="utf-8"))
+            runner_plan["runner_plan"]["planned_steps"][0].pop("execution_authority", None)
+            chain["controlled_loop_runner_plan_path"].write_text(json.dumps(runner_plan), encoding="utf-8")
+
         def mutate_runner_plan_command(chain):
             runner_plan = json.loads(chain["controlled_loop_runner_plan_path"].read_text(encoding="utf-8"))
             runner_plan["runner_plan"]["planned_steps"][0]["command"] = "unknown-stage-command"
             chain["controlled_loop_runner_plan_path"].write_text(json.dumps(runner_plan), encoding="utf-8")
+
+        def mutate_operator_approval_signature(chain):
+            operator_approval = json.loads(
+                chain["controlled_loop_runner_stage_execution_approval_path"].read_text(encoding="utf-8")
+            )
+            operator_approval["signature"] = "hmac-sha256:" + "0" * 64
+            chain["controlled_loop_runner_stage_execution_approval_path"].write_text(
+                json.dumps(operator_approval),
+                encoding="utf-8",
+            )
 
         def mutate_approval_target(chain):
             approval = json.loads(chain["controlled_loop_runner_stage_execution_approval_evidence_path"].read_text(encoding="utf-8"))
@@ -11168,6 +11211,12 @@ class CadenceCliTests(unittest.TestCase):
                 "controlled_runner_stage_invocation_boundary_unknown_stage_command",
             ),
             (
+                "mutated-operator-approval-signature",
+                mutate_operator_approval_signature,
+                {},
+                "operator_approval_signature_invalid",
+            ),
+            (
                 "mutated-approval-target",
                 mutate_approval_target,
                 {},
@@ -11178,6 +11227,12 @@ class CadenceCliTests(unittest.TestCase):
                 mutate_runner_plan_side_effect_policy,
                 {},
                 "controlled_runner_stage_invocation_boundary_side_effect_policy_missing",
+            ),
+            (
+                "missing-execution-authority",
+                mutate_runner_plan_execution_authority,
+                {},
+                "controlled_runner_stage_invocation_boundary_execution_authority_missing",
             ),
         ]
         for name, mutate, overrides, expected_code in cases:
@@ -11238,6 +11293,10 @@ class CadenceCliTests(unittest.TestCase):
                 str(chain["stage_output_file"]),
                 "--stage-timeout-seconds",
                 "300",
+                "--expected-operator-id",
+                "operator@example.test",
+                "--approval-secret",
+                OPERATOR_APPROVAL_SECRET,
                 "--stage-number",
                 "1",
             ]
@@ -11301,6 +11360,10 @@ class CadenceCliTests(unittest.TestCase):
                 str(chain["stage_output_file"]),
                 "--stage-timeout-seconds",
                 "300",
+                "--expected-operator-id",
+                "operator@example.test",
+                "--approval-secret",
+                OPERATOR_APPROVAL_SECRET,
                 "--stage-number",
                 "1",
             ]

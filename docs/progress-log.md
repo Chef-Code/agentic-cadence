@@ -39,7 +39,8 @@ Summary:
 - Added `controlled-loop-runner-stage-invocation-boundary` to consume saved
   completed stage-execution approval, stage-execution readiness, next-stage,
   runner-start, runner-plan, and dry-run packets.
-- The command rechecks the full runner chain and approved selected stage, then
+- The command rechecks the full runner chain and approved selected stage,
+  re-verifies the saved operator approval with the local approval secret, then
   emits exact argv, normalized arguments, fixed cwd policy, stdout JSON
   evidence-output policy, finite timeout policy, selected-stage execution
   authority, allowed side effects, and `invocation_boundary_checksum`.
@@ -61,6 +62,8 @@ Confidence change:
 Evidence:
 - Focused `controlled-loop-runner-stage-invocation-boundary` pytest selection:
   4 tests passed.
+- Protocol validator: passed.
+- Package verifier: passed.
 
 New risks or blockers:
 - Actual single-stage execution, executor retry policy, stage closeout, outcome

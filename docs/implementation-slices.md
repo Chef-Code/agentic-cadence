@@ -207,8 +207,9 @@ and mark the selected stage as approved without executing it, appending audit
 evidence, invoking an executor, continuing the loop, or writing Git/GitHub
 state.
 `controlled-loop-runner-stage-invocation-boundary` can then consume the
-approved stage plus saved readiness, next-stage, runner-start, runner-plan, and
-dry-run evidence, recheck the full chain, bind the exact argv, cwd,
+approved stage plus saved readiness, next-stage, runner-start, runner-plan,
+dry-run, and operator-approval evidence, recheck the full chain, re-verify the
+operator-approval signature and expected operator, bind the exact argv, cwd,
 evidence-output, timeout, execution-authority, and side-effect policies, and
 stop before process start.
 Autonomous
@@ -291,8 +292,9 @@ before stage execution.
 Task 56 adds read-only
 `controlled-loop-runner-stage-invocation-boundary` evidence that consumes the
 completed approval packet plus saved upstream runner packets, rechecks the
-full chain and selected stage, emits exact argv/cwd/output/timeout boundary
-evidence, and stops before process start.
+full chain and selected stage, re-verifies the saved operator approval, emits
+exact argv/cwd/output/timeout boundary evidence, and stops before process
+start.
 
 ## Vision Framing
 
@@ -511,14 +513,15 @@ Current evidence:
 - `controlled-loop-runner-stage-invocation-boundary` reads saved completed
   stage-execution approval, stage-execution readiness, next-stage,
   runner-start, runner-plan, and dry-run evidence, rechecks the full runner
-  chain, requires the approved selected stage to match the requested stage and
-  runner-plan command, then emits exact argv, cwd, output, timeout,
-  execution-authority, side-effect policy, and invocation-boundary checksum
-  evidence without appending audit evidence, starting a process, executing a
-  runner stage, invoking an executor, retrying executors, continuing the loop,
-  executing Git commands, calling GitHub, creating branches, committing,
-  pushing, creating PRs, merging, releasing, publishing packages, assigning
-  roles, or scheduling agents;
+  chain, rereads and verifies the saved operator approval file, requires the
+  approved selected stage to match the requested stage and runner-plan command,
+  then emits exact argv, cwd, output, timeout, execution-authority,
+  side-effect policy, and invocation-boundary checksum evidence without
+  appending audit evidence, starting a process, executing a runner stage,
+  invoking an executor, retrying executors, continuing the loop, executing Git
+  commands, calling GitHub, creating branches, committing, pushing, creating
+  PRs, merging, releasing, publishing packages, assigning roles, or scheduling
+  agents;
 - no command runs a continuous governed loop tick end to end or retries failed
   real executor invocations.
 
@@ -641,10 +644,10 @@ Validation needed:
   and boundary-checksum evidence without starting a process, appending audit
   evidence, invoking an executor, or continuing the loop: complete for Task 56.
 - controlled-loop-runner-stage-invocation-boundary mutated selected command,
-  mismatched stage number, unknown stage command, invalid timeout, missing
-  side-effect policy, missing execution authority, stale approval, stale
-  readiness, stale next-stage, stale runner-start, stale runner-plan, or stale
-  dry-run evidence block without side effects: complete for Task 56.
+  mismatched stage number, unknown stage command, invalid timeout, invalid
+  output path, missing side-effect policy, missing execution authority,
+  mismatched approval target, and stale operator-approval signature block
+  without side effects: complete for Task 56.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.

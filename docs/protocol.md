@@ -2164,18 +2164,22 @@ boundary packet after stage-execution approval. It reads
 `--controlled-loop-runner-next-stage-file`,
 `--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
 `--controlled-loop-runner-dry-run-file`, `--stage-cwd`,
-`--stage-output-file`, `--stage-timeout-seconds`, and optional
+`--stage-output-file`, `--stage-timeout-seconds`, `--expected-operator-id`,
+optional `--approval-secret` / `--approval-secret-env`, and optional
 `--stage-number`. It revalidates the full runner chain, rereads the
 readiness and next-stage packets, requires a completed
-`controlled-loop-runner-stage-execution-approval.v1` packet, and confirms that
-the approved selected stage still matches the revalidated readiness stage, the
-requested stage number, and the command declared by the approved runner plan.
+`controlled-loop-runner-stage-execution-approval.v1` packet, rereads the saved
+operator-approval file named by that approval packet, and re-verifies the
+operator-approval signature, purpose, target checksum, and expected operator
+through the shared operator-approval verifier. It confirms that the approved
+selected stage still matches the revalidated readiness stage, the requested
+stage number, and the command declared by the approved runner plan.
 The approval packet's copied `stage_execution_approval_target`,
 `stage_execution_approval_target_checksum`, nested approval `target_checksum`,
 nested approval `approval_target_checksum`, purpose, approval purpose,
-signature verification state, and blocker codes must match the rederived
-stage-execution approval target from the supplied readiness and upstream runner
-chain.
+expected operator, signature verification state, and blocker codes must match
+the rederived stage-execution approval target from the supplied readiness and
+upstream runner chain plus the freshly reverified operator approval.
 
 When valid, the command emits
 `controlled-loop-runner-stage-invocation-boundary.v1` with
@@ -2197,7 +2201,9 @@ and allowed side effects. The packet also emits
 `invocation_boundary_checksum`, records file/checksum anchors for the
 stage-execution approval, stage-execution readiness, next-stage, runner-start,
 runner-plan, and dry-run inputs, and records the planned stage output file
-path. The planned output path must not be an existing directory.
+path. The current `loop-run-plan` boundary argv includes `--discovery-mode off`
+so the argv is parser-valid without `--intent`. The planned output path must
+have an existing directory parent and must not be an existing directory.
 
 The command starts no process, executes no runner stage, invokes no executor,
 retries no executor, continues no loop, appends no audit evidence, executes no
@@ -2228,13 +2234,21 @@ assigns no roles, and schedules no agents. Stable blockers include
 `controlled_runner_stage_invocation_boundary_approval_target_checksum_mismatch`,
 `controlled_runner_stage_invocation_boundary_approval_target_mismatch`,
 `controlled_runner_stage_invocation_boundary_approval_identity_mismatch`,
+`controlled_runner_stage_invocation_boundary_operator_approval_file_missing`,
+`controlled_runner_stage_invocation_boundary_operator_approval_file_mismatch`,
+`controlled_runner_stage_invocation_boundary_operator_approval_file_unreadable`,
+`controlled_runner_stage_invocation_boundary_operator_approval_checksum_mismatch`,
 `controlled_runner_stage_invocation_boundary_root_missing`,
 `controlled_runner_stage_invocation_boundary_cwd_invalid`,
 `controlled_runner_stage_invocation_boundary_output_file_invalid`,
 `controlled_runner_stage_invocation_boundary_timeout_invalid`,
 `controlled_runner_stage_invocation_boundary_unknown_stage_command`,
 `controlled_runner_stage_invocation_boundary_side_effect_policy_missing`, and
-`controlled_runner_stage_invocation_boundary_execution_authority_missing`.
+`controlled_runner_stage_invocation_boundary_execution_authority_missing`,
+plus shared `operator_approval_*` blockers from the operator-approval verifier
+such as `operator_approval_secret_missing`,
+`operator_approval_signature_invalid`, `operator_approval_target_mismatch`,
+and `operator_approval_operator_mismatch`.
 
 ## Git/PR Dry-Run Planning
 

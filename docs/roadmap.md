@@ -284,9 +284,10 @@ command-policy and active-stop controls. It includes:
   publishing packages, without assigning roles, and without scheduling agents;
 - `controlled-loop-runner-stage-invocation-boundary` packets that consume
   completed stage-execution approval, stage-execution readiness, next-stage,
-  runner-start, runner-plan, and dry-run evidence, recheck the full chain and
-  approved selected stage, and emit exact argv, normalized arguments, cwd
-  policy, evidence-output policy, finite timeout policy, execution authority,
+  runner-start, runner-plan, dry-run, and operator-approval evidence, recheck
+  the full chain and approved selected stage, re-verify the saved operator
+  approval, and emit exact argv, normalized arguments, cwd policy,
+  evidence-output policy, finite timeout policy, execution authority,
   side-effect policy, and boundary checksum without starting a process, without
   executing the stage, without appending audit evidence, without invoking an
   executor, without retrying an executor, without continuing the loop, without
@@ -651,10 +652,11 @@ executing the stage, appending audit evidence, invoking an executor,
 continuing the loop, or writing Git/GitHub state.
 `controlled-loop-runner-stage-invocation-boundary` can then consume the saved
 stage-execution approval plus upstream runner evidence, recheck the full chain,
-bind the exact argv, cwd, output, timeout, execution-authority, and side-effect
-policies, and remain boundary-only without starting a process, executing the
-stage, appending audit evidence, invoking an executor, continuing the loop, or
-writing Git/GitHub state.
+re-verify the saved operator approval, bind the exact argv, cwd, output,
+timeout, execution-authority, and side-effect policies, and remain
+boundary-only without starting a process, executing the stage, appending audit
+evidence, invoking an executor, continuing the loop, or writing Git/GitHub
+state.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,
