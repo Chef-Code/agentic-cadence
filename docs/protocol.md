@@ -1156,8 +1156,9 @@ local checks and tests. The command verifies an `hmac-sha256:` signature over
 the approval fields and emits `operator-approval-verification.v1`. Supported purposes are
 `start_governed_execution`, `git_pr_materialization`,
 `real_executor_invocation`, `controlled_loop_run_manifest`,
-`controlled_loop_runner_execution`, `controlled_loop_runner_start`, `release`,
-and `package_publication`.
+`controlled_loop_runner_execution`, `controlled_loop_runner_start`,
+`controlled_loop_runner_stage_execution`, `release`, and
+`package_publication`.
 
 An `operator-approval.v1` packet must include `target_checksum`, `purpose`,
 `operator_id`, `key_id`, `issued_at`, `expires_at`, and `signature`. The

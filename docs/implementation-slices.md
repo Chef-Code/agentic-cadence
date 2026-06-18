@@ -584,8 +584,8 @@ Validation needed:
   command, invoking an executor, appending audit evidence, or continuing the
   loop: complete for Task 54.
 - controlled-loop-runner-stage-execution-readiness stale next-stage, stale
-  runner-plan, stale dry-run, started authority flags, or unsupported later
-  stage block without side effects: complete for Task 54.
+  runner-start, stale runner-plan, stale dry-run, started authority flags, or
+  unsupported later stage block without side effects: complete for Task 54.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.

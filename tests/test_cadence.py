@@ -10133,11 +10133,36 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIn("does_not_append_audit", output["limitations"])
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+            approval_path, approval = write_operator_approval(
+                Path(tmp) / "operator-approval-stage-execution.json",
+                target_checksum=output["stage_execution_approval_target_checksum"],
+                purpose=approval_target["purpose"],
+            )
+
+            approval_result, approval_output = run_cli(
+                tmp,
+                "verify-operator-approval",
+                "--approval-file",
+                str(approval_path),
+                "--target-checksum",
+                output["stage_execution_approval_target_checksum"],
+                "--purpose",
+                approval_target["purpose"],
+                "--approval-secret",
+                OPERATOR_APPROVAL_SECRET,
+            )
+
+            self.assertEqual(approval_result.returncode, 0, approval_result.stderr)
+            self.assertTrue(approval_output["valid"])
+            self.assertEqual(approval_output["purpose"], approval_target["purpose"])
+            self.assertEqual(approval_output["approval_checksum"], checksum_json(approval))
 
     def test_controlled_loop_runner_stage_execution_readiness_does_not_execute_subprocesses(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             chain = self.write_controlled_loop_runner_next_stage_chain(tmp, repo)
+            audit_before = audit_records(tmp)
+            runtime_before = runtime_tree_manifest(tmp)
 
             import codex_cadence.cli as cadence_cli
 
@@ -10166,6 +10191,8 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIn("does_not_execute_runner_stage", output["limitations"])
             self.assertIn("does_not_execute_git_commands", output["limitations"])
             self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
     def test_controlled_loop_runner_stage_execution_readiness_blocks_stale_or_started_inputs(self):
         def started_next_stage(chain):

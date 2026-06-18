@@ -19,6 +19,7 @@ OPERATOR_APPROVAL_PURPOSES = {
     "controlled_loop_run_manifest",
     "controlled_loop_runner_execution",
     "controlled_loop_runner_start",
+    "controlled_loop_runner_stage_execution",
     "release",
     "package_publication",
 }

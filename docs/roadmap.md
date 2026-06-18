@@ -266,10 +266,11 @@ command-policy and active-stop controls. It includes:
 - `controlled-loop-runner-stage-execution-readiness` packets that consume
   completed next-stage, runner-start, runner-plan, and dry-run evidence,
   recheck the upstream chain and selected stage, and prepare a deterministic
-  stage-execution approval target without executing the stage, appending audit
-  evidence, invoking an executor, retrying an executor, continuing the loop,
-  writing Git/GitHub state, merging, releasing, publishing packages, assigning
-  roles, or scheduling agents;
+  stage-execution approval target without executing the stage, without
+  appending audit evidence, without invoking an executor, without retrying an
+  executor, without continuing the loop, without writing Git/GitHub state,
+  without merging, without releasing, without publishing packages, without
+  assigning roles, and without scheduling agents;
 - controlled `invoke-real-executor` local process-start records,
   `closeout-executor-result --real-invocation-file` binding, and
   `controlled-loop-tick` packets that compose saved local
