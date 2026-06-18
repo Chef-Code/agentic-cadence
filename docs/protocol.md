@@ -2368,9 +2368,9 @@ When the invocation boundary uses stdout JSON output evidence, closeout derives
 the expected output path from that boundary policy. If the stage execution is
 completed, the approved output file must exist, match the expected path, match
 the captured stdout byte-for-byte after the same text capture semantics, and
-parse as a nonempty JSON object. A failed stage may close out with empty stdout
-when the terminal execution evidence is otherwise consistent; it is not
-retried and no continuation is selected.
+parse as a nonempty JSON object. A failed stage may close out with empty or
+non-JSON diagnostic stdout when the terminal execution evidence is otherwise
+consistent; it is not retried and no continuation is selected.
 
 A valid closeout emits
 `controlled-loop-runner-stage-closeout.v1` with
@@ -2400,16 +2400,23 @@ Stable blockers include
 `controlled_runner_stage_closeout_execution_not_started`,
 `controlled_runner_stage_closeout_command_result_missing`,
 `controlled_runner_stage_closeout_command_result_checksum_mismatch`,
+`controlled_runner_stage_closeout_command_result_boundary_mismatch`,
+`controlled_runner_stage_closeout_command_result_status_mismatch`,
+`controlled_runner_stage_closeout_command_result_invalid`,
 `controlled_runner_stage_closeout_stage_output_missing`,
 `controlled_runner_stage_closeout_stage_output_file_mismatch`,
 `controlled_runner_stage_closeout_stage_output_checksum_mismatch`,
 `controlled_runner_stage_closeout_stage_output_not_json`,
 `controlled_runner_stage_closeout_selected_stage_mismatch`,
 `controlled_runner_stage_closeout_approval_target_checksum_mismatch`,
-`controlled_runner_stage_closeout_boundary_checksum_mismatch`, and rewritten
-upstream stage-boundary, stage-approval, and stage-readiness blockers, plus
-shared `operator_approval_*` blockers from the operator-approval verifier such
-as `operator_approval_secret_missing`,
+`controlled_runner_stage_closeout_boundary_checksum_mismatch`,
+`controlled_runner_stage_closeout_stdout_missing`,
+`controlled_runner_stage_closeout_stdout_not_json`,
+`controlled_runner_stage_closeout_stage_side_effects_invalid`, and
+`controlled_runner_stage_closeout_undeclared_side_effects`, plus rewritten
+upstream next-stage, stage-boundary, stage-approval, and stage-readiness
+blockers, plus shared `operator_approval_*` blockers from the operator-approval
+verifier such as `operator_approval_secret_missing`,
 `operator_approval_signature_invalid`, `operator_approval_target_mismatch`,
 and `operator_approval_operator_mismatch`.
 
