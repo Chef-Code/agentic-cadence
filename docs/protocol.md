@@ -2250,6 +2250,75 @@ such as `operator_approval_secret_missing`,
 `operator_approval_signature_invalid`, `operator_approval_target_mismatch`,
 and `operator_approval_operator_mismatch`.
 
+`controlled-loop-runner-stage-execute` is the controlled single-stage execution
+packet after stage-invocation-boundary review. It reads
+`--controlled-loop-runner-stage-invocation-boundary-file`,
+`--controlled-loop-runner-stage-execution-approval-file`,
+`--controlled-loop-runner-stage-execution-readiness-file`,
+`--controlled-loop-runner-next-stage-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, and optional `--stage-number`. It
+requires a runtime `--root` for the execution audit record. Before process
+start, it revalidates the upstream runner start/plan/dry-run chain, rereads
+the next-stage, readiness, approval, and invocation-boundary packets, verifies
+their file/checksum anchors, confirms the stage-execution approval remains
+operator-approved for purpose `controlled_loop_runner_stage_execution`, and
+requires the invocation boundary checksum plus exact argv, normalized
+arguments, fixed cwd policy, stdout JSON output policy, finite timeout,
+execution authority, and allowed side-effect policy to match the approved
+runner plan.
+
+When pre-start validation passes, the command invokes exactly one stage command
+using the boundary `argv`, boundary fixed `cwd`, `capture_output=True`,
+`text=True`, `check=False`, the boundary timeout, and `shell=False`. It writes
+captured stdout to the approved stage output file, records stdout, stderr,
+return code, timestamps, timeout state, and `shell: false` in
+`command_result`, emits `command_result_checksum`, and appends at most one
+`controlled_runner_stage_execution` audit record with the stage number,
+boundary checksum, approval checksum, readiness checksum, command-result
+checksum, output path, return code, and timeout state. Successful stage stdout
+that declares `side_effects` must stay within the approved stage's
+`allowed_side_effects_when_executed`.
+
+The valid packet is
+`controlled-loop-runner-stage-execution.v1` with
+`packet: controlled_loop_runner_stage_execution`. It sets
+`stage_execution_status: completed` for return code `0`,
+`stage_execution_status: failed` for a nonzero exit or timeout with otherwise
+valid terminal evidence, and recommends `closeout_controlled_runner_stage`.
+Pre-start blockers emit `stage_execution_status: blocked`, keep
+`stage_execution_started: false`, `process_started: false`,
+`command_result: null`, and `side_effects: []`, and append no audit evidence.
+
+The command does not invoke an executor, retry an executor, execute a second
+stage, continue the loop, execute Git commands, call GitHub APIs, create
+branches, commit, push, create PRs, merge, release, publish packages, assign
+roles, or schedule agents. Stable blockers include
+`controlled_runner_stage_execution_root_missing`,
+`controlled_runner_stage_execution_boundary_evidence_missing`,
+`controlled_runner_stage_execution_approval_evidence_missing`,
+`controlled_runner_stage_execution_readiness_evidence_missing`,
+`controlled_runner_stage_execution_next_stage_evidence_missing`,
+`controlled_runner_stage_execution_upstream_invalid`,
+`controlled_runner_stage_execution_approval_packet_mismatch`,
+`controlled_runner_stage_execution_approval_not_completed`,
+`controlled_runner_stage_execution_approval_target_checksum_mismatch`,
+`controlled_runner_stage_execution_approval_target_mismatch`,
+`controlled_runner_stage_execution_approval_identity_mismatch`,
+`controlled_runner_stage_execution_boundary_packet_mismatch`,
+`controlled_runner_stage_execution_boundary_not_completed`,
+`controlled_runner_stage_execution_boundary_checksum_mismatch`,
+`controlled_runner_stage_execution_boundary_selected_stage_mismatch`,
+`controlled_runner_stage_execution_cwd_invalid`,
+`controlled_runner_stage_execution_output_file_invalid`,
+`controlled_runner_stage_execution_timeout_invalid`,
+`controlled_runner_stage_execution_argv_invalid`,
+`controlled_runner_stage_execution_unapproved_command`,
+`controlled_runner_stage_execution_stdout_not_json`,
+`controlled_runner_stage_execution_undeclared_side_effects`,
+`controlled_runner_stage_execution_output_write_failed`, and
+`controlled_runner_stage_execution_audit_append_failed`.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from
