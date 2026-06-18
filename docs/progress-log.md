@@ -39,7 +39,6 @@ Summary:
 - Added `controlled-loop-runner-stage-execute` to consume saved completed
   invocation-boundary, stage-execution approval, stage-execution readiness,
   next-stage, runner-start, runner-plan, and dry-run packets.
-- The command rechecks the full runner chain and exact boundary checksum before
 - The command rechecks the full runner chain, saved operator approval
   signature, reviewed invocation-boundary checksum, and exact boundary argv,
   cwd, output, and timeout before process start, executes exactly one approved

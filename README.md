@@ -863,8 +863,9 @@ approved stage output file, include a `command_result` and
 recommend `closeout_controlled_runner_stage`. Successful stage stdout must be
 nonempty JSON evidence. A nonzero stage exit code is
 recorded as terminal `stage_execution_status: failed` evidence without retrying
-or continuing unless parseable stdout reports side effects outside the approved
-stage policy. Pre-start validation failures, including invalid operator
+or continuing; stdout side-effect checks still run to validate reported effects
+against the approved stage policy, but they do not override the terminal failure
+status. Pre-start validation failures, including invalid operator
 approval signatures or mismatched reviewed boundary checksums, do not start a
 process and append no audit evidence. The command does not invoke an executor,
 retry an executor, execute a second stage, continue the loop, write Git/GitHub
