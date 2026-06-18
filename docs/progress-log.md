@@ -33,6 +33,49 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-18 - Read-only controlled runner stage invocation boundary
+
+Summary:
+- Added `controlled-loop-runner-stage-invocation-boundary` to consume saved
+  completed stage-execution approval, stage-execution readiness, next-stage,
+  runner-start, runner-plan, and dry-run packets.
+- The command rechecks the full runner chain and approved selected stage, then
+  emits exact argv, normalized arguments, fixed cwd policy, stdout JSON
+  evidence-output policy, finite timeout policy, selected-stage execution
+  authority, allowed side effects, and `invocation_boundary_checksum`.
+- Completed boundary packets append no audit evidence and still do not start a
+  process, execute a runner stage, invoke or retry an executor, continue a
+  loop, write Git/GitHub state, merge, release, publish packages, assign
+  roles, or schedule agents.
+
+Completed slices:
+- Task 56: read-only controlled loop runner stage invocation boundary packet.
+
+Confidence change:
+- Previous: 50%
+- New: 51%
+- Reason: Cadence can now make the exact approved stage invocation reviewable
+  after operator approval, but it still does not execute the stage or continue
+  unattended.
+
+Evidence:
+- Focused `controlled-loop-runner-stage-invocation-boundary` pytest selection:
+  4 tests passed.
+
+New risks or blockers:
+- Actual single-stage execution, executor retry policy, stage closeout, outcome
+  planning, continuation selection, autonomous Git/GitHub writes, merge
+  authority, release publication, role assignment, and agent scheduling remain
+  out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-18 - Read-only controlled runner stage-execution approval
 
 Summary:

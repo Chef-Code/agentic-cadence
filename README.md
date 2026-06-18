@@ -58,6 +58,7 @@ controlled `controlled-loop-runner-start`,
 read-only `controlled-loop-runner-next-stage`,
 read-only `controlled-loop-runner-stage-execution-readiness`,
 read-only `controlled-loop-runner-stage-execution-approval`,
+read-only `controlled-loop-runner-stage-invocation-boundary`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -117,7 +118,10 @@ selected stage and upstream runner chain before preparing a deterministic
 stage-execution approval target without executing the stage, and
 `controlled-loop-runner-stage-execution-approval` evidence that verifies a
 target-bound operator approval for that readiness target without starting the
-stage or invoking an executor.
+stage or invoking an executor, and
+`controlled-loop-runner-stage-invocation-boundary` evidence that prepares the
+exact approved argv, working-directory policy, evidence-output policy, timeout
+policy, and boundary checksum without starting a process.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -804,6 +808,27 @@ preserve approval identity/signature evidence plus the expected operator
 binding, and append no audit evidence. They do not start a runner stage,
 invoke or retry an executor, continue the loop, or write Git/GitHub state.
 
+`controlled-loop-runner-stage-invocation-boundary` consumes saved completed
+`controlled-loop-runner-stage-execution-approval.v1`,
+`controlled-loop-runner-stage-execution-readiness.v1`,
+`controlled-loop-runner-next-stage.v1`, `controlled-loop-runner-start.v1`,
+`controlled-loop-runner-plan.v1`, and `controlled-loop-runner-dry-run.v1`
+packets. It rechecks the full runner chain and the approved selected stage,
+then emits the exact stage invocation boundary without starting a process:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-invocation-boundary --controlled-loop-runner-stage-execution-approval-file controlled-loop-runner-stage-execution-approval.json --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-file controlled-loop-runner-next-stage.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --stage-cwd examples/first-run/work/repo --stage-output-file controlled-loop-runner-stage-output.json --stage-timeout-seconds 300 --stage-number 1
+```
+
+Completed boundary packets recommend
+`review_controlled_runner_stage_invocation_boundary`, set
+`next_controlled_action: execute_approved_runner_stage_once`, include the
+exact argv, normalized arguments, fixed cwd policy, stdout JSON evidence-output
+policy, finite timeout policy, selected-stage side-effect policy, and
+`invocation_boundary_checksum`, and still append no audit evidence. They do
+not start a process, execute a runner stage, invoke or retry an executor,
+continue the loop, or write Git/GitHub state.
+
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor
 closeout, real-executor invocation records, and accepted controlled single-tick
@@ -1316,6 +1341,22 @@ Valid packets mark the selected stage as `approved_not_executed`, recommend
 `review_controlled_runner_stage_execution_approval`, and still append no audit
 evidence or start any stage, executor, loop continuation, Git/GitHub write,
 merge, release, publication, role assignment, or agent scheduling.
+
+`controlled-loop-runner-stage-invocation-boundary` is the read-only invocation
+boundary packet after stage-execution approval. It consumes the saved approval,
+readiness, next-stage, runner-start, runner-plan, and dry-run packets,
+revalidates the runner chain and approval anchors, requires the selected stage
+to match the requested stage and approved runner plan, and emits
+`controlled-loop-runner-stage-invocation-boundary.v1` with exact argv,
+normalized arguments, fixed cwd policy, stdout JSON evidence-output policy,
+finite timeout policy, selected-stage execution authority, allowed side
+effects, and `invocation_boundary_checksum`. Valid packets mark the selected
+stage as `boundary_prepared_not_started`, recommend
+`review_controlled_runner_stage_invocation_boundary`, set
+`next_controlled_action: execute_approved_runner_stage_once`, and still append
+no audit evidence or start any process, runner stage, executor, loop
+continuation, Git/GitHub write, merge, release, publication, role assignment,
+or agent scheduling.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can
