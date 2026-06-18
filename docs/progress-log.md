@@ -33,6 +33,53 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-18 - Controlled runner single-stage execution
+
+Summary:
+- Added `controlled-loop-runner-stage-execute` to consume saved completed
+  invocation-boundary, stage-execution approval, stage-execution readiness,
+  next-stage, runner-start, runner-plan, and dry-run packets.
+- The command rechecks the full runner chain, saved operator approval
+  signature, reviewed invocation-boundary checksum, and exact boundary argv,
+  cwd, output, and timeout before process start, executes exactly one approved
+  stage command with `shell=False`, captures stdout, stderr, exit code,
+  timestamps, output-file evidence, and `command_result_checksum`, and appends
+  one execution audit record only after the process starts.
+- Pre-start blockers append no audit evidence. Nonzero stage exits produce
+  terminal failed-stage evidence without retrying, executing a second stage,
+  continuing the loop, invoking an executor, or writing Git/GitHub state.
+  Successful stage stdout must be nonempty JSON evidence, and parseable
+  reported side effects must stay within the approved stage policy.
+
+Completed slices:
+- Task 57: controlled loop runner single-stage execution packet.
+
+Confidence change:
+- Previous: 51%
+- New: 52%
+- Reason: Cadence can now cross from an approved runner-stage boundary into one
+  bounded stage process with terminal evidence, but it still cannot invoke an
+  executor from the runner, close out the stage, or continue unattended.
+
+Evidence:
+- Focused `controlled-loop-runner-stage-execute` pytest selection:
+  8 tests passed.
+- Protocol validator: passed.
+- Package verifier: passed.
+
+New risks or blockers:
+- Stage closeout, executor retry policy, continuation selection, autonomous
+  Git/GitHub writes, merge authority, release publication, role assignment, and
+  agent scheduling remain out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-18 - Read-only controlled runner stage invocation boundary
 
 Summary:
