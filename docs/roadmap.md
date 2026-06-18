@@ -1,9 +1,9 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-16
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled loop real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, controlled-loop-runner-start evidence, read-only controlled loop runner next-stage evidence, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-53 complete in main or active review branches
-Current unattended-operation confidence: 25% (stable headline; progress log records Task 53 projected capability at 48%)
+Last updated: 2026-06-17
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled loop real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, controlled-loop-runner-start evidence, read-only controlled loop runner next-stage evidence, read-only controlled loop runner stage-execution readiness evidence, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-54 complete in main or active review branches
+Current unattended-operation confidence: 25% (stable headline; progress log records Task 54 projected capability at 49%)
 
 This document tracks the practical path from the current Agentic Cadence
 protocol toolkit toward GitHub-native orchestration for autonomous software
@@ -96,14 +96,15 @@ stages, then validate read-only runner start readiness from that completed
 dry-run evidence, then verify target-bound operator approval for that readiness
 packet, then record the approved one-cycle runner-start boundary without
 starting an executor or continuing the loop, then select the first runner stage
-without executing it. It still cannot
+without executing it, then prepare a deterministic stage-execution approval
+target without executing the stage. It still cannot
 independently implement code outside approved command evidence, autonomously
 push branches, autonomously open pull requests, assign agent roles, launch fresh
 sessions, coordinate an agent pool, merge, release, publish packages, or
 continue in an unattended loop.
 
 Current confidence for unattended continuous operation is 25% as a stable
-headline; the progress log records Task 53 projected capability at 48%.
+headline; the progress log records Task 54 projected capability at 49%.
 
 The rating is low because the safety primitives are real, but the central
 autonomous build loop is not implemented. The first real unattended run would
@@ -262,6 +263,14 @@ command-policy and active-stop controls. It includes:
   retrying an executor, without continuing the loop, without writing Git/GitHub
   state, without merging, without releasing, without publishing packages,
   without assigning roles, and without scheduling agents;
+- `controlled-loop-runner-stage-execution-readiness` packets that consume
+  completed next-stage, runner-start, runner-plan, and dry-run evidence,
+  recheck the upstream chain and selected stage, and prepare a deterministic
+  stage-execution approval target without executing the stage, without
+  appending audit evidence, without invoking an executor, without retrying an
+  executor, without continuing the loop, without writing Git/GitHub state,
+  without merging, without releasing, without publishing packages, without
+  assigning roles, and without scheduling agents;
 - controlled `invoke-real-executor` local process-start records,
   `closeout-executor-result --real-invocation-file` binding, and
   `controlled-loop-tick` packets that compose saved local
@@ -606,6 +615,12 @@ boundary, runner-plan, and dry-run evidence, recheck anchors, checksums, and
 stage sequence, and select the first runner stage without executing it,
 without appending audit evidence, without invoking an executor, without
 continuing the loop, and without writing Git/GitHub state.
+`controlled-loop-runner-stage-execution-readiness` can then consume the saved
+next-stage selection plus runner-start, runner-plan, and dry-run evidence,
+recheck the upstream chain and selected stage, and prepare a deterministic
+stage-execution approval target without executing the stage, without appending
+audit evidence, without invoking an executor, without continuing the loop, and
+without writing Git/GitHub state.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,
