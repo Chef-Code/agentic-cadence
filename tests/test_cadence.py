@@ -11546,6 +11546,53 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIn("stage_output_written", output["side_effects"])
             self.assertIn("controlled_runner_stage_execution_audit_appended", output["side_effects"])
 
+    def test_controlled_loop_runner_stage_execute_audit_append_failure_routes_to_inspection(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_execute_chain(tmp, repo)
+            boundary = chain["controlled_loop_runner_stage_invocation_boundary"]
+            invocation_boundary = boundary["invocation_boundary"]
+            stage_stdout = json.dumps(
+                {
+                    "schema_version": "loop-run-plan.v1",
+                    "packet": "loop_run_plan",
+                    "valid": True,
+                    "recommended_next_action": "stop_no_candidates",
+                }
+            ) + "\n"
+            completed = subprocess.CompletedProcess(
+                invocation_boundary["argv"],
+                0,
+                stdout=stage_stdout,
+                stderr="",
+            )
+            stdout = StringIO()
+
+            with mock.patch("subprocess.run", return_value=completed):
+                with mock.patch.object(cadence_cli, "append_audit_record", side_effect=OSError("disk full")):
+                    with redirect_stdout(stdout):
+                        try:
+                            code = cadence_cli.main(self.controlled_loop_runner_stage_execute_argv(tmp, chain))
+                        except SystemExit as exc:
+                            code = exc.code
+
+            self.assertEqual(code, 2)
+            output = json.loads(stdout.getvalue())
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_execution_status"], "blocked")
+            self.assertTrue(output["process_started"])
+            self.assertEqual(output["recommended_next_action"], "inspect_controlled_runner_stage_execution")
+            self.assertEqual(output["next_controlled_action"], "inspect_controlled_runner_stage_execution")
+            self.assertIn(
+                "controlled_runner_stage_execution_audit_append_failed",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertIn("stage_process_started", output["side_effects"])
+            self.assertIn("stage_output_written", output["side_effects"])
+            self.assertNotIn("controlled_runner_stage_execution_audit_appended", output["side_effects"])
+
     def test_controlled_loop_runner_stage_execute_blocks_mutated_boundary_before_process_start(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             import codex_cadence.cli as cadence_cli

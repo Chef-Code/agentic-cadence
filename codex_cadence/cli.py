@@ -15468,6 +15468,7 @@ def controlled_loop_runner_stage_execution_command(args: argparse.Namespace) -> 
             )
         )
         payload["recommended_next_action"] = "inspect_controlled_runner_stage_execution"
+        payload["next_controlled_action"] = "inspect_controlled_runner_stage_execution"
         payload["reason"] = "controlled runner stage execution blocked because audit record append failed"
     emit(payload)
     return 0 if payload["valid"] else 2
