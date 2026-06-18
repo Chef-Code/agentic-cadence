@@ -1,8 +1,8 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-06-17
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, controlled-loop-runner-start evidence, read-only controlled loop runner next-stage evidence, read-only controlled loop runner stage-execution readiness evidence, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 28-54 complete in main or active review branches
+Last updated: 2026-06-18
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled loop real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, controlled-loop-runner-start evidence, read-only controlled loop runner next-stage evidence, read-only controlled loop runner stage-execution readiness evidence, read-only controlled loop runner stage-execution approval evidence, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 28-55 complete in main or active review branches
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -200,11 +200,17 @@ selected next-stage packet plus saved runner-start, runner-plan, and dry-run
 evidence, recheck the upstream chain and selected stage, and prepare a
 deterministic stage-execution approval target for stage 1 without executing
 the stage.
+`controlled-loop-runner-stage-execution-approval` can then consume that
+readiness target plus the saved upstream runner packets and a target-bound
+`operator-approval.v1`, recheck the full chain, verify the approval signature,
+and mark the selected stage as approved without executing it, appending audit
+evidence, invoking an executor, continuing the loop, or writing Git/GitHub
+state.
 Autonomous
 branch/commit/push or PR creation, automatic session launch, distributed work
 ownership, role assignment, and continuous loop orchestration remain missing.
 Current unattended-operation confidence is 25%. Progress-log entries record
-Task 54 projected capability at 49% while this stable headline remains 25%.
+Task 55 projected capability at 50% while this stable headline remains 25%.
 
 Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
 complete, Tasks 8-12 from
@@ -272,6 +278,11 @@ evidence that consumes the completed next-stage packet plus saved runner-start,
 runner-plan, and dry-run evidence, rechecks the upstream chain, prepares a
 deterministic stage-execution approval target for stage 1, and stops before
 stage execution.
+Task 55 adds read-only `controlled-loop-runner-stage-execution-approval`
+evidence that consumes the completed readiness packet plus saved upstream
+runner packets and `operator-approval.v1`, rechecks the full chain, verifies
+the approval purpose, target checksum, identity, and signature, and stops
+before stage execution.
 
 ## Vision Framing
 
@@ -477,6 +488,16 @@ Current evidence:
   executing Git commands, calling GitHub, creating branches, committing,
   pushing, creating PRs, merging, releasing, publishing packages, assigning
   roles, or scheduling agents;
+- `controlled-loop-runner-stage-execution-approval` reads saved completed
+  stage-execution readiness, next-stage, runner-start, runner-plan, dry-run,
+  and operator approval evidence, rechecks the full runner chain, verifies the
+  approval purpose, expected operator id, and target checksum with
+  approval-secret-backed signature validation, then records approval-only
+  evidence without appending audit evidence, executing a runner stage, invoking
+  an executor, retrying
+  executors, continuing the loop, executing Git commands, calling GitHub,
+  creating branches, committing, pushing, creating PRs, merging, releasing,
+  publishing packages, assigning roles, or scheduling agents;
 - no command runs a continuous governed loop tick end to end or retries failed
   real executor invocations.
 
@@ -586,6 +607,14 @@ Validation needed:
 - controlled-loop-runner-stage-execution-readiness stale next-stage, stale
   runner-start, stale runner-plan, stale dry-run, started authority flags, or
   unsupported later stage block without side effects: complete for Task 54.
+- controlled-loop-runner-stage-execution-approval matching readiness and
+  target-bound operator approval records approval-only evidence without
+  executing a command, invoking an executor, appending audit evidence, or
+  continuing the loop: complete for Task 55.
+- controlled-loop-runner-stage-execution-approval wrong purpose, wrong target,
+  expired/future/unsigned/bad-signature/wrong-operator approval, stale
+  readiness, stale next-stage, stale runner-start, stale runner-plan, or stale
+  dry-run evidence block without side effects: complete for Task 55.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.

@@ -94,6 +94,7 @@ def build_operator_approval_verification_packet(
     expected_target_checksum: str,
     expected_purpose: str,
     approval_secret: str | bytes | None,
+    expected_operator_id: str | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     checked_at = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -171,12 +172,30 @@ def build_operator_approval_verification_packet(
                 )
             )
 
+        expected_operator = expected_operator_id.strip() if isinstance(expected_operator_id, str) else None
+        if expected_operator_id is not None and not expected_operator:
+            blockers.append(
+                approval_blocker(
+                    "operator_approval_expected_operator_invalid",
+                    "expected operator_id must be a non-empty string",
+                )
+            )
+
         operator_id = approval.get("operator_id")
         if not isinstance(operator_id, str) or not operator_id.strip():
             blockers.append(
                 approval_blocker(
                     "operator_approval_operator_missing",
                     "operator approval operator_id is required",
+                )
+            )
+        elif expected_operator is not None and operator_id.strip() != expected_operator:
+            blockers.append(
+                approval_blocker(
+                    "operator_approval_operator_mismatch",
+                    "operator approval operator_id does not match the expected operator",
+                    expected_operator_id=expected_operator,
+                    actual_operator_id=operator_id.strip(),
                 )
             )
 

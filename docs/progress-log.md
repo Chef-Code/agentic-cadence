@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-17
+Last updated: 2026-06-18
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,49 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-18 - Read-only controlled runner stage-execution approval
+
+Summary:
+- Added `controlled-loop-runner-stage-execution-approval` to consume saved
+  completed stage-execution readiness, next-stage, runner-start, runner-plan,
+  dry-run, and operator approval packets.
+- The command rechecks the full runner chain, verifies approval purpose
+  `controlled_loop_runner_stage_execution`, validates the approval target
+  checksum against `stage_execution_approval_target_checksum`, requires the
+  signed operator id to match `--expected-operator-id`, and verifies the
+  approval-secret-backed signature.
+- Completed approval packets append no audit evidence and still do not start a
+  runner stage, invoke or retry an executor, continue a loop, write Git/GitHub
+  state, merge, release, publish packages, assign roles, or schedule agents.
+
+Completed slices:
+- Task 55: read-only controlled loop runner stage-execution approval packet.
+
+Confidence change:
+- Previous: 49%
+- New: 50%
+- Reason: Cadence can now consume and verify target-bound operator approval for
+  the selected runner stage, but it still does not invoke the stage or continue
+  unattended.
+
+Evidence:
+- Focused `controlled-loop-runner-stage-execution-approval` pytest selection:
+  4 tests passed.
+
+New risks or blockers:
+- Stage invocation boundary, actual single-stage execution, executor retry
+  policy, stage closeout, outcome planning, continuation selection, autonomous
+  Git/GitHub writes, merge authority, release publication, role assignment, and
+  agent scheduling remain out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
 
 ## 2026-06-17 - Read-only controlled runner stage-execution readiness
 
