@@ -297,10 +297,11 @@ exact argv/cwd/output/timeout boundary evidence, and stops before process
 start.
 Task 57 adds controlled `controlled-loop-runner-stage-execute` evidence that
 consumes the invocation boundary plus saved upstream runner packets, rechecks
-the full chain and exact argv/cwd/output/timeout boundary, executes exactly one
-approved stage command with `shell=False`, captures terminal command evidence,
-and stops without invoking an executor, retrying, executing a second stage,
-continuing the loop, or writing Git/GitHub state.
+the full chain, saved operator approval, reviewed invocation-boundary checksum,
+and exact argv/cwd/output/timeout boundary, executes exactly one approved stage
+command with `shell=False`, captures terminal command evidence, and stops
+without invoking an executor, retrying, executing a second stage, continuing
+the loop, or writing Git/GitHub state.
 
 ## Vision Framing
 
@@ -531,14 +532,15 @@ Current evidence:
 - `controlled-loop-runner-stage-execute` reads saved completed invocation
   boundary, stage-execution approval, stage-execution readiness, next-stage,
   runner-start, runner-plan, and dry-run evidence, rechecks the full runner
-  chain plus exact argv/cwd/output/timeout boundary checksum, invokes exactly
-  one approved internal Cadence stage command with `shell=False`, captures
-  stdout, stderr, exit code, output-file evidence, timestamps, and command
-  result checksum, appends at most one execution audit record after process
-  start, and still does not invoke an executor, retry executors, execute a
-  second stage, continue the loop, execute Git commands, call GitHub, create
-  branches, commit, push, create PRs, merge, release, publish packages, assign
-  roles, or schedule agents;
+  chain plus saved operator approval signature, reviewed boundary checksum,
+  and exact argv/cwd/output/timeout boundary, invokes exactly one approved
+  internal Cadence stage command with `shell=False`, captures stdout, stderr,
+  exit code, output-file evidence, timestamps, and command result checksum,
+  appends at most one execution audit record after process start, and still
+  does not invoke an executor, retry executors, execute a second stage,
+  continue the loop, execute Git commands, call GitHub, create branches,
+  commit, push, create PRs, merge, release, publish packages, assign roles, or
+  schedule agents;
 - no command runs a continuous governed loop tick end to end or retries failed
   real executor invocations.
 
@@ -669,10 +671,14 @@ Validation needed:
   command once with `shell=False`, writes captured output evidence, appends one
   execution audit record after process start, and does not invoke an executor,
   retry, execute another stage, or continue the loop: complete for Task 57.
-- controlled-loop-runner-stage-execute mutated boundary blocks before process
-  start without appending audit evidence: complete for Task 57.
+- controlled-loop-runner-stage-execute mutated boundary, self-consistent
+  boundary checksum drift, and invalid saved operator approval signatures block
+  before process start without appending audit evidence: complete for Task 57.
 - controlled-loop-runner-stage-execute nonzero stage exit records terminal
   failed-stage evidence without retrying or continuing: complete for Task 57.
+- controlled-loop-runner-stage-execute empty successful stdout, subprocess
+  start failure, and undeclared stage side effects block with structured
+  packets: complete for Task 57.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.

@@ -13820,7 +13820,9 @@ def controlled_loop_runner_stage_invocation_boundary_command(args: argparse.Name
             "stage_number": stage_number,
             "command_name": approved_stage.get("command"),
             "argv": [
-                "agentic-cadence",
+                sys.executable,
+                "-m",
+                "codex_cadence.cli",
                 "--root",
                 str(root),
                 approved_stage.get("command"),
@@ -14022,6 +14024,8 @@ def controlled_loop_runner_stage_execution_approval_packet_blockers(
     dry_run_checksum: str | None,
     expected_approved_stage: dict[str, Any] | None,
     expected_stage_execution_approval_target: dict[str, Any] | None,
+    approval_secret: str | None,
+    expected_operator_id: str,
     stage_number: int,
 ) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
@@ -14251,6 +14255,29 @@ def controlled_loop_runner_stage_execution_approval_packet_blockers(
         else None
     )
     target_checksum = approval.get("stage_execution_approval_target_checksum")
+    blockers.extend(
+        [
+            controlled_loop_runner_stage_execution_blocker(
+                (
+                    blocker["code"].replace(
+                        "controlled_runner_stage_invocation_boundary",
+                        "controlled_runner_stage_execution",
+                    )
+                    if isinstance(blocker.get("code"), str)
+                    else blocker.get("code")
+                ),
+                blocker["message"],
+                **{key: value for key, value in blocker.items() if key not in {"code", "message"}},
+            )
+            for blocker in controlled_loop_runner_stage_invocation_boundary_operator_approval_blockers(
+                approval=approval,
+                approval_path=approval_path,
+                target_checksum=target_checksum if isinstance(target_checksum, str) else None,
+                approval_secret=approval_secret,
+                expected_operator_id=expected_operator_id,
+            )
+        ]
+    )
     expected_target_checksum = (
         checksum_json(expected_stage_execution_approval_target)
         if expected_stage_execution_approval_target is not None
@@ -14292,6 +14319,7 @@ def controlled_loop_runner_stage_execution_approval_packet_blockers(
         approval_details.get("state") != "approved"
         or approval_details.get("purpose") != CONTROLLED_LOOP_RUNNER_STAGE_EXECUTION_APPROVAL_PURPOSE
         or approval_details.get("approval_purpose") != CONTROLLED_LOOP_RUNNER_STAGE_EXECUTION_APPROVAL_PURPOSE
+        or approval_details.get("expected_operator_id") != expected_operator_id
         or approval_details.get("target_checksum") != expected_target_checksum
         or approval_details.get("approval_target_checksum") != expected_target_checksum
         or approval_details.get("signature_verified") is not True
@@ -14327,6 +14355,8 @@ def controlled_loop_runner_stage_execution_boundary_blockers(
     approved_stage: dict[str, Any] | None,
     plan_stage: dict[str, Any] | None,
     root: Path,
+    expected_invocation_boundary_checksum: str,
+    allow_repo_local_root: bool,
     stage_number: int,
 ) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
@@ -14423,6 +14453,15 @@ def controlled_loop_runner_stage_execution_boundary_blockers(
                         "invocation_boundary_checksum": boundary.get("invocation_boundary_checksum"),
                         "checksums.invocation_boundary": recorded_checksums.get("invocation_boundary"),
                     },
+                )
+            )
+        if expected_invocation_boundary_checksum != invocation_boundary_checksum:
+            blockers.append(
+                controlled_loop_runner_stage_execution_blocker(
+                    "controlled_runner_stage_execution_expected_boundary_checksum_mismatch",
+                    "controlled runner stage invocation boundary checksum must match the operator-reviewed checksum",
+                    expected=expected_invocation_boundary_checksum,
+                    actual=invocation_boundary_checksum,
                 )
             )
 
@@ -14659,6 +14698,15 @@ def controlled_loop_runner_stage_execution_boundary_blockers(
                 actual=policy,
             )
         )
+    elif not allow_repo_local_root and path_is_relative_to(root, stage_cwd):
+        blockers.append(
+            controlled_loop_runner_stage_execution_blocker(
+                "controlled_runner_stage_execution_runtime_root_unsafe",
+                "controlled runner stage execution runtime root must not be inside the stage cwd unless explicitly allowed",
+                root=str(root),
+                stage_cwd=str(stage_cwd),
+            )
+        )
     output_file_value = output_policy.get("output_file")
     output_file = (
         Path(output_file_value).expanduser().resolve(strict=False)
@@ -14728,7 +14776,9 @@ def controlled_loop_runner_stage_execution_boundary_blockers(
         return blockers
     command_argv, normalized_arguments = command_arguments
     expected_argv = [
-        "agentic-cadence",
+        sys.executable,
+        "-m",
+        "codex_cadence.cli",
         "--root",
         str(root),
         approved_stage.get("command"),
@@ -14781,11 +14831,20 @@ def controlled_loop_runner_stage_execution_stdout_blockers(
     returncode: int | None,
     allowed_side_effects: list[Any],
 ) -> list[dict[str, Any]]:
-    if returncode != 0 or not stdout_text.strip():
+    if not stdout_text.strip():
+        if returncode == 0:
+            return [
+                controlled_loop_runner_stage_execution_blocker(
+                    "controlled_runner_stage_execution_stdout_missing",
+                    "successful controlled runner stage stdout must include JSON evidence",
+                )
+            ]
         return []
     try:
         packet = json.loads(stdout_text)
     except json.JSONDecodeError as exc:
+        if returncode != 0:
+            return []
         return [
             controlled_loop_runner_stage_execution_blocker(
                 "controlled_runner_stage_execution_stdout_not_json",
@@ -14794,6 +14853,8 @@ def controlled_loop_runner_stage_execution_stdout_blockers(
             )
         ]
     if not isinstance(packet, dict):
+        if returncode != 0:
+            return []
         return [
             controlled_loop_runner_stage_execution_blocker(
                 "controlled_runner_stage_execution_stdout_not_json_object",
@@ -14916,7 +14977,11 @@ def controlled_loop_runner_stage_execution_base_payload(
         "operator_confirmation_required": False,
         "side_effects": side_effects,
         "recommended_next_action": recommended_next_action,
-        "next_controlled_action": "closeout_controlled_runner_stage" if process_started else recommended_next_action,
+        "next_controlled_action": (
+            "closeout_controlled_runner_stage"
+            if process_started and not blockers
+            else recommended_next_action
+        ),
         "selected_stage": selected_stage,
         "stage_output_file": str(stage_output_file) if stage_output_file is not None else None,
         "command_result": command_result,
@@ -15151,6 +15216,8 @@ def controlled_loop_runner_stage_execution_command(args: argparse.Namespace) -> 
                 dry_run_checksum=dry_run_checksum,
                 expected_approved_stage=expected_approved_stage,
                 expected_stage_execution_approval_target=expected_stage_execution_approval_target,
+                approval_secret=operator_approval_secret_from_args(args),
+                expected_operator_id=args.expected_operator_id,
                 stage_number=stage_number,
             )
         )
@@ -15174,6 +15241,8 @@ def controlled_loop_runner_stage_execution_command(args: argparse.Namespace) -> 
                 approved_stage=approved_stage,
                 plan_stage=plan_stage,
                 root=root,
+                expected_invocation_boundary_checksum=args.expected_invocation_boundary_checksum,
+                allow_repo_local_root=bool(args.allow_repo_local_root),
                 stage_number=stage_number,
             )
         )
@@ -15254,6 +15323,44 @@ def controlled_loop_runner_stage_execution_command(args: argparse.Namespace) -> 
         stdout_text = controlled_loop_runner_stage_execution_text(exc.stdout)
         stderr_text = controlled_loop_runner_stage_execution_text(exc.stderr)
         returncode = None
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        payload = controlled_loop_runner_stage_execution_base_payload(
+            args=args,
+            boundary_path=boundary_path,
+            approval_path=approval_path,
+            readiness_path=readiness_path,
+            next_stage_path=next_stage_path,
+            start_path=start_path,
+            runner_plan_path=runner_plan_path,
+            dry_run_path=dry_run_path,
+            boundary=boundary if isinstance(boundary, dict) else None,
+            approval=approval if isinstance(approval, dict) else None,
+            readiness=readiness if isinstance(readiness, dict) else None,
+            next_stage=next_stage if isinstance(next_stage, dict) else None,
+            start_checksum=start_checksum,
+            runner_plan_checksum=runner_plan_checksum,
+            dry_run_checksum=dry_run_checksum,
+            approval_checksum=approval_checksum,
+            readiness_checksum=readiness_checksum,
+            next_stage_checksum=next_stage_checksum,
+            blockers=[
+                controlled_loop_runner_stage_execution_blocker(
+                    "controlled_runner_stage_execution_process_start_failed",
+                    "controlled runner stage process could not be started",
+                    error=str(exc),
+                    exception_type=type(exc).__name__,
+                )
+            ],
+            process_started=False,
+            stage_execution_status="blocked",
+            command_result=None,
+            command_result_checksum=None,
+            stage_output_file=stage_output_file,
+            side_effects=[],
+            selected_stage=None,
+        )
+        emit(payload)
+        return 2
     completed_at = utc_now()
 
     command_result = {
@@ -17732,6 +17839,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--controlled-loop-runner-stage-invocation-boundary-file",
         required=True,
     )
+    runner_stage_execution_parser.add_argument("--expected-invocation-boundary-checksum", required=True)
     runner_stage_execution_parser.add_argument(
         "--controlled-loop-runner-stage-execution-approval-file",
         required=True,
@@ -17744,6 +17852,12 @@ def build_parser() -> argparse.ArgumentParser:
     runner_stage_execution_parser.add_argument("--controlled-loop-runner-start-file", required=True)
     runner_stage_execution_parser.add_argument("--controlled-loop-runner-plan-file", required=True)
     runner_stage_execution_parser.add_argument("--controlled-loop-runner-dry-run-file", required=True)
+    runner_stage_execution_parser.add_argument("--expected-operator-id", required=True)
+    runner_stage_execution_parser.add_argument("--approval-secret")
+    runner_stage_execution_parser.add_argument(
+        "--approval-secret-env",
+        default=OPERATOR_APPROVAL_SECRET_ENV,
+    )
     runner_stage_execution_parser.add_argument("--stage-number", type=int, default=1)
     runner_stage_execution_parser.set_defaults(
         func=controlled_loop_runner_stage_execution_command,

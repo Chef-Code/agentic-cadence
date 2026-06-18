@@ -836,6 +836,7 @@ exact argv, normalized arguments, fixed cwd policy, stdout JSON evidence-output
 policy, finite timeout policy, selected-stage execution authority, side-effect
 policy, and `invocation_boundary_checksum`, and still append no audit evidence.
 For the current `loop-run-plan` stage, the emitted argv includes
+the current Python executable, `-m codex_cadence.cli`, and
 `--discovery-mode off` so the boundary argv is parser-valid without an intent.
 They do not start a process, execute a runner stage, invoke or retry an
 executor, continue the loop, or write Git/GitHub state.
@@ -851,7 +852,7 @@ process start, requires the exact approved argv/cwd/output/timeout policy, and
 executes that one stage command with `shell=False`:
 
 ```bash
-agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-execute --controlled-loop-runner-stage-invocation-boundary-file controlled-loop-runner-stage-invocation-boundary.json --controlled-loop-runner-stage-execution-approval-file controlled-loop-runner-stage-execution-approval.json --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-file controlled-loop-runner-next-stage.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --stage-number 1
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-execute --controlled-loop-runner-stage-invocation-boundary-file controlled-loop-runner-stage-invocation-boundary.json --expected-invocation-boundary-checksum sha256:<reviewed-invocation-boundary-checksum> --controlled-loop-runner-stage-execution-approval-file controlled-loop-runner-stage-execution-approval.json --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-file controlled-loop-runner-next-stage.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 1
 ```
 
 Completed execution packets emit
@@ -859,12 +860,15 @@ Completed execution packets emit
 approved stage output file, include a `command_result` and
 `command_result_checksum`, append at most one
 `controlled_runner_stage_execution` audit record after the process starts, and
-recommend `closeout_controlled_runner_stage`. A nonzero stage exit code is
+recommend `closeout_controlled_runner_stage`. Successful stage stdout must be
+nonempty JSON evidence. A nonzero stage exit code is
 recorded as terminal `stage_execution_status: failed` evidence without retrying
-or continuing. Pre-start validation failures do not start a process and append
-no audit evidence. The command does not invoke an executor, retry an executor,
-execute a second stage, continue the loop, write Git/GitHub state, merge,
-release, publish packages, assign roles, or schedule agents.
+or continuing unless parseable stdout reports side effects outside the approved
+stage policy. Pre-start validation failures, including invalid operator
+approval signatures or mismatched reviewed boundary checksums, do not start a
+process and append no audit evidence. The command does not invoke an executor,
+retry an executor, execute a second stage, continue the loop, write Git/GitHub
+state, merge, release, publish packages, assign roles, or schedule agents.
 
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor
@@ -1400,11 +1404,14 @@ or agent scheduling.
 packet after invocation-boundary review. It consumes the saved invocation
 boundary, stage-execution approval, readiness, next-stage, runner-start,
 runner-plan, and dry-run packets, revalidates the full chain and boundary
-checksum, requires the exact approved argv and fixed cwd/output/timeout policy,
-and runs exactly one internal Cadence runner stage with `shell=False`. Valid
-packets emit `controlled-loop-runner-stage-execution.v1`, capture stdout,
-stderr, exit code, timestamps, approved output-file path, and
-`command_result_checksum`, and append at most one
+checksum against `--expected-invocation-boundary-checksum`, re-verifies the
+saved operator approval with the local approval secret and
+`--expected-operator-id`, requires the exact approved argv and fixed
+cwd/output/timeout policy, and runs exactly one internal Cadence runner stage
+with `shell=False`. Valid packets emit
+`controlled-loop-runner-stage-execution.v1`, capture stdout, stderr, exit code,
+timestamps, approved output-file path, and `command_result_checksum`, and
+append at most one
 `controlled_runner_stage_execution` audit record after process start. Nonzero
 exit codes are terminal failed-stage evidence, not retry authority. Pre-start
 blockers append no audit evidence. The command never invokes an executor,

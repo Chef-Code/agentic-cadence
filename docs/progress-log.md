@@ -40,13 +40,17 @@ Summary:
   invocation-boundary, stage-execution approval, stage-execution readiness,
   next-stage, runner-start, runner-plan, and dry-run packets.
 - The command rechecks the full runner chain and exact boundary checksum before
-  process start, executes exactly one approved stage command with `shell=False`,
-  captures stdout, stderr, exit code, timestamps, output-file evidence, and
-  `command_result_checksum`, and appends one execution audit record only after
-  the process starts.
+- The command rechecks the full runner chain, saved operator approval
+  signature, reviewed invocation-boundary checksum, and exact boundary argv,
+  cwd, output, and timeout before process start, executes exactly one approved
+  stage command with `shell=False`, captures stdout, stderr, exit code,
+  timestamps, output-file evidence, and `command_result_checksum`, and appends
+  one execution audit record only after the process starts.
 - Pre-start blockers append no audit evidence. Nonzero stage exits produce
   terminal failed-stage evidence without retrying, executing a second stage,
   continuing the loop, invoking an executor, or writing Git/GitHub state.
+  Successful stage stdout must be nonempty JSON evidence, and parseable
+  reported side effects must stay within the approved stage policy.
 
 Completed slices:
 - Task 57: controlled loop runner single-stage execution packet.
@@ -60,7 +64,7 @@ Confidence change:
 
 Evidence:
 - Focused `controlled-loop-runner-stage-execute` pytest selection:
-  3 tests passed.
+  8 tests passed.
 - Protocol validator: passed.
 - Package verifier: passed.
 

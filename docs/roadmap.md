@@ -100,7 +100,8 @@ without executing it, then prepare a deterministic stage-execution approval
 target without executing the stage, then verify target-bound operator approval
 for that readiness target without executing the stage, then prepare an exact
 approved stage invocation boundary without starting a process, then execute
-exactly one approved stage command with terminal evidence and one execution
+exactly one approved stage command after rechecking the reviewed boundary
+checksum and saved operator approval, with terminal evidence and one execution
 audit record. It still cannot execute more than one approved runner stage,
 invoke an executor from the runner, retry, close out the executed stage, or
 independently implement code outside approved command evidence, autonomously
@@ -299,12 +300,13 @@ command-policy and active-stop controls. It includes:
 - `controlled-loop-runner-stage-execute` packets that consume completed
   invocation-boundary, stage-execution approval, stage-execution readiness,
   next-stage, runner-start, runner-plan, and dry-run evidence, recheck the full
-  chain and exact boundary checksum, execute exactly one approved stage command
-  with `shell=False`, capture stdout, stderr, exit code, output-file evidence,
-  timestamps, and command-result checksum, append one execution audit record
-  after process start, and stop without invoking an executor, without retrying,
-  without executing a second stage, without continuing the loop, without
-  writing Git/GitHub state, without merging, without releasing, without
+  chain, saved operator approval signature, reviewed boundary checksum, and
+  exact boundary argv/cwd/output/timeout, execute exactly one approved stage
+  command with `shell=False`, capture stdout, stderr, exit code, output-file
+  evidence, timestamps, and command-result checksum, append one execution audit
+  record after process start, and stop without invoking an executor, without
+  retrying, without executing a second stage, without continuing the loop,
+  without writing Git/GitHub state, without merging, without releasing, without
   publishing packages, without assigning roles, and without scheduling agents;
 - controlled `invoke-real-executor` local process-start records,
   `closeout-executor-result --real-invocation-file` binding, and
@@ -671,11 +673,13 @@ boundary-only without starting a process, executing the stage, appending audit
 evidence, invoking an executor, continuing the loop, or writing Git/GitHub
 state.
 `controlled-loop-runner-stage-execute` can then consume the saved boundary plus
-upstream runner evidence, recheck the full chain and exact boundary checksum,
-execute exactly one approved stage command with `shell=False`, capture terminal
-command evidence, write the approved stage output, append one execution audit
-record after process start, and stop without invoking an executor, retrying,
-executing a second stage, continuing the loop, or writing Git/GitHub state.
+upstream runner evidence, recheck the full chain, saved operator approval
+signature, reviewed boundary checksum, and exact boundary argv, cwd, output,
+and timeout, execute exactly one approved stage command with `shell=False`, capture
+terminal command evidence, write the approved stage output, append one
+execution audit record after process start, and stop without invoking an
+executor, retrying, executing a second stage, continuing the loop, or writing
+Git/GitHub state.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,

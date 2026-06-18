@@ -2201,8 +2201,9 @@ and allowed side effects. The packet also emits
 `invocation_boundary_checksum`, records file/checksum anchors for the
 stage-execution approval, stage-execution readiness, next-stage, runner-start,
 runner-plan, and dry-run inputs, and records the planned stage output file
-path. The current `loop-run-plan` boundary argv includes `--discovery-mode off`
-so the argv is parser-valid without `--intent`. The planned output path must
+path. The current `loop-run-plan` boundary argv starts with the current Python
+executable and `-m codex_cadence.cli`, and includes `--discovery-mode off` so
+the argv is parser-valid without `--intent`. The planned output path must
 have an existing directory parent and must not be an existing directory.
 
 The command starts no process, executes no runner stage, invokes no executor,
@@ -2253,20 +2254,24 @@ and `operator_approval_operator_mismatch`.
 `controlled-loop-runner-stage-execute` is the controlled single-stage execution
 packet after stage-invocation-boundary review. It reads
 `--controlled-loop-runner-stage-invocation-boundary-file`,
+`--expected-invocation-boundary-checksum`,
 `--controlled-loop-runner-stage-execution-approval-file`,
 `--controlled-loop-runner-stage-execution-readiness-file`,
 `--controlled-loop-runner-next-stage-file`,
 `--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
-`--controlled-loop-runner-dry-run-file`, and optional `--stage-number`. It
-requires a runtime `--root` for the execution audit record. Before process
+`--controlled-loop-runner-dry-run-file`, `--expected-operator-id`,
+`--approval-secret` or `--approval-secret-env`, and optional `--stage-number`.
+It requires a runtime `--root` for the execution audit record. Before process
 start, it revalidates the upstream runner start/plan/dry-run chain, rereads
 the next-stage, readiness, approval, and invocation-boundary packets, verifies
-their file/checksum anchors, confirms the stage-execution approval remains
-operator-approved for purpose `controlled_loop_runner_stage_execution`, and
-requires the invocation boundary checksum plus exact argv, normalized
-arguments, fixed cwd policy, stdout JSON output policy, finite timeout,
-execution authority, and allowed side-effect policy to match the approved
-runner plan.
+their file/checksum anchors, re-verifies the saved operator approval signature,
+purpose, target checksum, and expected operator through the shared
+operator-approval verifier, confirms the approval remains operator-approved for
+purpose `controlled_loop_runner_stage_execution`, and requires the invocation
+boundary checksum to match `--expected-invocation-boundary-checksum`. It also
+requires the exact argv, normalized arguments, fixed cwd policy, stdout JSON
+output policy, finite timeout, execution authority, and allowed side-effect
+policy to match the approved runner plan.
 
 When pre-start validation passes, the command invokes exactly one stage command
 using the boundary `argv`, boundary fixed `cwd`, `capture_output=True`,
@@ -2277,8 +2282,9 @@ return code, timestamps, timeout state, and `shell: false` in
 `controlled_runner_stage_execution` audit record with the stage number,
 boundary checksum, approval checksum, readiness checksum, command-result
 checksum, output path, return code, and timeout state. Successful stage stdout
-that declares `side_effects` must stay within the approved stage's
-`allowed_side_effects_when_executed`.
+must be nonempty JSON evidence. Stage stdout that declares `side_effects` must
+stay within the approved stage's `allowed_side_effects_when_executed`, even
+when the stage exits nonzero.
 
 The valid packet is
 `controlled-loop-runner-stage-execution.v1` with
@@ -2308,16 +2314,24 @@ roles, or schedule agents. Stable blockers include
 `controlled_runner_stage_execution_boundary_packet_mismatch`,
 `controlled_runner_stage_execution_boundary_not_completed`,
 `controlled_runner_stage_execution_boundary_checksum_mismatch`,
+`controlled_runner_stage_execution_expected_boundary_checksum_mismatch`,
 `controlled_runner_stage_execution_boundary_selected_stage_mismatch`,
+`controlled_runner_stage_execution_runtime_root_unsafe`,
 `controlled_runner_stage_execution_cwd_invalid`,
 `controlled_runner_stage_execution_output_file_invalid`,
 `controlled_runner_stage_execution_timeout_invalid`,
 `controlled_runner_stage_execution_argv_invalid`,
 `controlled_runner_stage_execution_unapproved_command`,
+`controlled_runner_stage_execution_stdout_missing`,
 `controlled_runner_stage_execution_stdout_not_json`,
+`controlled_runner_stage_execution_stage_side_effects_invalid`,
 `controlled_runner_stage_execution_undeclared_side_effects`,
+`controlled_runner_stage_execution_process_start_failed`,
 `controlled_runner_stage_execution_output_write_failed`, and
-`controlled_runner_stage_execution_audit_append_failed`.
+`controlled_runner_stage_execution_audit_append_failed`, plus shared
+`operator_approval_*` blockers from the operator-approval verifier such as
+`operator_approval_secret_missing`, `operator_approval_signature_invalid`,
+`operator_approval_target_mismatch`, and `operator_approval_operator_mismatch`.
 
 ## Git/PR Dry-Run Planning
 
