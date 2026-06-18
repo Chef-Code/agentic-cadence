@@ -2333,6 +2333,86 @@ roles, or schedule agents. Stable blockers include
 `operator_approval_secret_missing`, `operator_approval_signature_invalid`,
 `operator_approval_target_mismatch`, and `operator_approval_operator_mismatch`.
 
+`controlled-loop-runner-stage-closeout` is the read-only terminal closeout for
+one saved runner-stage execution. It reads
+`--controlled-loop-runner-stage-execution-file`,
+`--controlled-loop-runner-stage-invocation-boundary-file`,
+`--controlled-loop-runner-stage-execution-approval-file`,
+`--controlled-loop-runner-stage-execution-readiness-file`,
+`--controlled-loop-runner-next-stage-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, `--expected-operator-id`,
+`--approval-secret` or `--approval-secret-env`, optional `--stage-output-file`,
+and optional `--stage-number`. It consumes already-recorded evidence only. The
+command must not start a process, execute a runner stage, invoke or retry an
+executor, execute a second stage, select another stage, continue the loop,
+append audit evidence, execute Git commands, call GitHub APIs, create branches,
+commit, push, create PRs, merge, release, publish packages, assign roles, or
+schedule agents.
+
+Closeout rereads the full runner chain and reuses the same upstream validation
+as stage execution: runner plan, dry-run, runner start, next-stage,
+stage-execution readiness, stage-execution approval, invocation boundary, and
+the saved operator approval must remain anchored by their recorded file and
+checksum fields. The operator approval is verified through the shared
+approval-secret-backed signature verifier, must have purpose
+`controlled_loop_runner_stage_execution`, must match the expected operator,
+and its target checksum must match
+`stage_execution_approval_target_checksum`. The stage execution packet must be
+`controlled-loop-runner-stage-execution.v1` for the same selected stage,
+boundary checksum, approval checksum, readiness checksum, next-stage checksum,
+runner-start checksum, runner-plan checksum, dry-run checksum, argv, cwd,
+timeout, output policy, output file, and `command_result_checksum`.
+
+When the invocation boundary uses stdout JSON output evidence, closeout derives
+the expected output path from that boundary policy. If the stage execution is
+completed, the approved output file must exist, match the expected path, match
+the captured stdout byte-for-byte after the same text capture semantics, and
+parse as a nonempty JSON object. A failed stage may close out with empty stdout
+when the terminal execution evidence is otherwise consistent; it is not
+retried and no continuation is selected.
+
+A valid closeout emits
+`controlled-loop-runner-stage-closeout.v1` with
+`packet: controlled_loop_runner_stage_closeout`, `read_only: true`,
+`side_effects: []`, `audit_evidence_appended: false`, the selected stage,
+references to every consumed packet and checksum, output evidence when
+required, and `stage_closeout_status`. `stage_closeout_status` is `completed`
+for a consistent successful stage execution, `failed` for a consistent
+terminal failed stage execution, and `blocked` when closeout evidence is
+missing, mutated, stale, or inconsistent. Completed and blocked closeouts
+recommend `plan_controlled_runner_stage_outcome`; failed closeouts recommend
+`inspect_controlled_runner_stage_failure`. Closeout does not grant runner,
+executor, continuation, Git/GitHub, merge, release, package publication, role,
+or scheduling authority.
+
+Stable blockers include
+`controlled_runner_stage_closeout_execution_evidence_missing`,
+`controlled_runner_stage_closeout_boundary_evidence_missing`,
+`controlled_runner_stage_closeout_approval_evidence_missing`,
+`controlled_runner_stage_closeout_readiness_evidence_missing`,
+`controlled_runner_stage_closeout_next_stage_evidence_missing`,
+`controlled_runner_stage_closeout_execution_file_mismatch`,
+`controlled_runner_stage_closeout_execution_checksum_mismatch`,
+`controlled_runner_stage_closeout_execution_packet_mismatch`,
+`controlled_runner_stage_closeout_root_missing`,
+`controlled_runner_stage_closeout_execution_status_invalid`,
+`controlled_runner_stage_closeout_execution_not_started`,
+`controlled_runner_stage_closeout_command_result_missing`,
+`controlled_runner_stage_closeout_command_result_checksum_mismatch`,
+`controlled_runner_stage_closeout_stage_output_missing`,
+`controlled_runner_stage_closeout_stage_output_file_mismatch`,
+`controlled_runner_stage_closeout_stage_output_checksum_mismatch`,
+`controlled_runner_stage_closeout_stage_output_not_json`,
+`controlled_runner_stage_closeout_selected_stage_mismatch`,
+`controlled_runner_stage_closeout_approval_target_checksum_mismatch`,
+`controlled_runner_stage_closeout_boundary_checksum_mismatch`, and rewritten
+upstream stage-boundary, stage-approval, and stage-readiness blockers, plus
+shared `operator_approval_*` blockers from the operator-approval verifier such
+as `operator_approval_secret_missing`,
+`operator_approval_signature_invalid`, `operator_approval_target_mismatch`,
+and `operator_approval_operator_mismatch`.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from
