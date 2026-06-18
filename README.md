@@ -57,6 +57,7 @@ read-only `controlled-loop-runner-start-approval`,
 controlled `controlled-loop-runner-start`,
 read-only `controlled-loop-runner-next-stage`,
 read-only `controlled-loop-runner-stage-execution-readiness`,
+read-only `controlled-loop-runner-stage-execution-approval`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -113,7 +114,10 @@ runner-plan, and dry-run packets before selecting the first runner command
 stage without executing it, and
 `controlled-loop-runner-stage-execution-readiness` evidence that rechecks the
 selected stage and upstream runner chain before preparing a deterministic
-stage-execution approval target without executing the stage.
+stage-execution approval target without executing the stage, and
+`controlled-loop-runner-stage-execution-approval` evidence that verifies a
+target-bound operator approval for that readiness target without starting the
+stage or invoking an executor.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -473,7 +477,8 @@ Stable blocker codes include `operator_approval_file_unreadable`,
 `operator_approval_invalid`, `operator_approval_schema_invalid`,
 `operator_approval_target_invalid`, `operator_approval_target_mismatch`,
 `operator_approval_purpose_missing`, `operator_approval_purpose_mismatch`,
-`operator_approval_operator_missing`, `operator_approval_key_id_weak`,
+`operator_approval_operator_missing`, `operator_approval_operator_mismatch`,
+`operator_approval_expected_operator_invalid`, `operator_approval_key_id_weak`,
 `operator_approval_timestamp_invalid`, `operator_approval_window_too_long`,
 `operator_approval_expired`, `operator_approval_issued_in_future`,
 `operator_approval_signature_invalid`, `operator_approval_secret_missing`, and
@@ -773,8 +778,31 @@ agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-st
 Completed readiness packets recommend
 `review_controlled_runner_stage_execution_readiness`, set
 `next_controlled_action: approve_controlled_runner_stage_execution`, include a
-deterministic `stage_execution_approval_target_checksum`, and append no audit
-evidence.
+deterministic `stage_execution_approval_target_checksum` that binds the
+readiness timestamp, selected stage, and upstream runner checksums, and append
+no audit evidence.
+
+`controlled-loop-runner-stage-execution-approval` consumes saved completed
+`controlled-loop-runner-stage-execution-readiness.v1`,
+`controlled-loop-runner-next-stage.v1`, `controlled-loop-runner-start.v1`,
+`controlled-loop-runner-plan.v1`, `controlled-loop-runner-dry-run.v1`, and a
+target-bound `operator-approval.v1` packet. It rechecks the full upstream
+runner chain, verifies the approval signature with the local approval secret,
+requires purpose `controlled_loop_runner_stage_execution`, requires
+`--expected-operator-id` to match the signed approval operator, and requires
+the approval target checksum to match the readiness packet's
+`stage_execution_approval_target_checksum`:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-execution-approval --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-file controlled-loop-runner-next-stage.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --approval-file operator-approval-controlled-runner-stage-execution.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET
+```
+
+Completed approval packets recommend
+`review_controlled_runner_stage_execution_approval`, set
+`next_controlled_action: prepare_controlled_runner_stage_invocation_boundary`,
+preserve approval identity/signature evidence plus the expected operator
+binding, and append no audit evidence. They do not start a runner stage,
+invoke or retry an executor, continue the loop, or write Git/GitHub state.
 
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor
@@ -1275,6 +1303,19 @@ converts the selected stage to `ready_for_approval_not_executed`, recommends
 `next_controlled_action: approve_controlled_runner_stage_execution`, emits a
 deterministic `stage_execution_approval_target_checksum`, and appends no audit
 evidence.
+
+`controlled-loop-runner-stage-execution-approval` is the read-only approval
+packet after stage-execution readiness. It consumes the saved readiness,
+next-stage, runner-start, runner-plan, dry-run, and `operator-approval.v1`
+packets, revalidates the runner chain, verifies the approval through the same
+approval-secret-backed signature verifier used by other approval-gated packets,
+requires purpose `controlled_loop_runner_stage_execution`, requires the signed
+operator id to match `--expected-operator-id`, and requires the approval target
+checksum to match `stage_execution_approval_target_checksum`.
+Valid packets mark the selected stage as `approved_not_executed`, recommend
+`review_controlled_runner_stage_execution_approval`, and still append no audit
+evidence or start any stage, executor, loop continuation, Git/GitHub write,
+merge, release, publication, role assignment, or agent scheduling.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can

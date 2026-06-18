@@ -1164,14 +1164,16 @@ An `operator-approval.v1` packet must include `target_checksum`, `purpose`,
 `operator_id`, `key_id`, `issued_at`, `expires_at`, and `signature`. The
 verifier rejects unreadable or non-object approval packets, wrong schema,
 malformed or mismatched target checksums, missing or unsupported purposes,
-missing operator identity, weak key ids, malformed or reversed timestamps,
-validity windows longer than 60 minutes, expired approvals, future-issued
-approvals, missing verification secret, invalid signatures, and audit append
-failures with stable blockers: `operator_approval_file_unreadable`,
+missing operator identity, caller-supplied expected operator mismatches, weak
+key ids, malformed or reversed timestamps, validity windows longer than 60
+minutes, expired approvals, future-issued approvals, missing verification
+secret, invalid signatures, and audit append failures with stable blockers:
+`operator_approval_file_unreadable`,
 `operator_approval_invalid`, `operator_approval_schema_invalid`,
 `operator_approval_target_invalid`, `operator_approval_target_mismatch`,
 `operator_approval_purpose_missing`, `operator_approval_purpose_mismatch`,
-`operator_approval_operator_missing`, `operator_approval_key_id_weak`,
+`operator_approval_operator_missing`, `operator_approval_operator_mismatch`,
+`operator_approval_expected_operator_invalid`, `operator_approval_key_id_weak`,
 `operator_approval_timestamp_invalid`, `operator_approval_window_too_long`,
 `operator_approval_expired`, `operator_approval_issued_in_future`,
 `operator_approval_secret_missing`, `operator_approval_signature_invalid`, and
@@ -2064,7 +2066,9 @@ the Task 53 selected stage into `stage_status:
 ready_for_approval_not_executed`, sets `execution_authority:
 operator_approval_required`, and emits `stage_execution_approval_target` plus
 `stage_execution_approval_target_checksum` for a later operator-approval
-slice.
+slice. The approval target binds the approval purpose, selected stage number,
+selected command, readiness `generated_at` timestamp, upstream runner packet
+checksums, and selected-stage checksum.
 
 The command starts no runner stage, invokes no executor, retries no executor,
 continues no loop, appends no audit evidence, executes no Git commands, calls
@@ -2086,6 +2090,72 @@ schedules no agents. Stable blockers include
 `controlled_runner_stage_execution_readiness_controlled_loop_runner_dry_run_file_mismatch`,
 and
 `controlled_runner_stage_execution_readiness_controlled_loop_runner_dry_run_checksum_mismatch`.
+
+`controlled-loop-runner-stage-execution-approval` is the read-only approval
+packet after stage-execution readiness. It reads
+`--controlled-loop-runner-stage-execution-readiness-file`,
+`--controlled-loop-runner-next-stage-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, `--approval-file`,
+`--expected-operator-id`, `--approval-secret-env` or `--approval-secret`, and
+optional `--stage-number`.
+It revalidates the full runner chain, rereads the readiness packet, and
+verifies the supplied `operator-approval.v1` through the shared
+`build_operator_approval_verification_packet` path without appending audit
+evidence. The approval must use purpose
+`controlled_loop_runner_stage_execution`, must have an approval-secret-backed
+valid signature, its `operator_id` must match `--expected-operator-id`, and
+its `target_checksum` must match the readiness packet's
+`stage_execution_approval_target_checksum`.
+
+When valid, the command emits
+`controlled-loop-runner-stage-execution-approval.v1` with
+`packet: controlled_loop_runner_stage_execution_approval`, `read_only: true`,
+`approval_status: completed`, `runner_stage_execution_authority:
+operator_approved_not_executed`, `runner_started: true`,
+`stage_execution_started: false`, `executor_started: false`, and
+`loop_continuation_started: false`. It preserves the operator approval file,
+checksum, target checksum, approval target checksum, purpose, approval purpose,
+expected operator id, operator id, key id, issued/expires timestamps,
+signature, and signature verification state. It marks the selected stage as
+`approved_not_executed` and sets `next_controlled_action:
+prepare_controlled_runner_stage_invocation_boundary`.
+
+The command starts no runner stage, invokes no executor, retries no executor,
+continues no loop, appends no audit evidence, executes no Git commands, calls
+no GitHub APIs, creates no branches, commits, pushes, creates no PRs, merges
+no PRs, releases no artifacts, publishes no packages, assigns no roles, and
+schedules no agents. Stable blockers include
+`controlled_runner_stage_execution_approval_readiness_evidence_missing`,
+`controlled_runner_stage_execution_approval_readiness_packet_mismatch`,
+`controlled_runner_stage_execution_approval_readiness_not_ready`,
+`controlled_runner_stage_execution_approval_readiness_authority_flags_invalid`,
+`controlled_runner_stage_execution_approval_readiness_generated_at_invalid`,
+`controlled_runner_stage_execution_approval_readiness_envelope_mismatch`,
+`controlled_runner_stage_execution_approval_readiness_limitations_invalid`,
+`controlled_runner_stage_execution_approval_readiness_selected_stage_mismatch`,
+`controlled_runner_stage_execution_approval_readiness_next_stage_file_mismatch`,
+`controlled_runner_stage_execution_approval_readiness_next_stage_checksum_mismatch`,
+`controlled_runner_stage_execution_approval_readiness_start_file_mismatch`,
+`controlled_runner_stage_execution_approval_readiness_start_checksum_mismatch`,
+`controlled_runner_stage_execution_approval_readiness_plan_file_mismatch`,
+`controlled_runner_stage_execution_approval_readiness_plan_checksum_mismatch`,
+`controlled_runner_stage_execution_approval_readiness_dry_run_file_mismatch`,
+`controlled_runner_stage_execution_approval_readiness_dry_run_checksum_mismatch`,
+`controlled_runner_stage_execution_approval_target_missing`,
+`controlled_runner_stage_execution_approval_target_checksum_mismatch`,
+`controlled_runner_stage_execution_approval_target_purpose_mismatch`,
+`controlled_runner_stage_execution_approval_target_mismatch`,
+`controlled_runner_stage_execution_approval_next_stage_evidence_missing`,
+`controlled_runner_stage_execution_approval_upstream_invalid`, and the
+`operator_approval_*` blockers emitted by `operator-approval.v1`
+verification, including `operator_approval_file_unreadable`,
+`operator_approval_target_mismatch`,
+`operator_approval_purpose_mismatch`, `operator_approval_expired`,
+`operator_approval_issued_in_future`, `operator_approval_operator_missing`,
+`operator_approval_operator_mismatch`,
+`operator_approval_expected_operator_invalid`,
+`operator_approval_secret_missing`, and `operator_approval_signature_invalid`.
 
 ## Git/PR Dry-Run Planning
 
