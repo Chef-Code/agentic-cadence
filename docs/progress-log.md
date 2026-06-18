@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-16
+Last updated: 2026-06-17
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,45 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-17 - Read-only controlled runner stage-execution readiness
+
+Summary:
+- Added `controlled-loop-runner-stage-execution-readiness` to consume saved
+  completed next-stage, runner-start, runner-plan, and dry-run packets.
+- The command rechecks the upstream chain and selected stage, then emits a
+  deterministic approval target for stage 1 without executing it.
+- Completed readiness packets append no audit evidence and still do not invoke
+  an executor, continue a loop, write Git/GitHub state, merge, release,
+  publish packages, assign roles, or schedule agents.
+
+Completed slices:
+- Task 54: read-only controlled loop runner stage-execution readiness packet.
+
+Confidence change:
+- Previous: 48%
+- New: 49%
+- Reason: Cadence can now turn a reviewed next-stage selection into an exact
+  approval target for future stage execution, but it still does not execute the
+  selected stage or continue unattended.
+
+Evidence:
+- Focused `controlled-loop-runner-stage-execution-readiness` unittest set: 4
+  tests passed.
+
+New risks or blockers:
+- Actual stage execution, executor invocation from the runner, continuous loop
+  execution, autonomous executor retry, Git/GitHub writes, merge authority,
+  release publication, role assignment, and agent scheduling remain out of
+  scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
 
 ## 2026-06-16 - Read-only controlled runner next-stage selection
 

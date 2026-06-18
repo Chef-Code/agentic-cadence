@@ -2042,6 +2042,50 @@ nested diagnostic `audit_blockers` with codes
 `controlled_runner_next_stage_start_audit_field_mismatch`, and
 `controlled_runner_next_stage_start_audit_payload_checksum_mismatch`.
 
+`controlled-loop-runner-stage-execution-readiness` is the read-only approval
+target packet after controlled runner next-stage selection. It reads
+`--controlled-loop-runner-next-stage-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, and optional `--stage-number`.
+Task 54 only supports `--stage-number 1`. It verifies the saved next-stage
+packet is `controlled-loop-runner-next-stage.v1`, valid, read-only, selected,
+and still bound to the supplied start, runner-plan, and dry-run packets. It
+also revalidates the upstream runner-start, runner-plan, and dry-run chain so
+the selected stage cannot be approved from stale evidence.
+
+When valid, the command emits
+`controlled-loop-runner-stage-execution-readiness.v1` with
+`packet: controlled_loop_runner_stage_execution_readiness`,
+`read_only: true`, `runner_stage_execution_readiness_status: ready`,
+`runner_started: true`, `stage_execution_started: false`,
+`executor_started: false`, and `loop_continuation_started: false`. It converts
+the Task 53 selected stage into `stage_status:
+ready_for_approval_not_executed`, sets `execution_authority:
+operator_approval_required`, and emits `stage_execution_approval_target` plus
+`stage_execution_approval_target_checksum` for a later operator-approval
+slice.
+
+The command starts no runner stage, invokes no executor, retries no executor,
+continues no loop, appends no audit evidence, executes no Git commands, calls
+no GitHub APIs, creates no branches, commits, pushes, creates no PRs, merges
+no PRs, releases no artifacts, publishes no packages, assigns no roles, and
+schedules no agents. Stable blockers include
+`controlled_runner_stage_execution_readiness_next_stage_evidence_missing`,
+`controlled_runner_stage_execution_readiness_next_stage_packet_mismatch`,
+`controlled_runner_stage_execution_readiness_next_stage_not_selected`,
+`controlled_runner_stage_execution_readiness_next_stage_authority_flags_invalid`,
+`controlled_runner_stage_execution_readiness_next_stage_limitations_missing`,
+`controlled_runner_stage_execution_readiness_next_stage_limitations_invalid`,
+`controlled_runner_stage_execution_readiness_next_stage_selected_stage_mismatch`,
+`controlled_runner_stage_execution_readiness_upstream_invalid`,
+`controlled_runner_stage_execution_readiness_controlled_loop_runner_start_file_mismatch`,
+`controlled_runner_stage_execution_readiness_controlled_loop_runner_start_checksum_mismatch`,
+`controlled_runner_stage_execution_readiness_controlled_loop_runner_plan_file_mismatch`,
+`controlled_runner_stage_execution_readiness_controlled_loop_runner_plan_checksum_mismatch`,
+`controlled_runner_stage_execution_readiness_controlled_loop_runner_dry_run_file_mismatch`,
+and
+`controlled_runner_stage_execution_readiness_controlled_loop_runner_dry_run_checksum_mismatch`.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from
