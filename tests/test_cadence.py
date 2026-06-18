@@ -7290,6 +7290,70 @@ class CadenceCliTests(unittest.TestCase):
             args.extend(["--approval-secret-env", str(values["approval_secret_env"])])
         return run_cli(tmp, *args)
 
+    def write_controlled_loop_runner_stage_invocation_boundary_chain(self, tmp, repo):
+        chain = self.write_controlled_loop_runner_stage_execution_approval_chain(tmp, repo)
+        approval_result, approval_evidence = self.run_controlled_loop_runner_stage_execution_approval_cli(tmp, chain)
+        self.assertEqual(approval_result.returncode, 0, approval_result.stderr)
+        approval_evidence_path = Path(tmp) / "controlled-loop-runner-stage-execution-approval.json"
+        approval_evidence_path.write_text(json.dumps(approval_evidence), encoding="utf-8")
+        chain["controlled_loop_runner_stage_execution_approval_evidence_path"] = approval_evidence_path
+        chain["controlled_loop_runner_stage_execution_approval_evidence"] = approval_evidence
+        chain["stage_cwd"] = Path(repo)
+        chain["stage_output_file"] = Path(tmp) / "controlled-loop-runner-stage-output.json"
+        return chain
+
+    def run_controlled_loop_runner_stage_invocation_boundary_cli(self, tmp, chain, **overrides):
+        values = {
+            "controlled_loop_runner_stage_execution_approval_file": chain[
+                "controlled_loop_runner_stage_execution_approval_evidence_path"
+            ],
+            "controlled_loop_runner_stage_execution_readiness_file": chain[
+                "controlled_loop_runner_stage_execution_readiness_path"
+            ],
+            "controlled_loop_runner_next_stage_file": chain["controlled_loop_runner_next_stage_path"],
+            "controlled_loop_runner_start_file": chain["controlled_loop_runner_start_path"],
+            "controlled_loop_runner_plan_file": chain["controlled_loop_runner_plan_path"],
+            "controlled_loop_runner_dry_run_file": chain["controlled_loop_runner_dry_run_path"],
+            "stage_cwd": chain["stage_cwd"],
+            "stage_output_file": chain["stage_output_file"],
+            "stage_timeout_seconds": 300,
+            "expected_operator_id": "operator@example.test",
+            "approval_secret": OPERATOR_APPROVAL_SECRET,
+            "approval_secret_env": None,
+            "stage_number": 1,
+        }
+        values.update(overrides)
+        args = [
+            "controlled-loop-runner-stage-invocation-boundary",
+            "--controlled-loop-runner-stage-execution-approval-file",
+            str(values["controlled_loop_runner_stage_execution_approval_file"]),
+            "--controlled-loop-runner-stage-execution-readiness-file",
+            str(values["controlled_loop_runner_stage_execution_readiness_file"]),
+            "--controlled-loop-runner-next-stage-file",
+            str(values["controlled_loop_runner_next_stage_file"]),
+            "--controlled-loop-runner-start-file",
+            str(values["controlled_loop_runner_start_file"]),
+            "--controlled-loop-runner-plan-file",
+            str(values["controlled_loop_runner_plan_file"]),
+            "--controlled-loop-runner-dry-run-file",
+            str(values["controlled_loop_runner_dry_run_file"]),
+            "--stage-cwd",
+            str(values["stage_cwd"]),
+            "--stage-output-file",
+            str(values["stage_output_file"]),
+            "--stage-timeout-seconds",
+            str(values["stage_timeout_seconds"]),
+            "--expected-operator-id",
+            str(values["expected_operator_id"]),
+            "--stage-number",
+            str(values["stage_number"]),
+        ]
+        if values["approval_secret"] is not None:
+            args.extend(["--approval-secret", str(values["approval_secret"])])
+        if values["approval_secret_env"] is not None:
+            args.extend(["--approval-secret-env", str(values["approval_secret_env"])])
+        return run_cli(tmp, *args)
+
     def write_controlled_loop_runner_next_stage_forged_start(
         self,
         tmp,
@@ -10932,6 +10996,403 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIn("does_not_execute_runner_stage", output["limitations"])
             self.assertIn("does_not_write_git_or_github_state", output["limitations"])
             self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_invocation_boundary_prepares_exact_boundary_without_execution(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_invocation_boundary_chain(tmp, repo)
+            audit_before = audit_records(tmp)
+            runtime_before = runtime_tree_manifest(tmp)
+
+            result, output = self.run_controlled_loop_runner_stage_invocation_boundary_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(output["schema_version"], "controlled-loop-runner-stage-invocation-boundary.v1")
+            self.assertEqual(output["packet"], "controlled_loop_runner_stage_invocation_boundary")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["boundary_status"], "completed")
+            self.assertEqual(output["runner_stage_execution_authority"], "boundary_prepared_not_started")
+            self.assertTrue(output["runner_started"])
+            for flag in [
+                "stage_execution_started",
+                "process_started",
+                "executor_started",
+                "epoch_started",
+                "pr_action_started",
+                "github_write_started",
+                "merge_started",
+                "release_started",
+                "package_publication_started",
+                "role_assignment_started",
+                "agent_scheduling_started",
+                "loop_continuation_started",
+            ]:
+                self.assertFalse(output[flag], flag)
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(output["recommended_next_action"], "review_controlled_runner_stage_invocation_boundary")
+            self.assertEqual(output["next_controlled_action"], "execute_approved_runner_stage_once")
+            self.assertEqual(output["selected_stage"]["step"], 1)
+            self.assertEqual(output["selected_stage"]["command"], "loop-run-plan")
+            self.assertEqual(output["selected_stage"]["stage_status"], "boundary_prepared_not_started")
+            self.assertEqual(output["selected_stage"]["source_stage_status"], "approved_not_executed")
+            self.assertEqual(output["selected_stage"]["execution_authority"], "read_only")
+            self.assertEqual(output["selected_stage"]["allowed_side_effects_when_executed"], [])
+            boundary = output["invocation_boundary"]
+            self.assertEqual(boundary["stage_number"], 1)
+            self.assertEqual(boundary["command_name"], "loop-run-plan")
+            self.assertEqual(
+                boundary["argv"],
+                [
+                    "agentic-cadence",
+                    "--root",
+                    str(Path(tmp).resolve()),
+                    "loop-run-plan",
+                    "--cwd",
+                    str(Path(repo).resolve()),
+                    "--discovery-mode",
+                    "off",
+                ],
+            )
+            self.assertEqual(
+                boundary["normalized_arguments"],
+                {"cwd": str(Path(repo).resolve()), "discovery_mode": "off"},
+            )
+            import codex_cadence.cli as cadence_cli
+
+            parsed_boundary_args = cadence_cli.build_parser().parse_args(boundary["argv"][1:])
+            self.assertEqual(parsed_boundary_args.command, "loop-run-plan")
+            self.assertEqual(parsed_boundary_args.discovery_mode, "off")
+            self.assertIsNone(parsed_boundary_args.intent)
+            self.assertEqual(
+                boundary["working_directory_policy"],
+                {"mode": "fixed", "cwd": str(Path(repo).resolve()), "must_exist": True},
+            )
+            self.assertEqual(
+                boundary["evidence_output_policy"],
+                {
+                    "mode": "capture_stdout_json",
+                    "output_file": str(chain["stage_output_file"]),
+                    "expected_evidence_files": ["loop_run_plan", "loop_tick", "task"],
+                },
+            )
+            self.assertEqual(boundary["timeout_policy"], {"timeout_seconds": 300, "finite": True})
+            self.assertEqual(boundary["execution_authority"], "read_only")
+            self.assertEqual(boundary["allowed_side_effects_when_executed"], [])
+            self.assertEqual(output["invocation_boundary_checksum"], checksum_json(boundary))
+            self.assertEqual(
+                output["controlled_loop_runner_stage_execution_approval"]["checksum"],
+                checksum_json(chain["controlled_loop_runner_stage_execution_approval_evidence"]),
+            )
+            self.assertEqual(
+                output["limitations"],
+                [
+                    "invocation_boundary_only",
+                    "does_not_start_process",
+                    "does_not_execute_runner_stage",
+                    "does_not_start_executor",
+                    "does_not_invoke_executor",
+                    "does_not_retry_executor",
+                    "does_not_continue_loop",
+                    "does_not_append_audit",
+                    "does_not_write_git_or_github_state",
+                    "does_not_execute_git_commands",
+                    "does_not_call_github",
+                    "does_not_create_branch",
+                    "does_not_commit",
+                    "does_not_push",
+                    "does_not_create_pr",
+                    "does_not_merge",
+                    "does_not_release",
+                    "does_not_publish_packages",
+                    "does_not_assign_roles",
+                    "does_not_schedule_agents",
+                ],
+            )
+            self.assertEqual(output["blockers"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+            self.assertFalse(chain["stage_output_file"].exists())
+
+            second_result, second_output = self.run_controlled_loop_runner_stage_invocation_boundary_cli(tmp, chain)
+
+            self.assertEqual(second_result.returncode, 0, second_result.stderr)
+            self.assertEqual(
+                second_output["invocation_boundary_checksum"],
+                output["invocation_boundary_checksum"],
+            )
+
+    def test_controlled_loop_runner_stage_invocation_boundary_blocks_mutated_chain_or_policy(self):
+        def mutate_approval_command(chain):
+            approval = json.loads(chain["controlled_loop_runner_stage_execution_approval_evidence_path"].read_text(encoding="utf-8"))
+            approval["selected_stage"]["command"] = "controlled-loop-tick"
+            chain["controlled_loop_runner_stage_execution_approval_evidence_path"].write_text(
+                json.dumps(approval),
+                encoding="utf-8",
+            )
+
+        def mutate_runner_plan_side_effect_policy(chain):
+            runner_plan = json.loads(chain["controlled_loop_runner_plan_path"].read_text(encoding="utf-8"))
+            runner_plan["runner_plan"]["planned_steps"][0].pop("allowed_side_effects_when_executed", None)
+            chain["controlled_loop_runner_plan_path"].write_text(json.dumps(runner_plan), encoding="utf-8")
+
+        def mutate_runner_plan_execution_authority(chain):
+            runner_plan = json.loads(chain["controlled_loop_runner_plan_path"].read_text(encoding="utf-8"))
+            runner_plan["runner_plan"]["planned_steps"][0].pop("execution_authority", None)
+            chain["controlled_loop_runner_plan_path"].write_text(json.dumps(runner_plan), encoding="utf-8")
+
+        def mutate_runner_plan_command(chain):
+            runner_plan = json.loads(chain["controlled_loop_runner_plan_path"].read_text(encoding="utf-8"))
+            runner_plan["runner_plan"]["planned_steps"][0]["command"] = "unknown-stage-command"
+            chain["controlled_loop_runner_plan_path"].write_text(json.dumps(runner_plan), encoding="utf-8")
+
+        def mutate_operator_approval_signature(chain):
+            operator_approval = json.loads(
+                chain["controlled_loop_runner_stage_execution_approval_path"].read_text(encoding="utf-8")
+            )
+            operator_approval["signature"] = "hmac-sha256:" + "0" * 64
+            chain["controlled_loop_runner_stage_execution_approval_path"].write_text(
+                json.dumps(operator_approval),
+                encoding="utf-8",
+            )
+
+        def mutate_approval_target(chain):
+            approval = json.loads(chain["controlled_loop_runner_stage_execution_approval_evidence_path"].read_text(encoding="utf-8"))
+            approval["stage_execution_approval_target"]["purpose"] = "controlled_loop_runner_start"
+            chain["controlled_loop_runner_stage_execution_approval_evidence_path"].write_text(
+                json.dumps(approval),
+                encoding="utf-8",
+            )
+
+        def use_directory_output_file(chain):
+            chain["stage_output_file"] = chain["stage_cwd"]
+
+        def use_file_parent_output_file(chain):
+            chain["stage_output_file"] = chain["controlled_loop_runner_plan_path"] / "stage-output.json"
+
+        cases = [
+            (
+                "mutated-selected-command",
+                mutate_approval_command,
+                {},
+                "controlled_runner_stage_invocation_boundary_approval_selected_stage_mismatch",
+            ),
+            (
+                "mutated-stage-number",
+                lambda chain: None,
+                {"stage_number": 2},
+                "controlled_runner_stage_invocation_boundary_stage_number_mismatch",
+            ),
+            (
+                "missing-timeout",
+                lambda chain: None,
+                {"stage_timeout_seconds": 0},
+                "controlled_runner_stage_invocation_boundary_timeout_invalid",
+            ),
+            (
+                "directory-output-file",
+                use_directory_output_file,
+                {},
+                "controlled_runner_stage_invocation_boundary_output_file_invalid",
+            ),
+            (
+                "file-parent-output-file",
+                use_file_parent_output_file,
+                {},
+                "controlled_runner_stage_invocation_boundary_output_file_invalid",
+            ),
+            (
+                "unknown-stage-command",
+                mutate_runner_plan_command,
+                {},
+                "controlled_runner_stage_invocation_boundary_unknown_stage_command",
+            ),
+            (
+                "mutated-operator-approval-signature",
+                mutate_operator_approval_signature,
+                {},
+                "operator_approval_signature_invalid",
+            ),
+            (
+                "mutated-approval-target",
+                mutate_approval_target,
+                {},
+                "controlled_runner_stage_invocation_boundary_approval_target_mismatch",
+            ),
+            (
+                "missing-side-effect-policy",
+                mutate_runner_plan_side_effect_policy,
+                {},
+                "controlled_runner_stage_invocation_boundary_side_effect_policy_missing",
+            ),
+            (
+                "missing-execution-authority",
+                mutate_runner_plan_execution_authority,
+                {},
+                "controlled_runner_stage_invocation_boundary_execution_authority_missing",
+            ),
+        ]
+        for name, mutate, overrides, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    chain = self.write_controlled_loop_runner_stage_invocation_boundary_chain(tmp, repo)
+                    mutate(chain)
+                    audit_before = audit_records(tmp)
+                    runtime_before = runtime_tree_manifest(tmp)
+
+                    result, output = self.run_controlled_loop_runner_stage_invocation_boundary_cli(
+                        tmp,
+                        chain,
+                        **overrides,
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIsNotNone(output, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["boundary_status"], "blocked")
+                    self.assertEqual(output["recommended_next_action"], "refresh_controlled_runner_stage_invocation_boundary")
+                    self.assertFalse(output["stage_execution_started"])
+                    self.assertFalse(output["process_started"])
+                    self.assertFalse(output["executor_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertEqual(audit_records(tmp), audit_before)
+                    self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_invocation_boundary_missing_root_blocks_without_default_root(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_invocation_boundary_chain(tmp, repo)
+            audit_before = audit_records(tmp)
+            runtime_before = runtime_tree_manifest(tmp)
+
+            import codex_cadence.cli as cadence_cli
+
+            stdout = StringIO()
+            argv = [
+                "controlled-loop-runner-stage-invocation-boundary",
+                "--controlled-loop-runner-stage-execution-approval-file",
+                str(chain["controlled_loop_runner_stage_execution_approval_evidence_path"]),
+                "--controlled-loop-runner-stage-execution-readiness-file",
+                str(chain["controlled_loop_runner_stage_execution_readiness_path"]),
+                "--controlled-loop-runner-next-stage-file",
+                str(chain["controlled_loop_runner_next_stage_path"]),
+                "--controlled-loop-runner-start-file",
+                str(chain["controlled_loop_runner_start_path"]),
+                "--controlled-loop-runner-plan-file",
+                str(chain["controlled_loop_runner_plan_path"]),
+                "--controlled-loop-runner-dry-run-file",
+                str(chain["controlled_loop_runner_dry_run_path"]),
+                "--stage-cwd",
+                str(chain["stage_cwd"]),
+                "--stage-output-file",
+                str(chain["stage_output_file"]),
+                "--stage-timeout-seconds",
+                "300",
+                "--expected-operator-id",
+                "operator@example.test",
+                "--approval-secret",
+                OPERATOR_APPROVAL_SECRET,
+                "--stage-number",
+                "1",
+            ]
+
+            with mock.patch(
+                "codex_cadence.cli.default_root",
+                side_effect=AssertionError("default root must not be resolved for a blocked boundary"),
+            ):
+                with redirect_stdout(stdout):
+                    try:
+                        code = cadence_cli.main(argv)
+                    except SystemExit as exc:
+                        code = exc.code
+
+            self.assertEqual(code, 2)
+            output = json.loads(stdout.getvalue())
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["boundary_status"], "blocked")
+            self.assertIsNone(output["invocation_boundary"])
+            self.assertIn(
+                "controlled_runner_stage_invocation_boundary_root_missing",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertNotIn("audit_record", output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_invocation_boundary_does_not_execute_subprocesses_or_append_audit(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_invocation_boundary_chain(tmp, repo)
+            audit_before = audit_records(tmp)
+            runtime_before = runtime_tree_manifest(tmp)
+
+            import codex_cadence.cli as cadence_cli
+
+            stdout = StringIO()
+            argv = [
+                "--root",
+                str(tmp),
+                "controlled-loop-runner-stage-invocation-boundary",
+                "--controlled-loop-runner-stage-execution-approval-file",
+                str(chain["controlled_loop_runner_stage_execution_approval_evidence_path"]),
+                "--controlled-loop-runner-stage-execution-readiness-file",
+                str(chain["controlled_loop_runner_stage_execution_readiness_path"]),
+                "--controlled-loop-runner-next-stage-file",
+                str(chain["controlled_loop_runner_next_stage_path"]),
+                "--controlled-loop-runner-start-file",
+                str(chain["controlled_loop_runner_start_path"]),
+                "--controlled-loop-runner-plan-file",
+                str(chain["controlled_loop_runner_plan_path"]),
+                "--controlled-loop-runner-dry-run-file",
+                str(chain["controlled_loop_runner_dry_run_path"]),
+                "--stage-cwd",
+                str(chain["stage_cwd"]),
+                "--stage-output-file",
+                str(chain["stage_output_file"]),
+                "--stage-timeout-seconds",
+                "300",
+                "--expected-operator-id",
+                "operator@example.test",
+                "--approval-secret",
+                OPERATOR_APPROVAL_SECRET,
+                "--stage-number",
+                "1",
+            ]
+
+            with mock.patch("subprocess.run", side_effect=AssertionError("subprocess execution is not allowed")):
+                with mock.patch(
+                    "codex_cadence.cli.append_audit_record",
+                    side_effect=AssertionError("audit append is not allowed"),
+                ):
+                    with redirect_stdout(stdout):
+                        try:
+                            code = cadence_cli.main(argv)
+                        except SystemExit as exc:
+                            code = exc.code
+
+            self.assertEqual(code, 0)
+            output = json.loads(stdout.getvalue())
+            self.assertTrue(output["valid"], output["blockers"])
+            self.assertIn("invocation_boundary_only", output["limitations"])
+            self.assertIn("does_not_retry_executor", output["limitations"])
+            self.assertIn("does_not_write_git_or_github_state", output["limitations"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["github_write_started"])
+            self.assertFalse(output["merge_started"])
+            self.assertFalse(output["release_started"])
+            self.assertFalse(output["package_publication_started"])
+            self.assertFalse(output["role_assignment_started"])
+            self.assertFalse(output["agent_scheduling_started"])
             self.assertNotIn("audit_record", output)
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
