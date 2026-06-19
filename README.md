@@ -62,6 +62,7 @@ read-only `controlled-loop-runner-stage-invocation-boundary`,
 controlled `controlled-loop-runner-stage-execute`,
 read-only `controlled-loop-runner-stage-closeout`,
 read-only `controlled-loop-runner-stage-outcome-plan`,
+read-only `controlled-loop-runner-next-stage-continuation`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -141,7 +142,12 @@ or writing Git/GitHub state, and
 closeout and upstream runner chain before emitting only the next operator
 target for continuation selection, completion, or inspection/retry planning
 without selecting a stage, retrying, continuing, appending audit, or writing
-Git/GitHub state.
+Git/GitHub state, and
+`controlled-loop-runner-next-stage-continuation` evidence that rechecks the
+reviewed outcome target plus closeout, execution, runner-start, runner-plan,
+and dry-run evidence before selecting exactly the next runner-plan stage
+without emitting readiness, executing, retrying, continuing, appending audit,
+or writing Git/GitHub state.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 

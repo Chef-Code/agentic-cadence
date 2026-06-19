@@ -2545,13 +2545,13 @@ Continuation selection rereads and rechecks the reviewed stage outcome plan,
 completed closeout, completed execution packet, runner-start evidence,
 runner-plan evidence, and dry-run evidence. It requires the outcome-plan
 checksum to match the reviewed `--expected-stage-outcome-plan-checksum`, the
-outcome plan to be valid and completed, and the outcome target to carry
-`purpose: controlled_loop_runner_next_stage_selection`,
-`stage_outcome_decision: select_next_stage`, and
-`next_controlled_action: select_controlled_runner_next_stage_continuation`.
-The closeout must be a completed closeout for the requested completed stage,
-and the continuation target must select exactly
-`completed_stage_number + 1`.
+outcome plan to be valid and completed, and the outcome plan to carry
+`stage_outcome_decision: select_next_stage` plus `next_controlled_action:
+select_controlled_runner_next_stage_continuation`. The nested outcome target
+must carry `purpose: controlled_loop_runner_next_stage_selection` plus the
+completed-stage number, exact next-stage number, and checksum anchors. The
+closeout must be a completed closeout for the requested completed stage, and
+the continuation target must select exactly `completed_stage_number + 1`.
 
 A valid packet emits
 `controlled-loop-runner-next-stage-continuation.v1` with

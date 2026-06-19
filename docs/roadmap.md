@@ -1,7 +1,7 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-18
+Last updated: 2026-06-19
 Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled loop real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, controlled-loop-runner-start evidence, read-only controlled loop runner next-stage evidence, read-only controlled loop runner stage-execution readiness evidence, read-only controlled loop runner stage-execution approval evidence, read-only controlled loop runner stage-invocation boundary evidence, controlled loop runner single-stage execution evidence, read-only controlled loop runner stage-closeout evidence, read-only controlled loop runner stage-outcome planning evidence, read-only controlled loop runner next-stage continuation evidence, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-60 complete in main or active review branches
 Current unattended-operation confidence: 25% (stable headline; progress log records Task 60 projected capability at 55%)
 
@@ -103,12 +103,13 @@ approved stage invocation boundary without starting a process, then execute
 exactly one approved stage command after rechecking the reviewed boundary
 checksum and saved operator approval, with terminal evidence and one execution
 audit record, then close out that saved stage execution against approved output
-evidence without selecting a continuation. It still cannot execute more than
-one approved runner stage, invoke an executor from the runner, retry, plan the
-next stage outcome, or independently implement code outside approved command
-evidence, autonomously push branches, autonomously open pull requests, assign
-agent roles, launch fresh sessions, coordinate an agent pool, merge, release,
-publish packages, or continue in an unattended loop.
+evidence, plan the stage outcome, and select the exact next continuation stage
+without executing it. It still cannot prepare continuation stage-execution
+readiness or approval, execute more than one approved runner stage, invoke an
+executor from the runner, retry, or independently implement code outside
+approved command evidence, autonomously push branches, autonomously open pull
+requests, assign agent roles, launch fresh sessions, coordinate an agent pool,
+merge, release, publish packages, or continue in an unattended loop.
 
 Current confidence for unattended continuous operation is 25% as a stable
 headline; the progress log records Task 60 projected capability at 55%.
