@@ -33,6 +33,49 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-19 - Controlled runner next-stage continuation
+
+Summary:
+- Added `controlled-loop-runner-next-stage-continuation` to consume reviewed
+  stage-outcome planning plus completed closeout, stage-execution,
+  runner-start, runner-plan, and dry-run evidence.
+- The command rechecks the full runner chain and reviewed outcome-plan checksum
+  before selecting exactly stage N+1 after a completed prior stage.
+- Continuation selection is read-only: it emits no stage-execution readiness
+  target, executes no stage, retries nothing, continues no loop, appends no
+  audit evidence, starts no process, invokes no executor, and writes no
+  Git/GitHub, merge, release, package, role, or scheduler state.
+
+Completed slices:
+- Task 60: controlled loop runner next-stage continuation packet.
+
+Confidence change:
+- Previous: 54%
+- New: 55%
+- Reason: Cadence can now select the next runner stage after a completed
+  closeout, but readiness/approval/invocation for continuation packets remains
+  a future operator-gated slice.
+
+Evidence:
+- Focused `controlled-loop-runner-next-stage-continuation` pytest selection:
+  5 tests passed.
+- Protocol validator: `python scripts/validate_protocol.py` passed.
+- Package verifier: `python scripts/verify_package.py` passed.
+
+New risks or blockers:
+- Stage-execution readiness for continuation packets, retry
+  approval/materialization, executor invocation from the runner, autonomous
+  Git/GitHub writes, merge authority, release publication, role assignment, and
+  agent scheduling remain out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-19 - Controlled runner stage outcome plan
 
 Summary:
