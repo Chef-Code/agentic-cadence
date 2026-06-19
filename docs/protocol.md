@@ -2469,8 +2469,9 @@ operator id, approval purpose `controlled_loop_runner_stage_execution`,
 approval target checksum, file anchors, and checksums. The closeout packet must
 be `controlled-loop-runner-stage-closeout.v1` for the requested stage and may
 carry `stage_closeout_status: completed`, `failed`, or `blocked`; blocked
-closeouts remain valid inputs for inspection planning when their anchors are
-otherwise self-consistent.
+closeouts remain valid inputs for inspection planning only when they retain the
+closed-out blocked shape emitted by closeout: `valid: false` with a non-empty
+`blockers` list and otherwise self-consistent anchors.
 
 A valid packet emits
 `controlled-loop-runner-stage-outcome-plan.v1` with

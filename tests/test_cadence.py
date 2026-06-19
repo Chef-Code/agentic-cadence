@@ -12872,6 +12872,50 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_outcome_plan_chain(tmp, repo)
+            closeout = json.loads(chain["controlled_loop_runner_stage_closeout_path"].read_text(encoding="utf-8"))
+            execution = json.loads(chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8"))
+            closeout["stage_closeout_status"] = "blocked"
+            closeout["valid"] = True
+            closeout["blockers"] = []
+            closeout["selected_stage"] = cadence_cli.controlled_loop_runner_stage_closeout_stage(
+                execution["selected_stage"],
+                closeout_status="blocked",
+            )
+            chain["controlled_loop_runner_stage_closeout_path"].write_text(
+                json.dumps(closeout),
+                encoding="utf-8",
+            )
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_outcome_plan_in_process(
+                    tmp,
+                    chain,
+                    expected_stage_closeout_checksum=checksum_json(closeout),
+                )
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_stage_outcome_plan_closeout_not_closed_out",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertNotIn(
+                "controlled_runner_stage_outcome_plan_closeout_checksum_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertIsNone(output["outcome_target"])
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             chain = self.write_controlled_loop_runner_stage_outcome_plan_chain(tmp, repo)
             runner_plan = json.loads(chain["controlled_loop_runner_plan_path"].read_text(encoding="utf-8"))
@@ -12891,6 +12935,14 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIn(
                 "controlled_runner_stage_outcome_plan_upstream_invalid",
                 {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertIn(
+                "controlled_runner_next_stage_runner_plan_checksum_mismatch",
+                {
+                    blocker.get("upstream_code")
+                    for blocker in output["blockers"]
+                    if blocker["code"] == "controlled_runner_stage_outcome_plan_upstream_invalid"
+                },
             )
             self.assertTrue(output["read_only"])
             self.assertEqual(output["stage_outcome_decision"], "blocked")

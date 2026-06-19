@@ -16916,6 +16916,14 @@ def controlled_loop_runner_stage_outcome_plan_closeout_blockers(
         closeout_status if isinstance(closeout_status, str) else "blocked"
     )
     closeout_blockers = closeout.get("blockers")
+    blocked_closeout_inconsistent = (
+        closeout_status == "blocked"
+        and (
+            closeout.get("valid") is not False
+            or not isinstance(closeout_blockers, list)
+            or not closeout_blockers
+        )
+    )
     if (
         closeout.get("read_only") is not True
         or closeout.get("runner_stage_execution_authority") != "stage_closeout_only"
@@ -16930,10 +16938,7 @@ def controlled_loop_runner_stage_outcome_plan_closeout_blockers(
                 or closeout_blockers != []
             )
         )
-        or (
-            closeout_status == "blocked"
-            and not isinstance(closeout.get("valid"), bool)
-        )
+        or blocked_closeout_inconsistent
     ):
         blockers.append(
             controlled_loop_runner_stage_outcome_plan_blocker(
