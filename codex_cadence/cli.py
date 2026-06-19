@@ -11557,7 +11557,11 @@ def controlled_loop_runner_next_stage_dry_run_blockers(
     return blockers
 
 
-def controlled_loop_runner_next_stage_chain_validation(args: argparse.Namespace) -> dict[str, Any]:
+def controlled_loop_runner_next_stage_chain_validation(
+    args: argparse.Namespace,
+    *,
+    allow_non_initial_stage: bool = False,
+) -> dict[str, Any]:
     root = args.root.expanduser().resolve() if args.root is not None else None
     start_path = Path(args.controlled_loop_runner_start_file)
     runner_plan_path = Path(args.controlled_loop_runner_plan_file)
@@ -11583,7 +11587,7 @@ def controlled_loop_runner_next_stage_chain_validation(args: argparse.Namespace)
     runner_plan_checksum = checksum_json(runner_plan) if isinstance(runner_plan, dict) else None
     dry_run_checksum = checksum_json(dry_run) if isinstance(dry_run, dict) else None
 
-    if stage_number != 1:
+    if stage_number != 1 and not allow_non_initial_stage:
         blockers.append(
             controlled_loop_runner_next_stage_blocker(
                 "controlled_runner_next_stage_unsupported_stage",
@@ -16783,7 +16787,7 @@ def controlled_loop_runner_stage_outcome_plan_decision(
     start_checksum: str | None,
 ) -> dict[str, Any]:
     base_target: dict[str, Any] = {
-        "completed_stage_number": stage_number,
+        "closed_out_stage_number": stage_number,
         "stage_closeout_status": stage_closeout_status,
         "controlled_loop_runner_stage_closeout_checksum": closeout_checksum,
         "controlled_loop_runner_stage_execution_checksum": execution_checksum,
@@ -16796,6 +16800,7 @@ def controlled_loop_runner_stage_outcome_plan_decision(
         outcome_target = {
             **base_target,
             "purpose": "controlled_loop_runner_next_stage_selection",
+            "completed_stage_number": stage_number,
             "next_stage_number": stage_number + 1,
             "total_stage_count": total_stage_count,
         }
@@ -16805,6 +16810,7 @@ def controlled_loop_runner_stage_outcome_plan_decision(
         outcome_target = {
             **base_target,
             "purpose": "controlled_loop_runner_completion",
+            "completed_stage_number": stage_number,
             "next_stage_number": None,
             "total_stage_count": total_stage_count,
         }
@@ -17255,7 +17261,7 @@ def controlled_loop_runner_stage_outcome_plan_command(args: argparse.Namespace) 
     blockers.extend(readiness_read_blockers)
     blockers.extend(next_stage_read_blockers)
 
-    chain_validation = controlled_loop_runner_next_stage_chain_validation(args)
+    chain_validation = controlled_loop_runner_next_stage_chain_validation(args, allow_non_initial_stage=True)
     start = chain_validation["start"]
     runner_plan = chain_validation["runner_plan"]
     dry_run = chain_validation["dry_run"]
@@ -17292,6 +17298,16 @@ def controlled_loop_runner_stage_outcome_plan_command(args: argparse.Namespace) 
     approval_checksum = checksum_json(approval) if isinstance(approval, dict) else None
     readiness_checksum = checksum_json(readiness) if isinstance(readiness, dict) else None
     next_stage_checksum = checksum_json(next_stage) if isinstance(next_stage, dict) else None
+    expected_closeout_checksum = args.expected_stage_closeout_checksum
+    if closeout_checksum != expected_closeout_checksum:
+        blockers.append(
+            controlled_loop_runner_stage_outcome_plan_blocker(
+                "controlled_runner_stage_outcome_plan_closeout_checksum_mismatch",
+                "controlled runner stage closeout checksum does not match reviewed closeout checksum",
+                expected=expected_closeout_checksum,
+                actual=closeout_checksum,
+            )
+        )
 
     if isinstance(next_stage, dict):
         blockers.extend(
@@ -17544,6 +17560,7 @@ def controlled_loop_runner_stage_outcome_plan_command(args: argparse.Namespace) 
         "controlled_loop_runner_stage_closeout": {
             "file": str(closeout_path),
             "checksum": closeout_checksum,
+            "expected_checksum": expected_closeout_checksum,
             "status": closeout.get("stage_closeout_status") if isinstance(closeout, dict) else None,
             "valid": closeout.get("valid") if isinstance(closeout, dict) else None,
             "next_controlled_action": closeout.get("next_controlled_action") if isinstance(closeout, dict) else None,
@@ -17609,6 +17626,7 @@ def controlled_loop_runner_stage_outcome_plan_command(args: argparse.Namespace) 
         },
         "checksums": {
             "controlled_loop_runner_stage_closeout": closeout_checksum,
+            "expected_controlled_loop_runner_stage_closeout": expected_closeout_checksum,
             "controlled_loop_runner_stage_execution": execution_checksum,
             "controlled_loop_runner_stage_invocation_boundary": boundary_checksum,
             "controlled_loop_runner_stage_execution_approval": approval_checksum,
@@ -20075,6 +20093,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--controlled-loop-runner-stage-closeout-file",
         required=True,
     )
+    runner_stage_outcome_plan_parser.add_argument("--expected-stage-closeout-checksum", required=True)
     runner_stage_outcome_plan_parser.add_argument(
         "--controlled-loop-runner-stage-execution-file",
         required=True,

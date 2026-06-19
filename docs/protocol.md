@@ -2445,6 +2445,7 @@ and `operator_approval_operator_mismatch`.
 `controlled-loop-runner-stage-outcome-plan` is the read-only outcome planner
 for one closed-out runner stage. It reads
 `--controlled-loop-runner-stage-closeout-file`,
+`--expected-stage-closeout-checksum`,
 `--controlled-loop-runner-stage-execution-file`,
 `--controlled-loop-runner-stage-invocation-boundary-file`,
 `--controlled-loop-runner-stage-execution-approval-file`,
@@ -2461,11 +2462,12 @@ publish packages, assign roles, or schedule agents.
 
 Outcome planning rereads and rechecks the closeout, execution, invocation
 boundary, stage-execution approval, stage-execution readiness, next-stage,
-runner-start, runner-plan, and dry-run chain. It reuses the same saved
-operator approval verification as closeout, including expected operator id,
-approval purpose `controlled_loop_runner_stage_execution`, approval target
-checksum, file anchors, and checksums. The closeout packet must be
-`controlled-loop-runner-stage-closeout.v1` for the requested stage and may
+runner-start, runner-plan, and dry-run chain. It requires the closeout
+checksum to match the reviewed `--expected-stage-closeout-checksum` and reuses
+the same saved operator approval verification as closeout, including expected
+operator id, approval purpose `controlled_loop_runner_stage_execution`,
+approval target checksum, file anchors, and checksums. The closeout packet must
+be `controlled-loop-runner-stage-closeout.v1` for the requested stage and may
 carry `stage_closeout_status: completed`, `failed`, or `blocked`; blocked
 closeouts remain valid inputs for inspection planning when their anchors are
 otherwise self-consistent.
@@ -2494,9 +2496,21 @@ Stable blockers include
 `controlled_runner_stage_outcome_plan_readiness_evidence_missing`,
 `controlled_runner_stage_outcome_plan_next_stage_evidence_missing`,
 `controlled_runner_stage_outcome_plan_upstream_invalid`,
+`controlled_runner_stage_outcome_plan_root_missing`,
+`controlled_runner_stage_outcome_plan_closeout_checksum_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_packet_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_status_invalid`,
 `controlled_runner_stage_outcome_plan_closeout_not_closed_out`,
+`controlled_runner_stage_outcome_plan_closeout_forbidden_flags`,
 `controlled_runner_stage_outcome_plan_closeout_stage_number_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_execution_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_boundary_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_approval_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_readiness_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_next_stage_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_start_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_plan_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_dry_run_file_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_execution_checksum_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_boundary_checksum_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_approval_checksum_mismatch`,
@@ -2505,6 +2519,7 @@ Stable blockers include
 `controlled_runner_stage_outcome_plan_closeout_start_checksum_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_plan_checksum_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_dry_run_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_selected_stage_mismatch`,
 and rewritten upstream stage-execution, stage-boundary, stage-approval,
 stage-readiness, and next-stage blockers, plus shared `operator_approval_*`
 blockers from the operator-approval verifier.

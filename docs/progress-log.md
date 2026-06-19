@@ -40,9 +40,10 @@ Summary:
   stage-closeout, stage-execution, invocation-boundary, stage-execution
   approval, readiness, next-stage, runner-start, runner-plan, and dry-run
   evidence.
-- The command rechecks the full runner chain and saved operator approval before
-  emitting only a deterministic operator target for continuation selection,
-  runner completion, or inspection/future operator-gated retry planning.
+- The command rechecks the full runner chain, reviewed closeout checksum, and
+  saved operator approval before emitting only a deterministic operator target
+  for continuation selection, runner completion, or inspection/future
+  operator-gated retry planning.
 - Outcome planning is read-only: it selects no next stage, executes no retry,
   continues no loop, appends no audit evidence, starts no process, invokes no
   executor, and writes no Git/GitHub, merge, release, package, role, or

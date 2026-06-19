@@ -536,11 +536,12 @@ Reasoning:
 - `controlled-loop-runner-stage-outcome-plan` can now consume the saved
   closeout plus execution, invocation boundary, approval, readiness,
   next-stage, runner-start, runner-plan, and dry-run evidence, recheck the full
-  chain, and emit only a deterministic operator target for continuation
-  selection, runner completion, or inspection/future operator-gated retry
-  planning without selecting a stage, retrying, continuing the loop, appending
-  audit evidence, writing Git/GitHub state, merging, releasing, publishing
-  packages, assigning roles, or scheduling agents.
+  chain plus reviewed closeout checksum, and emit only a deterministic
+  operator target for continuation selection, runner completion, or
+  inspection/future operator-gated retry planning without selecting a stage,
+  retrying, continuing the loop, appending audit evidence, writing Git/GitHub
+  state, merging, releasing, publishing packages, assigning roles, or
+  scheduling agents.
 - The generic executor task/result contract is now explicit and testable, and
   is wired through read-only executor invocation readiness, read-only invocation
   planning, fake controlled executor fixtures, and controlled one-command real

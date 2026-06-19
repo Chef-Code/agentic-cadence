@@ -709,10 +709,10 @@ continuation, executor invocation, audit append, or Git/GitHub writes.
 `controlled-loop-runner-stage-outcome-plan` can then consume that closeout plus
 the upstream runner chain, recheck closeout, execution, invocation-boundary,
 approval, readiness, next-stage, runner-start, runner-plan, and dry-run
-anchors, and emit only the next operator target for continuation selection,
-runner completion, or inspection/future operator-gated retry planning without
-selecting a stage, retrying, continuing, appending audit evidence, or writing
-Git/GitHub state.
+anchors plus the reviewed closeout checksum, and emit only the next operator
+target for continuation selection, runner completion, or inspection/future
+operator-gated retry planning without selecting a stage, retrying, continuing,
+appending audit evidence, or writing Git/GitHub state.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,

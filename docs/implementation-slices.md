@@ -733,10 +733,10 @@ Validation needed:
   selecting another stage, or continuing the loop: complete for Task 58.
 - controlled-loop-runner-stage-outcome-plan maps completed non-final closeout
   to a continuation-selection target, completed final-stage decision logic to a
-  runner-completion target, and failed or blocked closeouts to inspection plus
-  future operator-gated retry-planning targets without retrying, selecting a
-  next stage, appending audit evidence, or continuing the loop: complete for
-  Task 59.
+  runner-completion target, verifies the reviewed closeout checksum, and maps
+  failed or blocked closeouts to inspection plus future operator-gated
+  retry-planning targets without retrying, selecting a next stage, appending
+  audit evidence, or continuing the loop: complete for Task 59.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.

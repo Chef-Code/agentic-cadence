@@ -924,11 +924,12 @@ agents.
 packets:
 
 ```bash
-agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-outcome-plan --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-stage-invocation-boundary-file controlled-loop-runner-stage-invocation-boundary.json --controlled-loop-runner-stage-execution-approval-file controlled-loop-runner-stage-execution-approval.json --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-file controlled-loop-runner-next-stage.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 1
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-outcome-plan --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --expected-stage-closeout-checksum sha256:<reviewed-stage-closeout-checksum> --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-stage-invocation-boundary-file controlled-loop-runner-stage-invocation-boundary.json --controlled-loop-runner-stage-execution-approval-file controlled-loop-runner-stage-execution-approval.json --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-file controlled-loop-runner-next-stage.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 1
 ```
 
 Valid outcome-plan packets emit
-`controlled-loop-runner-stage-outcome-plan.v1`, recheck the closeout,
+`controlled-loop-runner-stage-outcome-plan.v1`, require the closeout checksum
+to match the reviewed `--expected-stage-closeout-checksum`, recheck the closeout,
 execution, invocation-boundary, approval, readiness, next-stage, runner-start,
 runner-plan, and dry-run chain, and produce a deterministic target only. A
 completed non-final stage targets next-stage continuation selection; a
