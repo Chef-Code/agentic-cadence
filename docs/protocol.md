@@ -2442,6 +2442,89 @@ verifier such as `operator_approval_secret_missing`,
 `operator_approval_signature_invalid`, `operator_approval_target_mismatch`,
 and `operator_approval_operator_mismatch`.
 
+`controlled-loop-runner-stage-outcome-plan` is the read-only outcome planner
+for one closed-out runner stage. It reads
+`--controlled-loop-runner-stage-closeout-file`,
+`--expected-stage-closeout-checksum`,
+`--controlled-loop-runner-stage-execution-file`,
+`--controlled-loop-runner-stage-invocation-boundary-file`,
+`--controlled-loop-runner-stage-execution-approval-file`,
+`--controlled-loop-runner-stage-execution-readiness-file`,
+`--controlled-loop-runner-next-stage-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, `--expected-operator-id`,
+`--approval-secret` or `--approval-secret-env`, and optional
+`--stage-number`. It consumes already-recorded evidence only. The command must
+not select a next stage, execute a retry, continue the loop, append audit
+evidence, start a process, invoke an executor, execute Git commands, call
+GitHub APIs, create branches, commit, push, create PRs, merge, release,
+publish packages, assign roles, or schedule agents.
+
+Outcome planning rereads and rechecks the closeout, execution, invocation
+boundary, stage-execution approval, stage-execution readiness, next-stage,
+runner-start, runner-plan, and dry-run chain. It requires the closeout
+checksum to match the reviewed `--expected-stage-closeout-checksum` and reuses
+the same saved operator approval verification as closeout, including expected
+operator id, approval purpose `controlled_loop_runner_stage_execution`,
+approval target checksum, file anchors, and checksums. The closeout packet must
+be `controlled-loop-runner-stage-closeout.v1` for the requested stage and may
+carry `stage_closeout_status: completed`, `failed`, or `blocked`; blocked
+closeouts remain valid inputs for inspection planning only when they retain the
+closed-out blocked shape emitted by closeout: `valid: false` with a non-empty
+`blockers` list and otherwise self-consistent anchors.
+
+A valid packet emits
+`controlled-loop-runner-stage-outcome-plan.v1` with
+`packet: controlled_loop_runner_stage_outcome_plan`, `read_only: true`,
+`side_effects: []`, `stage_outcome_plan_status: completed`, references to
+every consumed packet and checksum, `outcome_target`, and
+`outcome_target_checksum`. Completed non-final stages produce
+`stage_outcome_decision: select_next_stage` and
+`next_controlled_action: select_controlled_runner_next_stage_continuation`
+without selecting the next stage. Completed final stages produce
+`stage_outcome_decision: complete_runner` and
+`next_controlled_action: complete_controlled_runner`. Failed stages produce
+`stage_outcome_decision: inspect_stage_failure`; blocked stages produce
+`stage_outcome_decision: inspect_stage_blocked`. Failed and blocked packets
+also include a future `controlled_loop_runner_stage_retry_planning` target with
+`operator_approval_required: true`, but no retry is executed or authorized.
+
+Stable blockers include
+`controlled_runner_stage_outcome_plan_closeout_evidence_missing`,
+`controlled_runner_stage_outcome_plan_execution_evidence_missing`,
+`controlled_runner_stage_outcome_plan_boundary_evidence_missing`,
+`controlled_runner_stage_outcome_plan_approval_evidence_missing`,
+`controlled_runner_stage_outcome_plan_readiness_evidence_missing`,
+`controlled_runner_stage_outcome_plan_next_stage_evidence_missing`,
+`controlled_runner_stage_outcome_plan_upstream_invalid`,
+`controlled_runner_stage_outcome_plan_root_missing`,
+`controlled_runner_stage_outcome_plan_closeout_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_packet_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_status_invalid`,
+`controlled_runner_stage_outcome_plan_closeout_not_closed_out`,
+`controlled_runner_stage_outcome_plan_closeout_forbidden_flags`,
+`controlled_runner_stage_outcome_plan_closeout_stage_number_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_execution_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_boundary_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_approval_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_readiness_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_next_stage_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_start_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_plan_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_dry_run_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_execution_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_boundary_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_approval_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_readiness_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_next_stage_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_start_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_plan_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_dry_run_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_selected_stage_mismatch`,
+and rewritten upstream stage-execution, stage-boundary, stage-approval,
+stage-readiness, and next-stage blockers, plus shared `operator_approval_*`
+blockers from the operator-approval verifier.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from
