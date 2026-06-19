@@ -7290,7 +7290,7 @@ class CadenceCliTests(unittest.TestCase):
             args.extend(["--approval-secret-env", str(values["approval_secret_env"])])
         return run_cli(tmp, *args)
 
-    def write_controlled_loop_runner_stage_invocation_boundary_chain(self, tmp, repo):
+    def write_controlled_loop_runner_stage_invocation_boundary_chain(self, tmp, repo, *, stage_output_file=None):
         chain = self.write_controlled_loop_runner_stage_execution_approval_chain(tmp, repo)
         approval_result, approval_evidence = self.run_controlled_loop_runner_stage_execution_approval_cli(tmp, chain)
         self.assertEqual(approval_result.returncode, 0, approval_result.stderr)
@@ -7299,7 +7299,11 @@ class CadenceCliTests(unittest.TestCase):
         chain["controlled_loop_runner_stage_execution_approval_evidence_path"] = approval_evidence_path
         chain["controlled_loop_runner_stage_execution_approval_evidence"] = approval_evidence
         chain["stage_cwd"] = Path(repo)
-        chain["stage_output_file"] = Path(tmp) / "controlled-loop-runner-stage-output.json"
+        chain["stage_output_file"] = (
+            Path(stage_output_file)
+            if stage_output_file is not None
+            else Path(tmp) / "controlled-loop-runner-stage-output.json"
+        )
         return chain
 
     def run_controlled_loop_runner_stage_invocation_boundary_cli(self, tmp, chain, **overrides):
@@ -7354,8 +7358,12 @@ class CadenceCliTests(unittest.TestCase):
             args.extend(["--approval-secret-env", str(values["approval_secret_env"])])
         return run_cli(tmp, *args)
 
-    def write_controlled_loop_runner_stage_execute_chain(self, tmp, repo):
-        chain = self.write_controlled_loop_runner_stage_invocation_boundary_chain(tmp, repo)
+    def write_controlled_loop_runner_stage_execute_chain(self, tmp, repo, *, stage_output_file=None):
+        chain = self.write_controlled_loop_runner_stage_invocation_boundary_chain(
+            tmp,
+            repo,
+            stage_output_file=stage_output_file,
+        )
         boundary_result, boundary = self.run_controlled_loop_runner_stage_invocation_boundary_cli(tmp, chain)
         self.assertEqual(boundary_result.returncode, 0, boundary_result.stderr)
         boundary_path = Path(tmp) / "controlled-loop-runner-stage-invocation-boundary.json"
@@ -7427,10 +7435,15 @@ class CadenceCliTests(unittest.TestCase):
         returncode=0,
         stdout_text=None,
         stderr_text="",
+        stage_output_file=None,
     ):
         import codex_cadence.cli as cadence_cli
 
-        chain = self.write_controlled_loop_runner_stage_execute_chain(tmp, repo)
+        chain = self.write_controlled_loop_runner_stage_execute_chain(
+            tmp,
+            repo,
+            stage_output_file=stage_output_file,
+        )
         boundary = chain["controlled_loop_runner_stage_invocation_boundary"]
         invocation_boundary = boundary["invocation_boundary"]
         if stdout_text is None:
@@ -12080,11 +12093,63 @@ class CadenceCliTests(unittest.TestCase):
                 )[2:],
             )
 
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.returncode, 0, output["blockers"])
             self.assertTrue(output["valid"], output["blockers"])
             self.assertEqual(output["stage_closeout_status"], "completed")
             self.assertEqual(output["stage_output"]["file"], str(chain["stage_output_file"].resolve()))
             self.assertEqual(output["files"]["stage_output"], str(chain["stage_output_file"].resolve()))
+
+    def test_controlled_loop_runner_stage_closeout_resolves_relative_policy_output_from_approved_cwd(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp) / "repo"
+            repo.mkdir()
+            init_committed_repo(repo)
+            relative_output_file = "controlled-loop-runner-stage-output.json"
+            expected_output_file = Path(repo) / relative_output_file
+            chain = self.write_controlled_loop_runner_stage_closeout_chain(
+                tmp,
+                repo,
+                stage_output_file=expected_output_file,
+            )
+            boundary = json.loads(
+                chain["controlled_loop_runner_stage_invocation_boundary_path"].read_text(encoding="utf-8")
+            )
+            boundary["invocation_boundary"]["evidence_output_policy"]["output_file"] = relative_output_file
+            invocation_boundary_checksum = checksum_json(boundary["invocation_boundary"])
+            boundary["invocation_boundary_checksum"] = invocation_boundary_checksum
+            boundary["checksums"]["invocation_boundary"] = invocation_boundary_checksum
+            chain["controlled_loop_runner_stage_invocation_boundary_path"].write_text(
+                json.dumps(boundary),
+                encoding="utf-8",
+            )
+            chain["controlled_loop_runner_stage_invocation_boundary"] = boundary
+            execution = json.loads(
+                chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8")
+            )
+            boundary_checksum = checksum_json(boundary)
+            execution["controlled_loop_runner_stage_invocation_boundary"]["checksum"] = boundary_checksum
+            execution["controlled_loop_runner_stage_invocation_boundary"][
+                "invocation_boundary_checksum"
+            ] = invocation_boundary_checksum
+            execution["checksums"]["controlled_loop_runner_stage_invocation_boundary"] = boundary_checksum
+            chain["controlled_loop_runner_stage_execution_path"].write_text(
+                json.dumps(execution),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                *self.controlled_loop_runner_stage_closeout_argv(
+                    tmp,
+                    chain,
+                    stage_output_file=None,
+                )[2:],
+            )
+
+            self.assertEqual(result.returncode, 0, output["blockers"])
+            self.assertTrue(output["valid"], output["blockers"])
+            self.assertEqual(output["stage_output"]["file"], str(expected_output_file.resolve()))
+            self.assertEqual(output["files"]["stage_output"], str(expected_output_file.resolve()))
 
     def test_controlled_loop_runner_stage_closeout_blocks_mismatched_output_checksum(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
@@ -12346,6 +12411,67 @@ class CadenceCliTests(unittest.TestCase):
                 {blocker["code"] for blocker in output["blockers"]},
             )
             self.assertFalse(output["stage_retry_started"])
+            self.assertFalse(output["loop_continuation_started"])
+
+    def test_controlled_loop_runner_stage_closeout_blocks_boolean_returncode(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_closeout_chain(tmp, repo)
+            execution = json.loads(chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8"))
+            execution["command_result"]["returncode"] = False
+            execution["command_result_checksum"] = checksum_json(execution["command_result"])
+            chain["controlled_loop_runner_stage_execution_path"].write_text(
+                json.dumps(execution),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                *self.controlled_loop_runner_stage_closeout_argv(tmp, chain)[2:],
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_closeout_status"], "blocked")
+            self.assertIn(
+                "controlled_runner_stage_closeout_command_result_invalid",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(
+                next(
+                    blocker["fields"]["returncode"]
+                    for blocker in output["blockers"]
+                    if blocker["code"] == "controlled_runner_stage_closeout_command_result_invalid"
+                ),
+                "bool",
+            )
+            self.assertFalse(output["stage_retry_started"])
+            self.assertFalse(output["loop_continuation_started"])
+
+    def test_controlled_loop_runner_stage_closeout_blocks_missing_execution_selected_stage(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_closeout_chain(tmp, repo)
+            execution = json.loads(chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8"))
+            execution.pop("selected_stage")
+            chain["controlled_loop_runner_stage_execution_path"].write_text(
+                json.dumps(execution),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                *self.controlled_loop_runner_stage_closeout_argv(tmp, chain)[2:],
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_closeout_status"], "blocked")
+            self.assertIn(
+                "controlled_runner_stage_closeout_selected_stage_missing",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertFalse(output["process_started"])
             self.assertFalse(output["loop_continuation_started"])
 
     def test_controlled_loop_runner_stage_closeout_blocks_mutated_execution_evidence(self):

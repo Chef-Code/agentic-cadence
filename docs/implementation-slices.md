@@ -215,10 +215,10 @@ stop before process start.
 `controlled-loop-runner-stage-execute` can then execute exactly one approved
 stage command with `shell=False` and terminal command evidence, and
 `controlled-loop-runner-stage-closeout` can consume the saved execution,
-boundary, approval, readiness, and upstream runner evidence, recheck all
-anchors and output evidence, classify the stage as completed, failed, or
-blocked, and stop before outcome planning, next-stage selection, retry,
-continuation, executor invocation, or Git/GitHub writes.
+stage-output artifact, boundary, approval, readiness, and upstream runner
+evidence, recheck all anchors and output evidence, classify the stage as
+completed, failed, or blocked, and stop before outcome planning, next-stage
+selection, retry, continuation, executor invocation, or Git/GitHub writes.
 Autonomous
 branch/commit/push or PR creation, automatic session launch, distributed work
 ownership, role assignment, and continuous loop orchestration remain missing.

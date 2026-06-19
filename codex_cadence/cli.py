@@ -14734,17 +14734,14 @@ def controlled_loop_runner_stage_execution_boundary_blockers(
                 root=str(root),
                 stage_cwd=str(stage_cwd),
             )
-        )
-    output_file_value = output_policy.get("output_file")
-    output_file = (
-        Path(output_file_value).expanduser().resolve(strict=False)
-        if isinstance(output_file_value, str)
-        else None
+    )
+    output_file = controlled_loop_runner_stage_output_file_from_policy(
+        output_policy,
+        policy,
     )
     if (
         output_policy.get("mode") != "capture_stdout_json"
         or output_file is None
-        or not Path(output_file_value).expanduser().is_absolute()
         or not output_file.parent.exists()
         or not output_file.parent.is_dir()
         or (output_file.exists() and output_file.is_dir())
@@ -14753,7 +14750,7 @@ def controlled_loop_runner_stage_execution_boundary_blockers(
         blockers.append(
             controlled_loop_runner_stage_execution_blocker(
                 "controlled_runner_stage_execution_output_file_invalid",
-                "controlled runner stage execution output file must be an absolute runtime-root file",
+                "controlled runner stage execution output file must resolve under the runtime root",
                 actual=output_policy,
                 root=str(root),
             )
@@ -15762,6 +15759,29 @@ def controlled_loop_runner_stage_closeout_stdout_side_effects(stdout_text: str) 
     return []
 
 
+def controlled_loop_runner_stage_output_file_from_policy(
+    output_policy: dict[str, Any],
+    working_directory_policy: dict[str, Any],
+) -> Path | None:
+    output_file_value = output_policy.get("output_file")
+    if (
+        output_policy.get("mode") != "capture_stdout_json"
+        or not isinstance(output_file_value, str)
+        or not output_file_value.strip()
+    ):
+        return None
+    output_file = Path(output_file_value).expanduser()
+    if not output_file.is_absolute():
+        cwd_value = working_directory_policy.get("cwd")
+        if not isinstance(cwd_value, str) or not cwd_value.strip():
+            return None
+        cwd_path = Path(cwd_value).expanduser()
+        if not cwd_path.is_absolute():
+            return None
+        output_file = cwd_path / output_file
+    return output_file.resolve(strict=False)
+
+
 def controlled_loop_runner_stage_closeout_command_result_blockers(
     *,
     execution: dict[str, Any],
@@ -15806,13 +15826,14 @@ def controlled_loop_runner_stage_closeout_command_result_blockers(
     stderr_value = command_result.get("stderr")
     returncode = command_result.get("returncode")
     timed_out = command_result.get("timed_out")
+    returncode_is_integer = isinstance(returncode, int) and not isinstance(returncode, bool)
     if not isinstance(stdout_value, str):
         invalid_fields["stdout"] = type(stdout_value).__name__
     if not isinstance(stderr_value, str):
         invalid_fields["stderr"] = type(stderr_value).__name__
     if returncode is None and timed_out is not True:
         invalid_fields["returncode"] = "missing_without_timeout"
-    elif returncode is not None and not isinstance(returncode, int):
+    elif returncode is not None and not returncode_is_integer:
         invalid_fields["returncode"] = type(returncode).__name__
     elif returncode is not None and timed_out is True:
         invalid_fields["returncode"] = "must_be_null_when_timed_out"
@@ -15831,11 +15852,9 @@ def controlled_loop_runner_stage_closeout_command_result_blockers(
             )
         )
 
-    output_file_value = output_policy.get("output_file")
-    expected_output_file = (
-        Path(output_file_value).expanduser().resolve(strict=False)
-        if output_policy.get("mode") == "capture_stdout_json" and isinstance(output_file_value, str)
-        else None
+    expected_output_file = controlled_loop_runner_stage_output_file_from_policy(
+        output_policy,
+        working_directory_policy,
     )
     if expected_output_file is not None:
         execution_files = execution.get("files") if isinstance(execution.get("files"), dict) else {}
@@ -15865,7 +15884,7 @@ def controlled_loop_runner_stage_closeout_command_result_blockers(
     )
     stdout_blockers = controlled_loop_runner_stage_execution_stdout_blockers(
         stdout_text=stdout_text,
-        returncode=returncode if isinstance(returncode, int) or returncode is None else None,
+        returncode=returncode if returncode_is_integer or returncode is None else None,
         allowed_side_effects=allowed_side_effects,
     )
     blockers.extend(
@@ -16213,7 +16232,16 @@ def controlled_loop_runner_stage_closeout_execution_blockers(
     if isinstance(boundary, dict):
         boundary_stage = boundary.get("selected_stage") if isinstance(boundary.get("selected_stage"), dict) else None
         execution_stage = execution.get("selected_stage") if isinstance(execution.get("selected_stage"), dict) else None
-        if boundary_stage is not None and execution_stage is not None:
+        if boundary_stage is not None and execution_stage is None:
+            blockers.append(
+                controlled_loop_runner_stage_closeout_blocker(
+                    "controlled_runner_stage_closeout_selected_stage_missing",
+                    "controlled runner stage execution must carry the selected stage from the invocation boundary",
+                    expected=boundary_stage,
+                    actual=execution.get("selected_stage"),
+                )
+            )
+        elif boundary_stage is not None and execution_stage is not None:
             command_stdout = (
                 controlled_loop_runner_stage_execution_text(command_result.get("stdout"))
                 if command_result is not None
@@ -16471,10 +16499,14 @@ def controlled_loop_runner_stage_closeout_command(args: argparse.Namespace) -> i
         if isinstance(invocation_boundary.get("evidence_output_policy"), dict)
         else {}
     )
-    expected_output_file = (
-        Path(output_policy["output_file"]).expanduser().resolve(strict=False)
-        if output_policy.get("mode") == "capture_stdout_json" and isinstance(output_policy.get("output_file"), str)
-        else None
+    working_directory_policy = (
+        invocation_boundary.get("working_directory_policy")
+        if isinstance(invocation_boundary.get("working_directory_policy"), dict)
+        else {}
+    )
+    expected_output_file = controlled_loop_runner_stage_output_file_from_policy(
+        output_policy,
+        working_directory_policy,
     )
     effective_stage_output_file = (
         supplied_stage_output_file.expanduser().resolve(strict=False)
