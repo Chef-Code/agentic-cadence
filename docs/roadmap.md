@@ -2,8 +2,8 @@
 
 Status: living document
 Last updated: 2026-06-18
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled loop real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, controlled-loop-runner-start evidence, read-only controlled loop runner next-stage evidence, read-only controlled loop runner stage-execution readiness evidence, read-only controlled loop runner stage-execution approval evidence, read-only controlled loop runner stage-invocation boundary evidence, controlled loop runner single-stage execution evidence, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-57 complete in main or active review branches
-Current unattended-operation confidence: 25% (stable headline; progress log records Task 57 projected capability at 52%)
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled loop real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, controlled-loop-runner-start evidence, read-only controlled loop runner next-stage evidence, read-only controlled loop runner stage-execution readiness evidence, read-only controlled loop runner stage-execution approval evidence, read-only controlled loop runner stage-invocation boundary evidence, controlled loop runner single-stage execution evidence, read-only controlled loop runner stage-closeout evidence, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-58 complete in main or active review branches
+Current unattended-operation confidence: 25% (stable headline; progress log records Task 58 projected capability at 53%)
 
 This document tracks the practical path from the current Agentic Cadence
 protocol toolkit toward GitHub-native orchestration for autonomous software
@@ -102,15 +102,16 @@ for that readiness target without executing the stage, then prepare an exact
 approved stage invocation boundary without starting a process, then execute
 exactly one approved stage command after rechecking the reviewed boundary
 checksum and saved operator approval, with terminal evidence and one execution
-audit record. It still cannot execute more than one approved runner stage,
-invoke an executor from the runner, retry, close out the executed stage, or
-independently implement code outside approved command evidence, autonomously
-push branches, autonomously open pull requests, assign agent roles, launch fresh
-sessions, coordinate an agent pool, merge, release, publish packages, or
-continue in an unattended loop.
+audit record, then close out that saved stage execution against approved output
+evidence without selecting a continuation. It still cannot execute more than
+one approved runner stage, invoke an executor from the runner, retry, plan the
+next stage outcome, or independently implement code outside approved command
+evidence, autonomously push branches, autonomously open pull requests, assign
+agent roles, launch fresh sessions, coordinate an agent pool, merge, release,
+publish packages, or continue in an unattended loop.
 
 Current confidence for unattended continuous operation is 25% as a stable
-headline; the progress log records Task 57 projected capability at 52%.
+headline; the progress log records Task 58 projected capability at 53%.
 
 The rating is low because the safety primitives are real, but the central
 autonomous build loop is not implemented. The first real unattended run would
@@ -308,6 +309,17 @@ command-policy and active-stop controls. It includes:
   retrying, without executing a second stage, without continuing the loop,
   without writing Git/GitHub state, without merging, without releasing, without
   publishing packages, without assigning roles, and without scheduling agents;
+- `controlled-loop-runner-stage-closeout` packets that consume completed
+  stage-execution, invocation-boundary, stage-execution approval,
+  stage-execution readiness, next-stage, runner-start, runner-plan, dry-run,
+  and stage-output evidence, recheck the full chain, saved operator approval
+  purpose/signature/target checksum, boundary checksum, command-result
+  checksum, and output checksum, classify the stage as completed, failed, or
+  blocked, and stop without starting a process, without invoking an executor,
+  without retrying, without selecting another stage, without continuing the
+  loop, without appending audit evidence, without writing Git/GitHub state,
+  without merging, without releasing, without publishing packages, without
+  assigning roles, and without scheduling agents;
 - controlled `invoke-real-executor` local process-start records,
   `closeout-executor-result --real-invocation-file` binding, and
   `controlled-loop-tick` packets that compose saved local
@@ -680,6 +692,12 @@ terminal command evidence, write the approved stage output, append one
 execution audit record after process start, and stop without invoking an
 executor, retrying, executing a second stage, continuing the loop, or writing
 Git/GitHub state.
+`controlled-loop-runner-stage-closeout` can then consume the saved execution,
+boundary, approval, readiness, next-stage, runner-start, runner-plan, dry-run,
+and approved output evidence, recheck the full runner chain and saved operator
+approval, bind the output file to captured stdout, classify the stage as
+completed, failed, or blocked, and stop before outcome planning, retry,
+continuation, executor invocation, audit append, or Git/GitHub writes.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,

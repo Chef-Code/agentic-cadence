@@ -33,6 +33,50 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-18 - Controlled runner stage closeout
+
+Summary:
+- Added `controlled-loop-runner-stage-closeout` to consume saved completed
+  stage-execution, invocation-boundary, stage-execution approval,
+  stage-execution readiness, next-stage, runner-start, runner-plan, dry-run,
+  and approved stage-output evidence.
+- The command rechecks the full runner chain, saved operator approval
+  signature and purpose, approval target checksum, invocation-boundary
+  checksum, execution command-result checksum, and output-file checksum before
+  classifying the stage as completed, failed, or blocked.
+- Closeout is read-only: it appends no audit evidence, starts no process,
+  invokes or retries no executor, selects no next stage, continues no loop, and
+  writes no Git/GitHub, merge, release, package, role, or scheduler state.
+
+Completed slices:
+- Task 58: controlled loop runner stage closeout packet.
+
+Confidence change:
+- Previous: 52%
+- New: 53%
+- Reason: Cadence can now close out one observed runner-stage execution and
+  route the result toward outcome planning, but it still cannot plan or execute
+  a continuation stage unattended.
+
+Evidence:
+- Focused `controlled-loop-runner-stage-closeout` pytest selection:
+  14 tests passed.
+- Protocol validator: passed.
+- Package verifier: passed.
+
+New risks or blockers:
+- Stage outcome planning, continuation selection, executor invocation from the
+  runner, retry policy, autonomous Git/GitHub writes, merge authority, release
+  publication, role assignment, and agent scheduling remain out of scope.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-18 - Controlled runner single-stage execution
 
 Summary:
