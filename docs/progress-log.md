@@ -60,7 +60,7 @@ Confidence change:
 
 Evidence:
 - Focused `controlled-loop-runner-stage-closeout` pytest selection:
-  9 tests passed.
+  14 tests passed.
 - Protocol validator: passed.
 - Package verifier: passed.
 

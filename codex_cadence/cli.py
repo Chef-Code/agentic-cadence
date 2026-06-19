@@ -15604,6 +15604,7 @@ def controlled_loop_runner_stage_closeout_output_evidence(
     *,
     stage_output_file: Path | None,
     expected_output_file: Path | None,
+    expected_output_identity: dict[str, Any] | None,
     command_stdout: str,
     stage_execution_status: str | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -15719,7 +15720,34 @@ def controlled_loop_runner_stage_closeout_output_evidence(
     evidence["packet"] = output_packet.get("packet")
     evidence["schema_version"] = output_packet.get("schema_version")
     evidence["valid"] = output_packet.get("valid")
+    if stage_execution_status == "completed" and expected_output_identity is not None:
+        actual_identity = {
+            key: output_packet.get(key)
+            for key in ("schema_version", "packet", "valid")
+        }
+        if actual_identity != expected_output_identity:
+            blockers.append(
+                controlled_loop_runner_stage_closeout_blocker(
+                    "controlled_runner_stage_closeout_stage_output_packet_mismatch",
+                    "completed controlled runner stage output evidence does not match the selected stage contract",
+                    expected=expected_output_identity,
+                    actual=actual_identity,
+                )
+            )
     return evidence, blockers
+
+
+def controlled_loop_runner_stage_closeout_expected_output_identity(
+    selected_stage: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    command = selected_stage.get("command") if isinstance(selected_stage, dict) else None
+    if command == "loop-run-plan":
+        return {
+            "schema_version": "loop-run-plan.v1",
+            "packet": "loop_run_plan",
+            "valid": True,
+        }
+    return None
 
 
 def controlled_loop_runner_stage_closeout_stdout_side_effects(stdout_text: str) -> list[Any]:
@@ -15782,8 +15810,12 @@ def controlled_loop_runner_stage_closeout_command_result_blockers(
         invalid_fields["stdout"] = type(stdout_value).__name__
     if not isinstance(stderr_value, str):
         invalid_fields["stderr"] = type(stderr_value).__name__
-    if returncode is not None and not isinstance(returncode, int):
+    if returncode is None and timed_out is not True:
+        invalid_fields["returncode"] = "missing_without_timeout"
+    elif returncode is not None and not isinstance(returncode, int):
         invalid_fields["returncode"] = type(returncode).__name__
+    elif returncode is not None and timed_out is True:
+        invalid_fields["returncode"] = "must_be_null_when_timed_out"
     if not isinstance(timed_out, bool):
         invalid_fields["timed_out"] = type(timed_out).__name__
     if not isinstance(command_result.get("started_at"), str):
@@ -15894,6 +15926,35 @@ def controlled_loop_runner_stage_closeout_execution_blockers(
                 actual_schema_version=execution.get("schema_version"),
                 expected_packet="controlled_loop_runner_stage_execution",
                 actual_packet=execution.get("packet"),
+            )
+        )
+    audit_record = execution.get("audit_record") if isinstance(execution.get("audit_record"), dict) else None
+    source_side_effects = execution.get("side_effects") if isinstance(execution.get("side_effects"), list) else []
+    if (
+        execution.get("valid") is not True
+        or execution.get("blockers") != []
+        or execution.get("next_controlled_action") != "closeout_controlled_runner_stage"
+        or execution.get("runner_stage_execution_authority") != "stage_executed_once"
+        or execution.get("limitations") != CONTROLLED_LOOP_RUNNER_STAGE_EXECUTION_LIMITATIONS
+        or "stage_process_started" not in source_side_effects
+        or "controlled_runner_stage_execution_audit_appended" not in source_side_effects
+        or audit_record is None
+        or audit_record.get("event") != "controlled_runner_stage_execution"
+        or not isinstance(audit_record.get("path"), str)
+        or not isinstance(audit_record.get("event_hash"), str)
+        or isinstance(audit_record.get("chain_index"), bool)
+        or not isinstance(audit_record.get("chain_index"), int)
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_closeout_blocker(
+                "controlled_runner_stage_closeout_execution_not_valid",
+                "controlled runner stage closeout requires valid source stage execution evidence",
+                valid=execution.get("valid"),
+                blocker_codes=execution.get("blockers"),
+                next_controlled_action=execution.get("next_controlled_action"),
+                runner_stage_execution_authority=execution.get("runner_stage_execution_authority"),
+                side_effects=execution.get("side_effects"),
+                audit_record=audit_record,
             )
         )
     status = execution.get("stage_execution_status")
@@ -16022,11 +16083,6 @@ def controlled_loop_runner_stage_closeout_execution_blockers(
     )
     file_groups = [
         (
-            "controlled_runner_stage_closeout_execution_file_mismatch",
-            execution_path,
-            {"execution_file": str(execution_path)},
-        ),
-        (
             "controlled_runner_stage_closeout_boundary_file_mismatch",
             boundary_path,
             {"controlled_loop_runner_stage_invocation_boundary.file": execution_boundary.get("file")},
@@ -16129,6 +16185,29 @@ def controlled_loop_runner_stage_closeout_execution_blockers(
                     "controlled runner stage execution checksum anchors do not match supplied closeout evidence",
                     expected=expected_checksum,
                     actual=mismatched,
+                )
+            )
+    if invocation_boundary is not None:
+        expected_invocation_boundary_checksum = checksum_json(invocation_boundary)
+        invocation_boundary_mismatches = {
+            field: value
+            for field, value in {
+                "boundary.invocation_boundary_checksum": (
+                    boundary.get("invocation_boundary_checksum") if isinstance(boundary, dict) else None
+                ),
+                "execution.controlled_loop_runner_stage_invocation_boundary.invocation_boundary_checksum": (
+                    execution_boundary.get("invocation_boundary_checksum")
+                ),
+            }.items()
+            if value != expected_invocation_boundary_checksum
+        }
+        if invocation_boundary_mismatches:
+            blockers.append(
+                controlled_loop_runner_stage_closeout_blocker(
+                    "controlled_runner_stage_closeout_invocation_boundary_checksum_mismatch",
+                    "controlled runner stage closeout invocation-boundary checksum anchors do not match",
+                    expected=expected_invocation_boundary_checksum,
+                    actual=invocation_boundary_mismatches,
                 )
             )
     if isinstance(boundary, dict):
@@ -16397,6 +16476,11 @@ def controlled_loop_runner_stage_closeout_command(args: argparse.Namespace) -> i
         if output_policy.get("mode") == "capture_stdout_json" and isinstance(output_policy.get("output_file"), str)
         else None
     )
+    effective_stage_output_file = (
+        supplied_stage_output_file.expanduser().resolve(strict=False)
+        if supplied_stage_output_file is not None
+        else expected_output_file
+    )
     command_result = (
         execution.get("command_result")
         if isinstance(execution, dict) and isinstance(execution.get("command_result"), dict)
@@ -16404,9 +16488,17 @@ def controlled_loop_runner_stage_closeout_command(args: argparse.Namespace) -> i
     )
     command_stdout = controlled_loop_runner_stage_execution_text(command_result.get("stdout"))
     execution_stage_status = execution.get("stage_execution_status") if isinstance(execution, dict) else None
+    execution_selected_stage = (
+        execution.get("selected_stage")
+        if isinstance(execution, dict) and isinstance(execution.get("selected_stage"), dict)
+        else None
+    )
     stage_output, stage_output_blockers = controlled_loop_runner_stage_closeout_output_evidence(
-        stage_output_file=supplied_stage_output_file,
+        stage_output_file=effective_stage_output_file,
         expected_output_file=expected_output_file,
+        expected_output_identity=controlled_loop_runner_stage_closeout_expected_output_identity(
+            execution_selected_stage
+        ),
         command_stdout=command_stdout,
         stage_execution_status=execution_stage_status if isinstance(execution_stage_status, str) else None,
     )
@@ -16417,11 +16509,6 @@ def controlled_loop_runner_stage_closeout_command(args: argparse.Namespace) -> i
         blockers,
     )
     recommended_next_action, reason = controlled_loop_runner_stage_closeout_recommendation(closeout_status)
-    execution_selected_stage = (
-        execution.get("selected_stage")
-        if isinstance(execution, dict) and isinstance(execution.get("selected_stage"), dict)
-        else None
-    )
     closeout_stage = controlled_loop_runner_stage_closeout_stage(
         execution_selected_stage,
         closeout_status=closeout_status,
@@ -16521,7 +16608,7 @@ def controlled_loop_runner_stage_closeout_command(args: argparse.Namespace) -> i
             "controlled_loop_runner_start": str(start_path),
             "controlled_loop_runner_plan": str(runner_plan_path),
             "controlled_loop_runner_dry_run": str(dry_run_path),
-            "stage_output": str(supplied_stage_output_file) if supplied_stage_output_file is not None else None,
+            "stage_output": str(effective_stage_output_file) if effective_stage_output_file is not None else None,
         },
         "checksums": {
             "controlled_loop_runner_stage_execution": execution_checksum,

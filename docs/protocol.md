@@ -2368,9 +2368,12 @@ When the invocation boundary uses stdout JSON output evidence, closeout derives
 the expected output path from that boundary policy. If the stage execution is
 completed, the approved output file must exist, match the expected path, match
 the captured stdout byte-for-byte after the same text capture semantics, and
-parse as a nonempty JSON object. A failed stage may close out with empty or
-non-JSON diagnostic stdout when the terminal execution evidence is otherwise
-consistent; it is not retried and no continuation is selected.
+parse as a nonempty JSON object matching the selected stage's expected
+evidence identity. For the current `loop-run-plan` runner stage, that means
+`schema_version: loop-run-plan.v1`, `packet: loop_run_plan`, and `valid: true`.
+A failed stage may close out with empty or non-JSON diagnostic stdout when the
+terminal execution evidence is otherwise consistent; it is not retried and no
+continuation is selected.
 
 A valid closeout emits
 `controlled-loop-runner-stage-closeout.v1` with
@@ -2392,28 +2395,47 @@ Stable blockers include
 `controlled_runner_stage_closeout_approval_evidence_missing`,
 `controlled_runner_stage_closeout_readiness_evidence_missing`,
 `controlled_runner_stage_closeout_next_stage_evidence_missing`,
-`controlled_runner_stage_closeout_execution_file_mismatch`,
-`controlled_runner_stage_closeout_execution_checksum_mismatch`,
 `controlled_runner_stage_closeout_execution_packet_mismatch`,
+`controlled_runner_stage_closeout_execution_not_valid`,
 `controlled_runner_stage_closeout_root_missing`,
 `controlled_runner_stage_closeout_execution_status_invalid`,
 `controlled_runner_stage_closeout_execution_not_started`,
+`controlled_runner_stage_closeout_execution_forbidden_flags`,
+`controlled_runner_stage_closeout_stage_number_mismatch`,
 `controlled_runner_stage_closeout_command_result_missing`,
 `controlled_runner_stage_closeout_command_result_checksum_mismatch`,
 `controlled_runner_stage_closeout_command_result_boundary_mismatch`,
 `controlled_runner_stage_closeout_command_result_status_mismatch`,
 `controlled_runner_stage_closeout_command_result_invalid`,
+`controlled_runner_stage_closeout_invocation_boundary_checksum_mismatch`,
 `controlled_runner_stage_closeout_stage_output_missing`,
 `controlled_runner_stage_closeout_stage_output_file_mismatch`,
 `controlled_runner_stage_closeout_stage_output_checksum_mismatch`,
+`controlled_runner_stage_closeout_stage_output_unreadable`,
 `controlled_runner_stage_closeout_stage_output_not_json`,
+`controlled_runner_stage_closeout_stage_output_not_json_object`,
+`controlled_runner_stage_closeout_stage_output_packet_mismatch`,
 `controlled_runner_stage_closeout_selected_stage_mismatch`,
-`controlled_runner_stage_closeout_approval_target_checksum_mismatch`,
+`controlled_runner_stage_closeout_boundary_file_mismatch`,
+`controlled_runner_stage_closeout_approval_file_mismatch`,
+`controlled_runner_stage_closeout_readiness_file_mismatch`,
+`controlled_runner_stage_closeout_next_stage_file_mismatch`,
+`controlled_runner_stage_closeout_start_file_mismatch`,
+`controlled_runner_stage_closeout_plan_file_mismatch`,
+`controlled_runner_stage_closeout_dry_run_file_mismatch`,
 `controlled_runner_stage_closeout_boundary_checksum_mismatch`,
+`controlled_runner_stage_closeout_approval_target_checksum_mismatch`,
+`controlled_runner_stage_closeout_approval_checksum_mismatch`,
+`controlled_runner_stage_closeout_readiness_checksum_mismatch`,
+`controlled_runner_stage_closeout_next_stage_checksum_mismatch`,
+`controlled_runner_stage_closeout_start_checksum_mismatch`,
+`controlled_runner_stage_closeout_plan_checksum_mismatch`,
+`controlled_runner_stage_closeout_dry_run_checksum_mismatch`,
 `controlled_runner_stage_closeout_stdout_missing`,
 `controlled_runner_stage_closeout_stdout_not_json`,
 `controlled_runner_stage_closeout_stage_side_effects_invalid`, and
-`controlled_runner_stage_closeout_undeclared_side_effects`, plus rewritten
+`controlled_runner_stage_closeout_undeclared_side_effects`, plus
+`controlled_runner_stage_closeout_upstream_invalid` and other rewritten
 upstream next-stage, stage-boundary, stage-approval, and stage-readiness
 blockers, plus shared `operator_approval_*` blockers from the operator-approval
 verifier such as `operator_approval_secret_missing`,
