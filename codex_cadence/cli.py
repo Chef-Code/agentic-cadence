@@ -9977,6 +9977,34 @@ def controlled_loop_runner_start_approval_command(args: argparse.Namespace) -> i
 
 CONTROLLED_LOOP_RUNNER_START_SCHEMA_VERSION = "controlled-loop-runner-start.v1"
 CONTROLLED_LOOP_RUNNER_NEXT_STAGE_SCHEMA_VERSION = "controlled-loop-runner-next-stage.v1"
+CONTROLLED_LOOP_RUNNER_NEXT_STAGE_CONTINUATION_SCHEMA_VERSION = (
+    "controlled-loop-runner-next-stage-continuation.v1"
+)
+CONTROLLED_LOOP_RUNNER_NEXT_STAGE_CONTINUATION_LIMITATIONS = [
+    "selects_one_runner_stage_continuation_only",
+    "does_not_emit_stage_execution_readiness_target",
+    "does_not_authorize_stage_execution_readiness",
+    "does_not_start_process",
+    "does_not_execute_runner_stage",
+    "does_not_start_executor",
+    "does_not_invoke_executor",
+    "does_not_retry_executor",
+    "does_not_execute_second_stage",
+    "does_not_continue_loop",
+    "does_not_append_audit",
+    "does_not_write_git_or_github_state",
+    "does_not_execute_git_commands",
+    "does_not_call_github",
+    "does_not_create_branch",
+    "does_not_commit",
+    "does_not_push",
+    "does_not_create_pr",
+    "does_not_merge",
+    "does_not_release",
+    "does_not_publish_packages",
+    "does_not_assign_roles",
+    "does_not_schedule_agents",
+]
 CONTROLLED_LOOP_RUNNER_STAGE_EXECUTION_READINESS_SCHEMA_VERSION = (
     "controlled-loop-runner-stage-execution-readiness.v1"
 )
@@ -11867,6 +11895,832 @@ def controlled_loop_runner_next_stage_command(args: argparse.Namespace) -> int:
             "does_not_merge",
             "does_not_release",
             "does_not_publish_packages",
+            "does_not_assign_roles",
+            "does_not_schedule_agents",
+        ],
+    }
+    emit(payload)
+    return 0 if valid else 2
+
+
+def controlled_loop_runner_next_stage_continuation_blocker(
+    code: str,
+    message: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def read_controlled_loop_runner_next_stage_continuation_packet(
+    path: Path,
+    *,
+    code: str,
+    label: str,
+) -> tuple[Any | None, list[dict[str, Any]]]:
+    try:
+        packet = read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, [
+            controlled_loop_runner_next_stage_continuation_blocker(
+                code,
+                f"{label} could not be read as JSON",
+                path=str(path),
+                error=str(exc),
+            )
+        ]
+    if not isinstance(packet, dict):
+        return None, [
+            controlled_loop_runner_next_stage_continuation_blocker(
+                code,
+                f"{label} must be a JSON object",
+                path=str(path),
+            )
+        ]
+    return packet, []
+
+
+def controlled_loop_runner_next_stage_continuation_rewrite_upstream_blocker(
+    blocker: dict[str, Any],
+) -> dict[str, Any]:
+    return controlled_loop_runner_next_stage_continuation_blocker(
+        "controlled_runner_next_stage_continuation_upstream_invalid",
+        "controlled runner upstream evidence failed continuation revalidation",
+        upstream_code=blocker.get("code"),
+        upstream_blocker=blocker,
+    )
+
+
+def controlled_loop_runner_next_stage_continuation_recommendation(
+    blockers: list[dict[str, Any]],
+) -> tuple[str, str]:
+    if not blockers:
+        return (
+            "review_controlled_runner_next_stage_continuation",
+            "controlled runner next-stage continuation selected",
+        )
+    for blocker in blockers:
+        if (
+            blocker.get("code") == "controlled_runner_next_stage_continuation_outcome_not_select_next_stage"
+            and blocker.get("actual_next_controlled_action") == "complete_controlled_runner"
+        ):
+            return "complete_controlled_runner", "controlled runner outcome plan targets completion"
+    blocker_codes = {blocker.get("code") for blocker in blockers}
+    upstream_codes = {blocker.get("upstream_code") for blocker in blockers}
+    all_codes = blocker_codes | upstream_codes
+    if any(
+        isinstance(code, str)
+        and (
+            code.startswith("controlled_runner_next_stage_continuation_outcome")
+            or code.startswith("controlled_runner_stage_outcome_plan")
+        )
+        for code in all_codes
+    ):
+        return "refresh_controlled_runner_stage_outcome_plan", "controlled runner stage outcome plan is stale"
+    if any(
+        isinstance(code, str)
+        and (
+            code.startswith("controlled_runner_next_stage_continuation_closeout")
+            or code.startswith("controlled_runner_stage_closeout")
+        )
+        for code in all_codes
+    ):
+        return "refresh_controlled_runner_stage_closeout", "controlled runner stage closeout evidence is stale"
+    if any(
+        isinstance(code, str)
+        and (
+            code.startswith("controlled_runner_next_stage_continuation_execution")
+            or code.startswith("controlled_runner_stage_execution")
+        )
+        for code in all_codes
+    ):
+        return "refresh_controlled_runner_stage_execution", "controlled runner stage execution evidence is stale"
+    if any(
+        isinstance(code, str)
+        and (
+            code.startswith("controlled_runner_next_stage_runner_plan")
+            or code.startswith("controlled_runner_next_stage_continuation_runner_plan")
+            or code.startswith("controlled_runner_start_readiness_runner_plan")
+        )
+        for code in all_codes
+    ):
+        return "refresh_controlled_runner_plan", "controlled runner plan evidence is stale"
+    if any(
+        isinstance(code, str)
+        and (
+            code.startswith("controlled_runner_next_stage_start")
+            or code.startswith("controlled_runner_next_stage_continuation_start")
+        )
+        for code in all_codes
+    ):
+        return "refresh_controlled_runner_start", "controlled runner start evidence is stale"
+    if any(
+        isinstance(code, str)
+        and (
+            code.startswith("controlled_runner_next_stage_dry_run")
+            or code.startswith("controlled_runner_next_stage_continuation_dry_run")
+        )
+        for code in all_codes
+    ):
+        return "refresh_controlled_runner_dry_run", "controlled runner dry-run evidence is stale"
+    return (
+        "inspect_controlled_runner_next_stage_continuation_blockers",
+        "controlled runner next-stage continuation is blocked",
+    )
+
+
+def controlled_loop_runner_next_stage_continuation_plan_stage(
+    runner_plan: dict[str, Any] | None,
+    stage_number: int,
+) -> dict[str, Any] | None:
+    plan_details = (
+        runner_plan.get("runner_plan")
+        if isinstance(runner_plan, dict) and isinstance(runner_plan.get("runner_plan"), dict)
+        else {}
+    )
+    planned_steps = plan_details.get("planned_steps")
+    if not isinstance(planned_steps, list):
+        return None
+    for planned_step in planned_steps:
+        if isinstance(planned_step, dict) and planned_step.get("step") == stage_number:
+            return planned_step
+    return None
+
+
+def controlled_loop_runner_next_stage_continuation_command(args: argparse.Namespace) -> int:
+    root = Path(args.root).expanduser().resolve(strict=False) if args.root else None
+    outcome_plan_path = Path(args.controlled_loop_runner_stage_outcome_plan_file)
+    closeout_path = Path(args.controlled_loop_runner_stage_closeout_file)
+    execution_path = Path(args.controlled_loop_runner_stage_execution_file)
+    start_path = Path(args.controlled_loop_runner_start_file)
+    runner_plan_path = Path(args.controlled_loop_runner_plan_file)
+    dry_run_path = Path(args.controlled_loop_runner_dry_run_file)
+    completed_stage_number = int(args.completed_stage_number)
+    expected_next_stage_number = completed_stage_number + 1
+
+    blockers: list[dict[str, Any]] = []
+    outcome_plan, outcome_read_blockers = read_controlled_loop_runner_next_stage_continuation_packet(
+        outcome_plan_path,
+        code="controlled_runner_next_stage_continuation_outcome_evidence_missing",
+        label="controlled runner stage outcome plan",
+    )
+    closeout, closeout_read_blockers = read_controlled_loop_runner_next_stage_continuation_packet(
+        closeout_path,
+        code="controlled_runner_next_stage_continuation_closeout_evidence_missing",
+        label="controlled runner stage closeout",
+    )
+    execution, execution_read_blockers = read_controlled_loop_runner_next_stage_continuation_packet(
+        execution_path,
+        code="controlled_runner_next_stage_continuation_execution_evidence_missing",
+        label="controlled runner stage execution",
+    )
+    blockers.extend(outcome_read_blockers)
+    blockers.extend(closeout_read_blockers)
+    blockers.extend(execution_read_blockers)
+
+    outcome_checksum = checksum_json(outcome_plan) if isinstance(outcome_plan, dict) else None
+    closeout_checksum = checksum_json(closeout) if isinstance(closeout, dict) else None
+    execution_checksum = checksum_json(execution) if isinstance(execution, dict) else None
+    expected_outcome_checksum = args.expected_stage_outcome_plan_checksum
+    if outcome_checksum != expected_outcome_checksum:
+        blockers.append(
+            controlled_loop_runner_next_stage_continuation_blocker(
+                "controlled_runner_next_stage_continuation_outcome_checksum_mismatch",
+                "controlled runner stage outcome plan checksum does not match reviewed outcome-plan checksum",
+                expected=expected_outcome_checksum,
+                actual=outcome_checksum,
+            )
+        )
+
+    outcome_target = (
+        outcome_plan.get("outcome_target")
+        if isinstance(outcome_plan, dict) and isinstance(outcome_plan.get("outcome_target"), dict)
+        else None
+    )
+    next_stage_number = (
+        outcome_target.get("next_stage_number")
+        if outcome_target is not None and isinstance(outcome_target.get("next_stage_number"), int)
+        and not isinstance(outcome_target.get("next_stage_number"), bool)
+        else None
+    )
+    chain_stage_number = next_stage_number if isinstance(next_stage_number, int) else expected_next_stage_number
+    chain_args = argparse.Namespace(
+        root=root,
+        controlled_loop_runner_start_file=str(start_path),
+        controlled_loop_runner_plan_file=str(runner_plan_path),
+        controlled_loop_runner_dry_run_file=str(dry_run_path),
+        stage_number=chain_stage_number,
+    )
+    chain_validation = controlled_loop_runner_next_stage_chain_validation(
+        chain_args,
+        allow_non_initial_stage=True,
+    )
+    start = chain_validation["start"]
+    runner_plan = chain_validation["runner_plan"]
+    dry_run = chain_validation["dry_run"]
+    start_checksum = chain_validation["start_checksum"]
+    runner_plan_checksum = chain_validation["runner_plan_checksum"]
+    dry_run_checksum = chain_validation["dry_run_checksum"]
+    selected_stage = chain_validation["selected_stage"]
+    blockers.extend(
+        controlled_loop_runner_next_stage_continuation_rewrite_upstream_blocker(blocker)
+        for blocker in chain_validation["blockers"]
+    )
+
+    if root is None:
+        blockers.append(
+            controlled_loop_runner_next_stage_continuation_blocker(
+                "controlled_runner_next_stage_continuation_root_missing",
+                "controlled runner next-stage continuation requires a runtime root to revalidate the runner chain",
+            )
+        )
+
+    if isinstance(outcome_plan, dict):
+        if (
+            outcome_plan.get("schema_version") != CONTROLLED_LOOP_RUNNER_STAGE_OUTCOME_PLAN_SCHEMA_VERSION
+            or outcome_plan.get("packet") != "controlled_loop_runner_stage_outcome_plan"
+        ):
+            blockers.append(
+                controlled_loop_runner_next_stage_continuation_blocker(
+                    "controlled_runner_next_stage_continuation_outcome_packet_mismatch",
+                    "controlled runner stage outcome plan packet type is invalid",
+                    expected_schema_version=CONTROLLED_LOOP_RUNNER_STAGE_OUTCOME_PLAN_SCHEMA_VERSION,
+                    actual_schema_version=outcome_plan.get("schema_version"),
+                    expected_packet="controlled_loop_runner_stage_outcome_plan",
+                    actual_packet=outcome_plan.get("packet"),
+                )
+            )
+        outcome_side_effect_flags = {
+            flag: outcome_plan.get(flag)
+            for flag in [
+                "process_started",
+                "stage_execution_started",
+                "next_stage_selected",
+                "audit_evidence_appended",
+                "executor_started",
+                "stage_retry_started",
+                "second_stage_started",
+                "epoch_started",
+                "pr_action_started",
+                "github_write_started",
+                "merge_started",
+                "release_started",
+                "package_publication_started",
+                "role_assignment_started",
+                "agent_scheduling_started",
+                "loop_continuation_started",
+            ]
+            if outcome_plan.get(flag) is not False
+        }
+        if (
+            outcome_plan.get("valid") is not True
+            or outcome_plan.get("read_only") is not True
+            or outcome_plan.get("stage_outcome_plan_status") != "completed"
+            or outcome_plan.get("side_effects") != []
+            or outcome_plan.get("limitations") != CONTROLLED_LOOP_RUNNER_STAGE_OUTCOME_PLAN_LIMITATIONS
+            or outcome_plan.get("blockers") != []
+            or outcome_side_effect_flags
+        ):
+            blockers.append(
+                controlled_loop_runner_next_stage_continuation_blocker(
+                    "controlled_runner_next_stage_continuation_outcome_not_completed",
+                    "controlled runner stage outcome plan must be completed and read-only",
+                    valid=outcome_plan.get("valid"),
+                    read_only=outcome_plan.get("read_only"),
+                    status=outcome_plan.get("stage_outcome_plan_status"),
+                    side_effects=outcome_plan.get("side_effects"),
+                    blockers=outcome_plan.get("blockers"),
+                    side_effect_flags=outcome_side_effect_flags,
+                )
+            )
+        if (
+            outcome_plan.get("stage_outcome_decision") != "select_next_stage"
+            or outcome_plan.get("next_controlled_action") != "select_controlled_runner_next_stage_continuation"
+            or outcome_plan.get("recommended_next_action") != "select_controlled_runner_next_stage_continuation"
+            or outcome_plan.get("stage_closeout_status") != "completed"
+        ):
+            blockers.append(
+                controlled_loop_runner_next_stage_continuation_blocker(
+                    "controlled_runner_next_stage_continuation_outcome_not_select_next_stage",
+                    "controlled runner next-stage continuation requires a next-stage selection outcome",
+                    actual_decision=outcome_plan.get("stage_outcome_decision"),
+                    actual_next_controlled_action=outcome_plan.get("next_controlled_action"),
+                    actual_recommended_next_action=outcome_plan.get("recommended_next_action"),
+                    actual_stage_closeout_status=outcome_plan.get("stage_closeout_status"),
+                )
+            )
+        if outcome_target is None:
+            blockers.append(
+                controlled_loop_runner_next_stage_continuation_blocker(
+                    "controlled_runner_next_stage_continuation_outcome_target_missing",
+                    "controlled runner stage outcome plan must include a next-stage outcome target",
+                )
+            )
+        else:
+            if outcome_plan.get("outcome_target_checksum") != checksum_json(outcome_target):
+                blockers.append(
+                    controlled_loop_runner_next_stage_continuation_blocker(
+                        "controlled_runner_next_stage_continuation_outcome_target_checksum_mismatch",
+                        "controlled runner stage outcome target checksum is stale",
+                        expected=checksum_json(outcome_target),
+                        actual=outcome_plan.get("outcome_target_checksum"),
+                    )
+                )
+            if outcome_target.get("purpose") != "controlled_loop_runner_next_stage_selection":
+                blockers.append(
+                    controlled_loop_runner_next_stage_continuation_blocker(
+                        "controlled_runner_next_stage_continuation_outcome_target_purpose_invalid",
+                        "controlled runner stage outcome target must select a next stage",
+                        actual=outcome_target.get("purpose"),
+                    )
+                )
+            if outcome_target.get("completed_stage_number") != completed_stage_number:
+                blockers.append(
+                    controlled_loop_runner_next_stage_continuation_blocker(
+                        "controlled_runner_next_stage_continuation_completed_stage_mismatch",
+                        "controlled runner continuation requested completed stage does not match outcome target",
+                        expected=completed_stage_number,
+                        actual=outcome_target.get("completed_stage_number"),
+                    )
+                )
+            if outcome_target.get("next_stage_number") != expected_next_stage_number:
+                blockers.append(
+                    controlled_loop_runner_next_stage_continuation_blocker(
+                        "controlled_runner_next_stage_continuation_stage_sequence_gap",
+                        "controlled runner continuation must select exactly the next stage after closeout",
+                        expected=expected_next_stage_number,
+                        actual=outcome_target.get("next_stage_number"),
+                    )
+                )
+
+        outcome_closeout = (
+            outcome_plan.get("controlled_loop_runner_stage_closeout")
+            if isinstance(outcome_plan.get("controlled_loop_runner_stage_closeout"), dict)
+            else {}
+        )
+        outcome_execution = (
+            outcome_plan.get("controlled_loop_runner_stage_execution")
+            if isinstance(outcome_plan.get("controlled_loop_runner_stage_execution"), dict)
+            else {}
+        )
+        outcome_start = (
+            outcome_plan.get("controlled_loop_runner_start")
+            if isinstance(outcome_plan.get("controlled_loop_runner_start"), dict)
+            else {}
+        )
+        outcome_runner_plan = (
+            outcome_plan.get("controlled_loop_runner_plan")
+            if isinstance(outcome_plan.get("controlled_loop_runner_plan"), dict)
+            else {}
+        )
+        outcome_dry_run = (
+            outcome_plan.get("controlled_loop_runner_dry_run")
+            if isinstance(outcome_plan.get("controlled_loop_runner_dry_run"), dict)
+            else {}
+        )
+        outcome_files = outcome_plan.get("files") if isinstance(outcome_plan.get("files"), dict) else {}
+        outcome_checksums = outcome_plan.get("checksums") if isinstance(outcome_plan.get("checksums"), dict) else {}
+        file_groups = [
+            (
+                "controlled_runner_next_stage_continuation_outcome_closeout_file_mismatch",
+                closeout_path,
+                {
+                    "controlled_loop_runner_stage_closeout.file": outcome_closeout.get("file"),
+                    "files.controlled_loop_runner_stage_closeout": outcome_files.get(
+                        "controlled_loop_runner_stage_closeout"
+                    ),
+                },
+            ),
+            (
+                "controlled_runner_next_stage_continuation_outcome_execution_file_mismatch",
+                execution_path,
+                {
+                    "controlled_loop_runner_stage_execution.file": outcome_execution.get("file"),
+                    "files.controlled_loop_runner_stage_execution": outcome_files.get(
+                        "controlled_loop_runner_stage_execution"
+                    ),
+                },
+            ),
+            (
+                "controlled_runner_next_stage_continuation_outcome_start_file_mismatch",
+                start_path,
+                {
+                    "controlled_loop_runner_start.file": outcome_start.get("file"),
+                    "files.controlled_loop_runner_start": outcome_files.get("controlled_loop_runner_start"),
+                },
+            ),
+            (
+                "controlled_runner_next_stage_continuation_outcome_plan_file_mismatch",
+                runner_plan_path,
+                {
+                    "controlled_loop_runner_plan.file": outcome_runner_plan.get("file"),
+                    "files.controlled_loop_runner_plan": outcome_files.get("controlled_loop_runner_plan"),
+                },
+            ),
+            (
+                "controlled_runner_next_stage_continuation_outcome_dry_run_file_mismatch",
+                dry_run_path,
+                {
+                    "controlled_loop_runner_dry_run.file": outcome_dry_run.get("file"),
+                    "files.controlled_loop_runner_dry_run": outcome_files.get("controlled_loop_runner_dry_run"),
+                },
+            ),
+        ]
+        for code, expected_path, values in file_groups:
+            mismatched = {
+                field: value
+                for field, value in values.items()
+                if not controlled_loop_runner_plan_file_matches(outcome_plan_path, value, expected_path)
+            }
+            if mismatched:
+                blockers.append(
+                    controlled_loop_runner_next_stage_continuation_blocker(
+                        code,
+                        "controlled runner stage outcome plan file anchors do not match continuation evidence",
+                        expected=str(expected_path),
+                        actual=mismatched,
+                    )
+                )
+        checksum_groups = [
+            (
+                "controlled_runner_next_stage_continuation_closeout_checksum_mismatch",
+                closeout_checksum,
+                {
+                    "outcome_target.controlled_loop_runner_stage_closeout_checksum": (
+                        outcome_target.get("controlled_loop_runner_stage_closeout_checksum")
+                        if outcome_target is not None
+                        else None
+                    ),
+                    "controlled_loop_runner_stage_closeout.checksum": outcome_closeout.get("checksum"),
+                    "checksums.controlled_loop_runner_stage_closeout": outcome_checksums.get(
+                        "controlled_loop_runner_stage_closeout"
+                    ),
+                },
+            ),
+            (
+                "controlled_runner_next_stage_continuation_execution_checksum_mismatch",
+                execution_checksum,
+                {
+                    "outcome_target.controlled_loop_runner_stage_execution_checksum": (
+                        outcome_target.get("controlled_loop_runner_stage_execution_checksum")
+                        if outcome_target is not None
+                        else None
+                    ),
+                    "controlled_loop_runner_stage_execution.checksum": outcome_execution.get("checksum"),
+                    "checksums.controlled_loop_runner_stage_execution": outcome_checksums.get(
+                        "controlled_loop_runner_stage_execution"
+                    ),
+                },
+            ),
+            (
+                "controlled_runner_next_stage_continuation_start_checksum_mismatch",
+                start_checksum,
+                {
+                    "outcome_target.controlled_loop_runner_start_checksum": (
+                        outcome_target.get("controlled_loop_runner_start_checksum")
+                        if outcome_target is not None
+                        else None
+                    ),
+                    "controlled_loop_runner_start.checksum": outcome_start.get("checksum"),
+                    "checksums.controlled_loop_runner_start": outcome_checksums.get("controlled_loop_runner_start"),
+                },
+            ),
+            (
+                "controlled_runner_next_stage_continuation_runner_plan_checksum_mismatch",
+                runner_plan_checksum,
+                {
+                    "outcome_target.controlled_loop_runner_plan_checksum": (
+                        outcome_target.get("controlled_loop_runner_plan_checksum")
+                        if outcome_target is not None
+                        else None
+                    ),
+                    "controlled_loop_runner_plan.checksum": outcome_runner_plan.get("checksum"),
+                    "checksums.controlled_loop_runner_plan": outcome_checksums.get("controlled_loop_runner_plan"),
+                },
+            ),
+            (
+                "controlled_runner_next_stage_continuation_dry_run_checksum_mismatch",
+                dry_run_checksum,
+                {
+                    "outcome_target.controlled_loop_runner_dry_run_checksum": (
+                        outcome_target.get("controlled_loop_runner_dry_run_checksum")
+                        if outcome_target is not None
+                        else None
+                    ),
+                    "controlled_loop_runner_dry_run.checksum": outcome_dry_run.get("checksum"),
+                    "checksums.controlled_loop_runner_dry_run": outcome_checksums.get("controlled_loop_runner_dry_run"),
+                },
+            ),
+        ]
+        for code, expected_checksum, values in checksum_groups:
+            mismatched = {field: value for field, value in values.items() if value != expected_checksum}
+            if mismatched:
+                blockers.append(
+                    controlled_loop_runner_next_stage_continuation_blocker(
+                        code,
+                        "controlled runner stage outcome plan checksum anchors do not match continuation evidence",
+                        expected=expected_checksum,
+                        actual=mismatched,
+                    )
+                )
+
+    if isinstance(closeout, dict):
+        if (
+            closeout.get("schema_version") != CONTROLLED_LOOP_RUNNER_STAGE_CLOSEOUT_SCHEMA_VERSION
+            or closeout.get("packet") != "controlled_loop_runner_stage_closeout"
+        ):
+            blockers.append(
+                controlled_loop_runner_next_stage_continuation_blocker(
+                    "controlled_runner_next_stage_continuation_closeout_packet_mismatch",
+                    "controlled runner stage closeout packet type is invalid",
+                    expected_schema_version=CONTROLLED_LOOP_RUNNER_STAGE_CLOSEOUT_SCHEMA_VERSION,
+                    actual_schema_version=closeout.get("schema_version"),
+                    expected_packet="controlled_loop_runner_stage_closeout",
+                    actual_packet=closeout.get("packet"),
+                )
+            )
+        if (
+            closeout.get("valid") is not True
+            or closeout.get("read_only") is not True
+            or closeout.get("stage_closeout_status") != "completed"
+            or closeout.get("stage_number") != completed_stage_number
+            or closeout.get("side_effects") != []
+            or closeout.get("blockers") != []
+            or closeout.get("limitations") != CONTROLLED_LOOP_RUNNER_STAGE_CLOSEOUT_LIMITATIONS
+            or closeout.get("next_controlled_action") != "plan_controlled_runner_stage_outcome"
+        ):
+            blockers.append(
+                controlled_loop_runner_next_stage_continuation_blocker(
+                    "controlled_runner_next_stage_continuation_closeout_not_completed",
+                    "controlled runner next-stage continuation requires a completed closeout",
+                    valid=closeout.get("valid"),
+                    read_only=closeout.get("read_only"),
+                    stage_closeout_status=closeout.get("stage_closeout_status"),
+                    stage_number=closeout.get("stage_number"),
+                    side_effects=closeout.get("side_effects"),
+                    blockers=closeout.get("blockers"),
+                    next_controlled_action=closeout.get("next_controlled_action"),
+                )
+            )
+        closeout_execution = (
+            closeout.get("controlled_loop_runner_stage_execution")
+            if isinstance(closeout.get("controlled_loop_runner_stage_execution"), dict)
+            else {}
+        )
+        closeout_start = (
+            closeout.get("controlled_loop_runner_start")
+            if isinstance(closeout.get("controlled_loop_runner_start"), dict)
+            else {}
+        )
+        closeout_plan = (
+            closeout.get("controlled_loop_runner_plan")
+            if isinstance(closeout.get("controlled_loop_runner_plan"), dict)
+            else {}
+        )
+        closeout_dry_run = (
+            closeout.get("controlled_loop_runner_dry_run")
+            if isinstance(closeout.get("controlled_loop_runner_dry_run"), dict)
+            else {}
+        )
+        closeout_checksums = closeout.get("checksums") if isinstance(closeout.get("checksums"), dict) else {}
+        closeout_checksum_groups = [
+            (
+                "controlled_runner_next_stage_continuation_execution_checksum_mismatch",
+                execution_checksum,
+                {
+                    "controlled_loop_runner_stage_execution.checksum": closeout_execution.get("checksum"),
+                    "checksums.controlled_loop_runner_stage_execution": closeout_checksums.get(
+                        "controlled_loop_runner_stage_execution"
+                    ),
+                },
+            ),
+            (
+                "controlled_runner_next_stage_continuation_start_checksum_mismatch",
+                start_checksum,
+                {
+                    "controlled_loop_runner_start.checksum": closeout_start.get("checksum"),
+                    "checksums.controlled_loop_runner_start": closeout_checksums.get("controlled_loop_runner_start"),
+                },
+            ),
+            (
+                "controlled_runner_next_stage_continuation_runner_plan_checksum_mismatch",
+                runner_plan_checksum,
+                {
+                    "controlled_loop_runner_plan.checksum": closeout_plan.get("checksum"),
+                    "checksums.controlled_loop_runner_plan": closeout_checksums.get("controlled_loop_runner_plan"),
+                },
+            ),
+            (
+                "controlled_runner_next_stage_continuation_dry_run_checksum_mismatch",
+                dry_run_checksum,
+                {
+                    "controlled_loop_runner_dry_run.checksum": closeout_dry_run.get("checksum"),
+                    "checksums.controlled_loop_runner_dry_run": closeout_checksums.get("controlled_loop_runner_dry_run"),
+                },
+            ),
+        ]
+        for code, expected_checksum, values in closeout_checksum_groups:
+            mismatched = {field: value for field, value in values.items() if value != expected_checksum}
+            if mismatched:
+                blockers.append(
+                    controlled_loop_runner_next_stage_continuation_blocker(
+                        code,
+                        "controlled runner stage closeout checksum anchors do not match continuation evidence",
+                        expected=expected_checksum,
+                        actual=mismatched,
+                    )
+                )
+
+    if isinstance(execution, dict):
+        if (
+            execution.get("schema_version") != CONTROLLED_LOOP_RUNNER_STAGE_EXECUTION_SCHEMA_VERSION
+            or execution.get("packet") != "controlled_loop_runner_stage_execution"
+        ):
+            blockers.append(
+                controlled_loop_runner_next_stage_continuation_blocker(
+                    "controlled_runner_next_stage_continuation_execution_packet_mismatch",
+                    "controlled runner stage execution packet type is invalid",
+                    expected_schema_version=CONTROLLED_LOOP_RUNNER_STAGE_EXECUTION_SCHEMA_VERSION,
+                    actual_schema_version=execution.get("schema_version"),
+                    expected_packet="controlled_loop_runner_stage_execution",
+                    actual_packet=execution.get("packet"),
+                )
+            )
+        if execution.get("valid") is not True or execution.get("stage_execution_status") != "completed":
+            blockers.append(
+                controlled_loop_runner_next_stage_continuation_blocker(
+                    "controlled_runner_next_stage_continuation_execution_not_completed",
+                    "controlled runner next-stage continuation requires completed stage execution evidence",
+                    valid=execution.get("valid"),
+                    stage_execution_status=execution.get("stage_execution_status"),
+                )
+            )
+        execution_selected_stage = (
+            execution.get("selected_stage") if isinstance(execution.get("selected_stage"), dict) else None
+        )
+        execution_selected_stage_number = (
+            execution_selected_stage.get("step") if execution_selected_stage is not None else None
+        )
+        if (
+            execution.get("stage_number") != completed_stage_number
+            or execution_selected_stage_number != completed_stage_number
+        ):
+            blockers.append(
+                controlled_loop_runner_next_stage_continuation_blocker(
+                    "controlled_runner_next_stage_continuation_execution_stage_number_mismatch",
+                    "controlled runner next-stage continuation execution evidence must match completed stage",
+                    expected_stage_number=completed_stage_number,
+                    actual_stage_number=execution.get("stage_number"),
+                    actual_selected_stage_number=execution_selected_stage_number,
+                )
+            )
+
+    plan_stage = controlled_loop_runner_next_stage_continuation_plan_stage(
+        runner_plan if isinstance(runner_plan, dict) else None,
+        expected_next_stage_number,
+    )
+    if plan_stage is None:
+        blockers.append(
+            controlled_loop_runner_next_stage_continuation_blocker(
+                "controlled_runner_next_stage_continuation_stage_missing_from_runner_plan",
+                "controlled runner next-stage continuation stage is missing from the approved runner plan",
+                stage_number=expected_next_stage_number,
+            )
+        )
+    elif selected_stage is not None:
+        mismatched_stage_fields = {
+            field: {"expected": plan_stage.get(field), "actual": selected_stage.get(field)}
+            for field in [
+                "step",
+                "command",
+                "evidence_files",
+                "execution_authority",
+                "allowed_side_effects_when_executed",
+            ]
+            if plan_stage.get(field) != selected_stage.get(field)
+        }
+        if mismatched_stage_fields:
+            blockers.append(
+                controlled_loop_runner_next_stage_continuation_blocker(
+                    "controlled_runner_next_stage_continuation_selected_stage_plan_mismatch",
+                    "controlled runner selected continuation stage does not match the approved runner plan",
+                    mismatches=mismatched_stage_fields,
+                )
+            )
+
+    valid = not blockers
+    recommended_next_action, reason = controlled_loop_runner_next_stage_continuation_recommendation(blockers)
+    selected_stage_checksum = checksum_json(selected_stage) if valid and selected_stage is not None else None
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": CONTROLLED_LOOP_RUNNER_NEXT_STAGE_CONTINUATION_SCHEMA_VERSION,
+        "packet": "controlled_loop_runner_next_stage_continuation",
+        "generated_at": utc_now(),
+        "read_only": True,
+        "valid": valid,
+        "runner_next_stage_continuation_status": "selected" if valid else "blocked",
+        "completed_stage_number": completed_stage_number,
+        "next_stage_number": expected_next_stage_number,
+        "source_stage_outcome_decision": (
+            outcome_plan.get("stage_outcome_decision") if isinstance(outcome_plan, dict) else None
+        ),
+        "source_stage_closeout_status": (
+            closeout.get("stage_closeout_status") if isinstance(closeout, dict) else None
+        ),
+        "reason": reason,
+        "runner_started": bool(valid),
+        "stage_execution_started": False,
+        "process_started": False,
+        "next_stage_selected": bool(valid),
+        "audit_evidence_appended": False,
+        "executor_started": False,
+        "stage_retry_started": False,
+        "second_stage_started": False,
+        "epoch_started": False,
+        "pr_action_started": False,
+        "github_write_started": False,
+        "merge_started": False,
+        "release_started": False,
+        "package_publication_started": False,
+        "role_assignment_started": False,
+        "agent_scheduling_started": False,
+        "loop_continuation_started": False,
+        "operator_confirmation_required": True,
+        "side_effects": [],
+        "recommended_next_action": recommended_next_action,
+        "next_controlled_action": (
+            "generalize_controlled_runner_stage_execution_readiness_for_continuation"
+            if valid
+            else recommended_next_action
+        ),
+        "selected_stage": selected_stage if valid else None,
+        "selected_stage_checksum": selected_stage_checksum,
+        "controlled_loop_runner_stage_outcome_plan": {
+            "file": str(outcome_plan_path),
+            "checksum": outcome_checksum,
+            "expected_checksum": expected_outcome_checksum,
+            "status": outcome_plan.get("stage_outcome_plan_status") if isinstance(outcome_plan, dict) else None,
+            "decision": outcome_plan.get("stage_outcome_decision") if isinstance(outcome_plan, dict) else None,
+        },
+        "controlled_loop_runner_stage_closeout": {
+            "file": str(closeout_path),
+            "checksum": closeout_checksum,
+            "status": closeout.get("stage_closeout_status") if isinstance(closeout, dict) else None,
+            "valid": closeout.get("valid") if isinstance(closeout, dict) else None,
+        },
+        "controlled_loop_runner_stage_execution": {
+            "file": str(execution_path),
+            "checksum": execution_checksum,
+            "status": execution.get("stage_execution_status") if isinstance(execution, dict) else None,
+            "valid": execution.get("valid") if isinstance(execution, dict) else None,
+        },
+        "controlled_loop_runner_start": {
+            "file": str(start_path),
+            "checksum": start_checksum,
+            "status": start.get("runner_start_status") if isinstance(start, dict) else None,
+        },
+        "controlled_loop_runner_plan": {
+            "file": str(runner_plan_path),
+            "checksum": runner_plan_checksum,
+            "status": runner_plan.get("runner_plan_status") if isinstance(runner_plan, dict) else None,
+        },
+        "controlled_loop_runner_dry_run": {
+            "file": str(dry_run_path),
+            "checksum": dry_run_checksum,
+            "status": dry_run.get("runner_dry_run_status") if isinstance(dry_run, dict) else None,
+        },
+        "files": {
+            "controlled_loop_runner_stage_outcome_plan": str(outcome_plan_path),
+            "controlled_loop_runner_stage_closeout": str(closeout_path),
+            "controlled_loop_runner_stage_execution": str(execution_path),
+            "controlled_loop_runner_start": str(start_path),
+            "controlled_loop_runner_plan": str(runner_plan_path),
+            "controlled_loop_runner_dry_run": str(dry_run_path),
+        },
+        "checksums": {
+            "controlled_loop_runner_stage_outcome_plan": outcome_checksum,
+            "expected_controlled_loop_runner_stage_outcome_plan": expected_outcome_checksum,
+            "controlled_loop_runner_stage_closeout": closeout_checksum,
+            "controlled_loop_runner_stage_execution": execution_checksum,
+            "controlled_loop_runner_start": start_checksum,
+            "controlled_loop_runner_plan": runner_plan_checksum,
+            "controlled_loop_runner_dry_run": dry_run_checksum,
+            "selected_stage": selected_stage_checksum,
+        },
+        "blockers": blockers,
+        "limitations": CONTROLLED_LOOP_RUNNER_NEXT_STAGE_CONTINUATION_LIMITATIONS,
+        "non_execution_guarantees": [
+            "does_not_emit_stage_execution_readiness_target",
+            "does_not_authorize_stage_execution_readiness",
+            "does_not_start_process",
+            "does_not_execute_runner_stage",
+            "does_not_start_executor",
+            "does_not_invoke_executor",
+            "does_not_retry_executor",
+            "does_not_continue_loop",
+            "does_not_append_audit",
+            "does_not_write_git_or_github_state",
             "does_not_assign_roles",
             "does_not_schedule_agents",
         ],
@@ -19941,6 +20795,33 @@ def build_parser() -> argparse.ArgumentParser:
     runner_next_stage_parser.add_argument("--stage-number", type=int, default=1)
     runner_next_stage_parser.set_defaults(
         func=controlled_loop_runner_next_stage_command,
+        requires_root=False,
+        guards_runtime_root_only=False,
+    )
+
+    runner_next_stage_continuation_parser = subparsers.add_parser(
+        "controlled-loop-runner-next-stage-continuation",
+        help="Select the next controlled runner stage after a completed stage closeout without executing it",
+    )
+    runner_next_stage_continuation_parser.add_argument(
+        "--controlled-loop-runner-stage-outcome-plan-file",
+        required=True,
+    )
+    runner_next_stage_continuation_parser.add_argument("--expected-stage-outcome-plan-checksum", required=True)
+    runner_next_stage_continuation_parser.add_argument(
+        "--controlled-loop-runner-stage-closeout-file",
+        required=True,
+    )
+    runner_next_stage_continuation_parser.add_argument(
+        "--controlled-loop-runner-stage-execution-file",
+        required=True,
+    )
+    runner_next_stage_continuation_parser.add_argument("--controlled-loop-runner-start-file", required=True)
+    runner_next_stage_continuation_parser.add_argument("--controlled-loop-runner-plan-file", required=True)
+    runner_next_stage_continuation_parser.add_argument("--controlled-loop-runner-dry-run-file", required=True)
+    runner_next_stage_continuation_parser.add_argument("--completed-stage-number", type=int, default=1)
+    runner_next_stage_continuation_parser.set_defaults(
+        func=controlled_loop_runner_next_stage_continuation_command,
         requires_root=False,
         guards_runtime_root_only=False,
     )

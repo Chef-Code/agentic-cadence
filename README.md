@@ -62,6 +62,7 @@ read-only `controlled-loop-runner-stage-invocation-boundary`,
 controlled `controlled-loop-runner-stage-execute`,
 read-only `controlled-loop-runner-stage-closeout`,
 read-only `controlled-loop-runner-stage-outcome-plan`,
+read-only `controlled-loop-runner-next-stage-continuation`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -141,7 +142,12 @@ or writing Git/GitHub state, and
 closeout and upstream runner chain before emitting only the next operator
 target for continuation selection, completion, or inspection/retry planning
 without selecting a stage, retrying, continuing, appending audit, or writing
-Git/GitHub state.
+Git/GitHub state, and
+`controlled-loop-runner-next-stage-continuation` evidence that rechecks the
+reviewed outcome target plus closeout, execution, runner-start, runner-plan,
+and dry-run evidence before selecting exactly the next runner-plan stage
+without emitting readiness, executing, retrying, continuing, appending audit,
+or writing Git/GitHub state.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -939,6 +945,26 @@ The command does not select a next stage, execute or plan an automatic retry,
 continue the loop, append audit evidence, start a process, invoke an executor,
 write Git/GitHub state, merge, release, publish packages, assign roles, or
 schedule agents.
+
+`controlled-loop-runner-next-stage-continuation` consumes the reviewed
+outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,
+and dry-run evidence:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-next-stage-continuation --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --expected-stage-outcome-plan-checksum sha256:<reviewed-stage-outcome-plan-checksum> --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --completed-stage-number 1
+```
+
+Valid continuation packets emit
+`controlled-loop-runner-next-stage-continuation.v1`, require the outcome-plan
+checksum to match the reviewed `--expected-stage-outcome-plan-checksum`,
+require `stage_outcome_decision: select_next_stage`, require the prior closeout
+to be completed, and select exactly `completed_stage_number + 1`. The packet
+does not emit or authorize a stage-execution readiness target yet; its
+`next_controlled_action` is
+`generalize_controlled_runner_stage_execution_readiness_for_continuation`. It
+does not execute the selected stage, retry, continue the loop, append audit
+evidence, start a process, invoke an executor, write Git/GitHub state, merge,
+release, publish packages, assign roles, or schedule agents.
 
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor

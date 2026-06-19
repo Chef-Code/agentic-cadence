@@ -2525,6 +2525,80 @@ and rewritten upstream stage-execution, stage-boundary, stage-approval,
 stage-readiness, and next-stage blockers, plus shared `operator_approval_*`
 blockers from the operator-approval verifier.
 
+`controlled-loop-runner-next-stage-continuation` is the read-only selector for
+stage `N+1` after a completed runner stage. It reads
+`--controlled-loop-runner-stage-outcome-plan-file`,
+`--expected-stage-outcome-plan-checksum`,
+`--controlled-loop-runner-stage-closeout-file`,
+`--controlled-loop-runner-stage-execution-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, and optional
+`--completed-stage-number` (default `1`). It consumes already-recorded
+evidence only. The command must not emit a stage-execution readiness target,
+authorize the stage-1 readiness command for continuation packets, execute the
+selected stage, execute a retry, continue the loop, append audit evidence,
+start a process, invoke an executor, execute Git commands, call GitHub APIs,
+create branches, commit, push, create PRs, merge, release, publish packages,
+assign roles, or schedule agents.
+
+Continuation selection rereads and rechecks the reviewed stage outcome plan,
+completed closeout, completed execution packet, runner-start evidence,
+runner-plan evidence, and dry-run evidence. It requires the outcome-plan
+checksum to match the reviewed `--expected-stage-outcome-plan-checksum`, the
+outcome plan to be valid and completed, and the outcome plan to carry
+`stage_outcome_decision: select_next_stage` plus `next_controlled_action:
+select_controlled_runner_next_stage_continuation`. The nested outcome target
+must carry `purpose: controlled_loop_runner_next_stage_selection` plus the
+completed-stage number, exact next-stage number, and checksum anchors. The
+closeout must be a completed closeout for the requested completed stage, and
+the continuation target must select exactly `completed_stage_number + 1`.
+
+A valid packet emits
+`controlled-loop-runner-next-stage-continuation.v1` with
+`packet: controlled_loop_runner_next_stage_continuation`, `read_only: true`,
+`side_effects: []`, `runner_next_stage_continuation_status: selected`,
+references to every consumed packet and checksum, `selected_stage`, and
+`selected_stage_checksum`. It sets
+`next_controlled_action:
+generalize_controlled_runner_stage_execution_readiness_for_continuation`,
+because the existing stage-execution readiness command remains scoped to the
+initial `controlled-loop-runner-next-stage.v1` packet until a future slice
+explicitly generalizes readiness for continuation packets.
+
+Stable blockers include
+`controlled_runner_next_stage_continuation_outcome_evidence_missing`,
+`controlled_runner_next_stage_continuation_closeout_evidence_missing`,
+`controlled_runner_next_stage_continuation_execution_evidence_missing`,
+`controlled_runner_next_stage_continuation_upstream_invalid`,
+`controlled_runner_next_stage_continuation_root_missing`,
+`controlled_runner_next_stage_continuation_outcome_checksum_mismatch`,
+`controlled_runner_next_stage_continuation_outcome_packet_mismatch`,
+`controlled_runner_next_stage_continuation_outcome_not_completed`,
+`controlled_runner_next_stage_continuation_outcome_not_select_next_stage`,
+`controlled_runner_next_stage_continuation_outcome_target_missing`,
+`controlled_runner_next_stage_continuation_outcome_target_checksum_mismatch`,
+`controlled_runner_next_stage_continuation_outcome_target_purpose_invalid`,
+`controlled_runner_next_stage_continuation_completed_stage_mismatch`,
+`controlled_runner_next_stage_continuation_stage_sequence_gap`,
+`controlled_runner_next_stage_continuation_outcome_closeout_file_mismatch`,
+`controlled_runner_next_stage_continuation_outcome_execution_file_mismatch`,
+`controlled_runner_next_stage_continuation_outcome_start_file_mismatch`,
+`controlled_runner_next_stage_continuation_outcome_plan_file_mismatch`,
+`controlled_runner_next_stage_continuation_outcome_dry_run_file_mismatch`,
+`controlled_runner_next_stage_continuation_closeout_checksum_mismatch`,
+`controlled_runner_next_stage_continuation_execution_checksum_mismatch`,
+`controlled_runner_next_stage_continuation_start_checksum_mismatch`,
+`controlled_runner_next_stage_continuation_runner_plan_checksum_mismatch`,
+`controlled_runner_next_stage_continuation_dry_run_checksum_mismatch`,
+`controlled_runner_next_stage_continuation_closeout_packet_mismatch`,
+`controlled_runner_next_stage_continuation_closeout_not_completed`,
+`controlled_runner_next_stage_continuation_execution_packet_mismatch`,
+`controlled_runner_next_stage_continuation_execution_not_completed`,
+`controlled_runner_next_stage_continuation_execution_stage_number_mismatch`,
+`controlled_runner_next_stage_continuation_stage_missing_from_runner_plan`,
+`controlled_runner_next_stage_continuation_selected_stage_plan_mismatch`, and
+rewritten upstream next-stage, start, plan, and dry-run blockers.
+
 ## Git/PR Dry-Run Planning
 
 `git-pr-plan` reads a generic executor task packet and result evidence from
