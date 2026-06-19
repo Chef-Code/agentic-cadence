@@ -2594,6 +2594,7 @@ Stable blockers include
 `controlled_runner_next_stage_continuation_closeout_not_completed`,
 `controlled_runner_next_stage_continuation_execution_packet_mismatch`,
 `controlled_runner_next_stage_continuation_execution_not_completed`,
+`controlled_runner_next_stage_continuation_execution_stage_number_mismatch`,
 `controlled_runner_next_stage_continuation_stage_missing_from_runner_plan`,
 `controlled_runner_next_stage_continuation_selected_stage_plan_mismatch`, and
 rewritten upstream next-stage, start, plan, and dry-run blockers.

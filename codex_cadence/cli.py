@@ -12556,6 +12556,25 @@ def controlled_loop_runner_next_stage_continuation_command(args: argparse.Namesp
                     stage_execution_status=execution.get("stage_execution_status"),
                 )
             )
+        execution_selected_stage = (
+            execution.get("selected_stage") if isinstance(execution.get("selected_stage"), dict) else None
+        )
+        execution_selected_stage_number = (
+            execution_selected_stage.get("step") if execution_selected_stage is not None else None
+        )
+        if (
+            execution.get("stage_number") != completed_stage_number
+            or execution_selected_stage_number != completed_stage_number
+        ):
+            blockers.append(
+                controlled_loop_runner_next_stage_continuation_blocker(
+                    "controlled_runner_next_stage_continuation_execution_stage_number_mismatch",
+                    "controlled runner next-stage continuation execution evidence must match completed stage",
+                    expected_stage_number=completed_stage_number,
+                    actual_stage_number=execution.get("stage_number"),
+                    actual_selected_stage_number=execution_selected_stage_number,
+                )
+            )
 
     plan_stage = controlled_loop_runner_next_stage_continuation_plan_stage(
         runner_plan if isinstance(runner_plan, dict) else None,
