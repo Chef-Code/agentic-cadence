@@ -1,7 +1,7 @@
 # Agent-Team Orchestration Vision
 
 Status: living document
-Last updated: 2026-06-08
+Last updated: 2026-06-19
 Baseline: released 0.1.3 plus current local governance, Git/PR planning, resume, review-response, role-readiness, and local work ownership evidence
 
 Agentic Cadence began as a workflow system that helps one coding agent continue
@@ -24,6 +24,52 @@ repository state.
 The system can start with one agent, but it should be designed to scale toward
 multiple cooperating agents with explicit roles, responsibilities,
 permissions, and handoff contracts.
+
+## Product UI End State
+
+The long-term product shape is a GitHub-native control room for agent teams.
+The UI should not replace GitHub and should not become a general multi-agent
+chat surface. It should show one human operator how a goal is moving through a
+shared repository, which agents are involved, which role each agent is playing,
+what evidence exists, and which actions still require human approval.
+
+In that target shape, a user connects a repository and defines a goal. Cadence
+then helps coordinate provider-specific agents such as Codex, Claude, Gemini,
+or other future executors through role-bound policies instead of treating them
+as interchangeable free agents. The same provider might serve different roles
+in different runs, but each run should make the role, authority, and work
+boundary explicit before any write or execution happens.
+
+The UI should make these surfaces first-class:
+
+- Goal Control Room: the active goal, current stage, last accepted evidence,
+  next recommended action, and any blockers.
+- Agent Roster: connected agent providers, role assignments or role claims,
+  readiness state, permissions, and separation rules.
+- Work Board: planned slices, in-progress branches, ownership claims, handoffs,
+  blocked items, and completed tasks.
+- PR And Review Console: branches, pull requests, CI state, review threads,
+  requested changes, bot findings, and merge-readiness evidence.
+- Approval Inbox: exact actions that require a human gate, including executor
+  invocation, Git/PR writes, review responses, thread resolution, merge
+  decisions, retries, and continuation.
+- Evidence Timeline: immutable packets, audit replay, checksums, approvals,
+  closeouts, and stage outcomes in chronological order.
+- Policy Panel: role policies, command policies, branch policies, stop/brake
+  controls, repo boundaries, and side-effect permissions.
+
+The user should be able to answer, at a glance:
+
+1. What goal is the team pursuing?
+2. Which agent is responsible for each piece of work?
+3. What did each agent do, and where is the evidence?
+4. Which actions are blocked, waiting for review, or waiting for approval?
+5. What is safe to continue, retry, split, hand off, or merge?
+
+This is an end-state product vision, not a current capability claim. Today the
+backend is intentionally building the evidence packets, gates, role boundaries,
+and side-effect controls that a future UI would need before it can coordinate
+agents safely.
 
 ## GitHub As The Coordination Model
 
@@ -81,6 +127,22 @@ Roadmap / Backlog
 The target is not one endless agent loop. The target is a governed team loop
 where each agent works inside a bounded role and Cadence decides whether to
 continue, stop, retry, split, review, or hand off.
+
+## End-State Demo Story
+
+A strong future demo should feel like watching a disciplined software team work
+inside one repository. The operator creates a goal and Cadence decomposes it
+into bounded slices. A Planning role proposes the next slice, a Builder role
+claims the branch, a Reviewer role inspects the pull request, a QA role verifies
+tests and acceptance evidence, and a Documentation role updates the living
+repository context. Cadence tracks every handoff, packet, approval, blocker,
+and pull request state so the operator can see progress without reading every
+agent transcript.
+
+The important promise is not that agents are busy. The promise is that a team of
+agents can work toward one goal while the human can see the source of truth,
+understand who is doing what, and approve only the actions that should cross a
+trust boundary.
 
 ## Possible Agent Roles
 
