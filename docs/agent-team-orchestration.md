@@ -52,11 +52,12 @@ The UI should make these surfaces first-class:
   requested changes, bot findings, and merge-readiness evidence.
 - Approval Inbox: exact actions that require a human gate, including executor
   invocation, Git/PR writes, review responses, thread resolution, merge
-  decisions, retries, and continuation.
-- Evidence Timeline: immutable packets, audit replay, checksums, approvals,
-  closeouts, and stage outcomes in chronological order.
-- Policy Panel: role policies, command policies, branch policies, stop/brake
-  controls, repo boundaries, and side-effect permissions.
+  decisions, tag/release/package-publication decisions, retries, and
+  continuation.
+- Evidence Timeline: saved and checksummed packets, audit replay results,
+  approvals, closeouts, and stage outcomes in chronological order.
+- Policy Panel: role policies, command and branch policies, stop controls,
+  brake state, repo boundaries, and permitted side effects.
 
 The user should be able to answer, at a glance:
 
@@ -131,13 +132,20 @@ continue, stop, retry, split, review, or hand off.
 ## End-State Demo Story
 
 A strong future demo should feel like watching a disciplined software team work
-inside one repository. The operator creates a goal and Cadence decomposes it
-into bounded slices. A Planning role proposes the next slice, a Builder role
-claims the branch, a Reviewer role inspects the pull request, a QA role verifies
-tests and acceptance evidence, and a Documentation role updates the living
-repository context. Cadence tracks every handoff, packet, approval, blocker,
-and pull request state so the operator can see progress without reading every
-agent transcript.
+inside one repository. For example, an operator creates a goal such as "add
+governed retry planning for failed stages." The Goal Control Room shows that
+goal, the Planning role proposes one bounded slice, and the Work Board shows a
+Builder role claiming a branch. The PR And Review Console then shows the pull
+request, CI checks, review threads, and updated documentation evidence as they
+arrive.
+
+The Approval Inbox should make the trust boundaries visible. It might show that
+the Builder can prepare a branch and PR, but a retry, merge, release, or package
+publication still waits for the operator. If QA finds a failing check, the Work
+Board should show the blocker and the Evidence Timeline should show the saved
+packet or closeout that explains it. A successful demo ends with a ready pull
+request, green checks, resolved review findings, updated docs, and a
+merge-decision packet waiting for explicit human approval.
 
 The important promise is not that agents are busy. The promise is that a team of
 agents can work toward one goal while the human can see the source of truth,
