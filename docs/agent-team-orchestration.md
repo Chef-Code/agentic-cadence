@@ -1,7 +1,7 @@
 # Agent-Team Orchestration Vision
 
 Status: living document
-Last updated: 2026-06-08
+Last updated: 2026-06-19
 Baseline: released 0.1.3 plus current local governance, Git/PR planning, resume, review-response, role-readiness, and local work ownership evidence
 
 Agentic Cadence began as a workflow system that helps one coding agent continue
@@ -24,6 +24,53 @@ repository state.
 The system can start with one agent, but it should be designed to scale toward
 multiple cooperating agents with explicit roles, responsibilities,
 permissions, and handoff contracts.
+
+## Product UI End State
+
+The long-term product shape is a GitHub-native control room for agent teams.
+The UI should not replace GitHub and should not become a general multi-agent
+chat surface. It should show one human operator how a goal is moving through a
+shared repository, which agents are involved, which role each agent is playing,
+what evidence exists, and which actions still require human approval.
+
+In that target shape, a user connects a repository and defines a goal. Cadence
+then helps coordinate provider-specific agents such as Codex, Claude, Gemini,
+or other future executors through role-bound policies instead of treating them
+as interchangeable free agents. The same provider might serve different roles
+in different runs, but each run should make the role, authority, and work
+boundary explicit before any write or execution happens.
+
+The UI should make these surfaces first-class:
+
+- Goal Control Room: the active goal, current stage, last accepted evidence,
+  next recommended action, and any blockers.
+- Agent Roster: connected agent providers, role assignments or role claims,
+  readiness state, permissions, and separation rules.
+- Work Board: planned slices, in-progress branches, ownership claims, handoffs,
+  blocked items, and completed tasks.
+- PR And Review Console: branches, pull requests, CI state, review threads,
+  requested changes, bot findings, and merge-readiness evidence.
+- Approval Inbox: exact actions that require a human gate, including executor
+  invocation, Git/PR writes, review responses, thread resolution, merge
+  decisions, tag/release/package-publication decisions, retries, and
+  continuation.
+- Evidence Timeline: saved and checksummed packets, audit replay results,
+  approvals, closeouts, and stage outcomes in chronological order.
+- Policy Panel: role policies, command and branch policies, stop controls,
+  brake state, repo boundaries, and permitted side effects.
+
+The user should be able to answer, at a glance:
+
+1. What goal is the team pursuing?
+2. Which agent is responsible for each piece of work?
+3. What did each agent do, and where is the evidence?
+4. Which actions are blocked, waiting for review, or waiting for approval?
+5. What is safe to continue, retry, split, hand off, or merge?
+
+This is an end-state product vision, not a current capability claim. Today the
+backend is intentionally building the evidence packets, gates, role boundaries,
+and side-effect controls that a future UI would need before it can coordinate
+agents safely.
 
 ## GitHub As The Coordination Model
 
@@ -81,6 +128,29 @@ Roadmap / Backlog
 The target is not one endless agent loop. The target is a governed team loop
 where each agent works inside a bounded role and Cadence decides whether to
 continue, stop, retry, split, review, or hand off.
+
+## End-State Demo Story
+
+A strong future demo should feel like watching a disciplined software team work
+inside one repository. For example, an operator creates a goal such as "add
+governed retry planning for failed stages." The Goal Control Room shows that
+goal, the Planning role proposes one bounded slice, and the Work Board shows a
+Builder role claiming a branch. The PR And Review Console then shows the pull
+request, CI checks, review threads, and updated documentation evidence as they
+arrive.
+
+The Approval Inbox should make the trust boundaries visible. It might show that
+the Builder can prepare a branch and PR, but a retry, merge, release, or package
+publication still waits for the operator. If QA finds a failing check, the Work
+Board should show the blocker and the Evidence Timeline should show the saved
+packet or closeout that explains it. A successful demo ends with a ready pull
+request, green checks, resolved review findings, updated docs, and a
+merge-decision packet waiting for explicit human approval.
+
+The important promise is not that agents are busy. The promise is that a team of
+agents can work toward one goal while the human can see the source of truth,
+understand who is doing what, and approve only the actions that should cross a
+trust boundary.
 
 ## Possible Agent Roles
 
