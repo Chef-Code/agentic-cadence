@@ -63,6 +63,7 @@ controlled `controlled-loop-runner-stage-execute`,
 read-only `controlled-loop-runner-stage-closeout`,
 read-only `controlled-loop-runner-stage-outcome-plan`,
 read-only `controlled-loop-runner-next-stage-continuation`,
+read-only `controlled-loop-runner-stage-input-binding`,
 reusable `verify-operator-approval`,
 read-only `verify-resume`, ownership-aware read-only `resume-continuation`,
 local `work-ownership-status` / `validate-work-ownership` /
@@ -147,7 +148,12 @@ Git/GitHub state, and
 reviewed outcome target plus closeout, execution, runner-start, runner-plan,
 and dry-run evidence before selecting exactly the next runner-plan stage
 without emitting readiness, executing, retrying, continuing, appending audit,
-or writing Git/GitHub state.
+or writing Git/GitHub state, and
+`controlled-loop-runner-stage-input-binding` evidence that rechecks that
+continuation packet and binds the completed `loop-run-plan` stage output to an
+exact executor task file before any continuation readiness work, while still
+emitting no approval token, starting no process or epoch, appending no audit
+evidence, and writing no Git/GitHub state.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -965,6 +971,25 @@ does not emit or authorize a stage-execution readiness target yet; its
 does not execute the selected stage, retry, continue the loop, append audit
 evidence, start a process, invoke an executor, write Git/GitHub state, merge,
 release, publish packages, assign roles, or schedule agents.
+
+`controlled-loop-runner-stage-input-binding` consumes the selected
+continuation packet plus the completed prior stage output and exact executor
+task file:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-input-binding --controlled-loop-runner-next-stage-continuation-file controlled-loop-runner-next-stage-continuation.json --expected-next-stage-continuation-checksum sha256:<reviewed-next-stage-continuation-checksum> --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --prior-stage-output-file controlled-loop-runner-stage-output.json --executor-task-file executor-task.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --completed-stage-number 1
+```
+
+Valid binding packets emit
+`controlled-loop-runner-stage-input-binding.v1`, require the reviewed
+continuation checksum, require the saved `loop-run-plan.v1` output to be
+waiting on executor-task approval, require its embedded executor task checksum
+and planned `start-governed-execution` step to match, and require the supplied
+executor task file to match the embedded task exactly. The packet records the
+executor task checksum and expected executor-task approval target checksum, but
+does not emit an approval token, prepare readiness, execute the selected stage,
+start an epoch, continue the loop, append audit evidence, write Git/GitHub
+state, merge, release, publish packages, assign roles, or schedule agents.
 
 Root-backed loop ticks, governed execution-start decisions, controlled fixture
 invocation, execution-run records, executor-result validation, executor

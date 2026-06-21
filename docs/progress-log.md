@@ -33,6 +33,60 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-20 - Controlled runner stage input binding
+
+Summary:
+- Added `controlled-loop-runner-stage-input-binding` to consume selected
+  continuation evidence plus completed prior `loop-run-plan` output and an
+  exact executor task file before continuation readiness.
+- Fixed stage closeout output identity so real `loop-run-plan.v1` packets
+  without a top-level `valid` field can close out successfully.
+- The binding packet records the executor task checksum and expected
+  executor-task approval target checksum, but emits no approval token and does
+  not prepare readiness, start a process or epoch, append audit evidence,
+  continue the loop, or write Git/GitHub state.
+- Review feedback tightened the validator to require the prior plan's
+  read-only/operator-confirmation contract and to directly reject closeout and
+  execution drift before future readiness work consumes the binding packet.
+
+Completed slices:
+- Task 61: controlled runner stage input binding for continuation.
+
+Confidence change:
+- Previous: 55%
+- New: 56%
+- Reason: Cadence can now bind concrete stage-2 inputs after continuation
+  selection, but continuation readiness, executor-task approval binding,
+  invocation boundary construction, and execution remain future slices.
+
+Evidence:
+- Focused `controlled-loop-runner-stage-input-binding` pytest selection: 5
+  tests passed.
+- Initial focused `controlled-loop-runner-stage-input-binding` and closeout
+  compatibility pytest selection: 4 tests passed.
+- Continuation/input-binding focused pytest selection: 13 tests passed.
+- Stage-closeout focused pytest selection: 18 tests passed.
+- Protocol validator: `python scripts/validate_protocol.py` passed.
+- Package verifier: `python scripts/verify_package.py` passed.
+- Roadmap CI check: `python -m pytest tests/test_ci_checks.py -k roadmap -q`
+  passed.
+- Whitespace check: `git diff --check` passed with only the normal Windows
+  CRLF warnings.
+
+New risks or blockers:
+- Task 62 still needs continuation-aware readiness that consumes the binding
+  packet without reusing the stage-1 readiness contract directly.
+- The second `start_governed_execution` approval gate remains a future slice.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-20 - Prepare Tasks 61-66 continuation runner roadmap
 
 Summary:

@@ -2370,7 +2370,8 @@ completed, the approved output file must exist, match the expected path, match
 the captured stdout byte-for-byte after the same text capture semantics, and
 parse as a nonempty JSON object matching the selected stage's expected
 evidence identity. For the current `loop-run-plan` runner stage, that means
-`schema_version: loop-run-plan.v1`, `packet: loop_run_plan`, and `valid: true`.
+`schema_version: loop-run-plan.v1` and `packet: loop_run_plan`; real
+`loop-run-plan.v1` packets do not emit a top-level `valid` field.
 A failed stage may close out with empty or non-JSON diagnostic stdout when the
 terminal execution evidence is otherwise consistent; it is not retried and no
 continuation is selected.
@@ -2598,6 +2599,121 @@ Stable blockers include
 `controlled_runner_next_stage_continuation_stage_missing_from_runner_plan`,
 `controlled_runner_next_stage_continuation_selected_stage_plan_mismatch`, and
 rewritten upstream next-stage, start, plan, and dry-run blockers.
+
+`controlled-loop-runner-stage-input-binding` is the read-only bridge from a
+selected continuation stage to the concrete inputs that stage needs before
+readiness can be generalized. It reads
+`--controlled-loop-runner-next-stage-continuation-file`,
+`--expected-next-stage-continuation-checksum`,
+`--controlled-loop-runner-stage-outcome-plan-file`,
+`--controlled-loop-runner-stage-closeout-file`,
+`--controlled-loop-runner-stage-execution-file`,
+`--prior-stage-output-file`, `--executor-task-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, and optional
+`--completed-stage-number` (default `1`). It consumes already-recorded
+evidence only. The command must not emit a stage-execution readiness target,
+generate or reveal an approval token, execute the selected stage, start a
+process, start an epoch, invoke or retry an executor, continue the loop, append
+audit evidence, execute Git commands, call GitHub APIs, create branches,
+commit, push, create PRs, merge, release, publish packages, assign roles, or
+schedule agents.
+
+Input binding rereads and rechecks the reviewed
+`controlled-loop-runner-next-stage-continuation.v1` packet plus the saved
+stage outcome plan, closeout, execution, runner-start, runner-plan, and dry-run
+evidence. It requires the continuation checksum to match the reviewed
+`--expected-next-stage-continuation-checksum`, the continuation packet to be
+valid, selected, read-only, and still recommending
+`generalize_controlled_runner_stage_execution_readiness_for_continuation`, and
+the selected continuation stage to match the approved runner plan. It also
+requires the stage outcome plan to be completed, read-only, side-effect-free,
+still carrying `runner_stage_execution_authority: stage_outcome_planned`,
+still targeting `select_next_stage`, and carrying a next-stage outcome target
+whose own checksum, evidence file anchors, evidence checksums, completed
+stage, closed-out stage, next stage, and total stage count still match the
+consumed runner evidence. For the current stage-2 `start-governed-execution`
+path, it also requires the prior stage output to be a schema-compatible
+`loop-run-plan.v1` packet whose
+`recommended_next_action` is `request_operator_approval`, whose `read_only`
+and `operator_confirmation_required` fields are true, whose
+`executor_contract_required` field is false, whose embedded loop tick checksum
+still matches, whose embedded `generic-executor-task.v1` packet validates,
+whose executor task checksum matches the embedded task, and whose planned
+steps exactly preserve the required operator-approval step followed by blocked
+`start-governed-execution`.
+
+A valid packet emits
+`controlled-loop-runner-stage-input-binding.v1` with
+`packet: controlled_loop_runner_stage_input_binding`, `read_only: true`,
+`side_effects: []`, `stage_input_binding_status: bound`, references to every
+consumed packet and checksum, `selected_stage`, `selected_stage_checksum`,
+the prior stage output checksum, the exact executor task file checksum, and
+`expected_executor_task_approval_target_checksum`. It sets
+`next_controlled_action:
+prepare_controlled_runner_continuation_stage_execution_readiness`, but does
+not prepare readiness or approve `start-governed-execution`.
+
+Stable blockers include
+`controlled_runner_stage_input_binding_continuation_evidence_missing`,
+`controlled_runner_stage_input_binding_outcome_evidence_missing`,
+`controlled_runner_stage_input_binding_closeout_evidence_missing`,
+`controlled_runner_stage_input_binding_execution_evidence_missing`,
+`controlled_runner_stage_input_binding_prior_stage_output_missing`,
+`controlled_runner_stage_input_binding_executor_task_file_missing`,
+`controlled_runner_stage_input_binding_upstream_invalid`,
+`controlled_runner_stage_input_binding_root_missing`,
+`controlled_runner_stage_input_binding_continuation_checksum_mismatch`,
+`controlled_runner_stage_input_binding_continuation_selected_stage_checksum_mismatch`,
+`controlled_runner_stage_input_binding_continuation_packet_mismatch`,
+`controlled_runner_stage_input_binding_continuation_not_selected`,
+`controlled_runner_stage_input_binding_continuation_authority_flags_invalid`,
+`controlled_runner_stage_input_binding_selected_stage_mismatch`,
+`controlled_runner_stage_input_binding_outcome_packet_mismatch`,
+`controlled_runner_stage_input_binding_outcome_not_completed`,
+`controlled_runner_stage_input_binding_outcome_stage_number_mismatch`,
+`controlled_runner_stage_input_binding_outcome_not_select_next_stage`,
+`controlled_runner_stage_input_binding_outcome_closeout_file_mismatch`,
+`controlled_runner_stage_input_binding_outcome_execution_file_mismatch`,
+`controlled_runner_stage_input_binding_outcome_start_file_mismatch`,
+`controlled_runner_stage_input_binding_outcome_plan_file_mismatch`,
+`controlled_runner_stage_input_binding_outcome_dry_run_file_mismatch`,
+`controlled_runner_stage_input_binding_outcome_target_missing`,
+`controlled_runner_stage_input_binding_outcome_target_checksum_mismatch`,
+`controlled_runner_stage_input_binding_outcome_closeout_checksum_mismatch`,
+`controlled_runner_stage_input_binding_outcome_execution_checksum_mismatch`,
+`controlled_runner_stage_input_binding_outcome_start_checksum_mismatch`,
+`controlled_runner_stage_input_binding_outcome_plan_checksum_mismatch`,
+`controlled_runner_stage_input_binding_outcome_dry_run_checksum_mismatch`,
+`controlled_runner_stage_input_binding_outcome_target_purpose_invalid`,
+`controlled_runner_stage_input_binding_outcome_closed_out_stage_mismatch`,
+`controlled_runner_stage_input_binding_outcome_completed_stage_mismatch`,
+`controlled_runner_stage_input_binding_outcome_stage_sequence_gap`,
+`controlled_runner_stage_input_binding_outcome_total_stage_count_mismatch`,
+`controlled_runner_stage_input_binding_closeout_packet_mismatch`,
+`controlled_runner_stage_input_binding_execution_packet_mismatch`,
+`controlled_runner_stage_input_binding_prior_stage_output_file_mismatch`,
+`controlled_runner_stage_input_binding_prior_stage_output_checksum_mismatch`,
+`controlled_runner_stage_input_binding_prior_stage_output_packet_mismatch`,
+`controlled_runner_stage_input_binding_executor_task_missing`,
+`controlled_runner_stage_input_binding_executor_task_checksum_missing`,
+`controlled_runner_stage_input_binding_executor_task_checksum_mismatch`,
+`controlled_runner_stage_input_binding_executor_task_invalid`,
+`controlled_runner_stage_input_binding_prior_stage_not_waiting_for_approval`,
+`controlled_runner_stage_input_binding_prior_stage_approval_contract_invalid`,
+`controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid`,
+`controlled_runner_stage_input_binding_prior_stage_loop_tick_mismatch`,
+`controlled_runner_stage_input_binding_prior_stage_planned_steps_missing`,
+`controlled_runner_stage_input_binding_prior_stage_planned_steps_mismatch`,
+`controlled_runner_stage_input_binding_executor_task_file_mismatch`,
+`controlled_runner_stage_input_binding_closeout_not_completed`,
+`controlled_runner_stage_input_binding_closeout_forbidden_flags`,
+`controlled_runner_stage_input_binding_execution_not_completed`,
+`controlled_runner_stage_input_binding_execution_stage_number_mismatch`,
+`controlled_runner_stage_input_binding_execution_stage_output_file_mismatch`,
+`controlled_runner_stage_input_binding_unsupported_continuation_stage`, and
+rewritten upstream next-stage, start, plan, dry-run, file-anchor, and checksum
+anchor blockers.
 
 ## Git/PR Dry-Run Planning
 
@@ -3094,6 +3210,9 @@ Agentic Cadence may propose changes to itself, but it must not silently rewrite 
 ## PR Review Automation
 
 Repository pull requests should run the normal PR checks. `.github/workflows/pr.yml` must target PRs into `main`, keep the branch-protection check names stable, use PR-number-scoped concurrency cancellation, and classify changed paths inside each job. Docs-only PRs must still create the required check contexts, run diff hygiene and protocol validation, and skip expensive compile, unit, smoke, adapter, package, and example steps when no code, packaging, tests, examples, or workflow files changed.
+The Python/protocol job keeps a finite 20-minute timeout for the full unit,
+protocol, smoke, and adapter-contract suite; package install/example matrix
+jobs keep finite 15-minute timeouts per OS.
 
 The Codex Review workflow is an elected paid reviewer, not an automatic blocker on every push. `.github/workflows/codex-review.yml` uses pinned `openai/codex-action@a26d2d4d8b78a694338b8e3715c3630254340b2c` through `pull_request_target` `labeled` and `synchronize` events targeting `main`, skips draft PRs, starts paid-review preflight only for elect/force label events from trusted operators, and stays limited to same-repository PRs with `safety-strategy: drop-sudo` and `sandbox: read-only`. `synchronize` is a cancel-only event for obsolete in-flight elected reviews; it must not start paid-review preflight by itself. Unrelated label events must not cancel an in-flight elected review. It posts the action `final-message` back to the PR only after the elected paid review returns feedback. Fork PRs run a skip notice only for elected labels because `pull_request_target` must not expose repository secrets to untrusted PR code. Same-repository review jobs check the live PR state before checkout and immediately before the paid Codex action, requiring the PR to remain open, unmerged, not draft, and on the same head SHA as the triggering event; obsolete, draft, merged, closed, or non-elected PRs skip instead of failing on a missing synthetic merge ref or spending review credits.
 

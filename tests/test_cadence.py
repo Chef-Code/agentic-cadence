@@ -7688,6 +7688,68 @@ class CadenceCliTests(unittest.TestCase):
         chain["controlled_loop_runner_stage_outcome_plan"] = outcome_plan
         return chain
 
+    def write_real_loop_run_plan_for_runner_stage(self, tmp, repo, *, plan_mutator=None):
+        marker = Path(repo) / "stage_input_notes.py"
+        marker.write_text("# TODO inspect controlled runner stage input marker\n", encoding="utf-8")
+        git(repo, "add", "stage_input_notes.py")
+        git(repo, "commit", "-m", "add stage input marker")
+        evidence_path = Path(tmp) / "stage-input-executor-result.json"
+
+        plan_result, plan = run_cli(
+            tmp,
+            "loop-run-plan",
+            "--cwd",
+            repo,
+            "--repo",
+            "local/test",
+            "--intent",
+            "repo_health",
+            "--emit-executor-task",
+            "--allowed-path",
+            "stage_input_notes.py",
+            "--required-check",
+            "python -m unittest tests.test_cadence",
+            "--executor-evidence-path",
+            str(evidence_path),
+        )
+        self.assertEqual(plan_result.returncode, 0, plan_result.stderr)
+        if plan_mutator is not None:
+            plan_mutator(plan)
+        task_path = Path(tmp) / "stage-input-executor-task.json"
+        task_path.write_text(json.dumps(plan["executor_task"]), encoding="utf-8")
+        return plan, task_path
+
+    def write_controlled_loop_runner_stage_input_binding_chain(
+        self,
+        tmp,
+        repo,
+        *,
+        plan_mutator=None,
+    ):
+        loop_run_plan, executor_task_path = self.write_real_loop_run_plan_for_runner_stage(
+            tmp,
+            repo,
+            plan_mutator=plan_mutator,
+        )
+        chain = self.write_controlled_loop_runner_next_stage_continuation_chain(
+            tmp,
+            repo,
+            stdout_text=json.dumps(loop_run_plan) + "\n",
+        )
+        continuation_code, continuation, _audit_before, _runtime_before = (
+            self.run_controlled_loop_runner_next_stage_continuation_in_process(tmp, chain)
+        )
+        self.assertEqual(continuation_code, 0, continuation.get("blockers"))
+        continuation_path = Path(tmp) / "controlled-loop-runner-next-stage-continuation.json"
+        continuation_path.write_text(json.dumps(continuation), encoding="utf-8")
+        chain["controlled_loop_runner_next_stage_continuation_path"] = continuation_path
+        chain["controlled_loop_runner_next_stage_continuation"] = continuation
+        chain["prior_stage_output_path"] = chain["stage_output_file"]
+        chain["prior_stage_output"] = loop_run_plan
+        chain["executor_task_path"] = executor_task_path
+        chain["executor_task"] = loop_run_plan["executor_task"]
+        return chain
+
     def controlled_loop_runner_next_stage_continuation_argv(self, tmp, chain, **overrides):
         values = {
             "controlled_loop_runner_stage_outcome_plan_file": chain[
@@ -7758,6 +7820,130 @@ class CadenceCliTests(unittest.TestCase):
         raw_output = stdout.getvalue()
         output = json.loads(raw_output) if raw_output.strip() else {}
         return code, output, audit_before, runtime_before
+
+    def controlled_loop_runner_stage_input_binding_argv(self, tmp, chain, **overrides):
+        values = {
+            "controlled_loop_runner_next_stage_continuation_file": chain[
+                "controlled_loop_runner_next_stage_continuation_path"
+            ],
+            "expected_next_stage_continuation_checksum": checksum_json(
+                chain["controlled_loop_runner_next_stage_continuation"]
+            ),
+            "controlled_loop_runner_stage_outcome_plan_file": chain[
+                "controlled_loop_runner_stage_outcome_plan_path"
+            ],
+            "controlled_loop_runner_stage_closeout_file": chain[
+                "controlled_loop_runner_stage_closeout_path"
+            ],
+            "controlled_loop_runner_stage_execution_file": chain[
+                "controlled_loop_runner_stage_execution_path"
+            ],
+            "prior_stage_output_file": chain["prior_stage_output_path"],
+            "executor_task_file": chain["executor_task_path"],
+            "controlled_loop_runner_start_file": chain["controlled_loop_runner_start_path"],
+            "controlled_loop_runner_plan_file": chain["controlled_loop_runner_plan_path"],
+            "controlled_loop_runner_dry_run_file": chain["controlled_loop_runner_dry_run_path"],
+            "completed_stage_number": 1,
+        }
+        values.update(overrides)
+        return [
+            "--root",
+            str(tmp),
+            "controlled-loop-runner-stage-input-binding",
+            "--controlled-loop-runner-next-stage-continuation-file",
+            str(values["controlled_loop_runner_next_stage_continuation_file"]),
+            "--expected-next-stage-continuation-checksum",
+            str(values["expected_next_stage_continuation_checksum"]),
+            "--controlled-loop-runner-stage-outcome-plan-file",
+            str(values["controlled_loop_runner_stage_outcome_plan_file"]),
+            "--controlled-loop-runner-stage-closeout-file",
+            str(values["controlled_loop_runner_stage_closeout_file"]),
+            "--controlled-loop-runner-stage-execution-file",
+            str(values["controlled_loop_runner_stage_execution_file"]),
+            "--prior-stage-output-file",
+            str(values["prior_stage_output_file"]),
+            "--executor-task-file",
+            str(values["executor_task_file"]),
+            "--controlled-loop-runner-start-file",
+            str(values["controlled_loop_runner_start_file"]),
+            "--controlled-loop-runner-plan-file",
+            str(values["controlled_loop_runner_plan_file"]),
+            "--controlled-loop-runner-dry-run-file",
+            str(values["controlled_loop_runner_dry_run_file"]),
+            "--completed-stage-number",
+            str(values["completed_stage_number"]),
+        ]
+
+    def run_controlled_loop_runner_stage_input_binding_in_process(self, tmp, chain, **overrides):
+        import codex_cadence.cli as cadence_cli
+
+        audit_before = audit_records(tmp)
+        runtime_before = runtime_tree_manifest(tmp)
+        stdout = StringIO()
+        with mock.patch(
+            "subprocess.run",
+            side_effect=AssertionError("stage input binding must not start a process"),
+        ):
+            with mock.patch(
+                "codex_cadence.cli.append_audit_record",
+                side_effect=AssertionError("stage input binding must not append audit"),
+            ):
+                with redirect_stdout(stdout):
+                    try:
+                        code = cadence_cli.main(
+                            self.controlled_loop_runner_stage_input_binding_argv(
+                                tmp,
+                                chain,
+                                **overrides,
+                            )
+                        )
+                    except SystemExit as exc:
+                        code = exc.code
+        raw_output = stdout.getvalue()
+        output = json.loads(raw_output) if raw_output.strip() else {}
+        return code, output, audit_before, runtime_before
+
+    def mutate_json_file(self, path, mutator):
+        packet = json.loads(Path(path).read_text(encoding="utf-8"))
+        mutator(packet)
+        Path(path).write_text(json.dumps(packet), encoding="utf-8")
+        return packet
+
+    def write_stage_input_binding_outcome_and_refresh_continuation(
+        self,
+        chain,
+        outcome_plan,
+        *,
+        base_continuation=None,
+    ):
+        chain["controlled_loop_runner_stage_outcome_plan"] = outcome_plan
+        chain["controlled_loop_runner_stage_outcome_plan_path"].write_text(
+            json.dumps(outcome_plan),
+            encoding="utf-8",
+        )
+        outcome_checksum = checksum_json(outcome_plan)
+        continuation = (
+            json.loads(json.dumps(base_continuation))
+            if base_continuation is not None
+            else json.loads(
+                chain["controlled_loop_runner_next_stage_continuation_path"].read_text(encoding="utf-8")
+            )
+        )
+        continuation["source_stage_outcome_decision"] = outcome_plan.get("stage_outcome_decision")
+        continuation["controlled_loop_runner_stage_outcome_plan"]["checksum"] = outcome_checksum
+        continuation["controlled_loop_runner_stage_outcome_plan"]["status"] = outcome_plan.get(
+            "stage_outcome_plan_status"
+        )
+        continuation["controlled_loop_runner_stage_outcome_plan"]["decision"] = outcome_plan.get(
+            "stage_outcome_decision"
+        )
+        continuation["checksums"]["controlled_loop_runner_stage_outcome_plan"] = outcome_checksum
+        continuation["checksums"]["expected_controlled_loop_runner_stage_outcome_plan"] = outcome_checksum
+        chain["controlled_loop_runner_next_stage_continuation"] = continuation
+        chain["controlled_loop_runner_next_stage_continuation_path"].write_text(
+            json.dumps(continuation),
+            encoding="utf-8",
+        )
 
     def write_controlled_loop_runner_next_stage_forged_start(
         self,
@@ -12257,6 +12443,33 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
+    def test_controlled_loop_runner_stage_closeout_accepts_real_loop_run_plan_without_valid_field(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            loop_run_plan, _task_path = self.write_real_loop_run_plan_for_runner_stage(tmp, repo)
+            self.assertNotIn("valid", loop_run_plan)
+            chain = self.write_controlled_loop_runner_stage_closeout_chain(
+                tmp,
+                repo,
+                stdout_text=json.dumps(loop_run_plan) + "\n",
+            )
+
+            result, output = run_cli(
+                tmp,
+                *self.controlled_loop_runner_stage_closeout_argv(tmp, chain)[2:],
+            )
+
+            self.assertEqual(result.returncode, 0, output.get("blockers"))
+            self.assertTrue(output["valid"], output["blockers"])
+            self.assertEqual(output["stage_closeout_status"], "completed")
+            self.assertEqual(output["stage_output"]["schema_version"], "loop-run-plan.v1")
+            self.assertEqual(output["stage_output"]["packet"], "loop_run_plan")
+            self.assertIsNone(output["stage_output"]["valid"])
+            self.assertNotIn(
+                "controlled_runner_stage_closeout_stage_output_packet_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+
     def test_controlled_loop_runner_stage_closeout_blocks_missing_expected_output(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -13133,6 +13346,769 @@ class CadenceCliTests(unittest.TestCase):
                 self.assertIn(guarantee, output["non_execution_guarantees"])
             self.assertTrue(output["next_stage_selected"])
             self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_binds_stage_two_executor_task_without_side_effects(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_input_binding_chain(tmp, repo)
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+            )
+
+            executor_task = chain["executor_task"]
+            executor_task_checksum = checksum_json(executor_task)
+            continuation = chain["controlled_loop_runner_next_stage_continuation"]
+            self.assertEqual(code, 0)
+            self.assertEqual(output["schema_version"], "controlled-loop-runner-stage-input-binding.v1")
+            self.assertEqual(output["packet"], "controlled_loop_runner_stage_input_binding")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"], output["blockers"])
+            self.assertEqual(output["stage_input_binding_status"], "bound")
+            self.assertEqual(output["completed_stage_number"], 1)
+            self.assertEqual(output["next_stage_number"], 2)
+            self.assertEqual(output["recommended_next_action"], "review_controlled_runner_stage_input_binding")
+            self.assertEqual(
+                output["next_controlled_action"],
+                "prepare_controlled_runner_continuation_stage_execution_readiness",
+            )
+            self.assertEqual(output["selected_stage"]["step"], 2)
+            self.assertEqual(output["selected_stage"]["command"], "start-governed-execution")
+            self.assertEqual(output["selected_stage_checksum"], checksum_json(continuation["selected_stage"]))
+            self.assertEqual(output["prior_stage_output"]["file"], str(chain["prior_stage_output_path"]))
+            self.assertEqual(output["prior_stage_output"]["checksum"], checksum_json(chain["prior_stage_output"]))
+            self.assertEqual(output["prior_stage_output"]["packet"], "loop_run_plan")
+            self.assertEqual(output["executor_task"]["file"], str(chain["executor_task_path"]))
+            self.assertEqual(output["executor_task"]["checksum"], executor_task_checksum)
+            self.assertEqual(output["executor_task"]["embedded_checksum"], executor_task_checksum)
+            self.assertEqual(output["expected_executor_task_approval_target_checksum"], executor_task_checksum)
+            self.assertNotIn("approval_token", output)
+            self.assertNotIn("approval_token_hint", json.dumps(output))
+            for flag in [
+                "process_started",
+                "stage_execution_started",
+                "executor_started",
+                "stage_retry_started",
+                "second_stage_started",
+                "epoch_started",
+                "pr_action_started",
+                "loop_continuation_started",
+                "audit_evidence_appended",
+                "github_write_started",
+                "merge_started",
+                "release_started",
+                "package_publication_started",
+                "role_assignment_started",
+                "agent_scheduling_started",
+            ]:
+                self.assertFalse(output[flag], flag)
+            self.assertEqual(output["side_effects"], [])
+            for guarantee in [
+                "does_not_emit_approval_token",
+                "does_not_start_process",
+                "does_not_start_epoch",
+                "does_not_append_audit",
+                "does_not_write_git_or_github_state",
+            ]:
+                self.assertIn(guarantee, output["non_execution_guarantees"])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_requires_prior_plan_waiting_for_task_approval(self):
+        def mutate_plan(plan):
+            plan["recommended_next_action"] = "stop_no_candidates"
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_input_binding_chain(
+                tmp,
+                repo,
+                plan_mutator=mutate_plan,
+            )
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_input_binding_status"], "blocked")
+            self.assertIn(
+                "controlled_runner_stage_input_binding_prior_stage_not_waiting_for_approval",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertIsNone(output["selected_stage"])
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["epoch_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_requires_prior_plan_approval_contract(self):
+        invalid_cases = [
+            ("read_only", False, "controlled_runner_stage_input_binding_prior_stage_approval_contract_invalid"),
+            (
+                "operator_confirmation_required",
+                False,
+                "controlled_runner_stage_input_binding_prior_stage_approval_contract_invalid",
+            ),
+        ]
+        for field, value, expected_blocker in invalid_cases:
+            with self.subTest(field=field):
+                def mutate_plan(plan, field=field, value=value):
+                    plan[field] = value
+
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    chain = self.write_controlled_loop_runner_stage_input_binding_chain(
+                        tmp,
+                        repo,
+                        plan_mutator=mutate_plan,
+                    )
+
+                    code, output, audit_before, runtime_before = (
+                        self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+                    )
+
+                    self.assertEqual(code, 2)
+                    self.assertFalse(output["valid"])
+                    self.assertIn(expected_blocker, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertIsNone(output["selected_stage"])
+                    self.assertFalse(output["process_started"])
+                    self.assertFalse(output["epoch_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertEqual(audit_records(tmp), audit_before)
+                    self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_prior_plan_validator_blocks_drift(self):
+        import codex_cadence.cli as cadence_cli
+
+        def copied_plan(plan):
+            return json.loads(json.dumps(plan))
+
+        def reorder_planned_steps(packet):
+            packet["planned_steps"] = [
+                packet["planned_steps"][0],
+                packet["planned_steps"][2],
+                packet["planned_steps"][1],
+            ]
+
+        def append_extra_planned_step(packet):
+            packet["planned_steps"].append(
+                {
+                    "name": "start_governed_execution",
+                    "status": "required",
+                    "command": "start-governed-execution",
+                }
+            )
+
+        def drift_nested_loop_tick_task(packet):
+            packet["loop_tick"]["executor_task"]["task"]["title"] = "Forged nested executor task"
+            packet["loop_tick_checksum"] = checksum_json(packet["loop_tick"])
+
+        def drift_loop_tick_action(packet):
+            packet["loop_tick"]["recommended_next_action"] = "blocked"
+            packet["loop_tick_checksum"] = checksum_json(packet["loop_tick"])
+
+        cases = [
+            (
+                "executor_contract_required",
+                lambda packet: packet.__setitem__("executor_contract_required", True),
+                "controlled_runner_stage_input_binding_prior_stage_approval_contract_invalid",
+            ),
+            (
+                "loop_tick_checksum_drift",
+                lambda packet: packet.__setitem__("loop_tick_checksum", "sha256:" + "0" * 64),
+                "controlled_runner_stage_input_binding_prior_stage_loop_tick_mismatch",
+            ),
+            (
+                "loop_tick_nested_task_drift",
+                drift_nested_loop_tick_task,
+                "controlled_runner_stage_input_binding_prior_stage_loop_tick_mismatch",
+            ),
+            (
+                "loop_tick_action_drift",
+                drift_loop_tick_action,
+                "controlled_runner_stage_input_binding_prior_stage_loop_tick_mismatch",
+            ),
+            (
+                "planned_steps_reordered",
+                reorder_planned_steps,
+                "controlled_runner_stage_input_binding_prior_stage_planned_steps_mismatch",
+            ),
+            (
+                "planned_steps_extra",
+                append_extra_planned_step,
+                "controlled_runner_stage_input_binding_prior_stage_planned_steps_mismatch",
+            ),
+            (
+                "prior_process_started",
+                lambda packet: packet.__setitem__("process_started", True),
+                "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
+            ),
+            (
+                "prior_side_effects",
+                lambda packet: packet.__setitem__("side_effects", ["forged_side_effect"]),
+                "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
+            ),
+            (
+                "prior_approval_token",
+                lambda packet: packet.__setitem__("approval_token", "forged-token"),
+                "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
+            ),
+            (
+                "prior_readiness_field",
+                lambda packet: packet.__setitem__("stage_execution_readiness_status", "ready"),
+                "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            plan, _task_path = self.write_real_loop_run_plan_for_runner_stage(tmp, repo)
+
+            for label, mutate_packet, expected_blocker in cases:
+                with self.subTest(case=label):
+                    packet = copied_plan(plan)
+                    mutate_packet(packet)
+
+                    blockers = cadence_cli.controlled_loop_runner_stage_input_binding_prior_stage_plan_blockers(
+                        prior_stage_output=packet,
+                        executor_task=packet.get("executor_task"),
+                        executor_task_checksum=packet.get("executor_task_checksum"),
+                    )
+
+                    self.assertIn(expected_blocker, {blocker["code"] for blocker in blockers})
+
+    def test_controlled_loop_runner_stage_input_binding_recommends_refresh_for_closeout_blockers(self):
+        import codex_cadence.cli as cadence_cli
+
+        recommended_action, reason = cadence_cli.controlled_loop_runner_stage_input_binding_recommendation(
+            [
+                {
+                    "code": "controlled_runner_stage_input_binding_closeout_not_completed",
+                    "message": "closeout drift",
+                }
+            ]
+        )
+
+        self.assertEqual(recommended_action, "refresh_prior_stage_output")
+        self.assertIn("prior stage output", reason)
+
+        recommended_action, reason = cadence_cli.controlled_loop_runner_stage_input_binding_recommendation(
+            [
+                {
+                    "code": "controlled_runner_stage_input_binding_outcome_not_completed",
+                    "message": "outcome drift",
+                }
+            ]
+        )
+
+        self.assertEqual(recommended_action, "refresh_controlled_runner_stage_outcome_plan")
+        self.assertIn("stage outcome plan", reason)
+
+    def test_controlled_loop_runner_stage_input_binding_reports_core_fail_closed_cases(self):
+        cases = [
+            (
+                "missing_prior_output",
+                lambda chain: chain["prior_stage_output_path"].unlink(),
+                "controlled_runner_stage_input_binding_prior_stage_output_missing",
+            ),
+            (
+                "missing_embedded_task",
+                lambda chain: self.mutate_json_file(
+                    chain["prior_stage_output_path"],
+                    lambda packet: packet.pop("executor_task", None),
+                ),
+                "controlled_runner_stage_input_binding_executor_task_missing",
+            ),
+            (
+                "executor_task_checksum_drift",
+                lambda chain: self.mutate_json_file(
+                    chain["prior_stage_output_path"],
+                    lambda packet: packet.__setitem__("executor_task_checksum", "sha256:" + "0" * 64),
+                ),
+                "controlled_runner_stage_input_binding_executor_task_checksum_mismatch",
+            ),
+            (
+                "planned_step_mismatch",
+                lambda chain: self.mutate_json_file(
+                    chain["prior_stage_output_path"],
+                    lambda packet: packet["planned_steps"][2].__setitem__("command", "forged-command"),
+                ),
+                "controlled_runner_stage_input_binding_prior_stage_planned_steps_mismatch",
+            ),
+            (
+                "continuation_checksum_drift",
+                lambda chain: self.mutate_json_file(
+                    chain["controlled_loop_runner_next_stage_continuation_path"],
+                    lambda packet: packet.__setitem__("reason", "forged continuation reason"),
+                ),
+                "controlled_runner_stage_input_binding_continuation_checksum_mismatch",
+            ),
+            (
+                "closeout_side_effect_drift",
+                lambda chain: self.mutate_json_file(
+                    chain["controlled_loop_runner_stage_closeout_path"],
+                    lambda packet: packet.__setitem__("side_effects", ["forged_side_effect"]),
+                ),
+                "controlled_runner_stage_input_binding_closeout_not_completed",
+            ),
+            (
+                "execution_stage_number_drift",
+                lambda chain: self.mutate_json_file(
+                    chain["controlled_loop_runner_stage_execution_path"],
+                    lambda packet: packet.__setitem__("stage_number", 2),
+                ),
+                "controlled_runner_stage_input_binding_execution_stage_number_mismatch",
+            ),
+        ]
+        for label, mutate_chain, expected_blocker in cases:
+            with self.subTest(case=label):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    chain = self.write_controlled_loop_runner_stage_input_binding_chain(tmp, repo)
+                    mutate_chain(chain)
+
+                    code, output, audit_before, runtime_before = (
+                        self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+                    )
+
+                    self.assertEqual(code, 2)
+                    self.assertFalse(output["valid"])
+                    self.assertIn(expected_blocker, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertIsNone(output["selected_stage"])
+                    self.assertFalse(output["process_started"])
+                    self.assertFalse(output["epoch_started"])
+                    self.assertFalse(output["loop_continuation_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertEqual(audit_records(tmp), audit_before)
+                    self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_blocks_executor_task_file_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_input_binding_chain(tmp, repo)
+            forged_task = json.loads(chain["executor_task_path"].read_text(encoding="utf-8"))
+            forged_task["task"]["title"] = "Forged executor task"
+            chain["executor_task_path"].write_text(json.dumps(forged_task), encoding="utf-8")
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_stage_input_binding_executor_task_file_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertIsNone(output["selected_stage"])
+            self.assertFalse(output["stage_execution_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_blocks_refreshed_blocked_outcome_plan(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_input_binding_chain(tmp, repo)
+            outcome_plan = json.loads(
+                chain["controlled_loop_runner_stage_outcome_plan_path"].read_text(encoding="utf-8")
+            )
+            outcome_plan["valid"] = False
+            outcome_plan["stage_outcome_plan_status"] = "blocked"
+            outcome_plan["stage_outcome_decision"] = "blocked"
+            outcome_plan["recommended_next_action"] = "inspect_controlled_runner_stage_outcome_plan_blockers"
+            outcome_plan["next_controlled_action"] = "inspect_controlled_runner_stage_outcome_plan_blockers"
+            outcome_plan["blockers"] = [
+                {
+                    "code": "forged_blocked_outcome",
+                    "message": "forged blocked outcome",
+                }
+            ]
+            outcome_plan["outcome_target"] = None
+            outcome_plan["outcome_target_checksum"] = None
+            self.write_stage_input_binding_outcome_and_refresh_continuation(chain, outcome_plan)
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+            )
+
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_input_binding_status"], "blocked")
+            self.assertIn("controlled_runner_stage_input_binding_outcome_not_completed", blocker_codes)
+            self.assertIn("controlled_runner_stage_input_binding_outcome_not_select_next_stage", blocker_codes)
+            self.assertIn("controlled_runner_stage_input_binding_outcome_target_missing", blocker_codes)
+            self.assertFalse(
+                any(
+                    code.startswith("controlled_runner_stage_input_binding_continuation")
+                    and "checksum" in code
+                    for code in blocker_codes
+                )
+            )
+            self.assertEqual(output["recommended_next_action"], "refresh_controlled_runner_stage_outcome_plan")
+            self.assertIsNone(output["selected_stage"])
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["stage_execution_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_blocks_refreshed_outcome_target_drift(self):
+        forged_checksum = "sha256:" + "2" * 64
+
+        def mutate_target(outcome_plan, mutator):
+            outcome_target = dict(outcome_plan["outcome_target"])
+            mutator(outcome_target)
+            outcome_plan["outcome_target"] = outcome_target
+            outcome_plan["outcome_target_checksum"] = checksum_json(outcome_target)
+
+        target_checksum_cases = [
+            (
+                "target_closeout_checksum",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__(
+                        "controlled_loop_runner_stage_closeout_checksum",
+                        forged_checksum,
+                    ),
+                ),
+                "controlled_runner_stage_input_binding_outcome_closeout_checksum_mismatch",
+            ),
+            (
+                "target_execution_checksum",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__(
+                        "controlled_loop_runner_stage_execution_checksum",
+                        forged_checksum,
+                    ),
+                ),
+                "controlled_runner_stage_input_binding_outcome_execution_checksum_mismatch",
+            ),
+            (
+                "target_start_checksum",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("controlled_loop_runner_start_checksum", forged_checksum),
+                ),
+                "controlled_runner_stage_input_binding_outcome_start_checksum_mismatch",
+            ),
+            (
+                "target_plan_checksum",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("controlled_loop_runner_plan_checksum", forged_checksum),
+                ),
+                "controlled_runner_stage_input_binding_outcome_plan_checksum_mismatch",
+            ),
+            (
+                "target_dry_run_checksum",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("controlled_loop_runner_dry_run_checksum", forged_checksum),
+                ),
+                "controlled_runner_stage_input_binding_outcome_dry_run_checksum_mismatch",
+            ),
+        ]
+        other_cases = [
+            (
+                "stale_target_checksum",
+                lambda outcome_plan: outcome_plan.__setitem__("outcome_target_checksum", forged_checksum),
+                "controlled_runner_stage_input_binding_outcome_target_checksum_mismatch",
+            ),
+            (
+                "top_level_closeout_checksum",
+                lambda outcome_plan: outcome_plan["controlled_loop_runner_stage_closeout"].__setitem__(
+                    "checksum",
+                    forged_checksum,
+                ),
+                "controlled_runner_stage_input_binding_outcome_closeout_checksum_mismatch",
+            ),
+            (
+                "top_level_closeout_file",
+                lambda outcome_plan: outcome_plan["files"].__setitem__(
+                    "controlled_loop_runner_stage_closeout",
+                    "forged-closeout.json",
+                ),
+                "controlled_runner_stage_input_binding_outcome_closeout_file_mismatch",
+            ),
+            (
+                "target_purpose",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("purpose", "forged_purpose"),
+                ),
+                "controlled_runner_stage_input_binding_outcome_target_purpose_invalid",
+            ),
+            (
+                "target_completed_stage_bool",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("completed_stage_number", True),
+                ),
+                "controlled_runner_stage_input_binding_outcome_completed_stage_mismatch",
+            ),
+            (
+                "target_next_stage_gap",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("next_stage_number", 3),
+                ),
+                "controlled_runner_stage_input_binding_outcome_stage_sequence_gap",
+            ),
+            (
+                "target_closed_out_stage",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("closed_out_stage_number", 99),
+                ),
+                "controlled_runner_stage_input_binding_outcome_closed_out_stage_mismatch",
+            ),
+            (
+                "target_total_stage_count",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("total_stage_count", 99),
+                ),
+                "controlled_runner_stage_input_binding_outcome_total_stage_count_mismatch",
+            ),
+            (
+                "outcome_stage_bool",
+                lambda outcome_plan: outcome_plan.__setitem__("stage_number", True),
+                "controlled_runner_stage_input_binding_outcome_stage_number_mismatch",
+            ),
+            (
+                "outcome_runner_started",
+                lambda outcome_plan: outcome_plan.__setitem__("runner_started", True),
+                "controlled_runner_stage_input_binding_outcome_not_completed",
+            ),
+            (
+                "outcome_authority",
+                lambda outcome_plan: outcome_plan.__setitem__("runner_stage_execution_authority", "forged"),
+                "controlled_runner_stage_input_binding_outcome_not_completed",
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_input_binding_chain(tmp, repo)
+            base_outcome_plan = json.loads(
+                chain["controlled_loop_runner_stage_outcome_plan_path"].read_text(encoding="utf-8")
+            )
+            base_continuation = json.loads(
+                chain["controlled_loop_runner_next_stage_continuation_path"].read_text(encoding="utf-8")
+            )
+            for label, mutate_outcome, expected_blocker in [*target_checksum_cases, *other_cases]:
+                with self.subTest(case=label):
+                    outcome_plan = json.loads(json.dumps(base_outcome_plan))
+                    mutate_outcome(outcome_plan)
+                    self.write_stage_input_binding_outcome_and_refresh_continuation(
+                        chain,
+                        outcome_plan,
+                        base_continuation=base_continuation,
+                    )
+
+                    code, output, audit_before, runtime_before = (
+                        self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+                    )
+
+                    blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+                    self.assertEqual(code, 2)
+                    self.assertFalse(output["valid"])
+                    self.assertIn(expected_blocker, blocker_codes)
+                    self.assertFalse(
+                        any(
+                            code.startswith("controlled_runner_stage_input_binding_continuation")
+                            and "checksum" in code
+                            for code in blocker_codes
+                        )
+                    )
+                    self.assertEqual(
+                        output["recommended_next_action"],
+                        "refresh_controlled_runner_stage_outcome_plan",
+                    )
+                    self.assertIsNone(output["selected_stage"])
+                    self.assertFalse(output["process_started"])
+                    self.assertFalse(output["stage_execution_started"])
+                    self.assertFalse(output["loop_continuation_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertEqual(audit_records(tmp), audit_before)
+                    self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_recommends_prior_output_for_mixed_closeout_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_input_binding_chain(tmp, repo)
+            self.mutate_json_file(
+                chain["controlled_loop_runner_stage_closeout_path"],
+                lambda packet: packet.__setitem__("side_effects", ["forged_side_effect"]),
+            )
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+            )
+
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_input_binding_status"], "blocked")
+            self.assertIn("controlled_runner_stage_input_binding_closeout_not_completed", blocker_codes)
+            self.assertIn(
+                "controlled_runner_stage_input_binding_continuation_controlled_loop_runner_stage_closeout_checksum_mismatch",
+                blocker_codes,
+            )
+            self.assertEqual(output["recommended_next_action"], "refresh_prior_stage_output")
+            self.assertIsNone(output["selected_stage"])
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["stage_execution_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_blocks_refreshed_boolean_stage_identity(self):
+        def refresh_after_execution_mutation(chain, execution):
+            execution_checksum = checksum_json(execution)
+            chain["controlled_loop_runner_stage_execution_path"].write_text(
+                json.dumps(execution),
+                encoding="utf-8",
+            )
+            closeout = json.loads(chain["controlled_loop_runner_stage_closeout_path"].read_text(encoding="utf-8"))
+            closeout["controlled_loop_runner_stage_execution"]["checksum"] = execution_checksum
+            closeout["checksums"]["controlled_loop_runner_stage_execution"] = execution_checksum
+            closeout_checksum = checksum_json(closeout)
+            chain["controlled_loop_runner_stage_closeout"] = closeout
+            chain["controlled_loop_runner_stage_closeout_path"].write_text(
+                json.dumps(closeout),
+                encoding="utf-8",
+            )
+            outcome_plan = json.loads(
+                chain["controlled_loop_runner_stage_outcome_plan_path"].read_text(encoding="utf-8")
+            )
+            outcome_plan["controlled_loop_runner_stage_execution"]["checksum"] = execution_checksum
+            outcome_plan["controlled_loop_runner_stage_closeout"]["checksum"] = closeout_checksum
+            outcome_plan["checksums"]["controlled_loop_runner_stage_execution"] = execution_checksum
+            outcome_plan["checksums"]["controlled_loop_runner_stage_closeout"] = closeout_checksum
+            outcome_target = dict(outcome_plan["outcome_target"])
+            outcome_target["controlled_loop_runner_stage_execution_checksum"] = execution_checksum
+            outcome_target["controlled_loop_runner_stage_closeout_checksum"] = closeout_checksum
+            outcome_plan["outcome_target"] = outcome_target
+            outcome_plan["outcome_target_checksum"] = checksum_json(outcome_target)
+            chain["controlled_loop_runner_stage_execution"] = execution
+            self.write_stage_input_binding_outcome_and_refresh_continuation(chain, outcome_plan)
+
+        cases = [
+            (
+                "closeout_stage_bool",
+                None,
+                "controlled_runner_stage_input_binding_closeout_not_completed",
+            ),
+            (
+                "execution_stage_bool",
+                lambda chain: refresh_after_execution_mutation(
+                    chain,
+                    {
+                        **json.loads(
+                            chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8")
+                        ),
+                        "stage_number": True,
+                    },
+                ),
+                "controlled_runner_stage_input_binding_execution_stage_number_mismatch",
+            ),
+            (
+                "execution_selected_stage_bool",
+                lambda chain: refresh_after_execution_mutation(
+                    chain,
+                    {
+                        **json.loads(
+                            chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8")
+                        ),
+                        "selected_stage": {
+                            **json.loads(
+                                chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8")
+                            )["selected_stage"],
+                            "step": True,
+                        },
+                    },
+                ),
+                "controlled_runner_stage_input_binding_execution_stage_number_mismatch",
+            ),
+        ]
+        for label, mutate_chain, expected_blocker in cases:
+            with self.subTest(case=label):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    chain = self.write_controlled_loop_runner_stage_input_binding_chain(tmp, repo)
+                    if label == "closeout_stage_bool":
+                        closeout = json.loads(
+                            chain["controlled_loop_runner_stage_closeout_path"].read_text(encoding="utf-8")
+                        )
+                        closeout["stage_number"] = True
+                        closeout_checksum = checksum_json(closeout)
+                        chain["controlled_loop_runner_stage_closeout"] = closeout
+                        chain["controlled_loop_runner_stage_closeout_path"].write_text(
+                            json.dumps(closeout),
+                            encoding="utf-8",
+                        )
+                        outcome_plan = json.loads(
+                            chain["controlled_loop_runner_stage_outcome_plan_path"].read_text(encoding="utf-8")
+                        )
+                        outcome_plan["controlled_loop_runner_stage_closeout"]["checksum"] = closeout_checksum
+                        outcome_plan["checksums"]["controlled_loop_runner_stage_closeout"] = closeout_checksum
+                        outcome_target = dict(outcome_plan["outcome_target"])
+                        outcome_target["controlled_loop_runner_stage_closeout_checksum"] = closeout_checksum
+                        outcome_plan["outcome_target"] = outcome_target
+                        outcome_plan["outcome_target_checksum"] = checksum_json(outcome_target)
+                        self.write_stage_input_binding_outcome_and_refresh_continuation(chain, outcome_plan)
+                    else:
+                        mutate_chain(chain)
+
+                    code, output, audit_before, runtime_before = (
+                        self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+                    )
+
+                    blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+                    self.assertEqual(code, 2)
+                    self.assertFalse(output["valid"])
+                    self.assertIn(expected_blocker, blocker_codes)
+                    self.assertIsNone(output["selected_stage"])
+                    self.assertFalse(output["process_started"])
+                    self.assertFalse(output["stage_execution_started"])
+                    self.assertFalse(output["loop_continuation_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertEqual(audit_records(tmp), audit_before)
+                    self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_reports_closeout_checksum_expected_then_actual(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_input_binding_chain(tmp, repo)
+            forged_checksum = "sha256:" + "1" * 64
+            self.mutate_json_file(
+                chain["controlled_loop_runner_stage_closeout_path"],
+                lambda packet: packet["stage_output"].__setitem__("checksum", forged_checksum),
+            )
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            blocker = next(
+                blocker
+                for blocker in output["blockers"]
+                if blocker["code"] == "controlled_runner_stage_input_binding_prior_stage_output_checksum_mismatch"
+            )
+            self.assertEqual(blocker["expected"], checksum_json(chain["prior_stage_output"]))
+            self.assertEqual(blocker["actual"], forged_checksum)
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
