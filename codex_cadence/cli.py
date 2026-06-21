@@ -12809,6 +12809,15 @@ def controlled_loop_runner_stage_input_binding_recommendation(
     upstream_codes = {blocker.get("upstream_code") for blocker in blockers}
     all_codes = blocker_codes | upstream_codes
     if any(
+        isinstance(code, str)
+        and (
+            code.startswith("controlled_runner_stage_input_binding_outcome")
+            or code.startswith("controlled_runner_stage_outcome_plan")
+        )
+        for code in all_codes
+    ):
+        return "refresh_controlled_runner_stage_outcome_plan", "controlled runner stage outcome plan is stale"
+    if any(
         isinstance(code, str) and code.startswith("controlled_runner_stage_input_binding_continuation")
         for code in all_codes
     ):
@@ -12820,7 +12829,7 @@ def controlled_loop_runner_stage_input_binding_recommendation(
         isinstance(code, str)
         and (
             code.startswith("controlled_runner_stage_input_binding_prior_stage")
-            or code.startswith("controlled_runner_stage_closeout")
+            or code.startswith("controlled_runner_stage_input_binding_closeout")
         )
         for code in all_codes
     ):
@@ -13418,20 +13427,128 @@ def controlled_loop_runner_stage_input_binding_command(args: argparse.Namespace)
             )
         )
 
-    if isinstance(outcome_plan, dict) and (
-        outcome_plan.get("schema_version") != CONTROLLED_LOOP_RUNNER_STAGE_OUTCOME_PLAN_SCHEMA_VERSION
-        or outcome_plan.get("packet") != "controlled_loop_runner_stage_outcome_plan"
-    ):
-        blockers.append(
-            controlled_loop_runner_stage_input_binding_blocker(
-                "controlled_runner_stage_input_binding_outcome_packet_mismatch",
-                "controlled runner stage outcome plan packet type is invalid",
-                expected_schema_version=CONTROLLED_LOOP_RUNNER_STAGE_OUTCOME_PLAN_SCHEMA_VERSION,
-                actual_schema_version=outcome_plan.get("schema_version"),
-                expected_packet="controlled_loop_runner_stage_outcome_plan",
-                actual_packet=outcome_plan.get("packet"),
+    if isinstance(outcome_plan, dict):
+        if (
+            outcome_plan.get("schema_version") != CONTROLLED_LOOP_RUNNER_STAGE_OUTCOME_PLAN_SCHEMA_VERSION
+            or outcome_plan.get("packet") != "controlled_loop_runner_stage_outcome_plan"
+        ):
+            blockers.append(
+                controlled_loop_runner_stage_input_binding_blocker(
+                    "controlled_runner_stage_input_binding_outcome_packet_mismatch",
+                    "controlled runner stage outcome plan packet type is invalid",
+                    expected_schema_version=CONTROLLED_LOOP_RUNNER_STAGE_OUTCOME_PLAN_SCHEMA_VERSION,
+                    actual_schema_version=outcome_plan.get("schema_version"),
+                    expected_packet="controlled_loop_runner_stage_outcome_plan",
+                    actual_packet=outcome_plan.get("packet"),
+                )
             )
+        outcome_side_effect_flags = {
+            flag: outcome_plan.get(flag)
+            for flag in [
+                "process_started",
+                "stage_execution_started",
+                "next_stage_selected",
+                "audit_evidence_appended",
+                "executor_started",
+                "stage_retry_started",
+                "second_stage_started",
+                "epoch_started",
+                "pr_action_started",
+                "github_write_started",
+                "merge_started",
+                "release_started",
+                "package_publication_started",
+                "role_assignment_started",
+                "agent_scheduling_started",
+                "loop_continuation_started",
+            ]
+            if outcome_plan.get(flag) is not False
+        }
+        if (
+            outcome_plan.get("valid") is not True
+            or outcome_plan.get("read_only") is not True
+            or outcome_plan.get("stage_outcome_plan_status") != "completed"
+            or outcome_plan.get("side_effects") != []
+            or outcome_plan.get("limitations") != CONTROLLED_LOOP_RUNNER_STAGE_OUTCOME_PLAN_LIMITATIONS
+            or outcome_plan.get("blockers") != []
+            or outcome_side_effect_flags
+        ):
+            blockers.append(
+                controlled_loop_runner_stage_input_binding_blocker(
+                    "controlled_runner_stage_input_binding_outcome_not_completed",
+                    "controlled runner stage input binding requires completed read-only outcome planning evidence",
+                    valid=outcome_plan.get("valid"),
+                    read_only=outcome_plan.get("read_only"),
+                    status=outcome_plan.get("stage_outcome_plan_status"),
+                    side_effects=outcome_plan.get("side_effects"),
+                    blockers=outcome_plan.get("blockers"),
+                    side_effect_flags=outcome_side_effect_flags,
+                )
+            )
+        if (
+            outcome_plan.get("stage_outcome_decision") != "select_next_stage"
+            or outcome_plan.get("next_controlled_action") != "select_controlled_runner_next_stage_continuation"
+            or outcome_plan.get("recommended_next_action") != "select_controlled_runner_next_stage_continuation"
+            or outcome_plan.get("stage_closeout_status") != "completed"
+        ):
+            blockers.append(
+                controlled_loop_runner_stage_input_binding_blocker(
+                    "controlled_runner_stage_input_binding_outcome_not_select_next_stage",
+                    "controlled runner stage input binding requires a next-stage selection outcome",
+                    actual_decision=outcome_plan.get("stage_outcome_decision"),
+                    actual_next_controlled_action=outcome_plan.get("next_controlled_action"),
+                    actual_recommended_next_action=outcome_plan.get("recommended_next_action"),
+                    actual_stage_closeout_status=outcome_plan.get("stage_closeout_status"),
+                )
+            )
+        outcome_target = (
+            outcome_plan.get("outcome_target")
+            if isinstance(outcome_plan.get("outcome_target"), dict)
+            else None
         )
+        if outcome_target is None:
+            blockers.append(
+                controlled_loop_runner_stage_input_binding_blocker(
+                    "controlled_runner_stage_input_binding_outcome_target_missing",
+                    "controlled runner stage input binding requires a next-stage outcome target",
+                )
+            )
+        else:
+            if outcome_plan.get("outcome_target_checksum") != checksum_json(outcome_target):
+                blockers.append(
+                    controlled_loop_runner_stage_input_binding_blocker(
+                        "controlled_runner_stage_input_binding_outcome_target_checksum_mismatch",
+                        "controlled runner stage outcome target checksum is stale",
+                        expected=checksum_json(outcome_target),
+                        actual=outcome_plan.get("outcome_target_checksum"),
+                    )
+                )
+            if outcome_target.get("purpose") != "controlled_loop_runner_next_stage_selection":
+                blockers.append(
+                    controlled_loop_runner_stage_input_binding_blocker(
+                        "controlled_runner_stage_input_binding_outcome_target_purpose_invalid",
+                        "controlled runner stage input binding outcome target must select a next stage",
+                        actual=outcome_target.get("purpose"),
+                    )
+                )
+            if outcome_target.get("completed_stage_number") != completed_stage_number:
+                blockers.append(
+                    controlled_loop_runner_stage_input_binding_blocker(
+                        "controlled_runner_stage_input_binding_outcome_completed_stage_mismatch",
+                        "controlled runner stage input binding outcome target completed stage is stale",
+                        expected=completed_stage_number,
+                        actual=outcome_target.get("completed_stage_number"),
+                    )
+                )
+            if outcome_target.get("next_stage_number") != expected_next_stage_number:
+                blockers.append(
+                    controlled_loop_runner_stage_input_binding_blocker(
+                        "controlled_runner_stage_input_binding_outcome_stage_sequence_gap",
+                        "controlled runner stage input binding outcome target must select the next stage",
+                        expected=expected_next_stage_number,
+                        actual=outcome_target.get("next_stage_number"),
+                    )
+                )
     if isinstance(closeout, dict):
         if (
             closeout.get("schema_version") != CONTROLLED_LOOP_RUNNER_STAGE_CLOSEOUT_SCHEMA_VERSION
@@ -13524,8 +13641,8 @@ def controlled_loop_runner_stage_input_binding_command(args: argparse.Namespace)
                 controlled_loop_runner_stage_input_binding_blocker(
                     "controlled_runner_stage_input_binding_prior_stage_output_checksum_mismatch",
                     "controlled runner closeout stage output checksum does not match supplied prior stage output",
-                    expected=stage_output_ref.get("checksum"),
-                    actual=prior_stage_output_checksum,
+                    expected=prior_stage_output_checksum,
+                    actual=stage_output_ref.get("checksum"),
                 )
             )
     if isinstance(execution, dict):
