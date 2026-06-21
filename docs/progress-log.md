@@ -42,6 +42,9 @@ Summary:
   `start-governed-execution`, so the runner must bind prior `loop-run-plan`
   output, executor task evidence, and explicit approval evidence before any
   invocation boundary can be prepared.
+- Tightened the roadmap after review to require `start_governed_execution`
+  approval purpose, reconcile the current `loop-run-plan.v1` output contract
+  before binding, and keep ownership-bound execution out of Tasks 61-66.
 - Kept the next work focused on operator-gated continuation-stage execution
   without autonomous GitHub writes, retries, loop continuation, merge, release,
   package publication, role assignment, or agent scheduling.
@@ -64,6 +67,8 @@ New risks or blockers:
   required by `start-governed-execution`.
 - Continuation execution must keep declared side effects bounded to the selected
   runner stage and must not start another stage automatically.
+- Ownership-bound `start-governed-execution` and `work_ownership_epoch_bound`
+  side effects remain a future explicitly planned slice.
 
 Docs updated:
 - `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
