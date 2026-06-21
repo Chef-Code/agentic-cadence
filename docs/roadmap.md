@@ -1,8 +1,8 @@
 # Agentic Cadence Technical Roadmap
 
 Status: living document
-Last updated: 2026-06-19
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled loop real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, controlled-loop-runner-start evidence, read-only controlled loop runner next-stage evidence, read-only controlled loop runner stage-execution readiness evidence, read-only controlled loop runner stage-execution approval evidence, read-only controlled loop runner stage-invocation boundary evidence, controlled loop runner single-stage execution evidence, read-only controlled loop runner stage-closeout evidence, read-only controlled loop runner stage-outcome planning evidence, read-only controlled loop runner next-stage continuation evidence, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 28-60 complete in main or active review branches
+Last updated: 2026-06-20
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, branch policy, read-only GitHub evidence sync, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, operator-approved review-thread resolution materialization, post-resolution PR evidence refresh, controlled PR-cycle evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled loop real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, controlled-loop-runner-start evidence, read-only controlled loop runner next-stage evidence, read-only controlled loop runner stage-execution readiness evidence, read-only controlled loop runner stage-execution approval evidence, read-only controlled loop runner stage-invocation boundary evidence, controlled loop runner single-stage execution evidence, read-only controlled loop runner stage-closeout evidence, read-only controlled loop runner stage-outcome planning evidence, read-only controlled loop runner next-stage continuation evidence, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, controlled real executor invocation evidence, real-invocation closeout binding, controlled single-tick run packet evidence, local work ownership claim/closeout evidence, and Tasks 1-60 complete in main
 Current unattended-operation confidence: 25% (stable headline; progress log records Task 60 projected capability at 55%)
 
 This document tracks the practical path from the current Agentic Cadence
@@ -509,23 +509,21 @@ The smallest slices expected to move confidence toward 50% are tracked in
 4. Minimal Git/PR Automation
 5. CI/Review Feedback Back Into Candidate Discovery
 
-Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete, Tasks 8-12 from
-`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete, and Tasks
-13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in
-the current tree. Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`,
-real-executor invocation readiness planning, is merged. Task 18 from
-`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, audit hash-chain integrity
-evidence, is implemented in the current tree. Task 19, authenticated operator
-approval identity evidence, is implemented in the current tree. Task 20,
-`executor-invocation-plan` real executor invocation plan and approval binding,
-is implemented in the current tree. Task 21, controlled real executor
-invocation runner, is implemented in `main` via PR #89. Task 22, real executor
-run closeout binding, is implemented in `main` via PR #90. Tasks 23-27 from
-`docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` are complete in `main` via
-PRs #92-#96. The current roadmap handoff branch prepares
-`docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md`; Tasks 33-37 are now
-complete in `main` or active review branches.
+Tasks 1-60 are complete in `main` through the controlled-loop runner
+next-stage continuation slice. The current roadmap after Task 60 is
+`docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`, which starts with
+stage-input binding before continuation-stage readiness so the runner does not
+bypass the `start-governed-execution` executor task approval gate.
+
+Historical roadmap anchors remain part of the current context: Tasks 1-7 from
+`docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`, Tasks 8-12 from
+`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md`, Tasks 13-17 from
+`docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`, Tasks 18-22 from
+`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, Tasks 23-27 from
+`docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`, Tasks 28-32 from
+`docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`, Tasks 33-37 from
+`docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md`, and the Task 55-60 roadmap
+at `docs/roadmaps/2026-06-18-tasks-55-60-roadmap.md`.
 
 ## Roadmap
 
