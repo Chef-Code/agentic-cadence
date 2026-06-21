@@ -2626,9 +2626,15 @@ evidence. It requires the continuation checksum to match the reviewed
 `--expected-next-stage-continuation-checksum`, the continuation packet to be
 valid, selected, read-only, and still recommending
 `generalize_controlled_runner_stage_execution_readiness_for_continuation`, and
-the selected continuation stage to match the approved runner plan. For the
-current stage-2 `start-governed-execution` path, it also requires the prior
-stage output to be a schema-compatible `loop-run-plan.v1` packet whose
+the selected continuation stage to match the approved runner plan. It also
+requires the stage outcome plan to be completed, read-only, side-effect-free,
+still carrying `runner_stage_execution_authority: stage_outcome_planned`,
+still targeting `select_next_stage`, and carrying a next-stage outcome target
+whose own checksum, evidence file anchors, evidence checksums, completed
+stage, closed-out stage, next stage, and total stage count still match the
+consumed runner evidence. For the current stage-2 `start-governed-execution`
+path, it also requires the prior stage output to be a schema-compatible
+`loop-run-plan.v1` packet whose
 `recommended_next_action` is `request_operator_approval`, whose `read_only`
 and `operator_confirmation_required` fields are true, whose
 `executor_contract_required` field is false, whose embedded loop tick checksum
@@ -2665,12 +2671,25 @@ Stable blockers include
 `controlled_runner_stage_input_binding_selected_stage_mismatch`,
 `controlled_runner_stage_input_binding_outcome_packet_mismatch`,
 `controlled_runner_stage_input_binding_outcome_not_completed`,
+`controlled_runner_stage_input_binding_outcome_stage_number_mismatch`,
 `controlled_runner_stage_input_binding_outcome_not_select_next_stage`,
+`controlled_runner_stage_input_binding_outcome_closeout_file_mismatch`,
+`controlled_runner_stage_input_binding_outcome_execution_file_mismatch`,
+`controlled_runner_stage_input_binding_outcome_start_file_mismatch`,
+`controlled_runner_stage_input_binding_outcome_plan_file_mismatch`,
+`controlled_runner_stage_input_binding_outcome_dry_run_file_mismatch`,
 `controlled_runner_stage_input_binding_outcome_target_missing`,
 `controlled_runner_stage_input_binding_outcome_target_checksum_mismatch`,
+`controlled_runner_stage_input_binding_outcome_closeout_checksum_mismatch`,
+`controlled_runner_stage_input_binding_outcome_execution_checksum_mismatch`,
+`controlled_runner_stage_input_binding_outcome_start_checksum_mismatch`,
+`controlled_runner_stage_input_binding_outcome_plan_checksum_mismatch`,
+`controlled_runner_stage_input_binding_outcome_dry_run_checksum_mismatch`,
 `controlled_runner_stage_input_binding_outcome_target_purpose_invalid`,
+`controlled_runner_stage_input_binding_outcome_closed_out_stage_mismatch`,
 `controlled_runner_stage_input_binding_outcome_completed_stage_mismatch`,
 `controlled_runner_stage_input_binding_outcome_stage_sequence_gap`,
+`controlled_runner_stage_input_binding_outcome_total_stage_count_mismatch`,
 `controlled_runner_stage_input_binding_closeout_packet_mismatch`,
 `controlled_runner_stage_input_binding_execution_packet_mismatch`,
 `controlled_runner_stage_input_binding_prior_stage_output_file_mismatch`,

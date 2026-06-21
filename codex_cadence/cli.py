@@ -12811,6 +12811,15 @@ def controlled_loop_runner_stage_input_binding_recommendation(
     if any(
         isinstance(code, str)
         and (
+            code.startswith("controlled_runner_stage_input_binding_prior_stage")
+            or code.startswith("controlled_runner_stage_input_binding_closeout")
+        )
+        for code in all_codes
+    ):
+        return "refresh_prior_stage_output", "controlled runner prior stage output is stale or blocked"
+    if any(
+        isinstance(code, str)
+        and (
             code.startswith("controlled_runner_stage_input_binding_outcome")
             or code.startswith("controlled_runner_stage_outcome_plan")
         )
@@ -12825,15 +12834,6 @@ def controlled_loop_runner_stage_input_binding_recommendation(
             "refresh_controlled_runner_next_stage_continuation",
             "controlled runner next-stage continuation evidence is stale or blocked",
         )
-    if any(
-        isinstance(code, str)
-        and (
-            code.startswith("controlled_runner_stage_input_binding_prior_stage")
-            or code.startswith("controlled_runner_stage_input_binding_closeout")
-        )
-        for code in all_codes
-    ):
-        return "refresh_prior_stage_output", "controlled runner prior stage output is stale or blocked"
     if any(
         isinstance(code, str) and code.startswith("controlled_runner_stage_input_binding_executor_task")
         for code in all_codes
@@ -12852,6 +12852,10 @@ def controlled_loop_runner_stage_input_binding_recommendation(
         "inspect_controlled_runner_stage_input_binding_blockers",
         "controlled runner stage input binding is blocked",
     )
+
+
+def controlled_loop_runner_stage_input_binding_strict_int_matches(value: Any, expected: int) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value == expected
 
 
 def controlled_loop_runner_stage_input_binding_file_anchor_blockers(
@@ -13445,6 +13449,7 @@ def controlled_loop_runner_stage_input_binding_command(args: argparse.Namespace)
         outcome_side_effect_flags = {
             flag: outcome_plan.get(flag)
             for flag in [
+                "runner_started",
                 "process_started",
                 "stage_execution_started",
                 "next_stage_selected",
@@ -13471,6 +13476,7 @@ def controlled_loop_runner_stage_input_binding_command(args: argparse.Namespace)
             or outcome_plan.get("side_effects") != []
             or outcome_plan.get("limitations") != CONTROLLED_LOOP_RUNNER_STAGE_OUTCOME_PLAN_LIMITATIONS
             or outcome_plan.get("blockers") != []
+            or outcome_plan.get("runner_stage_execution_authority") != "stage_outcome_planned"
             or outcome_side_effect_flags
         ):
             blockers.append(
@@ -13482,7 +13488,20 @@ def controlled_loop_runner_stage_input_binding_command(args: argparse.Namespace)
                     status=outcome_plan.get("stage_outcome_plan_status"),
                     side_effects=outcome_plan.get("side_effects"),
                     blockers=outcome_plan.get("blockers"),
+                    runner_stage_execution_authority=outcome_plan.get("runner_stage_execution_authority"),
                     side_effect_flags=outcome_side_effect_flags,
+                )
+            )
+        if not controlled_loop_runner_stage_input_binding_strict_int_matches(
+            outcome_plan.get("stage_number"),
+            completed_stage_number,
+        ):
+            blockers.append(
+                controlled_loop_runner_stage_input_binding_blocker(
+                    "controlled_runner_stage_input_binding_outcome_stage_number_mismatch",
+                    "controlled runner stage input binding outcome plan stage number is stale",
+                    expected=completed_stage_number,
+                    actual=outcome_plan.get("stage_number"),
                 )
             )
         if (
@@ -13506,6 +13525,94 @@ def controlled_loop_runner_stage_input_binding_command(args: argparse.Namespace)
             if isinstance(outcome_plan.get("outcome_target"), dict)
             else None
         )
+        outcome_closeout = (
+            outcome_plan.get("controlled_loop_runner_stage_closeout")
+            if isinstance(outcome_plan.get("controlled_loop_runner_stage_closeout"), dict)
+            else {}
+        )
+        outcome_execution = (
+            outcome_plan.get("controlled_loop_runner_stage_execution")
+            if isinstance(outcome_plan.get("controlled_loop_runner_stage_execution"), dict)
+            else {}
+        )
+        outcome_start = (
+            outcome_plan.get("controlled_loop_runner_start")
+            if isinstance(outcome_plan.get("controlled_loop_runner_start"), dict)
+            else {}
+        )
+        outcome_runner_plan = (
+            outcome_plan.get("controlled_loop_runner_plan")
+            if isinstance(outcome_plan.get("controlled_loop_runner_plan"), dict)
+            else {}
+        )
+        outcome_dry_run = (
+            outcome_plan.get("controlled_loop_runner_dry_run")
+            if isinstance(outcome_plan.get("controlled_loop_runner_dry_run"), dict)
+            else {}
+        )
+        outcome_files = outcome_plan.get("files") if isinstance(outcome_plan.get("files"), dict) else {}
+        outcome_checksums = outcome_plan.get("checksums") if isinstance(outcome_plan.get("checksums"), dict) else {}
+        outcome_file_groups = [
+            (
+                "controlled_runner_stage_input_binding_outcome_closeout_file_mismatch",
+                closeout_path,
+                {
+                    "controlled_loop_runner_stage_closeout.file": outcome_closeout.get("file"),
+                    "files.controlled_loop_runner_stage_closeout": outcome_files.get(
+                        "controlled_loop_runner_stage_closeout"
+                    ),
+                },
+            ),
+            (
+                "controlled_runner_stage_input_binding_outcome_execution_file_mismatch",
+                execution_path,
+                {
+                    "controlled_loop_runner_stage_execution.file": outcome_execution.get("file"),
+                    "files.controlled_loop_runner_stage_execution": outcome_files.get(
+                        "controlled_loop_runner_stage_execution"
+                    ),
+                },
+            ),
+            (
+                "controlled_runner_stage_input_binding_outcome_start_file_mismatch",
+                start_path,
+                {
+                    "controlled_loop_runner_start.file": outcome_start.get("file"),
+                    "files.controlled_loop_runner_start": outcome_files.get("controlled_loop_runner_start"),
+                },
+            ),
+            (
+                "controlled_runner_stage_input_binding_outcome_plan_file_mismatch",
+                runner_plan_path,
+                {
+                    "controlled_loop_runner_plan.file": outcome_runner_plan.get("file"),
+                    "files.controlled_loop_runner_plan": outcome_files.get("controlled_loop_runner_plan"),
+                },
+            ),
+            (
+                "controlled_runner_stage_input_binding_outcome_dry_run_file_mismatch",
+                dry_run_path,
+                {
+                    "controlled_loop_runner_dry_run.file": outcome_dry_run.get("file"),
+                    "files.controlled_loop_runner_dry_run": outcome_files.get("controlled_loop_runner_dry_run"),
+                },
+            ),
+        ]
+        for code, expected_path, values in outcome_file_groups:
+            mismatched = {
+                field: value
+                for field, value in values.items()
+                if not controlled_loop_runner_plan_file_matches(outcome_plan_path, value, expected_path)
+            }
+            if mismatched:
+                blockers.append(
+                    controlled_loop_runner_stage_input_binding_blocker(
+                        code,
+                        "controlled runner stage outcome plan file anchors do not match input binding evidence",
+                        expected=str(expected_path),
+                        actual=mismatched,
+                    )
+                )
         if outcome_target is None:
             blockers.append(
                 controlled_loop_runner_stage_input_binding_blocker(
@@ -13523,6 +13630,86 @@ def controlled_loop_runner_stage_input_binding_command(args: argparse.Namespace)
                         actual=outcome_plan.get("outcome_target_checksum"),
                     )
                 )
+            outcome_checksum_groups = [
+                (
+                    "controlled_runner_stage_input_binding_outcome_closeout_checksum_mismatch",
+                    closeout_checksum,
+                    {
+                        "outcome_target.controlled_loop_runner_stage_closeout_checksum": outcome_target.get(
+                            "controlled_loop_runner_stage_closeout_checksum"
+                        ),
+                        "controlled_loop_runner_stage_closeout.checksum": outcome_closeout.get("checksum"),
+                        "checksums.controlled_loop_runner_stage_closeout": outcome_checksums.get(
+                            "controlled_loop_runner_stage_closeout"
+                        ),
+                    },
+                ),
+                (
+                    "controlled_runner_stage_input_binding_outcome_execution_checksum_mismatch",
+                    execution_checksum,
+                    {
+                        "outcome_target.controlled_loop_runner_stage_execution_checksum": outcome_target.get(
+                            "controlled_loop_runner_stage_execution_checksum"
+                        ),
+                        "controlled_loop_runner_stage_execution.checksum": outcome_execution.get("checksum"),
+                        "checksums.controlled_loop_runner_stage_execution": outcome_checksums.get(
+                            "controlled_loop_runner_stage_execution"
+                        ),
+                    },
+                ),
+                (
+                    "controlled_runner_stage_input_binding_outcome_start_checksum_mismatch",
+                    start_checksum,
+                    {
+                        "outcome_target.controlled_loop_runner_start_checksum": outcome_target.get(
+                            "controlled_loop_runner_start_checksum"
+                        ),
+                        "controlled_loop_runner_start.checksum": outcome_start.get("checksum"),
+                        "checksums.controlled_loop_runner_start": outcome_checksums.get(
+                            "controlled_loop_runner_start"
+                        ),
+                    },
+                ),
+                (
+                    "controlled_runner_stage_input_binding_outcome_plan_checksum_mismatch",
+                    runner_plan_checksum,
+                    {
+                        "outcome_target.controlled_loop_runner_plan_checksum": outcome_target.get(
+                            "controlled_loop_runner_plan_checksum"
+                        ),
+                        "controlled_loop_runner_plan.checksum": outcome_runner_plan.get("checksum"),
+                        "checksums.controlled_loop_runner_plan": outcome_checksums.get(
+                            "controlled_loop_runner_plan"
+                        ),
+                    },
+                ),
+                (
+                    "controlled_runner_stage_input_binding_outcome_dry_run_checksum_mismatch",
+                    dry_run_checksum,
+                    {
+                        "outcome_target.controlled_loop_runner_dry_run_checksum": outcome_target.get(
+                            "controlled_loop_runner_dry_run_checksum"
+                        ),
+                        "controlled_loop_runner_dry_run.checksum": outcome_dry_run.get("checksum"),
+                        "checksums.controlled_loop_runner_dry_run": outcome_checksums.get(
+                            "controlled_loop_runner_dry_run"
+                        ),
+                    },
+                ),
+            ]
+            for code, expected_checksum, values in outcome_checksum_groups:
+                mismatched = {
+                    field: value for field, value in values.items() if value != expected_checksum
+                }
+                if mismatched:
+                    blockers.append(
+                        controlled_loop_runner_stage_input_binding_blocker(
+                            code,
+                            "controlled runner stage outcome plan checksum anchors do not match input binding evidence",
+                            expected=expected_checksum,
+                            actual=mismatched,
+                        )
+                    )
             if outcome_target.get("purpose") != "controlled_loop_runner_next_stage_selection":
                 blockers.append(
                     controlled_loop_runner_stage_input_binding_blocker(
@@ -13531,7 +13718,22 @@ def controlled_loop_runner_stage_input_binding_command(args: argparse.Namespace)
                         actual=outcome_target.get("purpose"),
                     )
                 )
-            if outcome_target.get("completed_stage_number") != completed_stage_number:
+            if not controlled_loop_runner_stage_input_binding_strict_int_matches(
+                outcome_target.get("closed_out_stage_number"),
+                completed_stage_number,
+            ):
+                blockers.append(
+                    controlled_loop_runner_stage_input_binding_blocker(
+                        "controlled_runner_stage_input_binding_outcome_closed_out_stage_mismatch",
+                        "controlled runner stage input binding outcome target closed-out stage is stale",
+                        expected=completed_stage_number,
+                        actual=outcome_target.get("closed_out_stage_number"),
+                    )
+                )
+            if not controlled_loop_runner_stage_input_binding_strict_int_matches(
+                outcome_target.get("completed_stage_number"),
+                completed_stage_number,
+            ):
                 blockers.append(
                     controlled_loop_runner_stage_input_binding_blocker(
                         "controlled_runner_stage_input_binding_outcome_completed_stage_mismatch",
@@ -13540,13 +13742,39 @@ def controlled_loop_runner_stage_input_binding_command(args: argparse.Namespace)
                         actual=outcome_target.get("completed_stage_number"),
                     )
                 )
-            if outcome_target.get("next_stage_number") != expected_next_stage_number:
+            if not controlled_loop_runner_stage_input_binding_strict_int_matches(
+                outcome_target.get("next_stage_number"),
+                expected_next_stage_number,
+            ):
                 blockers.append(
                     controlled_loop_runner_stage_input_binding_blocker(
                         "controlled_runner_stage_input_binding_outcome_stage_sequence_gap",
                         "controlled runner stage input binding outcome target must select the next stage",
                         expected=expected_next_stage_number,
                         actual=outcome_target.get("next_stage_number"),
+                    )
+                )
+            plan_details = (
+                runner_plan.get("runner_plan")
+                if isinstance(runner_plan, dict) and isinstance(runner_plan.get("runner_plan"), dict)
+                else {}
+            )
+            planned_steps = plan_details.get("planned_steps")
+            expected_total_stage_count = (
+                len(planned_steps)
+                if isinstance(planned_steps, list) and planned_steps
+                else len(CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE)
+            )
+            if not controlled_loop_runner_stage_input_binding_strict_int_matches(
+                outcome_target.get("total_stage_count"),
+                expected_total_stage_count,
+            ):
+                blockers.append(
+                    controlled_loop_runner_stage_input_binding_blocker(
+                        "controlled_runner_stage_input_binding_outcome_total_stage_count_mismatch",
+                        "controlled runner stage input binding outcome target total stage count is stale",
+                        expected=expected_total_stage_count,
+                        actual=outcome_target.get("total_stage_count"),
                     )
                 )
     if isinstance(closeout, dict):
@@ -13568,7 +13796,10 @@ def controlled_loop_runner_stage_input_binding_command(args: argparse.Namespace)
             closeout.get("valid") is not True
             or closeout.get("read_only") is not True
             or closeout.get("stage_closeout_status") != "completed"
-            or closeout.get("stage_number") != completed_stage_number
+            or not controlled_loop_runner_stage_input_binding_strict_int_matches(
+                closeout.get("stage_number"),
+                completed_stage_number,
+            )
             or closeout.get("side_effects") != []
             or closeout.get("blockers") != []
             or closeout.get("limitations") != CONTROLLED_LOOP_RUNNER_STAGE_CLOSEOUT_LIMITATIONS
@@ -13676,8 +13907,14 @@ def controlled_loop_runner_stage_input_binding_command(args: argparse.Namespace)
             execution_selected_stage.get("step") if execution_selected_stage is not None else None
         )
         if (
-            execution.get("stage_number") != completed_stage_number
-            or execution_selected_stage_number != completed_stage_number
+            not controlled_loop_runner_stage_input_binding_strict_int_matches(
+                execution.get("stage_number"),
+                completed_stage_number,
+            )
+            or not controlled_loop_runner_stage_input_binding_strict_int_matches(
+                execution_selected_stage_number,
+                completed_stage_number,
+            )
         ):
             blockers.append(
                 controlled_loop_runner_stage_input_binding_blocker(

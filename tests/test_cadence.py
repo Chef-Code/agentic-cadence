@@ -7909,6 +7909,42 @@ class CadenceCliTests(unittest.TestCase):
         Path(path).write_text(json.dumps(packet), encoding="utf-8")
         return packet
 
+    def write_stage_input_binding_outcome_and_refresh_continuation(
+        self,
+        chain,
+        outcome_plan,
+        *,
+        base_continuation=None,
+    ):
+        chain["controlled_loop_runner_stage_outcome_plan"] = outcome_plan
+        chain["controlled_loop_runner_stage_outcome_plan_path"].write_text(
+            json.dumps(outcome_plan),
+            encoding="utf-8",
+        )
+        outcome_checksum = checksum_json(outcome_plan)
+        continuation = (
+            json.loads(json.dumps(base_continuation))
+            if base_continuation is not None
+            else json.loads(
+                chain["controlled_loop_runner_next_stage_continuation_path"].read_text(encoding="utf-8")
+            )
+        )
+        continuation["source_stage_outcome_decision"] = outcome_plan.get("stage_outcome_decision")
+        continuation["controlled_loop_runner_stage_outcome_plan"]["checksum"] = outcome_checksum
+        continuation["controlled_loop_runner_stage_outcome_plan"]["status"] = outcome_plan.get(
+            "stage_outcome_plan_status"
+        )
+        continuation["controlled_loop_runner_stage_outcome_plan"]["decision"] = outcome_plan.get(
+            "stage_outcome_decision"
+        )
+        continuation["checksums"]["controlled_loop_runner_stage_outcome_plan"] = outcome_checksum
+        continuation["checksums"]["expected_controlled_loop_runner_stage_outcome_plan"] = outcome_checksum
+        chain["controlled_loop_runner_next_stage_continuation"] = continuation
+        chain["controlled_loop_runner_next_stage_continuation_path"].write_text(
+            json.dumps(continuation),
+            encoding="utf-8",
+        )
+
     def write_controlled_loop_runner_next_stage_forged_start(
         self,
         tmp,
@@ -13695,30 +13731,7 @@ class CadenceCliTests(unittest.TestCase):
             ]
             outcome_plan["outcome_target"] = None
             outcome_plan["outcome_target_checksum"] = None
-            chain["controlled_loop_runner_stage_outcome_plan"] = outcome_plan
-            chain["controlled_loop_runner_stage_outcome_plan_path"].write_text(
-                json.dumps(outcome_plan),
-                encoding="utf-8",
-            )
-            outcome_checksum = checksum_json(outcome_plan)
-            continuation = json.loads(
-                chain["controlled_loop_runner_next_stage_continuation_path"].read_text(encoding="utf-8")
-            )
-            continuation["source_stage_outcome_decision"] = outcome_plan["stage_outcome_decision"]
-            continuation["controlled_loop_runner_stage_outcome_plan"]["checksum"] = outcome_checksum
-            continuation["controlled_loop_runner_stage_outcome_plan"]["status"] = outcome_plan[
-                "stage_outcome_plan_status"
-            ]
-            continuation["controlled_loop_runner_stage_outcome_plan"]["decision"] = outcome_plan[
-                "stage_outcome_decision"
-            ]
-            continuation["checksums"]["controlled_loop_runner_stage_outcome_plan"] = outcome_checksum
-            continuation["checksums"]["expected_controlled_loop_runner_stage_outcome_plan"] = outcome_checksum
-            chain["controlled_loop_runner_next_stage_continuation"] = continuation
-            chain["controlled_loop_runner_next_stage_continuation_path"].write_text(
-                json.dumps(continuation),
-                encoding="utf-8",
-            )
+            self.write_stage_input_binding_outcome_and_refresh_continuation(chain, outcome_plan)
 
             code, output, audit_before, runtime_before = (
                 self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
@@ -13731,10 +13744,12 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIn("controlled_runner_stage_input_binding_outcome_not_completed", blocker_codes)
             self.assertIn("controlled_runner_stage_input_binding_outcome_not_select_next_stage", blocker_codes)
             self.assertIn("controlled_runner_stage_input_binding_outcome_target_missing", blocker_codes)
-            self.assertNotIn("controlled_runner_stage_input_binding_continuation_checksum_mismatch", blocker_codes)
-            self.assertNotIn(
-                "controlled_runner_stage_input_binding_continuation_controlled_loop_runner_stage_outcome_plan_checksum_mismatch",
-                blocker_codes,
+            self.assertFalse(
+                any(
+                    code.startswith("controlled_runner_stage_input_binding_continuation")
+                    and "checksum" in code
+                    for code in blocker_codes
+                )
             )
             self.assertEqual(output["recommended_next_action"], "refresh_controlled_runner_stage_outcome_plan")
             self.assertIsNone(output["selected_stage"])
@@ -13744,6 +13759,333 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["side_effects"], [])
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_blocks_refreshed_outcome_target_drift(self):
+        forged_checksum = "sha256:" + "2" * 64
+
+        def mutate_target(outcome_plan, mutator):
+            outcome_target = dict(outcome_plan["outcome_target"])
+            mutator(outcome_target)
+            outcome_plan["outcome_target"] = outcome_target
+            outcome_plan["outcome_target_checksum"] = checksum_json(outcome_target)
+
+        target_checksum_cases = [
+            (
+                "target_closeout_checksum",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__(
+                        "controlled_loop_runner_stage_closeout_checksum",
+                        forged_checksum,
+                    ),
+                ),
+                "controlled_runner_stage_input_binding_outcome_closeout_checksum_mismatch",
+            ),
+            (
+                "target_execution_checksum",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__(
+                        "controlled_loop_runner_stage_execution_checksum",
+                        forged_checksum,
+                    ),
+                ),
+                "controlled_runner_stage_input_binding_outcome_execution_checksum_mismatch",
+            ),
+            (
+                "target_start_checksum",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("controlled_loop_runner_start_checksum", forged_checksum),
+                ),
+                "controlled_runner_stage_input_binding_outcome_start_checksum_mismatch",
+            ),
+            (
+                "target_plan_checksum",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("controlled_loop_runner_plan_checksum", forged_checksum),
+                ),
+                "controlled_runner_stage_input_binding_outcome_plan_checksum_mismatch",
+            ),
+            (
+                "target_dry_run_checksum",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("controlled_loop_runner_dry_run_checksum", forged_checksum),
+                ),
+                "controlled_runner_stage_input_binding_outcome_dry_run_checksum_mismatch",
+            ),
+        ]
+        other_cases = [
+            (
+                "stale_target_checksum",
+                lambda outcome_plan: outcome_plan.__setitem__("outcome_target_checksum", forged_checksum),
+                "controlled_runner_stage_input_binding_outcome_target_checksum_mismatch",
+            ),
+            (
+                "top_level_closeout_checksum",
+                lambda outcome_plan: outcome_plan["controlled_loop_runner_stage_closeout"].__setitem__(
+                    "checksum",
+                    forged_checksum,
+                ),
+                "controlled_runner_stage_input_binding_outcome_closeout_checksum_mismatch",
+            ),
+            (
+                "top_level_closeout_file",
+                lambda outcome_plan: outcome_plan["files"].__setitem__(
+                    "controlled_loop_runner_stage_closeout",
+                    "forged-closeout.json",
+                ),
+                "controlled_runner_stage_input_binding_outcome_closeout_file_mismatch",
+            ),
+            (
+                "target_purpose",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("purpose", "forged_purpose"),
+                ),
+                "controlled_runner_stage_input_binding_outcome_target_purpose_invalid",
+            ),
+            (
+                "target_completed_stage_bool",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("completed_stage_number", True),
+                ),
+                "controlled_runner_stage_input_binding_outcome_completed_stage_mismatch",
+            ),
+            (
+                "target_next_stage_gap",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("next_stage_number", 3),
+                ),
+                "controlled_runner_stage_input_binding_outcome_stage_sequence_gap",
+            ),
+            (
+                "target_closed_out_stage",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("closed_out_stage_number", 99),
+                ),
+                "controlled_runner_stage_input_binding_outcome_closed_out_stage_mismatch",
+            ),
+            (
+                "target_total_stage_count",
+                lambda outcome_plan: mutate_target(
+                    outcome_plan,
+                    lambda target: target.__setitem__("total_stage_count", 99),
+                ),
+                "controlled_runner_stage_input_binding_outcome_total_stage_count_mismatch",
+            ),
+            (
+                "outcome_stage_bool",
+                lambda outcome_plan: outcome_plan.__setitem__("stage_number", True),
+                "controlled_runner_stage_input_binding_outcome_stage_number_mismatch",
+            ),
+            (
+                "outcome_runner_started",
+                lambda outcome_plan: outcome_plan.__setitem__("runner_started", True),
+                "controlled_runner_stage_input_binding_outcome_not_completed",
+            ),
+            (
+                "outcome_authority",
+                lambda outcome_plan: outcome_plan.__setitem__("runner_stage_execution_authority", "forged"),
+                "controlled_runner_stage_input_binding_outcome_not_completed",
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_input_binding_chain(tmp, repo)
+            base_outcome_plan = json.loads(
+                chain["controlled_loop_runner_stage_outcome_plan_path"].read_text(encoding="utf-8")
+            )
+            base_continuation = json.loads(
+                chain["controlled_loop_runner_next_stage_continuation_path"].read_text(encoding="utf-8")
+            )
+            for label, mutate_outcome, expected_blocker in [*target_checksum_cases, *other_cases]:
+                with self.subTest(case=label):
+                    outcome_plan = json.loads(json.dumps(base_outcome_plan))
+                    mutate_outcome(outcome_plan)
+                    self.write_stage_input_binding_outcome_and_refresh_continuation(
+                        chain,
+                        outcome_plan,
+                        base_continuation=base_continuation,
+                    )
+
+                    code, output, audit_before, runtime_before = (
+                        self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+                    )
+
+                    blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+                    self.assertEqual(code, 2)
+                    self.assertFalse(output["valid"])
+                    self.assertIn(expected_blocker, blocker_codes)
+                    self.assertFalse(
+                        any(
+                            code.startswith("controlled_runner_stage_input_binding_continuation")
+                            and "checksum" in code
+                            for code in blocker_codes
+                        )
+                    )
+                    self.assertEqual(
+                        output["recommended_next_action"],
+                        "refresh_controlled_runner_stage_outcome_plan",
+                    )
+                    self.assertIsNone(output["selected_stage"])
+                    self.assertFalse(output["process_started"])
+                    self.assertFalse(output["stage_execution_started"])
+                    self.assertFalse(output["loop_continuation_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertEqual(audit_records(tmp), audit_before)
+                    self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_recommends_prior_output_for_mixed_closeout_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_input_binding_chain(tmp, repo)
+            self.mutate_json_file(
+                chain["controlled_loop_runner_stage_closeout_path"],
+                lambda packet: packet.__setitem__("side_effects", ["forged_side_effect"]),
+            )
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+            )
+
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_input_binding_status"], "blocked")
+            self.assertIn("controlled_runner_stage_input_binding_closeout_not_completed", blocker_codes)
+            self.assertIn(
+                "controlled_runner_stage_input_binding_continuation_controlled_loop_runner_stage_closeout_checksum_mismatch",
+                blocker_codes,
+            )
+            self.assertEqual(output["recommended_next_action"], "refresh_prior_stage_output")
+            self.assertIsNone(output["selected_stage"])
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["stage_execution_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_input_binding_blocks_refreshed_boolean_stage_identity(self):
+        def refresh_after_execution_mutation(chain, execution):
+            execution_checksum = checksum_json(execution)
+            chain["controlled_loop_runner_stage_execution_path"].write_text(
+                json.dumps(execution),
+                encoding="utf-8",
+            )
+            closeout = json.loads(chain["controlled_loop_runner_stage_closeout_path"].read_text(encoding="utf-8"))
+            closeout["controlled_loop_runner_stage_execution"]["checksum"] = execution_checksum
+            closeout["checksums"]["controlled_loop_runner_stage_execution"] = execution_checksum
+            closeout_checksum = checksum_json(closeout)
+            chain["controlled_loop_runner_stage_closeout"] = closeout
+            chain["controlled_loop_runner_stage_closeout_path"].write_text(
+                json.dumps(closeout),
+                encoding="utf-8",
+            )
+            outcome_plan = json.loads(
+                chain["controlled_loop_runner_stage_outcome_plan_path"].read_text(encoding="utf-8")
+            )
+            outcome_plan["controlled_loop_runner_stage_execution"]["checksum"] = execution_checksum
+            outcome_plan["controlled_loop_runner_stage_closeout"]["checksum"] = closeout_checksum
+            outcome_plan["checksums"]["controlled_loop_runner_stage_execution"] = execution_checksum
+            outcome_plan["checksums"]["controlled_loop_runner_stage_closeout"] = closeout_checksum
+            outcome_target = dict(outcome_plan["outcome_target"])
+            outcome_target["controlled_loop_runner_stage_execution_checksum"] = execution_checksum
+            outcome_target["controlled_loop_runner_stage_closeout_checksum"] = closeout_checksum
+            outcome_plan["outcome_target"] = outcome_target
+            outcome_plan["outcome_target_checksum"] = checksum_json(outcome_target)
+            chain["controlled_loop_runner_stage_execution"] = execution
+            self.write_stage_input_binding_outcome_and_refresh_continuation(chain, outcome_plan)
+
+        cases = [
+            (
+                "closeout_stage_bool",
+                None,
+                "controlled_runner_stage_input_binding_closeout_not_completed",
+            ),
+            (
+                "execution_stage_bool",
+                lambda chain: refresh_after_execution_mutation(
+                    chain,
+                    {
+                        **json.loads(
+                            chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8")
+                        ),
+                        "stage_number": True,
+                    },
+                ),
+                "controlled_runner_stage_input_binding_execution_stage_number_mismatch",
+            ),
+            (
+                "execution_selected_stage_bool",
+                lambda chain: refresh_after_execution_mutation(
+                    chain,
+                    {
+                        **json.loads(
+                            chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8")
+                        ),
+                        "selected_stage": {
+                            **json.loads(
+                                chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8")
+                            )["selected_stage"],
+                            "step": True,
+                        },
+                    },
+                ),
+                "controlled_runner_stage_input_binding_execution_stage_number_mismatch",
+            ),
+        ]
+        for label, mutate_chain, expected_blocker in cases:
+            with self.subTest(case=label):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    chain = self.write_controlled_loop_runner_stage_input_binding_chain(tmp, repo)
+                    if label == "closeout_stage_bool":
+                        closeout = json.loads(
+                            chain["controlled_loop_runner_stage_closeout_path"].read_text(encoding="utf-8")
+                        )
+                        closeout["stage_number"] = True
+                        closeout_checksum = checksum_json(closeout)
+                        chain["controlled_loop_runner_stage_closeout"] = closeout
+                        chain["controlled_loop_runner_stage_closeout_path"].write_text(
+                            json.dumps(closeout),
+                            encoding="utf-8",
+                        )
+                        outcome_plan = json.loads(
+                            chain["controlled_loop_runner_stage_outcome_plan_path"].read_text(encoding="utf-8")
+                        )
+                        outcome_plan["controlled_loop_runner_stage_closeout"]["checksum"] = closeout_checksum
+                        outcome_plan["checksums"]["controlled_loop_runner_stage_closeout"] = closeout_checksum
+                        outcome_target = dict(outcome_plan["outcome_target"])
+                        outcome_target["controlled_loop_runner_stage_closeout_checksum"] = closeout_checksum
+                        outcome_plan["outcome_target"] = outcome_target
+                        outcome_plan["outcome_target_checksum"] = checksum_json(outcome_target)
+                        self.write_stage_input_binding_outcome_and_refresh_continuation(chain, outcome_plan)
+                    else:
+                        mutate_chain(chain)
+
+                    code, output, audit_before, runtime_before = (
+                        self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
+                    )
+
+                    blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+                    self.assertEqual(code, 2)
+                    self.assertFalse(output["valid"])
+                    self.assertIn(expected_blocker, blocker_codes)
+                    self.assertIsNone(output["selected_stage"])
+                    self.assertFalse(output["process_started"])
+                    self.assertFalse(output["stage_execution_started"])
+                    self.assertFalse(output["loop_continuation_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertEqual(audit_records(tmp), audit_before)
+                    self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
     def test_controlled_loop_runner_stage_input_binding_reports_closeout_checksum_expected_then_actual(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
