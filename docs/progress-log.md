@@ -39,15 +39,19 @@ Summary:
 - Generalized `controlled-loop-runner-stage-execution-readiness` so it accepts
   exactly one stage-selection source: the existing initial next-stage packet,
   or a continuation next-stage packet plus matching stage-input binding packet.
-- Preserved the initial stage-1 readiness output shape.
+- Preserved initial stage-1 readiness behavior while adding explicit
+  `process_started: false` and `audit_evidence_appended: false` readiness
+  fields.
 - Continuation-backed readiness emits `stage_selection_source: continuation`,
-  binds the continuation and stage-input binding checksums into the
-  deterministic approval target, and remains read-only with no approval,
-  process start, epoch start, audit append, loop continuation, or Git/GitHub
-  write authority.
+  requires `--expected-stage-input-binding-checksum`, binds the continuation
+  and stage-input binding checksums into the deterministic approval target, and
+  remains read-only with no approval, process start, epoch start, audit append,
+  loop continuation, or Git/GitHub write authority.
 - Added fail-closed coverage for mixed selection sources, missing binding,
-  mismatched continuation stage number, stale continuation checksum, and
-  drifted input-binding selected-stage identity.
+  missing expected binding checksum, mismatched continuation stage number,
+  stale continuation checksum, input-binding packet checksum drift, invalid
+  continuation/input-binding authority fields, and drifted input-binding
+  selected-stage identity.
 
 Completed slices:
 - Task 62: controlled runner continuation stage-execution readiness.
@@ -79,6 +83,8 @@ Docs updated:
 - `docs/protocol.md`
 - `docs/implementation-slices.md`
 - `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
 - `docs/roadmap.md`
 - `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
 - `docs/progress-log.md`

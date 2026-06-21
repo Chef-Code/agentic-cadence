@@ -7234,10 +7234,12 @@ class CadenceCliTests(unittest.TestCase):
 
     def write_controlled_loop_runner_stage_input_binding_evidence_chain(self, tmp, repo):
         chain = self.write_controlled_loop_runner_stage_input_binding_chain(tmp, repo)
-        code, binding, _audit_before, _runtime_before = (
+        code, binding, audit_before, runtime_before = (
             self.run_controlled_loop_runner_stage_input_binding_in_process(tmp, chain)
         )
         self.assertEqual(code, 0, binding.get("blockers"))
+        self.assertEqual(audit_records(tmp), audit_before)
+        self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
         binding_path = Path(tmp) / "controlled-loop-runner-stage-input-binding.json"
         binding_path.write_text(json.dumps(binding), encoding="utf-8")
         chain["controlled_loop_runner_stage_input_binding_path"] = binding_path
@@ -7263,6 +7265,9 @@ class CadenceCliTests(unittest.TestCase):
             "controlled_loop_runner_start_file": chain["controlled_loop_runner_start_path"],
             "controlled_loop_runner_plan_file": chain["controlled_loop_runner_plan_path"],
             "controlled_loop_runner_dry_run_file": chain["controlled_loop_runner_dry_run_path"],
+            "expected_stage_input_binding_checksum": checksum_json(
+                chain["controlled_loop_runner_stage_input_binding"]
+            ),
             "stage_number": 2,
         }
         values.update(overrides)
@@ -7286,6 +7291,13 @@ class CadenceCliTests(unittest.TestCase):
                 [
                     "--controlled-loop-runner-stage-input-binding-file",
                     str(values["controlled_loop_runner_stage_input_binding_file"]),
+                ]
+            )
+        if values["expected_stage_input_binding_checksum"] is not None:
+            args.extend(
+                [
+                    "--expected-stage-input-binding-checksum",
+                    values["expected_stage_input_binding_checksum"],
                 ]
             )
         args.extend(
@@ -7319,6 +7331,25 @@ class CadenceCliTests(unittest.TestCase):
         raw_output = stdout.getvalue()
         output = json.loads(raw_output) if raw_output.strip() else {}
         return code, output, audit_before, runtime_before
+
+    def assert_controlled_runner_stage_execution_readiness_no_side_effects(self, output):
+        for flag in [
+            "process_started",
+            "stage_execution_started",
+            "executor_started",
+            "epoch_started",
+            "pr_action_started",
+            "github_write_started",
+            "merge_started",
+            "release_started",
+            "package_publication_started",
+            "role_assignment_started",
+            "agent_scheduling_started",
+            "loop_continuation_started",
+            "audit_evidence_appended",
+        ]:
+            self.assertFalse(output[flag], flag)
+        self.assertEqual(output["side_effects"], [])
 
     def write_controlled_loop_runner_stage_execution_approval_chain(self, tmp, repo):
         chain = self.write_controlled_loop_runner_next_stage_chain(tmp, repo)
@@ -10886,12 +10917,9 @@ class CadenceCliTests(unittest.TestCase):
             self.assertTrue(output["read_only"])
             self.assertEqual(output["runner_stage_execution_readiness_status"], "ready")
             self.assertTrue(output["runner_started"])
-            self.assertFalse(output["stage_execution_started"])
-            self.assertFalse(output["executor_started"])
-            self.assertFalse(output["loop_continuation_started"])
+            self.assert_controlled_runner_stage_execution_readiness_no_side_effects(output)
             self.assertEqual(output["recommended_next_action"], "review_controlled_runner_stage_execution_readiness")
             self.assertEqual(output["next_controlled_action"], "approve_controlled_runner_stage_execution")
-            self.assertEqual(output["side_effects"], [])
             self.assertEqual(output["blockers"], [])
             self.assertEqual(output["selected_stage"]["step"], 1)
             self.assertEqual(output["selected_stage"]["command"], "loop-run-plan")
@@ -11008,7 +11036,7 @@ class CadenceCliTests(unittest.TestCase):
             self.assertTrue(output["valid"])
             self.assertIn("does_not_execute_runner_stage", output["limitations"])
             self.assertIn("does_not_execute_git_commands", output["limitations"])
-            self.assertEqual(output["side_effects"], [])
+            self.assert_controlled_runner_stage_execution_readiness_no_side_effects(output)
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
@@ -11070,13 +11098,10 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 2, result.stderr)
                     self.assertFalse(output["valid"])
                     self.assertEqual(output["runner_stage_execution_readiness_status"], "blocked")
-                    self.assertFalse(output["stage_execution_started"])
-                    self.assertFalse(output["executor_started"])
-                    self.assertFalse(output["loop_continuation_started"])
+                    self.assert_controlled_runner_stage_execution_readiness_no_side_effects(output)
                     self.assertIsNone(output["selected_stage"])
                     self.assertIsNone(output["stage_execution_approval_target"])
                     self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
-                    self.assertEqual(output["side_effects"], [])
                     self.assertEqual(audit_records(tmp), audit_before)
                     self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
@@ -11092,8 +11117,7 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2, result.stderr)
             self.assertFalse(output["valid"])
             self.assertEqual(output["runner_stage_execution_readiness_status"], "blocked")
-            self.assertFalse(output["stage_execution_started"])
-            self.assertFalse(output["executor_started"])
+            self.assert_controlled_runner_stage_execution_readiness_no_side_effects(output)
             self.assertIsNone(output["selected_stage"])
             self.assertIsNone(output["stage_execution_approval_target"])
             self.assertIn("controlled_runner_stage_execution_readiness_upstream_invalid", {blocker["code"] for blocker in output["blockers"]})
@@ -11103,7 +11127,6 @@ class CadenceCliTests(unittest.TestCase):
                 if blocker["code"] == "controlled_runner_stage_execution_readiness_upstream_invalid"
             }
             self.assertIn("controlled_runner_next_stage_unsupported_stage", upstream_codes)
-            self.assertEqual(output["side_effects"], [])
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
@@ -11134,10 +11157,18 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["controlled_loop_runner_next_stage_continuation"]["checksum"], continuation_checksum)
             self.assertEqual(output["controlled_loop_runner_stage_input_binding"]["checksum"], binding_checksum)
             self.assertEqual(
+                output["controlled_loop_runner_stage_input_binding"]["expected_checksum"],
+                binding_checksum,
+            )
+            self.assertEqual(
                 output["checksums"]["controlled_loop_runner_next_stage_continuation"],
                 continuation_checksum,
             )
             self.assertEqual(output["checksums"]["controlled_loop_runner_stage_input_binding"], binding_checksum)
+            self.assertEqual(
+                output["checksums"]["expected_controlled_loop_runner_stage_input_binding"],
+                binding_checksum,
+            )
             self.assertNotIn("controlled_loop_runner_next_stage", output["files"])
             approval_target = output["stage_execution_approval_target"]
             self.assertEqual(approval_target["purpose"], "controlled_loop_runner_stage_execution")
@@ -11166,10 +11197,7 @@ class CadenceCliTests(unittest.TestCase):
                 output["stage_execution_approval_target_checksum"],
                 checksum_json(approval_target),
             )
-            self.assertFalse(output["stage_execution_started"])
-            self.assertFalse(output["executor_started"])
-            self.assertFalse(output["loop_continuation_started"])
-            self.assertEqual(output["side_effects"], [])
+            self.assert_controlled_runner_stage_execution_readiness_no_side_effects(output)
             self.assertIn("does_not_append_audit", output["limitations"])
             self.assertIn("does_not_execute_git_commands", output["limitations"])
             self.assertEqual(audit_records(tmp), audit_before)
@@ -11190,10 +11218,61 @@ class CadenceCliTests(unittest.TestCase):
                 "controlled_runner_stage_execution_readiness_stage_input_binding_required",
             ),
             (
+                "missing-expected-stage-input-binding-checksum",
+                lambda _chain: None,
+                lambda _chain: {"expected_stage_input_binding_checksum": None},
+                "controlled_runner_stage_execution_readiness_stage_input_binding_checksum_required",
+            ),
+            (
                 "mismatched-stage-number",
                 lambda _chain: None,
                 lambda _chain: {"stage_number": 3},
                 "controlled_runner_stage_execution_readiness_continuation_not_selected",
+            ),
+            (
+                "continuation-runner-started-false",
+                lambda chain: self.mutate_json_file(
+                    chain["controlled_loop_runner_next_stage_continuation_path"],
+                    lambda packet: packet.__setitem__("runner_started", False),
+                ),
+                lambda _chain: {},
+                "controlled_runner_stage_execution_readiness_continuation_not_selected",
+            ),
+            (
+                "continuation-next-stage-selected-false",
+                lambda chain: self.mutate_json_file(
+                    chain["controlled_loop_runner_next_stage_continuation_path"],
+                    lambda packet: packet.__setitem__("next_stage_selected", False),
+                ),
+                lambda _chain: {},
+                "controlled_runner_stage_execution_readiness_continuation_not_selected",
+            ),
+            (
+                "continuation-operator-confirmation-required-false",
+                lambda chain: self.mutate_json_file(
+                    chain["controlled_loop_runner_next_stage_continuation_path"],
+                    lambda packet: packet.__setitem__("operator_confirmation_required", False),
+                ),
+                lambda _chain: {},
+                "controlled_runner_stage_execution_readiness_continuation_not_selected",
+            ),
+            (
+                "binding-runner-started-false",
+                lambda chain: self.mutate_json_file(
+                    chain["controlled_loop_runner_stage_input_binding_path"],
+                    lambda packet: packet.__setitem__("runner_started", False),
+                ),
+                lambda _chain: {},
+                "controlled_runner_stage_execution_readiness_stage_input_binding_not_bound",
+            ),
+            (
+                "binding-operator-confirmation-required-false",
+                lambda chain: self.mutate_json_file(
+                    chain["controlled_loop_runner_stage_input_binding_path"],
+                    lambda packet: packet.__setitem__("operator_confirmation_required", False),
+                ),
+                lambda _chain: {},
+                "controlled_runner_stage_execution_readiness_stage_input_binding_not_bound",
             ),
             (
                 "stale-continuation-checksum",
@@ -11203,6 +11282,15 @@ class CadenceCliTests(unittest.TestCase):
                 ),
                 lambda _chain: {},
                 "controlled_runner_stage_execution_readiness_stage_input_binding_continuation_checksum_mismatch",
+            ),
+            (
+                "mutated-stage-input-binding-packet",
+                lambda chain: self.mutate_json_file(
+                    chain["controlled_loop_runner_stage_input_binding_path"],
+                    lambda packet: packet.__setitem__("reason", "forged binding reason"),
+                ),
+                lambda _chain: {},
+                "controlled_runner_stage_execution_readiness_stage_input_binding_checksum_mismatch",
             ),
             (
                 "drifted-input-binding-stage",
@@ -11235,10 +11323,7 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertIsNone(output["selected_stage"])
                     self.assertIsNone(output["stage_execution_approval_target"])
                     self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
-                    self.assertFalse(output["stage_execution_started"])
-                    self.assertFalse(output["executor_started"])
-                    self.assertFalse(output["loop_continuation_started"])
-                    self.assertEqual(output["side_effects"], [])
+                    self.assert_controlled_runner_stage_execution_readiness_no_side_effects(output)
                     self.assertEqual(audit_records(tmp), audit_before)
                     self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 

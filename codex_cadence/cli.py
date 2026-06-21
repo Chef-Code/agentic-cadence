@@ -14492,6 +14492,7 @@ def controlled_loop_runner_stage_execution_readiness_continuation_blockers(
     selected_stage: dict[str, Any] | None,
     continuation_checksum: str | None,
     input_binding_checksum: str | None,
+    expected_input_binding_checksum: str | None,
     stage_number: int,
 ) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
@@ -14521,6 +14522,9 @@ def controlled_loop_runner_stage_execution_readiness_continuation_blockers(
         or continuation.get("read_only") is not True
         or continuation.get("runner_next_stage_continuation_status") != "selected"
         or continuation.get("next_stage_number") != stage_number
+        or continuation.get("runner_started") is not True
+        or continuation.get("next_stage_selected") is not True
+        or continuation.get("operator_confirmation_required") is not True
         or continuation.get("recommended_next_action") != "review_controlled_runner_next_stage_continuation"
         or continuation.get("next_controlled_action")
         != "generalize_controlled_runner_stage_execution_readiness_for_continuation"
@@ -14535,6 +14539,9 @@ def controlled_loop_runner_stage_execution_readiness_continuation_blockers(
                 read_only=continuation.get("read_only"),
                 status=continuation.get("runner_next_stage_continuation_status"),
                 next_stage_number=continuation.get("next_stage_number"),
+                runner_started=continuation.get("runner_started"),
+                next_stage_selected=continuation.get("next_stage_selected"),
+                operator_confirmation_required=continuation.get("operator_confirmation_required"),
                 recommended_next_action=continuation.get("recommended_next_action"),
                 next_controlled_action=continuation.get("next_controlled_action"),
                 side_effects=continuation.get("side_effects"),
@@ -14695,6 +14702,8 @@ def controlled_loop_runner_stage_execution_readiness_continuation_blockers(
         or input_binding.get("read_only") is not True
         or input_binding.get("stage_input_binding_status") != "bound"
         or input_binding.get("next_stage_number") != stage_number
+        or input_binding.get("runner_started") is not True
+        or input_binding.get("operator_confirmation_required") is not True
         or input_binding.get("recommended_next_action") != "review_controlled_runner_stage_input_binding"
         or input_binding.get("next_controlled_action")
         != "prepare_controlled_runner_continuation_stage_execution_readiness"
@@ -14709,6 +14718,8 @@ def controlled_loop_runner_stage_execution_readiness_continuation_blockers(
                 read_only=input_binding.get("read_only"),
                 status=input_binding.get("stage_input_binding_status"),
                 next_stage_number=input_binding.get("next_stage_number"),
+                runner_started=input_binding.get("runner_started"),
+                operator_confirmation_required=input_binding.get("operator_confirmation_required"),
                 recommended_next_action=input_binding.get("recommended_next_action"),
                 next_controlled_action=input_binding.get("next_controlled_action"),
                 side_effects=input_binding.get("side_effects"),
@@ -14897,6 +14908,15 @@ def controlled_loop_runner_stage_execution_readiness_continuation_blockers(
                 "controlled runner stage input binding checksum could not be computed",
             )
         )
+    elif expected_input_binding_checksum is not None and input_binding_checksum != expected_input_binding_checksum:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_checksum_mismatch",
+                "controlled runner stage input binding checksum does not match the reviewed checksum",
+                expected=expected_input_binding_checksum,
+                actual=input_binding_checksum,
+            )
+        )
     return blockers
 
 
@@ -14909,6 +14929,7 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
     next_stage_path = Path(next_stage_file) if uses_initial_next_stage else None
     continuation_path = Path(continuation_file) if uses_continuation_next_stage else None
     input_binding_path = Path(input_binding_file) if input_binding_file else None
+    expected_input_binding_checksum = getattr(args, "expected_stage_input_binding_checksum", None)
     start_path = Path(args.controlled_loop_runner_start_file)
     runner_plan_path = Path(args.controlled_loop_runner_plan_file)
     dry_run_path = Path(args.controlled_loop_runner_dry_run_file)
@@ -14960,6 +14981,13 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
             controlled_loop_runner_stage_execution_readiness_blocker(
                 "controlled_runner_stage_execution_readiness_stage_input_binding_required",
                 "controlled runner continuation readiness requires a matching stage input binding packet",
+            )
+        )
+    if uses_continuation_next_stage and not expected_input_binding_checksum:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_checksum_required",
+                "controlled runner continuation readiness requires the reviewed stage input binding checksum",
             )
         )
 
@@ -15026,6 +15054,7 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
                     selected_stage=selected_stage,
                     continuation_checksum=continuation_checksum,
                     input_binding_checksum=input_binding_checksum,
+                    expected_input_binding_checksum=expected_input_binding_checksum,
                     stage_number=stage_number,
                 )
             )
@@ -15074,6 +15103,7 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
         "runner_stage_execution_readiness_status": "ready" if valid else "blocked",
         "reason": reason,
         "runner_started": bool(valid),
+        "process_started": False,
         "stage_execution_started": False,
         "executor_started": False,
         "epoch_started": False,
@@ -15085,6 +15115,7 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
         "role_assignment_started": False,
         "agent_scheduling_started": False,
         "loop_continuation_started": False,
+        "audit_evidence_appended": False,
         "operator_confirmation_required": True,
         "side_effects": [],
         "recommended_next_action": recommended_next_action,
@@ -15125,6 +15156,7 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
             payload["controlled_loop_runner_stage_input_binding"] = {
                 "file": str(input_binding_path),
                 "checksum": input_binding_checksum,
+                "expected_checksum": expected_input_binding_checksum,
             }
         payload["files"] = {
             "controlled_loop_runner_next_stage_continuation": str(continuation_path),
@@ -15141,6 +15173,9 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
         if input_binding_path is not None:
             payload["files"]["controlled_loop_runner_stage_input_binding"] = str(input_binding_path)
             payload["checksums"]["controlled_loop_runner_stage_input_binding"] = input_binding_checksum
+            payload["checksums"][
+                "expected_controlled_loop_runner_stage_input_binding"
+            ] = expected_input_binding_checksum
     else:
         payload["files"] = {
             "controlled_loop_runner_start": str(start_path),
@@ -15672,6 +15707,7 @@ def controlled_loop_runner_stage_execution_approval_readiness_blockers(
             "runner_stage_execution_readiness_status": "ready",
             "reason": expected_reason,
             "runner_started": True,
+            "process_started": False,
             "stage_execution_started": False,
             "executor_started": False,
             "epoch_started": False,
@@ -15683,6 +15719,7 @@ def controlled_loop_runner_stage_execution_approval_readiness_blockers(
             "role_assignment_started": False,
             "agent_scheduling_started": False,
             "loop_continuation_started": False,
+            "audit_evidence_appended": False,
             "operator_confirmation_required": True,
             "side_effects": [],
             "recommended_next_action": expected_recommended_next_action,
@@ -22847,6 +22884,7 @@ def build_parser() -> argparse.ArgumentParser:
     runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-next-stage-file")
     runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-next-stage-continuation-file")
     runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-stage-input-binding-file")
+    runner_stage_execution_readiness_parser.add_argument("--expected-stage-input-binding-checksum")
     runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-start-file", required=True)
     runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-plan-file", required=True)
     runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-dry-run-file", required=True)

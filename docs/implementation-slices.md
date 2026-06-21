@@ -197,9 +197,9 @@ without executing it, without appending audit evidence, without invoking an
 executor, without continuing the loop, and without writing Git/GitHub state.
 `controlled-loop-runner-stage-execution-readiness` can then consume either the
 selected initial next-stage packet or a continuation next-stage packet plus
-matching stage-input binding evidence, recheck the upstream chain and selected
-stage, and prepare a deterministic stage-execution approval target without
-executing the stage.
+matching stage-input binding evidence and a reviewed binding checksum, recheck
+the upstream chain and selected stage, and prepare a deterministic
+stage-execution approval target without executing the stage.
 `controlled-loop-runner-stage-execution-approval` can then consume that
 readiness target plus the saved upstream runner packets and a target-bound
 `operator-approval.v1`, recheck the full chain, verify the approval signature,
@@ -338,6 +338,15 @@ that consumes the selected continuation packet, completed prior
 real `loop-run-plan.v1` output identity that has no top-level `valid` field,
 and binds the stage-2 `start-governed-execution` input checksum before any
 continuation readiness, approval-token generation, process start, epoch start,
+loop continuation, audit append, or Git/GitHub writes.
+Task 62 generalizes read-only
+`controlled-loop-runner-stage-execution-readiness` so it accepts exactly one
+selection source: the existing initial next-stage packet or a continuation
+next-stage packet plus a matching stage-input binding packet and reviewed
+stage-input binding checksum. Continuation-backed readiness emits
+`stage_selection_source: continuation`, binds continuation and input-binding
+identity into the deterministic approval target, preserves the initial
+stage-1 path, and still stops before approval, process start, epoch start,
 loop continuation, audit append, or Git/GitHub writes.
 
 ## Vision Framing
@@ -768,12 +777,14 @@ Validation needed:
 - controlled-loop-runner-stage-execution-readiness accepts exactly one
   selection source, preserves initial stage-1 readiness behavior, and prepares
   continuation-backed readiness from matching continuation plus stage-input
-  binding evidence with `stage_selection_source: continuation`: complete for
-  Task 62.
+  binding evidence and a reviewed binding checksum with
+  `stage_selection_source: continuation`: complete for Task 62.
 - controlled-loop-runner-stage-execution-readiness blocks mixed selection
   sources, missing stage-input binding, mismatched continuation stage number,
-  stale continuation checksums, and drifted stage-input binding selected-stage
-  identity without side effects: complete for Task 62.
+  missing or stale reviewed binding checksums, stale continuation checksums,
+  invalid continuation/input-binding authority fields, and drifted
+  stage-input binding selected-stage identity without side effects: complete
+  for Task 62.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.

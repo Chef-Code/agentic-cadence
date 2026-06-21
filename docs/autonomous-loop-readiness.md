@@ -557,8 +557,8 @@ Reasoning:
   audit evidence, continuing the loop, writing Git/GitHub state, merging,
   releasing, publishing packages, assigning roles, or scheduling agents.
 - `controlled-loop-runner-stage-execution-readiness` can now consume that
-  selected continuation packet plus the matching stage-input binding packet,
-  preserve initial stage-1 readiness behavior, emit
+  selected continuation packet plus the matching stage-input binding packet and
+  reviewed binding checksum, preserve initial stage-1 readiness behavior, emit
   `stage_selection_source: continuation`, and bind the continuation and
   stage-input checksums into a deterministic approval target without approving
   or executing the selected stage, starting a process or epoch, appending audit

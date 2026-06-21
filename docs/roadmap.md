@@ -276,13 +276,14 @@ command-policy and active-stop controls. It includes:
   without assigning roles, and without scheduling agents;
 - `controlled-loop-runner-stage-execution-readiness` packets that consume
   either completed initial next-stage evidence or continuation next-stage plus
-  matching stage-input binding evidence with runner-start, runner-plan, and
-  dry-run evidence, recheck the upstream chain and selected stage, and prepare
-  a deterministic stage-execution approval target without executing the stage,
-  without appending audit evidence, without invoking an executor, without
-  retrying an executor, without continuing the loop, without writing
-  Git/GitHub state, without merging, without releasing, without publishing
-  packages, without assigning roles, and without scheduling agents;
+  matching stage-input binding evidence and a reviewed binding checksum with
+  runner-start, runner-plan, and dry-run evidence, recheck the upstream chain
+  and selected stage, and prepare a deterministic stage-execution approval
+  target without executing the stage, without appending audit evidence, without
+  invoking an executor, without retrying an executor, without continuing the
+  loop, without writing Git/GitHub state, without merging, without releasing,
+  without publishing packages, without assigning roles, and without scheduling
+  agents;
 - `controlled-loop-runner-stage-execution-approval` packets that consume
   completed stage-execution readiness, next-stage, runner-start, runner-plan,
   dry-run, and operator approval evidence, recheck the full chain, and verify
@@ -513,11 +514,12 @@ The smallest slices expected to move confidence toward 50% are tracked in
 4. Minimal Git/PR Automation
 5. CI/Review Feedback Back Into Candidate Discovery
 
-Tasks 1-60 are complete in `main` through the controlled-loop runner
-next-stage continuation slice. The current roadmap after Task 60 is
-`docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`, which starts with
-stage-input binding before continuation-stage readiness so the runner does not
-bypass the `start-governed-execution` executor task approval gate.
+Tasks 1-62 are implemented through controlled-loop runner continuation
+stage-execution readiness. The current roadmap is
+`docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`; Tasks 63-66 continue from
+the now-complete stage-input binding and continuation-readiness slices so the
+runner does not bypass the `start-governed-execution` executor task approval
+gate.
 
 Historical roadmap anchors remain part of the current context: Tasks 1-7 from
 `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md`, Tasks 8-12 from
@@ -677,11 +679,11 @@ without appending audit evidence, without invoking an executor, without
 continuing the loop, and without writing Git/GitHub state.
 `controlled-loop-runner-stage-execution-readiness` can then consume the saved
 initial next-stage selection or continuation next-stage selection plus matching
-stage-input binding evidence with runner-start, runner-plan, and dry-run
-evidence, recheck the upstream chain and selected stage, and prepare a
-deterministic stage-execution approval target without executing the stage,
-without appending audit evidence, without invoking an executor, without
-continuing the loop, and without writing Git/GitHub state.
+stage-input binding evidence and a reviewed binding checksum with runner-start,
+runner-plan, and dry-run evidence, recheck the upstream chain and selected
+stage, and prepare a deterministic stage-execution approval target without
+executing the stage, without appending audit evidence, without invoking an
+executor, without continuing the loop, and without writing Git/GitHub state.
 `controlled-loop-runner-stage-execution-approval` can then consume that
 readiness target plus the saved upstream runner evidence and
 `operator-approval.v1`, recheck the full chain, verify purpose
@@ -732,11 +734,11 @@ continuation readiness, approval-token generation, process start, epoch start,
 loop continuation, audit append, or Git/GitHub writes.
 Continuation-backed `controlled-loop-runner-stage-execution-readiness` can
 then consume the selected continuation packet plus matching stage-input binding
-evidence, preserve the initial stage-1 readiness behavior, emit
-`stage_selection_source: continuation`, and bind the continuation and
-stage-input binding checksums into the approval target without approving,
-invoking, executing, appending audit evidence, continuing the loop, or writing
-Git/GitHub state.
+evidence and a reviewed binding checksum, preserve the initial stage-1
+readiness behavior, emit `stage_selection_source: continuation`, and bind the
+continuation and stage-input binding checksums into the approval target without
+approving, invoking, executing, appending audit evidence, continuing the loop,
+or writing Git/GitHub state.
 `verify-operator-approval` can verify local `operator-approval.v1` identity
 evidence for a target checksum and purpose, append
 `operator_approval_verification` audit evidence, and still report no executor,
