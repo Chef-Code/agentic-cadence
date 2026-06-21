@@ -227,27 +227,16 @@ orchestration remain missing.
 Current unattended-operation confidence is 25%. Progress-log entries record
 Task 60 projected capability at 55% while this stable headline remains 25%.
 
-Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete, Tasks 8-12 from
-`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete, and Tasks
-13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in
-the current tree. Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`
-added read-only real-executor invocation readiness. Task 18 from
-`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md` adds local audit hash-chain
-integrity evidence before any real executor process start. Task 19 adds
-authenticated operator approval identity evidence. Task 20 added read-only real
-executor invocation plan and approval binding in `main` via PR #88.
-Task 21 added controlled real executor invocation in `main` via PR #89.
-Task 22 added real executor run closeout binding in `main` via PR #90.
-Task 23 added controlled single-tick run packet evidence in `main` via PR #92.
-Tasks 23-27 from `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` are
-complete in `main` via PRs #92-#96. Tasks 28-32 from
-`docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md` are complete in `main` via
-PRs #98-#103. The current roadmap after Task 32 is
-`docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md`; Tasks 33-37 are complete
-in `main`. Task 38 starts the next runner-adjacent slice with a read-only
-`loop-run-plan` packet rather than autonomous execution authority. Task 39
-adds read-only `controlled-loop-start` evidence for the saved loop-plan plus
+Tasks 1-60 are complete in `main` through the controlled-loop runner
+next-stage continuation slice. The current roadmap after Task 60 is
+`docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`; Task 61 starts with
+stage-input binding for continuation commands before readiness can generalize
+past the initial `controlled-loop-runner-next-stage.v1` packet. Task 22 added real executor run closeout binding in `main` via PR #90. Task 23 added controlled single-tick run packet evidence in `main` via PR #92.
+Historical roadmap anchors include `docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md`
+and `docs/roadmaps/2026-06-11-tasks-28-32-roadmap.md`. Task 38 started
+the runner-adjacent chain with a read-only `loop-run-plan` packet rather than
+autonomous execution authority. Task 39 adds read-only `controlled-loop-start`
+evidence for the saved loop-plan plus
 approved execution-start boundary. Task 40 adds read-only
 `controlled-loop-invocation-plan` evidence for the controlled start plus
 executor-invocation readiness and invocation-plan boundary. Task 41 adds

@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-19
+Last updated: 2026-06-20
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,44 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-20 - Prepare Tasks 61-66 continuation runner roadmap
+
+Summary:
+- Added `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md` to sequence the
+  next controlled-loop runner work after Task 60.
+- Captured the stage-input dependency before continuation readiness: stage 2 is
+  `start-governed-execution`, so the runner must bind prior `loop-run-plan`
+  output, executor task evidence, and explicit approval evidence before any
+  invocation boundary can be prepared.
+- Kept the next work focused on operator-gated continuation-stage execution
+  without autonomous GitHub writes, retries, loop continuation, merge, release,
+  package publication, role assignment, or agent scheduling.
+
+Completed slices:
+- Documentation roadmap preparation after Task 60.
+
+Confidence change:
+- Previous: 55%
+- New: 55%
+- Reason: The next roadmap is clearer, but no implementation capability changed
+  in this docs-only refresh.
+
+Evidence:
+- Current roadmap now points to Tasks 61-66 after Task 60.
+- New roadmap is docs-only and intentionally does not implement Task 61.
+
+New risks or blockers:
+- Continuation-stage readiness must not bypass the executor task approval gate
+  required by `start-governed-execution`.
+- Continuation execution must keep declared side effects bounded to the selected
+  runner stage and must not start another stage automatically.
+
+Docs updated:
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+- `docs/progress-log.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
 
 ## 2026-06-19 - Controlled runner next-stage continuation
 

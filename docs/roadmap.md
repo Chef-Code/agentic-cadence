@@ -509,23 +509,11 @@ The smallest slices expected to move confidence toward 50% are tracked in
 4. Minimal Git/PR Automation
 5. CI/Review Feedback Back Into Candidate Discovery
 
-Tasks 1-7 from `docs/roadmaps/2026-06-02-next-five-tasks-roadmap.md` are
-complete, Tasks 8-12 from
-`docs/roadmaps/2026-06-03-tasks-8-12-roadmap.md` are complete, and Tasks
-13-17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md` are complete in
-the current tree. Task 17 from `docs/roadmaps/2026-06-05-tasks-13-17-roadmap.md`,
-real-executor invocation readiness planning, is merged. Task 18 from
-`docs/roadmaps/2026-06-09-tasks-18-22-roadmap.md`, audit hash-chain integrity
-evidence, is implemented in the current tree. Task 19, authenticated operator
-approval identity evidence, is implemented in the current tree. Task 20,
-`executor-invocation-plan` real executor invocation plan and approval binding,
-is implemented in the current tree. Task 21, controlled real executor
-invocation runner, is implemented in `main` via PR #89. Task 22, real executor
-run closeout binding, is implemented in `main` via PR #90. Tasks 23-27 from
-`docs/roadmaps/2026-06-11-tasks-23-27-roadmap.md` are complete in `main` via
-PRs #92-#96. The current roadmap handoff branch prepares
-`docs/roadmaps/2026-06-12-tasks-33-37-roadmap.md`; Tasks 33-37 are now
-complete in `main` or active review branches.
+Tasks 1-60 are complete in `main` through the controlled-loop runner
+next-stage continuation slice. The current roadmap after Task 60 is
+`docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`, which starts with
+stage-input binding before continuation-stage readiness so the runner does not
+bypass the `start-governed-execution` executor task approval gate.
 
 ## Roadmap
 
