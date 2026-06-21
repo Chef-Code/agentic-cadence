@@ -828,6 +828,8 @@ class CiChecksTests(unittest.TestCase):
             "types: [opened, synchronize, reopened, ready_for_review]",
             "group: pr-checks-${{ github.event.pull_request.number }}",
             "cancel-in-progress: true",
+            "timeout-minutes: 20",
+            "timeout-minutes: 15",
             "Classify changed paths",
             "persist-credentials: false",
             "code_required",
