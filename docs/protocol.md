@@ -2629,10 +2629,13 @@ valid, selected, read-only, and still recommending
 the selected continuation stage to match the approved runner plan. For the
 current stage-2 `start-governed-execution` path, it also requires the prior
 stage output to be a schema-compatible `loop-run-plan.v1` packet whose
-`recommended_next_action` is `request_operator_approval`, whose embedded
-`generic-executor-task.v1` packet validates, whose executor task checksum
-matches the embedded task, and whose planned steps include the required
-operator-approval step followed by blocked `start-governed-execution`.
+`recommended_next_action` is `request_operator_approval`, whose `read_only`
+and `operator_confirmation_required` fields are true, whose
+`executor_contract_required` field is false, whose embedded loop tick checksum
+still matches, whose embedded `generic-executor-task.v1` packet validates,
+whose executor task checksum matches the embedded task, and whose planned
+steps exactly preserve the required operator-approval step followed by blocked
+`start-governed-execution`.
 
 A valid packet emits
 `controlled-loop-runner-stage-input-binding.v1` with
@@ -2655,10 +2658,14 @@ Stable blockers include
 `controlled_runner_stage_input_binding_upstream_invalid`,
 `controlled_runner_stage_input_binding_root_missing`,
 `controlled_runner_stage_input_binding_continuation_checksum_mismatch`,
+`controlled_runner_stage_input_binding_continuation_selected_stage_checksum_mismatch`,
 `controlled_runner_stage_input_binding_continuation_packet_mismatch`,
 `controlled_runner_stage_input_binding_continuation_not_selected`,
 `controlled_runner_stage_input_binding_continuation_authority_flags_invalid`,
 `controlled_runner_stage_input_binding_selected_stage_mismatch`,
+`controlled_runner_stage_input_binding_outcome_packet_mismatch`,
+`controlled_runner_stage_input_binding_closeout_packet_mismatch`,
+`controlled_runner_stage_input_binding_execution_packet_mismatch`,
 `controlled_runner_stage_input_binding_prior_stage_output_file_mismatch`,
 `controlled_runner_stage_input_binding_prior_stage_output_checksum_mismatch`,
 `controlled_runner_stage_input_binding_prior_stage_output_packet_mismatch`,
@@ -2669,14 +2676,18 @@ Stable blockers include
 `controlled_runner_stage_input_binding_prior_stage_not_waiting_for_approval`,
 `controlled_runner_stage_input_binding_prior_stage_approval_contract_invalid`,
 `controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid`,
+`controlled_runner_stage_input_binding_prior_stage_loop_tick_mismatch`,
 `controlled_runner_stage_input_binding_prior_stage_planned_steps_missing`,
 `controlled_runner_stage_input_binding_prior_stage_planned_steps_mismatch`,
 `controlled_runner_stage_input_binding_executor_task_file_mismatch`,
 `controlled_runner_stage_input_binding_closeout_not_completed`,
 `controlled_runner_stage_input_binding_closeout_forbidden_flags`,
+`controlled_runner_stage_input_binding_execution_not_completed`,
 `controlled_runner_stage_input_binding_execution_stage_number_mismatch`,
+`controlled_runner_stage_input_binding_execution_stage_output_file_mismatch`,
 `controlled_runner_stage_input_binding_unsupported_continuation_stage`, and
-rewritten upstream next-stage, start, plan, and dry-run blockers.
+rewritten upstream next-stage, start, plan, dry-run, file-anchor, and checksum
+anchor blockers.
 
 ## Git/PR Dry-Run Planning
 

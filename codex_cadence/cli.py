@@ -13018,6 +13018,7 @@ def controlled_loop_runner_stage_input_binding_prior_stage_plan_blockers(
     executor_task_checksum: Any,
 ) -> list[dict[str, Any]]:
     blockers: list[dict[str, Any]] = []
+    loop_tick = prior_stage_output.get("loop_tick")
     if (
         prior_stage_output.get("schema_version") != LOOP_RUN_PLAN_SCHEMA_VERSION
         or prior_stage_output.get("packet") != "loop_run_plan"
@@ -13077,6 +13078,7 @@ def controlled_loop_runner_stage_input_binding_prior_stage_plan_blockers(
         for field, expected in {
             "read_only": True,
             "operator_confirmation_required": True,
+            "executor_contract_required": False,
         }.items()
         if prior_stage_output.get(field) is not expected
     }
@@ -13093,58 +13095,102 @@ def controlled_loop_runner_stage_input_binding_prior_stage_plan_blockers(
         for flag in CONTROLLED_LOOP_START_PLAN_NON_START_FLAGS
         if prior_stage_output.get(flag) is not False
     }
-    if invalid_flags:
+    optional_false_flags = (
+        "process_started",
+        "stage_execution_started",
+        "stage_retry_started",
+        "second_stage_started",
+        "audit_evidence_appended",
+    )
+    invalid_flags.update(
+        {
+            flag: prior_stage_output.get(flag)
+            for flag in optional_false_flags
+            if flag in prior_stage_output and prior_stage_output.get(flag) is not False
+        }
+    )
+    forbidden_fields = {
+        field: value
+        for field, value in prior_stage_output.items()
+        if "approval_token" in field or "readiness" in field
+    }
+    invalid_side_effects = (
+        prior_stage_output.get("side_effects")
+        if "side_effects" in prior_stage_output and prior_stage_output.get("side_effects") != []
+        else None
+    )
+    if invalid_flags or forbidden_fields or invalid_side_effects is not None:
         blockers.append(
             controlled_loop_runner_stage_input_binding_blocker(
                 "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
-                "prior loop-run-plan output must not report runner, executor, epoch, loop, or Git/GitHub starts",
+                "prior loop-run-plan output must not report execution, approval-token, readiness, audit, or Git/GitHub authority",
                 flags=invalid_flags,
+                forbidden_fields=forbidden_fields,
+                side_effects=invalid_side_effects,
+            )
+        )
+    loop_tick_mismatches: dict[str, Any] = {}
+    if not isinstance(loop_tick, dict):
+        loop_tick_mismatches["loop_tick"] = {"expected": "object", "actual": type(loop_tick).__name__}
+    else:
+        expected_loop_tick_checksum = checksum_json(loop_tick)
+        loop_tick_expectations = {
+            "loop_tick_checksum": expected_loop_tick_checksum,
+            "loop_tick.read_only": True,
+            "loop_tick.operator_confirmation_required": True,
+            "loop_tick.executor_contract_required": False,
+            "loop_tick.recommended_next_action": "approve_executor_task",
+            "loop_tick.executor_started": False,
+            "loop_tick.epoch_started": False,
+            "loop_tick.pr_action_started": False,
+        }
+        loop_tick_actuals = {
+            "loop_tick_checksum": prior_stage_output.get("loop_tick_checksum"),
+            "loop_tick.read_only": loop_tick.get("read_only"),
+            "loop_tick.operator_confirmation_required": loop_tick.get("operator_confirmation_required"),
+            "loop_tick.executor_contract_required": loop_tick.get("executor_contract_required"),
+            "loop_tick.recommended_next_action": loop_tick.get("recommended_next_action"),
+            "loop_tick.executor_started": loop_tick.get("executor_started"),
+            "loop_tick.epoch_started": loop_tick.get("epoch_started"),
+            "loop_tick.pr_action_started": loop_tick.get("pr_action_started"),
+        }
+        for field, expected in loop_tick_expectations.items():
+            actual = loop_tick_actuals[field]
+            if actual != expected:
+                loop_tick_mismatches[field] = {"expected": expected, "actual": actual}
+        if isinstance(executor_task, dict) and loop_tick.get("executor_task") != executor_task:
+            actual_loop_tick_task = loop_tick.get("executor_task")
+            loop_tick_mismatches["loop_tick.executor_task"] = {
+                "expected_checksum": checksum_json(executor_task),
+                "actual_checksum": (
+                    checksum_json(actual_loop_tick_task) if isinstance(actual_loop_tick_task, dict) else None
+                ),
+            }
+    if loop_tick_mismatches:
+        blockers.append(
+            controlled_loop_runner_stage_input_binding_blocker(
+                "controlled_runner_stage_input_binding_prior_stage_loop_tick_mismatch",
+                "prior loop-run-plan output must internally match its approval-ready loop tick",
+                mismatches=loop_tick_mismatches,
             )
         )
     planned_steps = prior_stage_output.get("planned_steps")
-    operator_step = None
-    start_step = None
-    if isinstance(planned_steps, list):
-        for step in planned_steps:
-            if not isinstance(step, dict):
-                continue
-            if step.get("name") == "operator_approval":
-                operator_step = step
-            if step.get("name") == "start_governed_execution":
-                start_step = step
-    if not isinstance(planned_steps, list) or operator_step is None or start_step is None:
+    if not isinstance(planned_steps, list):
         blockers.append(
             controlled_loop_runner_stage_input_binding_blocker(
                 "controlled_runner_stage_input_binding_prior_stage_planned_steps_missing",
                 "prior loop-run-plan output must plan executor-task approval before governed execution",
             )
         )
-    elif isinstance(executor_task_checksum, str):
-        expected_operator_step = {
-            "name": "operator_approval",
-            "status": "required",
-            "target_packet": "executor_task",
-            "target_checksum": executor_task_checksum,
-        }
-        expected_start_fields = {
-            "status": "blocked_until_approval",
-            "command": "start-governed-execution",
-            "operator_approval_required": True,
-            "target_checksum": executor_task_checksum,
-        }
-        start_mismatches = {
-            field: {"expected": expected_value, "actual": start_step.get(field)}
-            for field, expected_value in expected_start_fields.items()
-            if start_step.get(field) != expected_value
-        }
-        if operator_step != expected_operator_step or start_mismatches:
+    elif isinstance(loop_tick, dict):
+        expected_planned_steps = build_loop_run_plan_steps(loop_tick)
+        if planned_steps != expected_planned_steps:
             blockers.append(
                 controlled_loop_runner_stage_input_binding_blocker(
                     "controlled_runner_stage_input_binding_prior_stage_planned_steps_mismatch",
-                    "prior loop-run-plan output planned steps must target start-governed-execution approval",
-                    expected_operator_step=expected_operator_step,
-                    actual_operator_step=operator_step,
-                    start_step_mismatches=start_mismatches,
+                    "prior loop-run-plan output planned steps must exactly preserve approval before start-governed-execution",
+                    expected_planned_steps=expected_planned_steps,
+                    actual_planned_steps=planned_steps,
                 )
             )
     return blockers
