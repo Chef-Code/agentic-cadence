@@ -2370,7 +2370,8 @@ completed, the approved output file must exist, match the expected path, match
 the captured stdout byte-for-byte after the same text capture semantics, and
 parse as a nonempty JSON object matching the selected stage's expected
 evidence identity. For the current `loop-run-plan` runner stage, that means
-`schema_version: loop-run-plan.v1`, `packet: loop_run_plan`, and `valid: true`.
+`schema_version: loop-run-plan.v1` and `packet: loop_run_plan`; real
+`loop-run-plan.v1` packets do not emit a top-level `valid` field.
 A failed stage may close out with empty or non-JSON diagnostic stdout when the
 terminal execution evidence is otherwise consistent; it is not retried and no
 continuation is selected.
@@ -2597,6 +2598,84 @@ Stable blockers include
 `controlled_runner_next_stage_continuation_execution_stage_number_mismatch`,
 `controlled_runner_next_stage_continuation_stage_missing_from_runner_plan`,
 `controlled_runner_next_stage_continuation_selected_stage_plan_mismatch`, and
+rewritten upstream next-stage, start, plan, and dry-run blockers.
+
+`controlled-loop-runner-stage-input-binding` is the read-only bridge from a
+selected continuation stage to the concrete inputs that stage needs before
+readiness can be generalized. It reads
+`--controlled-loop-runner-next-stage-continuation-file`,
+`--expected-next-stage-continuation-checksum`,
+`--controlled-loop-runner-stage-outcome-plan-file`,
+`--controlled-loop-runner-stage-closeout-file`,
+`--controlled-loop-runner-stage-execution-file`,
+`--prior-stage-output-file`, `--executor-task-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, and optional
+`--completed-stage-number` (default `1`). It consumes already-recorded
+evidence only. The command must not emit a stage-execution readiness target,
+generate or reveal an approval token, execute the selected stage, start a
+process, start an epoch, invoke or retry an executor, continue the loop, append
+audit evidence, execute Git commands, call GitHub APIs, create branches,
+commit, push, create PRs, merge, release, publish packages, assign roles, or
+schedule agents.
+
+Input binding rereads and rechecks the reviewed
+`controlled-loop-runner-next-stage-continuation.v1` packet plus the saved
+stage outcome plan, closeout, execution, runner-start, runner-plan, and dry-run
+evidence. It requires the continuation checksum to match the reviewed
+`--expected-next-stage-continuation-checksum`, the continuation packet to be
+valid, selected, read-only, and still recommending
+`generalize_controlled_runner_stage_execution_readiness_for_continuation`, and
+the selected continuation stage to match the approved runner plan. For the
+current stage-2 `start-governed-execution` path, it also requires the prior
+stage output to be a schema-compatible `loop-run-plan.v1` packet whose
+`recommended_next_action` is `request_operator_approval`, whose embedded
+`generic-executor-task.v1` packet validates, whose executor task checksum
+matches the embedded task, and whose planned steps include the required
+operator-approval step followed by blocked `start-governed-execution`.
+
+A valid packet emits
+`controlled-loop-runner-stage-input-binding.v1` with
+`packet: controlled_loop_runner_stage_input_binding`, `read_only: true`,
+`side_effects: []`, `stage_input_binding_status: bound`, references to every
+consumed packet and checksum, `selected_stage`, `selected_stage_checksum`,
+the prior stage output checksum, the exact executor task file checksum, and
+`expected_executor_task_approval_target_checksum`. It sets
+`next_controlled_action:
+prepare_controlled_runner_continuation_stage_execution_readiness`, but does
+not prepare readiness or approve `start-governed-execution`.
+
+Stable blockers include
+`controlled_runner_stage_input_binding_continuation_evidence_missing`,
+`controlled_runner_stage_input_binding_outcome_evidence_missing`,
+`controlled_runner_stage_input_binding_closeout_evidence_missing`,
+`controlled_runner_stage_input_binding_execution_evidence_missing`,
+`controlled_runner_stage_input_binding_prior_stage_output_missing`,
+`controlled_runner_stage_input_binding_executor_task_file_missing`,
+`controlled_runner_stage_input_binding_upstream_invalid`,
+`controlled_runner_stage_input_binding_root_missing`,
+`controlled_runner_stage_input_binding_continuation_checksum_mismatch`,
+`controlled_runner_stage_input_binding_continuation_packet_mismatch`,
+`controlled_runner_stage_input_binding_continuation_not_selected`,
+`controlled_runner_stage_input_binding_continuation_authority_flags_invalid`,
+`controlled_runner_stage_input_binding_selected_stage_mismatch`,
+`controlled_runner_stage_input_binding_prior_stage_output_file_mismatch`,
+`controlled_runner_stage_input_binding_prior_stage_output_checksum_mismatch`,
+`controlled_runner_stage_input_binding_prior_stage_output_packet_mismatch`,
+`controlled_runner_stage_input_binding_executor_task_missing`,
+`controlled_runner_stage_input_binding_executor_task_checksum_missing`,
+`controlled_runner_stage_input_binding_executor_task_checksum_mismatch`,
+`controlled_runner_stage_input_binding_executor_task_invalid`,
+`controlled_runner_stage_input_binding_prior_stage_not_waiting_for_approval`,
+`controlled_runner_stage_input_binding_prior_stage_approval_contract_invalid`,
+`controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid`,
+`controlled_runner_stage_input_binding_prior_stage_planned_steps_missing`,
+`controlled_runner_stage_input_binding_prior_stage_planned_steps_mismatch`,
+`controlled_runner_stage_input_binding_executor_task_file_mismatch`,
+`controlled_runner_stage_input_binding_closeout_not_completed`,
+`controlled_runner_stage_input_binding_closeout_forbidden_flags`,
+`controlled_runner_stage_input_binding_execution_stage_number_mismatch`,
+`controlled_runner_stage_input_binding_unsupported_continuation_stage`, and
 rewritten upstream next-stage, start, plan, and dry-run blockers.
 
 ## Git/PR Dry-Run Planning
