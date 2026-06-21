@@ -13418,11 +13418,6 @@ class CadenceCliTests(unittest.TestCase):
                 False,
                 "controlled_runner_stage_input_binding_prior_stage_approval_contract_invalid",
             ),
-            (
-                "executor_contract_required",
-                True,
-                "controlled_runner_stage_input_binding_prior_stage_approval_contract_invalid",
-            ),
         ]
         for field, value, expected_blocker in invalid_cases:
             with self.subTest(field=field):
@@ -13451,42 +13446,106 @@ class CadenceCliTests(unittest.TestCase):
                     self.assertEqual(audit_records(tmp), audit_before)
                     self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
+    def test_controlled_loop_runner_stage_input_binding_prior_plan_validator_blocks_drift(self):
+        import codex_cadence.cli as cadence_cli
+
+        def copied_plan(plan):
+            return json.loads(json.dumps(plan))
+
+        def reorder_planned_steps(packet):
+            packet["planned_steps"] = [
+                packet["planned_steps"][0],
+                packet["planned_steps"][2],
+                packet["planned_steps"][1],
+            ]
+
+        def append_extra_planned_step(packet):
+            packet["planned_steps"].append(
+                {
+                    "name": "start_governed_execution",
+                    "status": "required",
+                    "command": "start-governed-execution",
+                }
+            )
+
+        def drift_nested_loop_tick_task(packet):
+            packet["loop_tick"]["executor_task"]["task"]["title"] = "Forged nested executor task"
+            packet["loop_tick_checksum"] = checksum_json(packet["loop_tick"])
+
+        def drift_loop_tick_action(packet):
+            packet["loop_tick"]["recommended_next_action"] = "blocked"
+            packet["loop_tick_checksum"] = checksum_json(packet["loop_tick"])
+
+        cases = [
+            (
+                "executor_contract_required",
+                lambda packet: packet.__setitem__("executor_contract_required", True),
+                "controlled_runner_stage_input_binding_prior_stage_approval_contract_invalid",
+            ),
+            (
+                "loop_tick_checksum_drift",
+                lambda packet: packet.__setitem__("loop_tick_checksum", "sha256:" + "0" * 64),
+                "controlled_runner_stage_input_binding_prior_stage_loop_tick_mismatch",
+            ),
+            (
+                "loop_tick_nested_task_drift",
+                drift_nested_loop_tick_task,
+                "controlled_runner_stage_input_binding_prior_stage_loop_tick_mismatch",
+            ),
+            (
+                "loop_tick_action_drift",
+                drift_loop_tick_action,
+                "controlled_runner_stage_input_binding_prior_stage_loop_tick_mismatch",
+            ),
+            (
+                "planned_steps_reordered",
+                reorder_planned_steps,
+                "controlled_runner_stage_input_binding_prior_stage_planned_steps_mismatch",
+            ),
+            (
+                "planned_steps_extra",
+                append_extra_planned_step,
+                "controlled_runner_stage_input_binding_prior_stage_planned_steps_mismatch",
+            ),
+            (
+                "prior_process_started",
+                lambda packet: packet.__setitem__("process_started", True),
+                "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
+            ),
+            (
+                "prior_side_effects",
+                lambda packet: packet.__setitem__("side_effects", ["forged_side_effect"]),
+                "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
+            ),
+            (
+                "prior_approval_token",
+                lambda packet: packet.__setitem__("approval_token", "forged-token"),
+                "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
+            ),
+            (
+                "prior_readiness_field",
+                lambda packet: packet.__setitem__("stage_execution_readiness_status", "ready"),
+                "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            plan, _task_path = self.write_real_loop_run_plan_for_runner_stage(tmp, repo)
+
+            for label, mutate_packet, expected_blocker in cases:
+                with self.subTest(case=label):
+                    packet = copied_plan(plan)
+                    mutate_packet(packet)
+
+                    blockers = cadence_cli.controlled_loop_runner_stage_input_binding_prior_stage_plan_blockers(
+                        prior_stage_output=packet,
+                        executor_task=packet.get("executor_task"),
+                        executor_task_checksum=packet.get("executor_task_checksum"),
+                    )
+
+                    self.assertIn(expected_blocker, {blocker["code"] for blocker in blockers})
+
     def test_controlled_loop_runner_stage_input_binding_reports_core_fail_closed_cases(self):
-        def reorder_planned_steps(chain):
-            self.mutate_json_file(
-                chain["prior_stage_output_path"],
-                lambda packet: packet.__setitem__(
-                    "planned_steps",
-                    [packet["planned_steps"][0], packet["planned_steps"][2], packet["planned_steps"][1]],
-                ),
-            )
-
-        def append_extra_planned_step(chain):
-            self.mutate_json_file(
-                chain["prior_stage_output_path"],
-                lambda packet: packet["planned_steps"].append(
-                    {
-                        "name": "start_governed_execution",
-                        "status": "required",
-                        "command": "start-governed-execution",
-                    }
-                ),
-            )
-
-        def drift_nested_loop_tick_task(chain):
-            def mutate(packet):
-                packet["loop_tick"]["executor_task"]["task"]["title"] = "Forged nested executor task"
-                packet["loop_tick_checksum"] = checksum_json(packet["loop_tick"])
-
-            self.mutate_json_file(chain["prior_stage_output_path"], mutate)
-
-        def drift_loop_tick_action(chain):
-            def mutate(packet):
-                packet["loop_tick"]["recommended_next_action"] = "blocked"
-                packet["loop_tick_checksum"] = checksum_json(packet["loop_tick"])
-
-            self.mutate_json_file(chain["prior_stage_output_path"], mutate)
-
         cases = [
             (
                 "missing_prior_output",
@@ -13510,72 +13569,12 @@ class CadenceCliTests(unittest.TestCase):
                 "controlled_runner_stage_input_binding_executor_task_checksum_mismatch",
             ),
             (
-                "loop_tick_checksum_drift",
-                lambda chain: self.mutate_json_file(
-                    chain["prior_stage_output_path"],
-                    lambda packet: packet.__setitem__("loop_tick_checksum", "sha256:" + "0" * 64),
-                ),
-                "controlled_runner_stage_input_binding_prior_stage_loop_tick_mismatch",
-            ),
-            (
-                "loop_tick_nested_task_drift",
-                drift_nested_loop_tick_task,
-                "controlled_runner_stage_input_binding_prior_stage_loop_tick_mismatch",
-            ),
-            (
-                "loop_tick_action_drift",
-                drift_loop_tick_action,
-                "controlled_runner_stage_input_binding_prior_stage_loop_tick_mismatch",
-            ),
-            (
                 "planned_step_mismatch",
                 lambda chain: self.mutate_json_file(
                     chain["prior_stage_output_path"],
                     lambda packet: packet["planned_steps"][2].__setitem__("command", "forged-command"),
                 ),
                 "controlled_runner_stage_input_binding_prior_stage_planned_steps_mismatch",
-            ),
-            (
-                "planned_steps_reordered",
-                reorder_planned_steps,
-                "controlled_runner_stage_input_binding_prior_stage_planned_steps_mismatch",
-            ),
-            (
-                "planned_steps_extra",
-                append_extra_planned_step,
-                "controlled_runner_stage_input_binding_prior_stage_planned_steps_mismatch",
-            ),
-            (
-                "prior_process_started",
-                lambda chain: self.mutate_json_file(
-                    chain["prior_stage_output_path"],
-                    lambda packet: packet.__setitem__("process_started", True),
-                ),
-                "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
-            ),
-            (
-                "prior_side_effects",
-                lambda chain: self.mutate_json_file(
-                    chain["prior_stage_output_path"],
-                    lambda packet: packet.__setitem__("side_effects", ["forged_side_effect"]),
-                ),
-                "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
-            ),
-            (
-                "prior_approval_token",
-                lambda chain: self.mutate_json_file(
-                    chain["prior_stage_output_path"],
-                    lambda packet: packet.__setitem__("approval_token", "forged-token"),
-                ),
-                "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
-            ),
-            (
-                "prior_readiness_field",
-                lambda chain: self.mutate_json_file(
-                    chain["prior_stage_output_path"],
-                    lambda packet: packet.__setitem__("stage_execution_readiness_status", "ready"),
-                ),
-                "controlled_runner_stage_input_binding_prior_stage_authority_flags_invalid",
             ),
             (
                 "continuation_checksum_drift",
