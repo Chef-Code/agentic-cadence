@@ -833,21 +833,26 @@ also includes `stage_selection_source: continuation` and binds the matching
 stage-input binding file plus actual and expected reviewed checksums.
 
 `controlled-loop-runner-stage-execution-approval` consumes saved completed
-`controlled-loop-runner-stage-execution-readiness.v1`,
-`controlled-loop-runner-next-stage.v1`, `controlled-loop-runner-start.v1`,
-`controlled-loop-runner-plan.v1`, `controlled-loop-runner-dry-run.v1`, and a
-target-bound `operator-approval.v1` packet. It rechecks the full upstream
-runner chain, verifies the approval signature with the local approval secret,
-requires purpose `controlled_loop_runner_stage_execution`, requires
-`--expected-operator-id` to match the signed approval operator, and requires
-the approval target checksum to match the readiness packet's
+`controlled-loop-runner-stage-execution-readiness.v1`, either the initial
+`controlled-loop-runner-next-stage.v1` packet or the continuation
+`controlled-loop-runner-next-stage-continuation.v1` packet plus matching
+`controlled-loop-runner-stage-input-binding.v1`, the runner-start, runner-plan,
+dry-run packets, and a target-bound `operator-approval.v1` packet. It rechecks
+the full upstream runner chain, verifies the approval signature with the local
+approval secret, requires purpose `controlled_loop_runner_stage_execution`,
+requires `--expected-operator-id` to match the signed approval operator, and
+requires the approval target checksum to match the readiness packet's
 `stage_execution_approval_target_checksum`.
 
-The current approval, invocation-boundary, execute, closeout, and outcome-plan
-commands remain scoped to the initial `controlled-loop-runner-next-stage.v1`
-selection source. Continuation-backed approval is a later controlled slice, so
-the continuation readiness packet must not be treated as autonomous execution
-authority.
+For continuation stage `start-governed-execution`, approval also requires a
+second `operator-approval.v1` with purpose `start_governed_execution` whose
+target checksum matches the executor task checksum bound by the stage-input
+binding packet. The command derives the future
+`approve-executor-task:<checksum>` token only after that approval verifies, and
+still does not execute the stage, start an executor or epoch, append audit
+evidence, continue the loop, or write Git/GitHub state. Invocation-boundary,
+execute, closeout, and outcome-plan commands remain initial-next-stage-only
+until later controlled slices generalize them.
 
 Example initial-stage approval:
 
@@ -855,9 +860,17 @@ Example initial-stage approval:
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-execution-approval --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-file controlled-loop-runner-next-stage.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --approval-file operator-approval-controlled-runner-stage-execution.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET
 ```
 
+Example continuation stage-2 approval:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-execution-approval --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-continuation-file controlled-loop-runner-next-stage-continuation.json --controlled-loop-runner-stage-input-binding-file controlled-loop-runner-stage-input-binding.json --expected-stage-input-binding-checksum sha256:<reviewed-stage-input-binding-checksum> --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --approval-file operator-approval-controlled-runner-stage-execution.json --start-governed-execution-approval-file operator-approval-start-governed-execution.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 2
+```
+
 Completed approval packets recommend
-`review_controlled_runner_stage_execution_approval`, set
-`next_controlled_action: prepare_controlled_runner_stage_invocation_boundary`,
+`review_controlled_runner_stage_execution_approval`, set initial approvals to
+`next_controlled_action: prepare_controlled_runner_stage_invocation_boundary`
+and continuation approvals to
+`next_controlled_action: generalize_controlled_runner_stage_invocation_boundary_for_continuation`,
 preserve approval identity/signature evidence plus the expected operator
 binding, and append no audit evidence. They do not start a runner stage,
 invoke or retry an executor, continue the loop, or write Git/GitHub state.
@@ -1520,15 +1533,19 @@ checksum supplied with `--expected-stage-input-binding-checksum`.
 
 `controlled-loop-runner-stage-execution-approval` is the read-only approval
 packet after stage-execution readiness. It consumes the saved readiness,
-next-stage, runner-start, runner-plan, dry-run, and `operator-approval.v1`
+initial next-stage packet or continuation next-stage packet plus stage-input
+binding packet, runner-start, runner-plan, dry-run, and `operator-approval.v1`
 packets, revalidates the runner chain, verifies the approval through the same
 approval-secret-backed signature verifier used by other approval-gated packets,
 requires purpose `controlled_loop_runner_stage_execution`, requires the signed
 operator id to match `--expected-operator-id`, and requires the approval target
-checksum to match `stage_execution_approval_target_checksum`.
-This command is still initial-next-stage-only; continuation-backed approval,
-invocation, execution, closeout, and outcome planning remain future controlled
-slices.
+checksum to match `stage_execution_approval_target_checksum`. Continuation
+stage `start-governed-execution` also requires
+`--start-governed-execution-approval-file` with purpose
+`start_governed_execution` and a target checksum matching the bound executor
+task checksum before the command derives the future
+`approve-executor-task:<checksum>` token. Invocation, execution, closeout, and
+outcome planning remain future controlled slices for continuation stages.
 Valid packets mark the selected stage as `approved_not_executed`, recommend
 `review_controlled_runner_stage_execution_approval`, and still append no audit
 evidence or start any stage, executor, loop continuation, Git/GitHub write,

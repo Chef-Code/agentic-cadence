@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-21
+Last updated: 2026-06-22
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,53 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-22 - Controlled runner continuation approval
+
+Summary:
+- Generalized `controlled-loop-runner-stage-execution-approval` so it accepts
+  continuation-backed readiness from Task 62 while preserving the existing
+  initial stage-1 next-stage approval path.
+- Continuation approval now rechecks the continuation packet, stage-input
+  binding packet, runner-start, runner-plan, and dry-run anchors before
+  accepting stage-execution approval evidence.
+- For continuation stage `start-governed-execution`, the command requires a
+  second `operator-approval.v1` with purpose `start_governed_execution` whose
+  target checksum matches the executor task checksum from the stage-input
+  binding, then derives the future `approve-executor-task:<checksum>` token
+  without executing the stage.
+- The packet remains read-only and starts no process, executor, epoch, audit
+  append, loop continuation, or Git/GitHub write.
+
+Completed slices:
+- Task 63: controlled runner continuation stage-execution approval.
+
+Confidence change:
+- Previous: 57%
+- New: 58%
+- Reason: Cadence can now bind continuation readiness to both required
+  operator approvals for stage 2, but continuation invocation, execution,
+  closeout, and unattended loop orchestration remain future slices.
+
+Evidence:
+- Focused continuation approval tests: 2 tests passed.
+- Existing stage-1 approval preservation tests: 3 tests passed.
+- Existing invalid operator approval matrix: 1 test passed.
+- Syntax check: `python -m py_compile codex_cadence/cli.py` passed.
+
+New risks or blockers:
+- Task 64 still needs continuation-aware invocation-boundary construction
+  before any continuation stage can be executed.
+- The runner still cannot autonomously assign agents, schedule workers, retry
+  stages, push branches, open or update PRs, merge, release, publish packages,
+  or continue unattended.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
 
 ## 2026-06-21 - Controlled runner continuation readiness
 
