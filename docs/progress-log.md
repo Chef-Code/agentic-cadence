@@ -79,12 +79,12 @@ New risks or blockers:
   or continue unattended.
 
 Docs updated:
+Scope: documentation files changed by the Task 62 PR and follow-up review
+patches.
 - `README.md`
 - `docs/protocol.md`
 - `docs/implementation-slices.md`
 - `docs/autonomous-loop-readiness.md`
-- `docs/roadmap.md`
-- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
 - `docs/roadmap.md`
 - `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
 - `docs/progress-log.md`

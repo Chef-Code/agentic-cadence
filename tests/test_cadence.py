@@ -11293,6 +11293,21 @@ class CadenceCliTests(unittest.TestCase):
                 "controlled_runner_stage_execution_readiness_stage_input_binding_checksum_mismatch",
             ),
             (
+                "drifted-input-binding-executor-task",
+                lambda chain: self.mutate_json_file(
+                    chain["controlled_loop_runner_stage_input_binding_path"],
+                    lambda packet: (
+                        packet["executor_task"].__setitem__("checksum", "sha256:" + "0" * 64),
+                        packet.__setitem__(
+                            "expected_executor_task_approval_target_checksum",
+                            "sha256:" + "1" * 64,
+                        ),
+                    ),
+                ),
+                lambda _chain: {},
+                "controlled_runner_stage_execution_readiness_stage_input_binding_checksum_mismatch",
+            ),
+            (
                 "drifted-input-binding-stage",
                 lambda chain: self.mutate_json_file(
                     chain["controlled_loop_runner_stage_input_binding_path"],
