@@ -2046,29 +2046,39 @@ nested diagnostic `audit_blockers` with codes
 `controlled_runner_next_stage_start_audit_payload_checksum_mismatch`.
 
 `controlled-loop-runner-stage-execution-readiness` is the read-only approval
-target packet after controlled runner next-stage selection. It reads
-`--controlled-loop-runner-next-stage-file`,
-`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
-`--controlled-loop-runner-dry-run-file`, and optional `--stage-number`.
-Task 54 only supports `--stage-number 1`. It verifies the saved next-stage
-packet is `controlled-loop-runner-next-stage.v1`, valid, read-only, selected,
-and still bound to the supplied start, runner-plan, and dry-run packets. It
-also revalidates the upstream runner-start, runner-plan, and dry-run chain so
-the selected stage cannot be approved from stale evidence.
+target packet after controlled runner next-stage selection. It reads exactly
+one stage selection source: `--controlled-loop-runner-next-stage-file` for the
+initial stage, or `--controlled-loop-runner-next-stage-continuation-file` plus
+`--controlled-loop-runner-stage-input-binding-file` for a continuation stage.
+Continuation-backed readiness also requires
+`--expected-stage-input-binding-checksum` to pin the exact reviewed
+stage-input binding packet. It also reads `--controlled-loop-runner-start-file`,
+`--controlled-loop-runner-plan-file`, `--controlled-loop-runner-dry-run-file`,
+and optional `--stage-number`. Initial-stage behavior remains scoped to the
+saved `controlled-loop-runner-next-stage.v1` packet. Continuation-backed
+readiness verifies the saved `controlled-loop-runner-next-stage-continuation.v1`
+packet is valid, read-only, selected, and still matched by a bound
+`controlled-loop-runner-stage-input-binding.v1` packet whose checksum matches
+the expected reviewed checksum. Both paths revalidate the upstream
+runner-start, runner-plan, and dry-run chain so the selected stage cannot be
+approved from stale evidence.
 
 When valid, the command emits
 `controlled-loop-runner-stage-execution-readiness.v1` with
 `packet: controlled_loop_runner_stage_execution_readiness`,
 `read_only: true`, `runner_stage_execution_readiness_status: ready`,
-`runner_started: true`, `stage_execution_started: false`,
-`executor_started: false`, and `loop_continuation_started: false`. It converts
-the Task 53 selected stage into `stage_status:
-ready_for_approval_not_executed`, sets `execution_authority:
-operator_approval_required`, and emits `stage_execution_approval_target` plus
+`runner_started: true`, `process_started: false`,
+`stage_execution_started: false`, `executor_started: false`,
+`audit_evidence_appended: false`, and `loop_continuation_started: false`. It
+converts the selected stage into `stage_status: ready_for_approval_not_executed`, sets
+`execution_authority: operator_approval_required`, and emits
+`stage_execution_approval_target` plus
 `stage_execution_approval_target_checksum` for a later operator-approval
 slice. The approval target binds the approval purpose, selected stage number,
 selected command, readiness `generated_at` timestamp, upstream runner packet
-checksums, and selected-stage checksum.
+checksums, and selected-stage checksum. Continuation-backed targets also bind
+`stage_selection_source: continuation`, the continuation file/checksum, and the
+stage-input binding file plus actual and expected reviewed checksums.
 
 The command starts no runner stage, invokes no executor, retries no executor,
 continues no loop, appends no audit evidence, executes no Git commands, calls
@@ -2082,6 +2092,41 @@ schedules no agents. Stable blockers include
 `controlled_runner_stage_execution_readiness_next_stage_limitations_missing`,
 `controlled_runner_stage_execution_readiness_next_stage_limitations_invalid`,
 `controlled_runner_stage_execution_readiness_next_stage_selected_stage_mismatch`,
+`controlled_runner_stage_execution_readiness_selection_source_count_invalid`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_required`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_unexpected`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_checksum_required`,
+`controlled_runner_stage_execution_readiness_continuation_evidence_missing`,
+`controlled_runner_stage_execution_readiness_continuation_packet_mismatch`,
+`controlled_runner_stage_execution_readiness_continuation_not_selected`,
+`controlled_runner_stage_execution_readiness_continuation_authority_flags_invalid`,
+`controlled_runner_stage_execution_readiness_continuation_limitations_invalid`,
+`controlled_runner_stage_execution_readiness_continuation_selected_stage_mismatch`,
+`controlled_runner_stage_execution_readiness_continuation_selected_stage_checksum_mismatch`,
+`controlled_runner_stage_execution_readiness_continuation_controlled_loop_runner_start_file_mismatch`,
+`controlled_runner_stage_execution_readiness_continuation_controlled_loop_runner_plan_file_mismatch`,
+`controlled_runner_stage_execution_readiness_continuation_controlled_loop_runner_dry_run_file_mismatch`,
+`controlled_runner_stage_execution_readiness_continuation_controlled_loop_runner_start_checksum_mismatch`,
+`controlled_runner_stage_execution_readiness_continuation_controlled_loop_runner_plan_checksum_mismatch`,
+`controlled_runner_stage_execution_readiness_continuation_controlled_loop_runner_dry_run_checksum_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_evidence_missing`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_packet_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_not_bound`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_authority_flags_invalid`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_limitations_invalid`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_stage_sequence_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_selected_stage_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_controlled_loop_runner_next_stage_continuation_file_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_controlled_loop_runner_start_file_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_controlled_loop_runner_plan_file_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_controlled_loop_runner_dry_run_file_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_continuation_checksum_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_controlled_loop_runner_start_checksum_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_controlled_loop_runner_plan_checksum_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_controlled_loop_runner_dry_run_checksum_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_selected_stage_checksum_mismatch`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_checksum_missing`,
+`controlled_runner_stage_execution_readiness_stage_input_binding_checksum_mismatch`,
 `controlled_runner_stage_execution_readiness_upstream_invalid`,
 `controlled_runner_stage_execution_readiness_controlled_loop_runner_start_file_mismatch`,
 `controlled_runner_stage_execution_readiness_controlled_loop_runner_start_checksum_mismatch`,
@@ -2099,10 +2144,12 @@ packet after stage-execution readiness. It reads
 `--controlled-loop-runner-dry-run-file`, `--approval-file`,
 `--expected-operator-id`, `--approval-secret-env` or `--approval-secret`, and
 optional `--stage-number`.
-It revalidates the full runner chain, rereads the readiness packet, and
-verifies the supplied `operator-approval.v1` through the shared
-`build_operator_approval_verification_packet` path without appending audit
-evidence. The approval must use purpose
+This command remains scoped to initial-stage readiness from
+`controlled-loop-runner-next-stage.v1`; continuation-backed approval is a
+future controlled slice. It revalidates the full runner chain, rereads the
+readiness packet, and verifies the supplied `operator-approval.v1` through the
+shared `build_operator_approval_verification_packet` path without appending
+audit evidence. The approval must use purpose
 `controlled_loop_runner_stage_execution`, must have an approval-secret-backed
 valid signature, its `operator_id` must match `--expected-operator-id`, and
 its `target_checksum` must match the readiness packet's

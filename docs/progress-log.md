@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -33,6 +33,62 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-21 - Controlled runner continuation readiness
+
+Summary:
+- Generalized `controlled-loop-runner-stage-execution-readiness` so it accepts
+  exactly one stage-selection source: the existing initial next-stage packet,
+  or a continuation next-stage packet plus matching stage-input binding packet.
+- Preserved initial stage-1 readiness behavior while adding explicit
+  `process_started: false` and `audit_evidence_appended: false` readiness
+  fields.
+- Continuation-backed readiness emits `stage_selection_source: continuation`,
+  requires `--expected-stage-input-binding-checksum`, binds the continuation
+  and stage-input binding checksums into the deterministic approval target, and
+  remains read-only with no approval, process start, epoch start, audit append,
+  loop continuation, or Git/GitHub write authority.
+- Added fail-closed coverage for mixed selection sources, missing binding,
+  missing expected binding checksum, mismatched continuation stage number,
+  stale continuation checksum, input-binding packet checksum drift, invalid
+  continuation/input-binding authority fields, and drifted input-binding
+  selected-stage identity.
+
+Completed slices:
+- Task 62: controlled runner continuation stage-execution readiness.
+
+Confidence change:
+- Previous: 56%
+- New: 57%
+- Reason: Cadence can now prepare continuation-backed stage-execution
+  readiness from reviewed continuation and input-binding evidence, but
+  continuation approval, invocation, execution, executor-task approval binding,
+  and unattended loop orchestration remain future slices.
+
+Evidence:
+- Focused `controlled-loop-runner-stage-execution-readiness` pytest selection:
+  6 tests passed.
+- Protocol validator: `python scripts/validate_protocol.py` passed.
+- Package verifier: `python scripts/verify_package.py` passed.
+
+New risks or blockers:
+- Task 63 still needs continuation-aware stage-execution approval that binds
+  the readiness target and required executor-task approval without starting a
+  process.
+- The runner still cannot autonomously assign agents, schedule workers, retry
+  stages, push branches, open or update PRs, merge, release, publish packages,
+  or continue unattended.
+
+Docs updated:
+Scope: documentation files changed by the Task 62 PR and follow-up review
+patches.
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-06-20 - Controlled runner stage input binding
 
 Summary:
@@ -55,9 +111,10 @@ Completed slices:
 Confidence change:
 - Previous: 55%
 - New: 56%
-- Reason: Cadence can now bind concrete stage-2 inputs after continuation
-  selection, but continuation readiness, executor-task approval binding,
-  invocation boundary construction, and execution remain future slices.
+- Reason: Cadence could bind concrete stage-2 inputs after continuation
+  selection; at this point, continuation readiness, executor-task approval
+  binding, invocation boundary construction, and execution remained future
+  slices.
 
 Evidence:
 - Focused `controlled-loop-runner-stage-input-binding` pytest selection: 5
@@ -74,9 +131,9 @@ Evidence:
   CRLF warnings.
 
 New risks or blockers:
-- Task 62 still needs continuation-aware readiness that consumes the binding
-  packet without reusing the stage-1 readiness contract directly.
-- The second `start_governed_execution` approval gate remains a future slice.
+- Historical note: this entry predates Task 62; continuation-aware readiness
+  was the next planned slice after input binding.
+- The second `start_governed_execution` approval gate remained a future slice.
 
 Docs updated:
 - `README.md`

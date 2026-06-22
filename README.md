@@ -119,8 +119,10 @@ publishing packages, assigning roles, or scheduling agents, and
 runner-plan, and dry-run packets before selecting the first runner command
 stage without executing it, and
 `controlled-loop-runner-stage-execution-readiness` evidence that rechecks the
-selected stage and upstream runner chain before preparing a deterministic
-stage-execution approval target without executing the stage, and
+selected stage and upstream runner chain before preparing either initial or
+continuation-backed deterministic stage-execution approval targets without
+executing the stage, pins reviewed stage-input binding checksums for
+continuation-backed targets, and
 `controlled-loop-runner-stage-execution-approval` evidence that verifies a
 target-bound operator approval for that readiness target without starting the
 stage or invoking an executor, and
@@ -151,9 +153,9 @@ without emitting readiness, executing, retrying, continuing, appending audit,
 or writing Git/GitHub state, and
 `controlled-loop-runner-stage-input-binding` evidence that rechecks that
 continuation packet and binds the completed `loop-run-plan` stage output to an
-exact executor task file before any continuation readiness work, while still
-emitting no approval token, starting no process or epoch, appending no audit
-evidence, and writing no Git/GitHub state.
+exact executor task file before continuation readiness, while still emitting
+no approval token, starting no process or epoch, appending no audit evidence,
+and writing no Git/GitHub state.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -800,23 +802,35 @@ Completed next-stage packets recommend `review_controlled_runner_next_stage`,
 select `loop-run-plan` with `stage_status: selected_not_executed`, report
 `stage_execution_started: false`, and append no audit evidence.
 
-`controlled-loop-runner-stage-execution-readiness` consumes saved completed
-`controlled-loop-runner-next-stage.v1`, `controlled-loop-runner-start.v1`,
-`controlled-loop-runner-plan.v1`, and `controlled-loop-runner-dry-run.v1`
-packets. It rechecks the selected stage, anchors, checksums, and dry-run stage
-sequence, then prepares a stage-execution approval target without executing the
-stage:
+`controlled-loop-runner-stage-execution-readiness` consumes exactly one stage
+selection source: either saved completed `controlled-loop-runner-next-stage.v1`
+for the initial stage, or saved completed
+`controlled-loop-runner-next-stage-continuation.v1` plus a matching
+`controlled-loop-runner-stage-input-binding.v1` packet for continuation
+stages. It also consumes `controlled-loop-runner-start.v1`,
+`controlled-loop-runner-plan.v1`, and `controlled-loop-runner-dry-run.v1`.
+Continuation-backed readiness also requires
+`--expected-stage-input-binding-checksum` so the operator-reviewed binding
+packet is pinned exactly. It rechecks the selected stage, anchors, checksums,
+and dry-run stage sequence, then prepares a stage-execution approval target
+without executing the stage:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-execution-readiness --controlled-loop-runner-next-stage-file controlled-loop-runner-next-stage.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --stage-number 1
+```
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-execution-readiness --controlled-loop-runner-next-stage-continuation-file controlled-loop-runner-next-stage-continuation.json --controlled-loop-runner-stage-input-binding-file controlled-loop-runner-stage-input-binding.json --expected-stage-input-binding-checksum sha256:<reviewed-stage-input-binding-checksum> --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --stage-number 2
 ```
 
 Completed readiness packets recommend
 `review_controlled_runner_stage_execution_readiness`, set
 `next_controlled_action: approve_controlled_runner_stage_execution`, include a
 deterministic `stage_execution_approval_target_checksum` that binds the
-readiness timestamp, selected stage, and upstream runner checksums, and append
-no audit evidence.
+readiness timestamp, selected stage, selection-source checksum, and upstream
+runner checksums, and append no audit evidence. Continuation-backed readiness
+also includes `stage_selection_source: continuation` and binds the matching
+stage-input binding file plus actual and expected reviewed checksums.
 
 `controlled-loop-runner-stage-execution-approval` consumes saved completed
 `controlled-loop-runner-stage-execution-readiness.v1`,
@@ -827,7 +841,15 @@ runner chain, verifies the approval signature with the local approval secret,
 requires purpose `controlled_loop_runner_stage_execution`, requires
 `--expected-operator-id` to match the signed approval operator, and requires
 the approval target checksum to match the readiness packet's
-`stage_execution_approval_target_checksum`:
+`stage_execution_approval_target_checksum`.
+
+The current approval, invocation-boundary, execute, closeout, and outcome-plan
+commands remain scoped to the initial `controlled-loop-runner-next-stage.v1`
+selection source. Continuation-backed approval is a later controlled slice, so
+the continuation readiness packet must not be treated as autonomous execution
+authority.
+
+Example initial-stage approval:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-execution-approval --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-file controlled-loop-runner-next-stage.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --approval-file operator-approval-controlled-runner-stage-execution.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET
@@ -965,12 +987,12 @@ Valid continuation packets emit
 checksum to match the reviewed `--expected-stage-outcome-plan-checksum`,
 require `stage_outcome_decision: select_next_stage`, require the prior closeout
 to be completed, and select exactly `completed_stage_number + 1`. The packet
-does not emit or authorize a stage-execution readiness target yet; its
-`next_controlled_action` is
-`generalize_controlled_runner_stage_execution_readiness_for_continuation`. It
-does not execute the selected stage, retry, continue the loop, append audit
-evidence, start a process, invoke an executor, write Git/GitHub state, merge,
-release, publish packages, assign roles, or schedule agents.
+does not emit a stage-execution readiness target itself; continuation readiness
+is prepared later by `controlled-loop-runner-stage-execution-readiness` after
+`controlled-loop-runner-stage-input-binding` has bound the concrete stage
+inputs. It does not execute the selected stage, retry, continue the loop,
+append audit evidence, start a process, invoke an executor, write Git/GitHub
+state, merge, release, publish packages, assign roles, or schedule agents.
 
 `controlled-loop-runner-stage-input-binding` consumes the selected
 continuation packet plus the completed prior stage output and exact executor
@@ -1483,13 +1505,18 @@ audit evidence, and report `stage_execution_started: false`,
 `executor_started: false`, and `loop_continuation_started: false`.
 
 `controlled-loop-runner-stage-execution-readiness` is the read-only approval
-target packet after next-stage selection. It consumes the saved next-stage,
-runner-start, runner-plan, and dry-run packets, revalidates the upstream chain,
-converts the selected stage to `ready_for_approval_not_executed`, recommends
-`review_controlled_runner_stage_execution_readiness`, sets
-`next_controlled_action: approve_controlled_runner_stage_execution`, emits a
-deterministic `stage_execution_approval_target_checksum`, and appends no audit
-evidence.
+target packet after next-stage selection. It consumes either the saved initial
+next-stage packet or a continuation next-stage packet plus matching stage-input
+binding packet, then revalidates the runner-start, runner-plan, and dry-run
+chain. Valid packets convert the selected stage to
+`ready_for_approval_not_executed`, recommend
+`review_controlled_runner_stage_execution_readiness`, set
+`next_controlled_action: approve_controlled_runner_stage_execution`, emit a
+deterministic `stage_execution_approval_target_checksum`, and append no audit
+evidence. Continuation-backed packets include
+`stage_selection_source: continuation` and bind the continuation and
+stage-input binding checksums, including the reviewed expected binding
+checksum supplied with `--expected-stage-input-binding-checksum`.
 
 `controlled-loop-runner-stage-execution-approval` is the read-only approval
 packet after stage-execution readiness. It consumes the saved readiness,
@@ -1499,6 +1526,9 @@ approval-secret-backed signature verifier used by other approval-gated packets,
 requires purpose `controlled_loop_runner_stage_execution`, requires the signed
 operator id to match `--expected-operator-id`, and requires the approval target
 checksum to match `stage_execution_approval_target_checksum`.
+This command is still initial-next-stage-only; continuation-backed approval,
+invocation, execution, closeout, and outcome planning remain future controlled
+slices.
 Valid packets mark the selected stage as `approved_not_executed`, recommend
 `review_controlled_runner_stage_execution_approval`, and still append no audit
 evidence or start any stage, executor, loop continuation, Git/GitHub write,

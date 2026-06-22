@@ -14186,6 +14186,24 @@ def controlled_loop_runner_stage_execution_readiness_recommendation(
         return "refresh_controlled_runner_next_stage", "controlled runner next-stage evidence is stale or blocked"
     if any(
         isinstance(code, str)
+        and code.startswith("controlled_runner_stage_execution_readiness_continuation")
+        for code in all_codes
+    ):
+        return (
+            "refresh_controlled_runner_next_stage_continuation",
+            "controlled runner next-stage continuation evidence is stale or blocked",
+        )
+    if any(
+        isinstance(code, str)
+        and code.startswith("controlled_runner_stage_execution_readiness_stage_input_binding")
+        for code in all_codes
+    ):
+        return (
+            "refresh_controlled_runner_stage_input_binding",
+            "controlled runner stage input binding evidence is stale or blocked",
+        )
+    if any(
+        isinstance(code, str)
         and (
             "controlled_loop_runner_start" in code
             or code.startswith("controlled_runner_next_stage_start")
@@ -14459,13 +14477,475 @@ def controlled_loop_runner_stage_execution_readiness_next_stage_blockers(
     return blockers
 
 
+def controlled_loop_runner_stage_execution_readiness_continuation_blockers(
+    *,
+    continuation: dict[str, Any],
+    continuation_path: Path,
+    input_binding: dict[str, Any],
+    input_binding_path: Path,
+    start_path: Path,
+    runner_plan_path: Path,
+    dry_run_path: Path,
+    start_checksum: str | None,
+    runner_plan_checksum: str | None,
+    dry_run_checksum: str | None,
+    selected_stage: dict[str, Any] | None,
+    continuation_checksum: str | None,
+    input_binding_checksum: str | None,
+    expected_input_binding_checksum: str | None,
+    stage_number: int,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    continuation_selected_stage = (
+        continuation.get("selected_stage") if isinstance(continuation.get("selected_stage"), dict) else None
+    )
+    continuation_selected_stage_checksum = (
+        checksum_json(continuation_selected_stage) if continuation_selected_stage is not None else None
+    )
+
+    if (
+        continuation.get("schema_version") != CONTROLLED_LOOP_RUNNER_NEXT_STAGE_CONTINUATION_SCHEMA_VERSION
+        or continuation.get("packet") != "controlled_loop_runner_next_stage_continuation"
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_continuation_packet_mismatch",
+                "controlled runner next-stage continuation packet type is invalid",
+                expected_schema_version=CONTROLLED_LOOP_RUNNER_NEXT_STAGE_CONTINUATION_SCHEMA_VERSION,
+                actual_schema_version=continuation.get("schema_version"),
+                expected_packet="controlled_loop_runner_next_stage_continuation",
+                actual_packet=continuation.get("packet"),
+            )
+        )
+    if (
+        continuation.get("valid") is not True
+        or continuation.get("read_only") is not True
+        or continuation.get("runner_next_stage_continuation_status") != "selected"
+        or continuation.get("next_stage_number") != stage_number
+        or continuation.get("runner_started") is not True
+        or continuation.get("next_stage_selected") is not True
+        or continuation.get("operator_confirmation_required") is not True
+        or continuation.get("recommended_next_action") != "review_controlled_runner_next_stage_continuation"
+        or continuation.get("next_controlled_action")
+        != "generalize_controlled_runner_stage_execution_readiness_for_continuation"
+        or continuation.get("side_effects") != []
+        or continuation.get("blockers") != []
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_continuation_not_selected",
+                "controlled runner next-stage continuation must be selected and read-only before readiness",
+                valid=continuation.get("valid"),
+                read_only=continuation.get("read_only"),
+                status=continuation.get("runner_next_stage_continuation_status"),
+                next_stage_number=continuation.get("next_stage_number"),
+                runner_started=continuation.get("runner_started"),
+                next_stage_selected=continuation.get("next_stage_selected"),
+                operator_confirmation_required=continuation.get("operator_confirmation_required"),
+                recommended_next_action=continuation.get("recommended_next_action"),
+                next_controlled_action=continuation.get("next_controlled_action"),
+                side_effects=continuation.get("side_effects"),
+                blocker_codes=continuation.get("blockers"),
+            )
+        )
+    continuation_invalid_flags = {
+        flag: continuation.get(flag)
+        for flag in [
+            "process_started",
+            "stage_execution_started",
+            "executor_started",
+            "stage_retry_started",
+            "second_stage_started",
+            "epoch_started",
+            "pr_action_started",
+            "github_write_started",
+            "merge_started",
+            "release_started",
+            "package_publication_started",
+            "role_assignment_started",
+            "agent_scheduling_started",
+            "loop_continuation_started",
+            "audit_evidence_appended",
+        ]
+        if continuation.get(flag) is not False
+    }
+    if continuation_invalid_flags:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_continuation_authority_flags_invalid",
+                "controlled runner next-stage continuation must not report execution or side-effect authority",
+                flags=continuation_invalid_flags,
+            )
+        )
+    if continuation.get("limitations") != CONTROLLED_LOOP_RUNNER_NEXT_STAGE_CONTINUATION_LIMITATIONS:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_continuation_limitations_invalid",
+                "controlled runner next-stage continuation limitations must match the continuation contract exactly",
+                expected=CONTROLLED_LOOP_RUNNER_NEXT_STAGE_CONTINUATION_LIMITATIONS,
+                actual=continuation.get("limitations"),
+            )
+        )
+    if continuation_selected_stage != selected_stage:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_continuation_selected_stage_mismatch",
+                "controlled runner next-stage continuation selected stage does not match requested stage",
+                expected=selected_stage,
+                actual=continuation_selected_stage,
+            )
+        )
+    continuation_checksums = continuation.get("checksums") if isinstance(continuation.get("checksums"), dict) else {}
+    continuation_checksum_fields = {
+        "selected_stage_checksum": continuation.get("selected_stage_checksum"),
+        "checksums.selected_stage": continuation_checksums.get("selected_stage"),
+    }
+    continuation_selected_stage_checksum_mismatches = {
+        field: value
+        for field, value in continuation_checksum_fields.items()
+        if value != continuation_selected_stage_checksum
+    }
+    if continuation_selected_stage_checksum_mismatches:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_continuation_selected_stage_checksum_mismatch",
+                "controlled runner next-stage continuation selected-stage checksum is stale",
+                expected=continuation_selected_stage_checksum,
+                actual=continuation_selected_stage_checksum_mismatches,
+            )
+        )
+    continuation_refs = {
+        "controlled_loop_runner_start": (
+            continuation.get("controlled_loop_runner_start")
+            if isinstance(continuation.get("controlled_loop_runner_start"), dict)
+            else {}
+        ),
+        "controlled_loop_runner_plan": (
+            continuation.get("controlled_loop_runner_plan")
+            if isinstance(continuation.get("controlled_loop_runner_plan"), dict)
+            else {}
+        ),
+        "controlled_loop_runner_dry_run": (
+            continuation.get("controlled_loop_runner_dry_run")
+            if isinstance(continuation.get("controlled_loop_runner_dry_run"), dict)
+            else {}
+        ),
+    }
+    continuation_files = continuation.get("files") if isinstance(continuation.get("files"), dict) else {}
+    continuation_file_groups = [
+        ("controlled_loop_runner_start", start_path),
+        ("controlled_loop_runner_plan", runner_plan_path),
+        ("controlled_loop_runner_dry_run", dry_run_path),
+    ]
+    for name, expected_path in continuation_file_groups:
+        mismatched = {
+            f"{name}.file": continuation_refs[name].get("file"),
+            f"files.{name}": continuation_files.get(name),
+        }
+        mismatched = {
+            field: value
+            for field, value in mismatched.items()
+            if not controlled_loop_runner_plan_file_matches(continuation_path, value, expected_path)
+        }
+        if mismatched:
+            blockers.append(
+                controlled_loop_runner_stage_execution_readiness_blocker(
+                    f"controlled_runner_stage_execution_readiness_continuation_{name}_file_mismatch",
+                    "controlled runner next-stage continuation file anchors do not match supplied evidence",
+                    expected=str(expected_path),
+                    actual=mismatched,
+                )
+            )
+    continuation_checksum_groups = [
+        ("controlled_loop_runner_start", start_checksum),
+        ("controlled_loop_runner_plan", runner_plan_checksum),
+        ("controlled_loop_runner_dry_run", dry_run_checksum),
+    ]
+    for name, expected_checksum in continuation_checksum_groups:
+        mismatched = {
+            f"{name}.checksum": continuation_refs[name].get("checksum"),
+            f"checksums.{name}": continuation_checksums.get(name),
+        }
+        mismatched = {field: value for field, value in mismatched.items() if value != expected_checksum}
+        if mismatched:
+            blockers.append(
+                controlled_loop_runner_stage_execution_readiness_blocker(
+                    f"controlled_runner_stage_execution_readiness_continuation_{name}_checksum_mismatch",
+                    "controlled runner next-stage continuation checksum anchors do not match supplied evidence",
+                    expected=expected_checksum,
+                    actual=mismatched,
+                )
+            )
+
+    input_binding_selected_stage = (
+        input_binding.get("selected_stage") if isinstance(input_binding.get("selected_stage"), dict) else None
+    )
+    input_binding_selected_stage_checksum = (
+        checksum_json(input_binding_selected_stage) if input_binding_selected_stage is not None else None
+    )
+    if (
+        input_binding.get("schema_version") != CONTROLLED_LOOP_RUNNER_STAGE_INPUT_BINDING_SCHEMA_VERSION
+        or input_binding.get("packet") != "controlled_loop_runner_stage_input_binding"
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_packet_mismatch",
+                "controlled runner stage input binding packet type is invalid",
+                expected_schema_version=CONTROLLED_LOOP_RUNNER_STAGE_INPUT_BINDING_SCHEMA_VERSION,
+                actual_schema_version=input_binding.get("schema_version"),
+                expected_packet="controlled_loop_runner_stage_input_binding",
+                actual_packet=input_binding.get("packet"),
+            )
+        )
+    if (
+        input_binding.get("valid") is not True
+        or input_binding.get("read_only") is not True
+        or input_binding.get("stage_input_binding_status") != "bound"
+        or input_binding.get("next_stage_number") != stage_number
+        or input_binding.get("runner_started") is not True
+        or input_binding.get("operator_confirmation_required") is not True
+        or input_binding.get("recommended_next_action") != "review_controlled_runner_stage_input_binding"
+        or input_binding.get("next_controlled_action")
+        != "prepare_controlled_runner_continuation_stage_execution_readiness"
+        or input_binding.get("side_effects") != []
+        or input_binding.get("blockers") != []
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_not_bound",
+                "controlled runner stage input binding must be bound and read-only before readiness",
+                valid=input_binding.get("valid"),
+                read_only=input_binding.get("read_only"),
+                status=input_binding.get("stage_input_binding_status"),
+                next_stage_number=input_binding.get("next_stage_number"),
+                runner_started=input_binding.get("runner_started"),
+                operator_confirmation_required=input_binding.get("operator_confirmation_required"),
+                recommended_next_action=input_binding.get("recommended_next_action"),
+                next_controlled_action=input_binding.get("next_controlled_action"),
+                side_effects=input_binding.get("side_effects"),
+                blocker_codes=input_binding.get("blockers"),
+            )
+        )
+    input_binding_invalid_flags = {
+        flag: input_binding.get(flag)
+        for flag in [
+            "process_started",
+            "stage_execution_started",
+            "executor_started",
+            "stage_retry_started",
+            "second_stage_started",
+            "epoch_started",
+            "pr_action_started",
+            "github_write_started",
+            "merge_started",
+            "release_started",
+            "package_publication_started",
+            "role_assignment_started",
+            "agent_scheduling_started",
+            "loop_continuation_started",
+            "audit_evidence_appended",
+        ]
+        if input_binding.get(flag) is not False
+    }
+    if input_binding_invalid_flags:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_authority_flags_invalid",
+                "controlled runner stage input binding must not report execution or side-effect authority",
+                flags=input_binding_invalid_flags,
+            )
+        )
+    if input_binding.get("limitations") != CONTROLLED_LOOP_RUNNER_STAGE_INPUT_BINDING_LIMITATIONS:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_limitations_invalid",
+                "controlled runner stage input binding limitations must match the binding contract exactly",
+                expected=CONTROLLED_LOOP_RUNNER_STAGE_INPUT_BINDING_LIMITATIONS,
+                actual=input_binding.get("limitations"),
+            )
+        )
+    if (
+        input_binding.get("completed_stage_number") != continuation.get("completed_stage_number")
+        or input_binding.get("next_stage_number") != continuation.get("next_stage_number")
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_stage_sequence_mismatch",
+                "controlled runner stage input binding stage sequence does not match continuation",
+                expected_completed_stage_number=continuation.get("completed_stage_number"),
+                actual_completed_stage_number=input_binding.get("completed_stage_number"),
+                expected_next_stage_number=continuation.get("next_stage_number"),
+                actual_next_stage_number=input_binding.get("next_stage_number"),
+            )
+        )
+    if input_binding_selected_stage != selected_stage or input_binding_selected_stage != continuation_selected_stage:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_selected_stage_mismatch",
+                "controlled runner stage input binding selected stage does not match continuation readiness",
+                expected=selected_stage,
+                continuation_selected_stage=continuation_selected_stage,
+                actual=input_binding_selected_stage,
+            )
+        )
+    input_binding_checksums = input_binding.get("checksums") if isinstance(input_binding.get("checksums"), dict) else {}
+    input_binding_refs = {
+        "controlled_loop_runner_next_stage_continuation": (
+            input_binding.get("controlled_loop_runner_next_stage_continuation")
+            if isinstance(input_binding.get("controlled_loop_runner_next_stage_continuation"), dict)
+            else {}
+        ),
+        "controlled_loop_runner_start": (
+            input_binding.get("controlled_loop_runner_start")
+            if isinstance(input_binding.get("controlled_loop_runner_start"), dict)
+            else {}
+        ),
+        "controlled_loop_runner_plan": (
+            input_binding.get("controlled_loop_runner_plan")
+            if isinstance(input_binding.get("controlled_loop_runner_plan"), dict)
+            else {}
+        ),
+        "controlled_loop_runner_dry_run": (
+            input_binding.get("controlled_loop_runner_dry_run")
+            if isinstance(input_binding.get("controlled_loop_runner_dry_run"), dict)
+            else {}
+        ),
+    }
+    input_binding_files = input_binding.get("files") if isinstance(input_binding.get("files"), dict) else {}
+    input_binding_file_groups = [
+        ("controlled_loop_runner_next_stage_continuation", continuation_path),
+        ("controlled_loop_runner_start", start_path),
+        ("controlled_loop_runner_plan", runner_plan_path),
+        ("controlled_loop_runner_dry_run", dry_run_path),
+    ]
+    for name, expected_path in input_binding_file_groups:
+        mismatched = {
+            f"{name}.file": input_binding_refs[name].get("file"),
+            f"files.{name}": input_binding_files.get(name),
+        }
+        mismatched = {
+            field: value
+            for field, value in mismatched.items()
+            if not controlled_loop_runner_plan_file_matches(input_binding_path, value, expected_path)
+        }
+        if mismatched:
+            blockers.append(
+                controlled_loop_runner_stage_execution_readiness_blocker(
+                    f"controlled_runner_stage_execution_readiness_stage_input_binding_{name}_file_mismatch",
+                    "controlled runner stage input binding file anchors do not match supplied evidence",
+                    expected=str(expected_path),
+                    actual=mismatched,
+                )
+            )
+    input_binding_checksum_groups = [
+        ("controlled_loop_runner_start", start_checksum),
+        ("controlled_loop_runner_plan", runner_plan_checksum),
+        ("controlled_loop_runner_dry_run", dry_run_checksum),
+    ]
+    continuation_checksum_values = {
+        "controlled_loop_runner_next_stage_continuation.checksum": (
+            input_binding_refs["controlled_loop_runner_next_stage_continuation"].get("checksum")
+        ),
+        "controlled_loop_runner_next_stage_continuation.expected_checksum": (
+            input_binding_refs["controlled_loop_runner_next_stage_continuation"].get("expected_checksum")
+        ),
+        "checksums.controlled_loop_runner_next_stage_continuation": input_binding_checksums.get(
+            "controlled_loop_runner_next_stage_continuation"
+        ),
+        "checksums.expected_controlled_loop_runner_next_stage_continuation": input_binding_checksums.get(
+            "expected_controlled_loop_runner_next_stage_continuation"
+        ),
+    }
+    continuation_checksum_mismatches = {
+        field: value for field, value in continuation_checksum_values.items() if value != continuation_checksum
+    }
+    if continuation_checksum_mismatches:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_continuation_checksum_mismatch",
+                "controlled runner stage input binding continuation checksum anchors are stale",
+                expected=continuation_checksum,
+                actual=continuation_checksum_mismatches,
+            )
+        )
+    for name, expected_checksum in input_binding_checksum_groups:
+        mismatched = {
+            f"{name}.checksum": input_binding_refs[name].get("checksum"),
+            f"checksums.{name}": input_binding_checksums.get(name),
+        }
+        mismatched = {field: value for field, value in mismatched.items() if value != expected_checksum}
+        if mismatched:
+            blockers.append(
+                controlled_loop_runner_stage_execution_readiness_blocker(
+                    f"controlled_runner_stage_execution_readiness_stage_input_binding_{name}_checksum_mismatch",
+                    "controlled runner stage input binding checksum anchors do not match supplied evidence",
+                    expected=expected_checksum,
+                    actual=mismatched,
+                )
+            )
+    input_binding_selected_stage_checksum_values = {
+        "selected_stage_checksum": input_binding.get("selected_stage_checksum"),
+        "checksums.selected_stage": input_binding_checksums.get("selected_stage"),
+    }
+    input_binding_selected_stage_checksum_mismatches = {
+        field: value
+        for field, value in input_binding_selected_stage_checksum_values.items()
+        if value != input_binding_selected_stage_checksum
+    }
+    if input_binding_selected_stage_checksum_mismatches:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_selected_stage_checksum_mismatch",
+                "controlled runner stage input binding selected-stage checksum is stale",
+                expected=input_binding_selected_stage_checksum,
+                actual=input_binding_selected_stage_checksum_mismatches,
+            )
+        )
+    if input_binding_checksum is None:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_checksum_missing",
+                "controlled runner stage input binding checksum could not be computed",
+            )
+        )
+    elif expected_input_binding_checksum is not None and input_binding_checksum != expected_input_binding_checksum:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_checksum_mismatch",
+                "controlled runner stage input binding checksum does not match the reviewed checksum",
+                expected=expected_input_binding_checksum,
+                actual=input_binding_checksum,
+            )
+        )
+    return blockers
+
+
 def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Namespace) -> int:
-    next_stage_path = Path(args.controlled_loop_runner_next_stage_file)
+    next_stage_file = getattr(args, "controlled_loop_runner_next_stage_file", None)
+    continuation_file = getattr(args, "controlled_loop_runner_next_stage_continuation_file", None)
+    input_binding_file = getattr(args, "controlled_loop_runner_stage_input_binding_file", None)
+    uses_initial_next_stage = bool(next_stage_file)
+    uses_continuation_next_stage = bool(continuation_file)
+    next_stage_path = Path(next_stage_file) if uses_initial_next_stage else None
+    continuation_path = Path(continuation_file) if uses_continuation_next_stage else None
+    input_binding_path = Path(input_binding_file) if input_binding_file else None
+    expected_input_binding_checksum = getattr(args, "expected_stage_input_binding_checksum", None)
     start_path = Path(args.controlled_loop_runner_start_file)
     runner_plan_path = Path(args.controlled_loop_runner_plan_file)
     dry_run_path = Path(args.controlled_loop_runner_dry_run_file)
     stage_number = int(args.stage_number)
-    chain_validation = controlled_loop_runner_next_stage_chain_validation(args)
+    selection_source_count = int(uses_initial_next_stage) + int(uses_continuation_next_stage)
+    stage_selection_source = (
+        "initial"
+        if selection_source_count == 1 and uses_initial_next_stage
+        else "continuation"
+        if selection_source_count == 1 and uses_continuation_next_stage
+        else None
+    )
+    chain_validation = controlled_loop_runner_next_stage_chain_validation(
+        args,
+        allow_non_initial_stage=uses_continuation_next_stage,
+    )
     start_checksum = chain_validation["start_checksum"]
     runner_plan_checksum = chain_validation["runner_plan_checksum"]
     dry_run_checksum = chain_validation["dry_run_checksum"]
@@ -14479,15 +14959,54 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
         )
         for upstream_blocker in chain_validation["blockers"]
     ]
-    next_stage, next_stage_blockers = read_controlled_loop_runner_stage_execution_readiness_packet(
-        next_stage_path,
-        code="controlled_runner_stage_execution_readiness_next_stage_evidence_missing",
-        label="controlled runner next stage",
-    )
-    blockers.extend(next_stage_blockers)
-    next_stage_checksum = checksum_json(next_stage) if isinstance(next_stage, dict) else None
+    if selection_source_count != 1:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_selection_source_count_invalid",
+                "controlled runner stage execution readiness requires exactly one stage-selection source",
+                controlled_loop_runner_next_stage_file=next_stage_file,
+                controlled_loop_runner_next_stage_continuation_file=continuation_file,
+            )
+        )
+    if uses_initial_next_stage and input_binding_file:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_unexpected",
+                "controlled runner stage input binding is only valid with continuation-backed readiness",
+                controlled_loop_runner_stage_input_binding_file=input_binding_file,
+            )
+        )
+    if uses_continuation_next_stage and not input_binding_file:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_required",
+                "controlled runner continuation readiness requires a matching stage input binding packet",
+            )
+        )
+    if uses_continuation_next_stage and not expected_input_binding_checksum:
+        blockers.append(
+            controlled_loop_runner_stage_execution_readiness_blocker(
+                "controlled_runner_stage_execution_readiness_stage_input_binding_checksum_required",
+                "controlled runner continuation readiness requires the reviewed stage input binding checksum",
+            )
+        )
+
+    next_stage = None
+    next_stage_checksum = None
+    continuation = None
+    continuation_checksum = None
+    input_binding = None
+    input_binding_checksum = None
     selected_stage_checksum = None
-    if isinstance(next_stage, dict):
+    if stage_selection_source == "initial" and next_stage_path is not None:
+        next_stage, next_stage_blockers = read_controlled_loop_runner_stage_execution_readiness_packet(
+            next_stage_path,
+            code="controlled_runner_stage_execution_readiness_next_stage_evidence_missing",
+            label="controlled runner next stage",
+        )
+        blockers.extend(next_stage_blockers)
+        next_stage_checksum = checksum_json(next_stage) if isinstance(next_stage, dict) else None
+    if isinstance(next_stage, dict) and next_stage_path is not None:
         blockers.extend(
             controlled_loop_runner_stage_execution_readiness_next_stage_blockers(
                 next_stage=next_stage,
@@ -14503,6 +15022,44 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
         )
         if isinstance(next_stage.get("selected_stage"), dict):
             selected_stage_checksum = checksum_json(next_stage["selected_stage"])
+    if stage_selection_source == "continuation" and continuation_path is not None:
+        continuation, continuation_blockers = read_controlled_loop_runner_stage_execution_readiness_packet(
+            continuation_path,
+            code="controlled_runner_stage_execution_readiness_continuation_evidence_missing",
+            label="controlled runner next-stage continuation",
+        )
+        blockers.extend(continuation_blockers)
+        continuation_checksum = checksum_json(continuation) if isinstance(continuation, dict) else None
+        if input_binding_path is not None:
+            input_binding, input_binding_blockers = read_controlled_loop_runner_stage_execution_readiness_packet(
+                input_binding_path,
+                code="controlled_runner_stage_execution_readiness_stage_input_binding_evidence_missing",
+                label="controlled runner stage input binding",
+            )
+            blockers.extend(input_binding_blockers)
+            input_binding_checksum = checksum_json(input_binding) if isinstance(input_binding, dict) else None
+        if isinstance(continuation, dict) and isinstance(input_binding, dict) and input_binding_path is not None:
+            blockers.extend(
+                controlled_loop_runner_stage_execution_readiness_continuation_blockers(
+                    continuation=continuation,
+                    continuation_path=continuation_path,
+                    input_binding=input_binding,
+                    input_binding_path=input_binding_path,
+                    start_path=start_path,
+                    runner_plan_path=runner_plan_path,
+                    dry_run_path=dry_run_path,
+                    start_checksum=start_checksum,
+                    runner_plan_checksum=runner_plan_checksum,
+                    dry_run_checksum=dry_run_checksum,
+                    selected_stage=selected_stage,
+                    continuation_checksum=continuation_checksum,
+                    input_binding_checksum=input_binding_checksum,
+                    expected_input_binding_checksum=expected_input_binding_checksum,
+                    stage_number=stage_number,
+                )
+            )
+        if isinstance(continuation, dict) and isinstance(continuation.get("selected_stage"), dict):
+            selected_stage_checksum = checksum_json(continuation["selected_stage"])
 
     valid = not blockers
     recommended_next_action, reason = controlled_loop_runner_stage_execution_readiness_recommendation(blockers)
@@ -14516,12 +15073,24 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
             "stage_number": stage_number,
             "command": readiness_stage.get("command"),
             "readiness_generated_at": generated_at,
-            "controlled_loop_runner_next_stage_checksum": next_stage_checksum,
             "controlled_loop_runner_start_checksum": start_checksum,
             "controlled_loop_runner_plan_checksum": runner_plan_checksum,
             "controlled_loop_runner_dry_run_checksum": dry_run_checksum,
             "selected_stage_checksum": selected_stage_checksum,
         }
+        if stage_selection_source == "initial":
+            stage_execution_approval_target["controlled_loop_runner_next_stage_checksum"] = next_stage_checksum
+        elif stage_selection_source == "continuation" and continuation_path is not None and input_binding_path is not None:
+            stage_execution_approval_target.update(
+                {
+                    "stage_selection_source": "continuation",
+                    "stage_selection_source_file": str(continuation_path),
+                    "stage_selection_source_checksum": continuation_checksum,
+                    "controlled_loop_runner_next_stage_continuation_checksum": continuation_checksum,
+                    "controlled_loop_runner_stage_input_binding_file": str(input_binding_path),
+                    "controlled_loop_runner_stage_input_binding_checksum": input_binding_checksum,
+                }
+            )
         stage_execution_approval_target_checksum = checksum_json(stage_execution_approval_target)
 
     payload = {
@@ -14534,6 +15103,7 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
         "runner_stage_execution_readiness_status": "ready" if valid else "blocked",
         "reason": reason,
         "runner_started": bool(valid),
+        "process_started": False,
         "stage_execution_started": False,
         "executor_started": False,
         "epoch_started": False,
@@ -14545,6 +15115,7 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
         "role_assignment_started": False,
         "agent_scheduling_started": False,
         "loop_continuation_started": False,
+        "audit_evidence_appended": False,
         "operator_confirmation_required": True,
         "side_effects": [],
         "recommended_next_action": recommended_next_action,
@@ -14552,25 +15123,70 @@ def controlled_loop_runner_stage_execution_readiness_command(args: argparse.Name
         "selected_stage": readiness_stage,
         "stage_execution_approval_target": stage_execution_approval_target,
         "stage_execution_approval_target_checksum": stage_execution_approval_target_checksum,
-        "controlled_loop_runner_next_stage": {"file": str(next_stage_path), "checksum": next_stage_checksum},
         "controlled_loop_runner_start": {"file": str(start_path), "checksum": start_checksum},
         "controlled_loop_runner_plan": {"file": str(runner_plan_path), "checksum": runner_plan_checksum},
         "controlled_loop_runner_dry_run": {"file": str(dry_run_path), "checksum": dry_run_checksum},
-        "files": {
+        "blockers": blockers,
+        "limitations": CONTROLLED_LOOP_RUNNER_STAGE_EXECUTION_READINESS_LIMITATIONS,
+    }
+    if stage_selection_source == "initial" and next_stage_path is not None:
+        payload["controlled_loop_runner_next_stage"] = {
+            "file": str(next_stage_path),
+            "checksum": next_stage_checksum,
+        }
+        payload["files"] = {
             "controlled_loop_runner_next_stage": str(next_stage_path),
             "controlled_loop_runner_start": str(start_path),
             "controlled_loop_runner_plan": str(runner_plan_path),
             "controlled_loop_runner_dry_run": str(dry_run_path),
-        },
-        "checksums": {
+        }
+        payload["checksums"] = {
             "controlled_loop_runner_next_stage": next_stage_checksum,
             "controlled_loop_runner_start": start_checksum,
             "controlled_loop_runner_plan": runner_plan_checksum,
             "controlled_loop_runner_dry_run": dry_run_checksum,
-        },
-        "blockers": blockers,
-        "limitations": CONTROLLED_LOOP_RUNNER_STAGE_EXECUTION_READINESS_LIMITATIONS,
-    }
+        }
+    elif stage_selection_source == "continuation" and continuation_path is not None:
+        payload["stage_selection_source"] = "continuation"
+        payload["controlled_loop_runner_next_stage_continuation"] = {
+            "file": str(continuation_path),
+            "checksum": continuation_checksum,
+        }
+        if input_binding_path is not None:
+            payload["controlled_loop_runner_stage_input_binding"] = {
+                "file": str(input_binding_path),
+                "checksum": input_binding_checksum,
+                "expected_checksum": expected_input_binding_checksum,
+            }
+        payload["files"] = {
+            "controlled_loop_runner_next_stage_continuation": str(continuation_path),
+            "controlled_loop_runner_start": str(start_path),
+            "controlled_loop_runner_plan": str(runner_plan_path),
+            "controlled_loop_runner_dry_run": str(dry_run_path),
+        }
+        payload["checksums"] = {
+            "controlled_loop_runner_next_stage_continuation": continuation_checksum,
+            "controlled_loop_runner_start": start_checksum,
+            "controlled_loop_runner_plan": runner_plan_checksum,
+            "controlled_loop_runner_dry_run": dry_run_checksum,
+        }
+        if input_binding_path is not None:
+            payload["files"]["controlled_loop_runner_stage_input_binding"] = str(input_binding_path)
+            payload["checksums"]["controlled_loop_runner_stage_input_binding"] = input_binding_checksum
+            payload["checksums"][
+                "expected_controlled_loop_runner_stage_input_binding"
+            ] = expected_input_binding_checksum
+    else:
+        payload["files"] = {
+            "controlled_loop_runner_start": str(start_path),
+            "controlled_loop_runner_plan": str(runner_plan_path),
+            "controlled_loop_runner_dry_run": str(dry_run_path),
+        }
+        payload["checksums"] = {
+            "controlled_loop_runner_start": start_checksum,
+            "controlled_loop_runner_plan": runner_plan_checksum,
+            "controlled_loop_runner_dry_run": dry_run_checksum,
+        }
     emit(payload)
     return 0 if valid else 2
 
@@ -15091,6 +15707,7 @@ def controlled_loop_runner_stage_execution_approval_readiness_blockers(
             "runner_stage_execution_readiness_status": "ready",
             "reason": expected_reason,
             "runner_started": True,
+            "process_started": False,
             "stage_execution_started": False,
             "executor_started": False,
             "epoch_started": False,
@@ -15102,6 +15719,7 @@ def controlled_loop_runner_stage_execution_approval_readiness_blockers(
             "role_assignment_started": False,
             "agent_scheduling_started": False,
             "loop_continuation_started": False,
+            "audit_evidence_appended": False,
             "operator_confirmation_required": True,
             "side_effects": [],
             "recommended_next_action": expected_recommended_next_action,
@@ -22263,7 +22881,10 @@ def build_parser() -> argparse.ArgumentParser:
         "controlled-loop-runner-stage-execution-readiness",
         help="Prepare a controlled runner stage-execution approval target without executing it",
     )
-    runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-next-stage-file", required=True)
+    runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-next-stage-file")
+    runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-next-stage-continuation-file")
+    runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-stage-input-binding-file")
+    runner_stage_execution_readiness_parser.add_argument("--expected-stage-input-binding-checksum")
     runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-start-file", required=True)
     runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-plan-file", required=True)
     runner_stage_execution_readiness_parser.add_argument("--controlled-loop-runner-dry-run-file", required=True)
