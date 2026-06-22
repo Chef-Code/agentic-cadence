@@ -2059,9 +2059,10 @@ saved `controlled-loop-runner-next-stage.v1` packet. Continuation-backed
 readiness verifies the saved `controlled-loop-runner-next-stage-continuation.v1`
 packet is valid, read-only, selected, and still matched by a bound
 `controlled-loop-runner-stage-input-binding.v1` packet whose checksum matches
-the expected reviewed checksum. Both paths revalidate the upstream
-runner-start, runner-plan, and dry-run chain so the selected stage cannot be
-approved from stale evidence.
+the expected reviewed checksum. The continuation and binding must also advance
+exactly from completed stage `N` to requested stage `N+1`. Both paths
+revalidate the upstream runner-start, runner-plan, and dry-run chain so the
+selected stage cannot be approved from stale evidence.
 
 When valid, the command emits
 `controlled-loop-runner-stage-execution-readiness.v1` with
@@ -2103,6 +2104,7 @@ schedules no agents. Stable blockers include
 `controlled_runner_stage_execution_readiness_continuation_limitations_invalid`,
 `controlled_runner_stage_execution_readiness_continuation_selected_stage_mismatch`,
 `controlled_runner_stage_execution_readiness_continuation_selected_stage_checksum_mismatch`,
+`controlled_runner_stage_execution_readiness_continuation_stage_sequence_non_adjacent`,
 `controlled_runner_stage_execution_readiness_continuation_controlled_loop_runner_start_file_mismatch`,
 `controlled_runner_stage_execution_readiness_continuation_controlled_loop_runner_plan_file_mismatch`,
 `controlled_runner_stage_execution_readiness_continuation_controlled_loop_runner_dry_run_file_mismatch`,
@@ -2139,21 +2141,38 @@ and
 `controlled-loop-runner-stage-execution-approval` is the read-only approval
 packet after stage-execution readiness. It reads
 `--controlled-loop-runner-stage-execution-readiness-file`,
-`--controlled-loop-runner-next-stage-file`,
+either `--controlled-loop-runner-next-stage-file` or
+`--controlled-loop-runner-next-stage-continuation-file` plus
+`--controlled-loop-runner-stage-input-binding-file` and
+`--expected-stage-input-binding-checksum`,
 `--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
 `--controlled-loop-runner-dry-run-file`, `--approval-file`,
+optional `--start-governed-execution-approval-file`,
 `--expected-operator-id`, `--approval-secret-env` or `--approval-secret`, and
-optional `--stage-number`.
-This command remains scoped to initial-stage readiness from
-`controlled-loop-runner-next-stage.v1`; continuation-backed approval is a
-future controlled slice. It revalidates the full runner chain, rereads the
-readiness packet, and verifies the supplied `operator-approval.v1` through the
-shared `build_operator_approval_verification_packet` path without appending
-audit evidence. The approval must use purpose
+optional `--stage-number`. It revalidates the full runner chain, rereads the
+readiness packet, rechecks continuation and stage-input binding anchors when
+the readiness source is continuation-backed, and verifies the supplied
+`operator-approval.v1` through the shared
+`build_operator_approval_verification_packet` path without appending audit
+evidence. The stage-execution approval must use purpose
 `controlled_loop_runner_stage_execution`, must have an approval-secret-backed
 valid signature, its `operator_id` must match `--expected-operator-id`, and
 its `target_checksum` must match the readiness packet's
 `stage_execution_approval_target_checksum`.
+
+When the selected continuation command is `start-governed-execution`, the
+command requires `--start-governed-execution-approval-file` to contain a second
+valid `operator-approval.v1` with purpose `start_governed_execution` and a
+target checksum matching the executor task checksum from the
+`controlled-loop-runner-stage-input-binding.v1` packet. Before deriving that
+token, approval rereads the executor task file anchored by the binding and
+requires the current file checksum to match the binding's expected approval
+target, executor-task summary checksum, embedded checksum, prior-stage output
+checksum, and checksum map anchors. Only after that approval verifies does the
+packet derive the future
+`approve-executor-task:<checksum>` token; it does not call
+`start-governed-execution`, start a process, start an epoch, append audit
+evidence, continue the loop, or write Git/GitHub state.
 
 When valid, the command emits
 `controlled-loop-runner-stage-execution-approval.v1` with
@@ -2165,8 +2184,11 @@ operator_approved_not_executed`, `runner_started: true`,
 checksum, target checksum, approval target checksum, purpose, approval purpose,
 expected operator id, operator id, key id, issued/expires timestamps,
 signature, and signature verification state. It marks the selected stage as
-`approved_not_executed` and sets `next_controlled_action:
-prepare_controlled_runner_stage_invocation_boundary`.
+`approved_not_executed`. Initial approvals set `next_controlled_action:
+prepare_controlled_runner_stage_invocation_boundary`; continuation approvals set
+`next_controlled_action:
+generalize_controlled_runner_stage_invocation_boundary_for_continuation` until
+the continuation invocation-boundary slice generalizes that command.
 
 The command starts no runner stage, invokes no executor, retries no executor,
 continues no loop, appends no audit evidence, executes no Git commands, calls
@@ -2189,6 +2211,20 @@ schedules no agents. Stable blockers include
 `controlled_runner_stage_execution_approval_readiness_plan_checksum_mismatch`,
 `controlled_runner_stage_execution_approval_readiness_dry_run_file_mismatch`,
 `controlled_runner_stage_execution_approval_readiness_dry_run_checksum_mismatch`,
+`controlled_runner_stage_execution_approval_selection_source_count_invalid`,
+`controlled_runner_stage_execution_approval_stage_input_binding_required`,
+`controlled_runner_stage_execution_approval_stage_input_binding_unexpected`,
+`controlled_runner_stage_execution_approval_stage_input_binding_checksum_required`,
+`controlled_runner_stage_execution_approval_continuation_evidence_missing`,
+`controlled_runner_stage_execution_approval_stage_input_binding_evidence_missing`,
+`controlled_runner_stage_execution_approval_readiness_continuation_stage_sequence_non_adjacent`,
+`controlled_runner_stage_execution_approval_executor_task_checksum_missing`,
+`controlled_runner_stage_execution_approval_executor_task_file_missing`,
+`controlled_runner_stage_execution_approval_executor_task_file_mismatch`,
+`controlled_runner_stage_execution_approval_executor_task_file_unreadable`,
+`controlled_runner_stage_execution_approval_executor_task_file_invalid`,
+`controlled_runner_stage_execution_approval_executor_task_checksum_mismatch`,
+`controlled_runner_stage_execution_approval_executor_task_approval_required`,
 `controlled_runner_stage_execution_approval_target_missing`,
 `controlled_runner_stage_execution_approval_target_checksum_mismatch`,
 `controlled_runner_stage_execution_approval_target_purpose_mismatch`,
@@ -2203,6 +2239,10 @@ verification, including `operator_approval_file_unreadable`,
 `operator_approval_operator_mismatch`,
 `operator_approval_expected_operator_invalid`,
 `operator_approval_secret_missing`, and `operator_approval_signature_invalid`.
+Continuation-backed approval also maps every continuation and stage-input
+binding readiness blocker above by replacing
+`controlled_runner_stage_execution_readiness` with
+`controlled_runner_stage_execution_approval_readiness`.
 
 `controlled-loop-runner-stage-invocation-boundary` is the read-only invocation
 boundary packet after stage-execution approval. It reads
