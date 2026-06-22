@@ -2187,8 +2187,8 @@ signature, and signature verification state. It marks the selected stage as
 `approved_not_executed`. Initial approvals set `next_controlled_action:
 prepare_controlled_runner_stage_invocation_boundary`; continuation approvals set
 `next_controlled_action:
-generalize_controlled_runner_stage_invocation_boundary_for_continuation` until
-the continuation invocation-boundary slice generalizes that command.
+generalize_controlled_runner_stage_invocation_boundary_for_continuation` so the
+invocation-boundary command can build the exact continuation stage boundary.
 
 The command starts no runner stage, invokes no executor, retries no executor,
 continues no loop, appends no audit evidence, executes no Git commands, calls
@@ -2248,25 +2248,37 @@ binding readiness blocker above by replacing
 boundary packet after stage-execution approval. It reads
 `--controlled-loop-runner-stage-execution-approval-file`,
 `--controlled-loop-runner-stage-execution-readiness-file`,
-`--controlled-loop-runner-next-stage-file`,
+either `--controlled-loop-runner-next-stage-file` for the initial stage or
+`--controlled-loop-runner-next-stage-continuation-file` plus
+`--controlled-loop-runner-stage-input-binding-file` and
+`--expected-stage-input-binding-checksum` for a continuation stage,
 `--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
 `--controlled-loop-runner-dry-run-file`, `--stage-cwd`,
 `--stage-output-file`, `--stage-timeout-seconds`, `--expected-operator-id`,
 optional `--approval-secret` / `--approval-secret-env`, and optional
-`--stage-number`. It revalidates the full runner chain, rereads the
-readiness and next-stage packets, requires a completed
+`--stage-number`. Ownership flags are parsed only to fail closed in Tasks
+61-66. It revalidates the full runner chain, rereads the readiness and
+initial next-stage packet or continuation next-stage plus stage-input binding
+packets, requires a completed
 `controlled-loop-runner-stage-execution-approval.v1` packet, rereads the saved
 operator-approval file named by that approval packet, and re-verifies the
 operator-approval signature, purpose, target checksum, and expected operator
 through the shared operator-approval verifier. It confirms that the approved
 selected stage still matches the revalidated readiness stage, the requested
-stage number, and the command declared by the approved runner plan.
+stage number, and the command declared by the approved runner plan. For
+continuation-backed inputs it also reuses the continuation/readiness
+stage-adjacency and stage-input-binding checksum checks so the boundary cannot
+advance from stale continuation evidence.
 The approval packet's copied `stage_execution_approval_target`,
 `stage_execution_approval_target_checksum`, nested approval `target_checksum`,
 nested approval `approval_target_checksum`, purpose, approval purpose,
 expected operator, signature verification state, and blocker codes must match
 the rederived stage-execution approval target from the supplied readiness and
-upstream runner chain plus the freshly reverified operator approval.
+upstream runner chain plus the freshly reverified operator approval. Initial
+approvals must still carry `next_controlled_action:
+prepare_controlled_runner_stage_invocation_boundary`; continuation approvals
+must carry `next_controlled_action:
+generalize_controlled_runner_stage_invocation_boundary_for_continuation`.
 
 When valid, the command emits
 `controlled-loop-runner-stage-invocation-boundary.v1` with
@@ -2286,12 +2298,22 @@ name, exact `argv`, normalized arguments, fixed working-directory policy,
 stdout JSON evidence-output policy, finite timeout policy, execution authority,
 and allowed side effects. The packet also emits
 `invocation_boundary_checksum`, records file/checksum anchors for the
-stage-execution approval, stage-execution readiness, next-stage, runner-start,
-runner-plan, and dry-run inputs, and records the planned stage output file
+stage-execution approval, stage-execution readiness, initial next-stage or
+continuation next-stage plus stage-input binding, runner-start, runner-plan,
+and dry-run inputs, and records the planned stage output file
 path. The current `loop-run-plan` boundary argv starts with the current Python
 executable and `-m codex_cadence.cli`, and includes `--discovery-mode off` so
 the argv is parser-valid without `--intent`. The planned output path must
 have an existing directory parent and must not be an existing directory.
+For continuation stage-2 `start-governed-execution`, boundary construction
+rereads the executor task file anchored by the stage-input binding, requires
+the current checksum to match every executor-task checksum anchor in the
+binding and approval packet, requires the approval packet's derived
+`start_governed_execution.approval_token` to match
+`approve-executor-task:<current-task-checksum>`, and requires `--stage-cwd` to
+match the executor task repo path. The emitted argv includes only
+`--task-file`, `--approval-token`, and `--cwd` for that command; ownership
+arguments are not allowed in Tasks 61-66.
 
 The command starts no process, executes no runner stage, invokes no executor,
 retries no executor, continues no loop, appends no audit evidence, executes no
@@ -2301,6 +2323,8 @@ assigns no roles, and schedules no agents. Stable blockers include
 `controlled_runner_stage_invocation_boundary_approval_evidence_missing`,
 `controlled_runner_stage_invocation_boundary_readiness_evidence_missing`,
 `controlled_runner_stage_invocation_boundary_next_stage_evidence_missing`,
+`controlled_runner_stage_invocation_boundary_continuation_evidence_missing`,
+`controlled_runner_stage_invocation_boundary_stage_input_binding_evidence_missing`,
 `controlled_runner_stage_invocation_boundary_upstream_invalid`,
 `controlled_runner_stage_invocation_boundary_approval_packet_mismatch`,
 `controlled_runner_stage_invocation_boundary_approval_not_completed`,
@@ -2312,6 +2336,10 @@ assigns no roles, and schedules no agents. Stable blockers include
 `controlled_runner_stage_invocation_boundary_approval_readiness_checksum_mismatch`,
 `controlled_runner_stage_invocation_boundary_approval_next_stage_file_mismatch`,
 `controlled_runner_stage_invocation_boundary_approval_next_stage_checksum_mismatch`,
+`controlled_runner_stage_invocation_boundary_approval_continuation_file_mismatch`,
+`controlled_runner_stage_invocation_boundary_approval_continuation_checksum_mismatch`,
+`controlled_runner_stage_invocation_boundary_approval_stage_input_binding_file_mismatch`,
+`controlled_runner_stage_invocation_boundary_approval_stage_input_binding_checksum_mismatch`,
 `controlled_runner_stage_invocation_boundary_approval_start_file_mismatch`,
 `controlled_runner_stage_invocation_boundary_approval_start_checksum_mismatch`,
 `controlled_runner_stage_invocation_boundary_approval_plan_file_mismatch`,
@@ -2326,6 +2354,20 @@ assigns no roles, and schedules no agents. Stable blockers include
 `controlled_runner_stage_invocation_boundary_operator_approval_file_mismatch`,
 `controlled_runner_stage_invocation_boundary_operator_approval_file_unreadable`,
 `controlled_runner_stage_invocation_boundary_operator_approval_checksum_mismatch`,
+`controlled_runner_stage_invocation_boundary_selection_source_count_invalid`,
+`controlled_runner_stage_invocation_boundary_stage_input_binding_required`,
+`controlled_runner_stage_invocation_boundary_stage_input_binding_unexpected`,
+`controlled_runner_stage_invocation_boundary_stage_input_binding_checksum_required`,
+`controlled_runner_stage_invocation_boundary_ownership_not_supported`,
+`controlled_runner_stage_invocation_boundary_start_governed_execution_binding_missing`,
+`controlled_runner_stage_invocation_boundary_executor_task_file_missing`,
+`controlled_runner_stage_invocation_boundary_executor_task_file_unreadable`,
+`controlled_runner_stage_invocation_boundary_executor_task_file_invalid`,
+`controlled_runner_stage_invocation_boundary_executor_task_checksum_mismatch`,
+`controlled_runner_stage_invocation_boundary_start_governed_execution_task_file_mismatch`,
+`controlled_runner_stage_invocation_boundary_start_governed_execution_approval_token_mismatch`,
+`controlled_runner_stage_invocation_boundary_executor_task_repo_path_missing`,
+`controlled_runner_stage_invocation_boundary_stage_cwd_mismatch`,
 `controlled_runner_stage_invocation_boundary_root_missing`,
 `controlled_runner_stage_invocation_boundary_cwd_invalid`,
 `controlled_runner_stage_invocation_boundary_output_file_invalid`,

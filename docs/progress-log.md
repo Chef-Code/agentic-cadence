@@ -33,6 +33,56 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-06-22 - Controlled runner continuation invocation boundary
+
+Summary:
+- Generalized `controlled-loop-runner-stage-invocation-boundary` so it accepts
+  continuation-backed approval/readiness from Task 63 while preserving the
+  existing initial stage-1 `loop-run-plan` boundary behavior.
+- Continuation boundary construction now rechecks the continuation packet,
+  stage-input binding packet, executor task checksum anchors, and derived
+  `start_governed_execution` approval token before emitting the exact
+  stage-2 `start-governed-execution` argv.
+- The emitted boundary binds the verified executor task file, derived approval
+  token, fixed executor task repo cwd, output policy, timeout policy, allowed
+  side effects, and checksum without accepting ownership arguments.
+- The packet remains read-only and starts no process, executor, epoch, audit
+  append, loop continuation, or Git/GitHub write.
+
+Completed slices:
+- Task 64: controlled runner continuation stage invocation boundary.
+
+Confidence change:
+- Previous: 58%
+- New: 59%
+- Reason: Cadence can now make the continuation stage-2 invocation reviewable
+  from verified readiness, approval, and executor-task binding evidence, but
+  continuation execution, closeout, and unattended loop orchestration remain
+  future slices.
+
+Evidence:
+- Focused stage-invocation boundary tests: 7 tests passed.
+- Protocol validation: `python scripts/validate_protocol.py` passed.
+- Syntax check: `python -m py_compile scripts/cadence.py codex_cadence/cli.py`
+  passed.
+- Package verification: `python scripts/verify_package.py` passed.
+- Diff whitespace check: `git diff --check` passed.
+
+New risks or blockers:
+- Task 65 still needs controlled execution of one approved continuation stage
+  before the runner can start a continuation-stage process.
+- The runner still cannot autonomously assign agents, schedule workers, retry
+  stages, push branches, open or update PRs, merge, release, publish packages,
+  or continue unattended.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+
 ## 2026-06-22 - Controlled runner continuation approval
 
 Summary:
