@@ -10095,6 +10095,7 @@ CONTROLLED_LOOP_RUNNER_STAGE_INVOCATION_BOUNDARY_LIMITATIONS = [
     "invocation_boundary_only",
     "does_not_start_process",
     "does_not_execute_runner_stage",
+    "does_not_start_epoch",
     "does_not_start_executor",
     "does_not_invoke_executor",
     "does_not_retry_executor",
@@ -16668,6 +16669,8 @@ def controlled_loop_runner_stage_invocation_boundary_start_governed_execution_co
     input_binding: dict[str, Any] | None,
     input_binding_path: Path | None,
     stage_cwd: Path,
+    approval_secret: str | None,
+    expected_operator_id: str,
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     blockers: list[dict[str, Any]] = []
     if not isinstance(approval, dict):
@@ -16785,9 +16788,148 @@ def controlled_loop_runner_stage_invocation_boundary_start_governed_execution_co
             )
         )
 
+    approval_files = approval.get("files") if isinstance(approval.get("files"), dict) else {}
+    approval_checksums = approval.get("checksums") if isinstance(approval.get("checksums"), dict) else {}
+    executor_task_approval = (
+        approval.get("executor_task_approval")
+        if isinstance(approval.get("executor_task_approval"), dict)
+        else None
+    )
+    if executor_task_approval is None:
+        blockers.append(
+            controlled_loop_runner_stage_invocation_boundary_blocker(
+                "controlled_runner_stage_invocation_boundary_executor_task_approval_missing",
+                "continuation start-governed-execution boundary requires verified executor-task approval evidence",
+            )
+        )
+    else:
+        executor_task_approval_file_value = executor_task_approval.get("file")
+        if not isinstance(executor_task_approval_file_value, str) or not executor_task_approval_file_value.strip():
+            executor_task_approval_file_value = approval_files.get("start_governed_execution_operator_approval")
+        if not isinstance(executor_task_approval_file_value, str) or not executor_task_approval_file_value.strip():
+            blockers.append(
+                controlled_loop_runner_stage_invocation_boundary_blocker(
+                    "controlled_runner_stage_invocation_boundary_executor_task_approval_missing",
+                    "continuation start-governed-execution boundary requires an executor-task approval file anchor",
+                )
+            )
+        else:
+            executor_task_approval_path = Path(
+                controlled_tick_context_path(approval_path, executor_task_approval_file_value)
+            )
+            file_mismatches = {
+                field: value
+                for field, value in {
+                    "executor_task_approval.file": executor_task_approval.get("file"),
+                    "files.start_governed_execution_operator_approval": approval_files.get(
+                        "start_governed_execution_operator_approval"
+                    ),
+                }.items()
+                if not controlled_loop_runner_plan_file_matches(approval_path, value, executor_task_approval_path)
+            }
+            if file_mismatches:
+                blockers.append(
+                    controlled_loop_runner_stage_invocation_boundary_blocker(
+                        "controlled_runner_stage_invocation_boundary_executor_task_approval_file_mismatch",
+                        "continuation start-governed-execution executor-task approval file anchors must match",
+                        expected=str(executor_task_approval_path),
+                        actual=file_mismatches,
+                    )
+                )
+            try:
+                executor_task_approval_packet = read_json(executor_task_approval_path)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                blockers.append(
+                    controlled_loop_runner_stage_invocation_boundary_blocker(
+                        "controlled_runner_stage_invocation_boundary_executor_task_approval_file_unreadable",
+                        "continuation start-governed-execution executor-task approval file could not be read as JSON",
+                        path=str(executor_task_approval_path),
+                        error=str(exc),
+                    )
+                )
+            else:
+                executor_task_approval_checksum = (
+                    checksum_json(executor_task_approval_packet)
+                    if isinstance(executor_task_approval_packet, dict)
+                    else None
+                )
+                checksum_mismatches = {
+                    field: value
+                    for field, value in {
+                        "executor_task_approval.checksum": executor_task_approval.get("checksum"),
+                        "checksums.start_governed_execution_operator_approval": approval_checksums.get(
+                            "start_governed_execution_operator_approval"
+                        ),
+                    }.items()
+                    if value != executor_task_approval_checksum
+                }
+                if checksum_mismatches:
+                    blockers.append(
+                        controlled_loop_runner_stage_invocation_boundary_blocker(
+                            "controlled_runner_stage_invocation_boundary_executor_task_approval_checksum_mismatch",
+                            "continuation start-governed-execution executor-task approval checksum anchors must match",
+                            expected=executor_task_approval_checksum,
+                            actual=checksum_mismatches,
+                        )
+                    )
+                executor_task_approval_verification = build_operator_approval_verification_packet(
+                    approval=executor_task_approval_packet,
+                    approval_file=executor_task_approval_path,
+                    expected_target_checksum=current_task_checksum,
+                    expected_purpose="start_governed_execution",
+                    approval_secret=approval_secret,
+                    expected_operator_id=expected_operator_id,
+                )
+                blockers.extend(executor_task_approval_verification.get("blockers", []))
+                expected_executor_task_approval = {
+                    "state": executor_task_approval_verification.get("approval_state"),
+                    "checksum": executor_task_approval_checksum,
+                    "target_checksum": current_task_checksum,
+                    "approval_target_checksum": executor_task_approval_verification.get(
+                        "approval_target_checksum"
+                    ),
+                    "purpose": "start_governed_execution",
+                    "approval_purpose": executor_task_approval_verification.get("approval_purpose"),
+                    "expected_operator_id": expected_operator_id,
+                    "operator_id": executor_task_approval_verification.get("operator_id"),
+                    "key_id": executor_task_approval_verification.get("key_id"),
+                    "issued_at": executor_task_approval_verification.get("issued_at"),
+                    "expires_at": executor_task_approval_verification.get("expires_at"),
+                    "signature": (
+                        executor_task_approval_packet.get("signature")
+                        if isinstance(executor_task_approval_packet, dict)
+                        else None
+                    ),
+                    "signature_verified": executor_task_approval_verification.get("signature_verified"),
+                    "blocker_codes": [
+                        blocker["code"]
+                        for blocker in executor_task_approval_verification.get("blockers", [])
+                    ],
+                }
+                identity_mismatches = {
+                    field: {
+                        "expected": expected_value,
+                        "actual": executor_task_approval.get(field),
+                    }
+                    for field, expected_value in expected_executor_task_approval.items()
+                    if executor_task_approval.get(field) != expected_value
+                }
+                if identity_mismatches:
+                    blockers.append(
+                        controlled_loop_runner_stage_invocation_boundary_blocker(
+                            "controlled_runner_stage_invocation_boundary_executor_task_approval_identity_mismatch",
+                            "continuation start-governed-execution executor-task approval summary must match fresh verification",
+                            actual=identity_mismatches,
+                        )
+                    )
+
     repo_packet = task_packet.get("repo") if isinstance(task_packet.get("repo"), dict) else {}
     repo_path_value = repo_packet.get("path")
-    expected_cwd = Path(repo_path_value).expanduser().resolve(strict=False) if isinstance(repo_path_value, str) else None
+    expected_cwd = (
+        Path(repo_path_value).expanduser().resolve(strict=False)
+        if isinstance(repo_path_value, str) and repo_path_value.strip()
+        else None
+    )
     if expected_cwd is None:
         blockers.append(
             controlled_loop_runner_stage_invocation_boundary_blocker(
@@ -17543,7 +17685,7 @@ def controlled_loop_runner_stage_invocation_boundary_command(args: argparse.Name
         "ownership_claimer": getattr(args, "ownership_claimer", None),
     }
     supplied_ownership_arguments = {
-        field: value for field, value in ownership_arguments.items() if value
+        field: value for field, value in ownership_arguments.items() if value is not None
     }
     if supplied_ownership_arguments:
         blockers.append(
@@ -17739,6 +17881,8 @@ def controlled_loop_runner_stage_invocation_boundary_command(args: argparse.Name
                     input_binding=input_binding if isinstance(input_binding, dict) else None,
                     input_binding_path=input_binding_path,
                     stage_cwd=stage_cwd,
+                    approval_secret=operator_approval_secret_from_args(args),
+                    expected_operator_id=args.expected_operator_id,
                 )
             )
             blockers.extend(command_context_blockers)

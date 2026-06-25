@@ -229,7 +229,7 @@ required `start_governed_execution` executor-task approval without executing the
 stage. Continuation invocation-boundary preparation can now consume that
 approval, reread the executor task binding, and emit the exact
 `start-governed-execution` argv without starting a process. Continuation
-execution, closeout, autonomous
+execution, closeout, outcome planning, autonomous
 branch/commit/push or PR creation, automatic session launch, distributed work
 ownership, role assignment, and continuous loop orchestration remain missing.
 Current unattended-operation confidence is 25%. Progress-log entries record

@@ -915,8 +915,8 @@ the exact `--task-file` path from the verified stage-input binding, the exact
 derived `--approval-token` from verified executor-task approval evidence, and
 the fixed `--cwd` from the executor task repo anchor. Ownership arguments are
 not accepted for Tasks 61-66.
-They do not start a process, execute a runner stage, invoke or retry an
-executor, continue the loop, or write Git/GitHub state.
+They do not start a process, start or close an epoch, execute a runner stage,
+invoke or retry an executor, continue the loop, or write Git/GitHub state.
 
 `controlled-loop-runner-stage-execute` consumes saved completed
 `controlled-loop-runner-stage-invocation-boundary.v1`,
@@ -1589,8 +1589,8 @@ stage as `boundary_prepared_not_started`, recommend
 `review_controlled_runner_stage_invocation_boundary`, set
 `next_controlled_action: execute_approved_runner_stage_once`, and still append
 no audit evidence or start any process, runner stage, executor, loop
-continuation, Git/GitHub write, merge, release, publication, role assignment,
-or agent scheduling.
+continuation, epoch, Git/GitHub write, merge, release, publication, role
+assignment, or agent scheduling.
 
 `controlled-loop-runner-stage-execute` is the controlled single-stage execution
 packet after invocation-boundary review. It consumes the saved invocation

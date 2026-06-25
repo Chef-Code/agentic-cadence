@@ -302,9 +302,10 @@ command-policy and active-stop controls. It includes:
   approval, and emit exact argv, normalized arguments, cwd policy,
   evidence-output policy, finite timeout policy, execution authority,
   side-effect policy, and boundary checksum without starting a process, without
-  executing the stage, without appending audit evidence, without invoking an
-  executor, without retrying an executor, without continuing the loop, without
-  writing Git/GitHub state, without merging, without releasing, without
+  starting or closing an epoch, without executing the stage, without appending
+  audit evidence, without invoking an executor, without retrying an executor,
+  without continuing the loop, without writing Git/GitHub state, without
+  merging, without releasing, without
   publishing packages, without assigning roles, and without scheduling agents;
 - `controlled-loop-runner-stage-execute` packets that consume completed
   invocation-boundary, stage-execution approval, stage-execution readiness,

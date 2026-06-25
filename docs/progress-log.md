@@ -57,11 +57,11 @@ Confidence change:
 - New: 59%
 - Reason: Cadence can now make the continuation stage-2 invocation reviewable
   from verified readiness, approval, and executor-task binding evidence, but
-  continuation execution, closeout, and unattended loop orchestration remain
-  future slices.
+  continuation execution, closeout, outcome planning, and unattended loop
+  orchestration remain future slices.
 
 Evidence:
-- Focused stage-invocation boundary tests: 7 tests passed.
+- Focused stage-invocation boundary tests: 8 tests passed.
 - Protocol validation: `python scripts/validate_protocol.py` passed.
 - Syntax check: `python -m py_compile scripts/cadence.py codex_cadence/cli.py`
   passed.

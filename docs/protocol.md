@@ -2306,20 +2306,22 @@ executable and `-m codex_cadence.cli`, and includes `--discovery-mode off` so
 the argv is parser-valid without `--intent`. The planned output path must
 have an existing directory parent and must not be an existing directory.
 For continuation stage-2 `start-governed-execution`, boundary construction
-rereads the executor task file anchored by the stage-input binding, requires
-the current checksum to match every executor-task checksum anchor in the
-binding and approval packet, requires the approval packet's derived
-`start_governed_execution.approval_token` to match
+rereads the executor task file anchored by the stage-input binding, re-verifies
+the saved executor-task operator approval evidence recorded by the approval
+packet, requires the current checksum to match every executor-task checksum
+anchor in the binding and approval packet, requires the approval packet's
+derived `start_governed_execution.approval_token` to match
 `approve-executor-task:<current-task-checksum>`, and requires `--stage-cwd` to
 match the executor task repo path. The emitted argv includes only
 `--task-file`, `--approval-token`, and `--cwd` for that command; ownership
 arguments are not allowed in Tasks 61-66.
 
-The command starts no process, executes no runner stage, invokes no executor,
-retries no executor, continues no loop, appends no audit evidence, executes no
-Git commands, calls no GitHub APIs, creates no branches, commits, pushes,
-creates no PRs, merges no PRs, releases no artifacts, publishes no packages,
-assigns no roles, and schedules no agents. Stable blockers include
+The command starts no process, starts or closes no epoch, executes no runner
+stage, invokes no executor, retries no executor, continues no loop, appends no
+audit evidence, executes no Git commands, calls no GitHub APIs, creates no
+branches, commits, pushes, creates no PRs, merges no PRs, releases no
+artifacts, publishes no packages, assigns no roles, and schedules no agents.
+Stable blockers include
 `controlled_runner_stage_invocation_boundary_approval_evidence_missing`,
 `controlled_runner_stage_invocation_boundary_readiness_evidence_missing`,
 `controlled_runner_stage_invocation_boundary_next_stage_evidence_missing`,
@@ -2366,6 +2368,11 @@ assigns no roles, and schedules no agents. Stable blockers include
 `controlled_runner_stage_invocation_boundary_executor_task_checksum_mismatch`,
 `controlled_runner_stage_invocation_boundary_start_governed_execution_task_file_mismatch`,
 `controlled_runner_stage_invocation_boundary_start_governed_execution_approval_token_mismatch`,
+`controlled_runner_stage_invocation_boundary_executor_task_approval_missing`,
+`controlled_runner_stage_invocation_boundary_executor_task_approval_file_mismatch`,
+`controlled_runner_stage_invocation_boundary_executor_task_approval_file_unreadable`,
+`controlled_runner_stage_invocation_boundary_executor_task_approval_checksum_mismatch`,
+`controlled_runner_stage_invocation_boundary_executor_task_approval_identity_mismatch`,
 `controlled_runner_stage_invocation_boundary_executor_task_repo_path_missing`,
 `controlled_runner_stage_invocation_boundary_stage_cwd_mismatch`,
 `controlled_runner_stage_invocation_boundary_root_missing`,
