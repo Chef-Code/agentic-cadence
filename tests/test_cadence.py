@@ -7714,6 +7714,7 @@ class CadenceCliTests(unittest.TestCase):
             "expected_operator_id": "operator@example.test",
             "approval_secret": OPERATOR_APPROVAL_SECRET,
             "approval_secret_env": None,
+            "expected_stage_input_binding_checksum": None,
             "stage_number": 1,
         }
         values.update(overrides)
@@ -7746,6 +7747,13 @@ class CadenceCliTests(unittest.TestCase):
             args.extend(["--approval-secret", str(values["approval_secret"])])
         if values["approval_secret_env"] is not None:
             args.extend(["--approval-secret-env", str(values["approval_secret_env"])])
+        if values["expected_stage_input_binding_checksum"] is not None:
+            args.extend(
+                [
+                    "--expected-stage-input-binding-checksum",
+                    str(values["expected_stage_input_binding_checksum"]),
+                ]
+            )
         return run_cli(tmp, *args)
 
     def write_controlled_loop_runner_stage_execute_chain(self, tmp, repo, *, stage_output_file=None):
@@ -12706,6 +12714,12 @@ class CadenceCliTests(unittest.TestCase):
         def remove_task_file(chain):
             chain["executor_task_path"].unlink()
 
+        def invalidate_executor_task_contract(chain):
+            self.mutate_json_file(
+                chain["executor_task_path"],
+                lambda packet: packet.pop("repo", None),
+            )
+
         def forge_approval_token(chain):
             self.mutate_json_file(
                 chain["controlled_loop_runner_stage_execution_approval_evidence_path"],
@@ -12755,6 +12769,11 @@ class CadenceCliTests(unittest.TestCase):
                 "missing-task-file",
                 remove_task_file,
                 "controlled_runner_stage_invocation_boundary_executor_task_file_unreadable",
+            ),
+            (
+                "invalid-executor-task-contract",
+                invalidate_executor_task_contract,
+                "controlled_runner_stage_invocation_boundary_executor_task_file_invalid",
             ),
             (
                 "forged-approval-token",
@@ -12938,6 +12957,12 @@ class CadenceCliTests(unittest.TestCase):
                 lambda chain: None,
                 {"stage_timeout_seconds": 0},
                 "controlled_runner_stage_invocation_boundary_timeout_invalid",
+            ),
+            (
+                "unexpected-stage-input-binding-checksum",
+                lambda chain: None,
+                {"expected_stage_input_binding_checksum": "sha256:" + "0" * 64},
+                "controlled_runner_stage_invocation_boundary_stage_input_binding_checksum_unexpected",
             ),
             (
                 "directory-output-file",

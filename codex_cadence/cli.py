@@ -16739,6 +16739,17 @@ def controlled_loop_runner_stage_invocation_boundary_start_governed_execution_co
             )
         )
         return None, blockers
+    task_valid, task_reason = validate_executor_task_packet(task_packet)
+    if not task_valid:
+        blockers.append(
+            controlled_loop_runner_stage_invocation_boundary_blocker(
+                "controlled_runner_stage_invocation_boundary_executor_task_file_invalid",
+                "continuation start-governed-execution executor task file failed validation",
+                path=str(task_path),
+                reason=task_reason,
+            )
+        )
+        return None, blockers
 
     current_task_checksum = checksum_json(task_packet)
     checksum_values = {
@@ -17663,6 +17674,14 @@ def controlled_loop_runner_stage_invocation_boundary_command(args: argparse.Name
                 "controlled_runner_stage_invocation_boundary_stage_input_binding_unexpected",
                 "controlled runner stage input binding is only valid with continuation-backed boundary planning",
                 controlled_loop_runner_stage_input_binding_file=input_binding_file,
+            )
+        )
+    if uses_initial_next_stage and expected_input_binding_checksum is not None:
+        blockers.append(
+            controlled_loop_runner_stage_invocation_boundary_blocker(
+                "controlled_runner_stage_invocation_boundary_stage_input_binding_checksum_unexpected",
+                "controlled runner stage input binding checksum is only valid with continuation-backed boundary planning",
+                expected_stage_input_binding_checksum=expected_input_binding_checksum,
             )
         )
     if uses_continuation_next_stage and not input_binding_file:
