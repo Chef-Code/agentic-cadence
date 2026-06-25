@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-22
+Last updated: 2026-06-25
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,59 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-06-25 - Controlled runner continuation single-stage execution
+
+Summary:
+- Generalized `controlled-loop-runner-stage-execute` so it accepts
+  continuation-backed invocation boundaries from Task 64 while preserving the
+  existing initial stage-1 execution behavior.
+- Continuation execution now rechecks the continuation packet, stage-input
+  binding packet, reviewed binding checksum, executor-task approval-derived
+  boundary arguments, and reviewed invocation-boundary checksum before process
+  start.
+- Stage-2 `start-governed-execution` is executed exactly once with
+  `shell=False`; observed effects are limited to declared
+  `epoch_started` and `execution_start_decision` effects, and any undeclared
+  effect blocks after the single process start.
+- Stage-execution audit records are replay-valid and include payload,
+  boundary, approval, readiness, and command-result checksums.
+
+Completed slices:
+- Task 65: controlled runner continuation single-stage execution.
+
+Confidence change:
+- Previous: 59%
+- New: 60%
+- Reason: Cadence can now execute one approved continuation stage from saved
+  readiness, approval, input-binding, and exact invocation-boundary evidence,
+  but continuation closeout, outcome planning, retries, autonomous Git/GitHub
+  writes, and unattended loop orchestration remain future slices.
+
+Evidence:
+- Continuation boundary/execution focused tests: 3 tests passed.
+- Existing stage-execute preservation tests: 9 tests passed.
+- Protocol validation: `python scripts/validate_protocol.py` passed.
+- Syntax check: `python -m py_compile scripts/cadence.py codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py` passed.
+- Package verification: `python scripts/verify_package.py` passed.
+- Diff whitespace check: `git diff --check` passed.
+
+New risks or blockers:
+- Task 66 still needs continuation-aware stage closeout and outcome planning
+  before the runner can classify the continuation output and plan the next
+  operator action.
+- The runner still cannot autonomously assign agents, schedule workers, retry
+  stages, push branches, open or update PRs, merge, release, publish packages,
+  or continue unattended.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+- `docs/progress-log.md`
 
 ## 2026-06-22 - Controlled runner continuation invocation boundary
 
