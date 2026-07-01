@@ -22427,7 +22427,7 @@ def controlled_loop_runner_stage_outcome_plan_command(args: argparse.Namespace) 
 
     chain_validation = controlled_loop_runner_next_stage_chain_validation(
         args,
-        allow_non_initial_stage=uses_continuation_next_stage or stage_number != 1,
+        allow_non_initial_stage=uses_continuation_next_stage,
     )
     start = chain_validation["start"]
     runner_plan = chain_validation["runner_plan"]

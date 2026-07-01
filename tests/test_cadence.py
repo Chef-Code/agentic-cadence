@@ -15263,6 +15263,26 @@ class CadenceCliTests(unittest.TestCase):
             )
             self.assertIsNotNone(validation["selected_stage"])
 
+    def test_controlled_loop_runner_stage_outcome_plan_blocks_initial_non_initial_stage(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_outcome_plan_chain(tmp, repo)
+
+            result, output = run_cli(
+                tmp,
+                *self.controlled_loop_runner_stage_outcome_plan_argv(tmp, chain, stage_number=2)[2:],
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_selection_source"], "initial")
+            self.assertIn(
+                "controlled_runner_next_stage_unsupported_stage",
+                {blocker.get("upstream_code") for blocker in output["blockers"]},
+            )
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["loop_continuation_started"])
+
     def test_controlled_loop_runner_stage_outcome_plan_targets_failure_inspection_without_retry(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
