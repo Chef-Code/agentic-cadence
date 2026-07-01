@@ -15531,6 +15531,65 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
+    def test_controlled_loop_runner_completion_blocks_execution_selected_stage_plan_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_completion_chain(tmp, repo)
+
+            execution = json.loads(
+                chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8")
+            )
+            execution["selected_stage"]["command"] = "forged-command"
+            chain["controlled_loop_runner_stage_execution_path"].write_text(
+                json.dumps(execution),
+                encoding="utf-8",
+            )
+            execution_checksum = checksum_json(execution)
+
+            closeout = json.loads(
+                chain["controlled_loop_runner_stage_closeout_path"].read_text(encoding="utf-8")
+            )
+            closeout["controlled_loop_runner_stage_execution"]["checksum"] = execution_checksum
+            closeout["checksums"]["controlled_loop_runner_stage_execution"] = execution_checksum
+            chain["controlled_loop_runner_stage_closeout_path"].write_text(
+                json.dumps(closeout),
+                encoding="utf-8",
+            )
+            closeout_checksum = checksum_json(closeout)
+
+            outcome_plan = json.loads(
+                chain["controlled_loop_runner_stage_outcome_plan_path"].read_text(encoding="utf-8")
+            )
+            outcome_plan["controlled_loop_runner_stage_execution"]["checksum"] = execution_checksum
+            outcome_plan["checksums"]["controlled_loop_runner_stage_execution"] = execution_checksum
+            outcome_plan["outcome_target"]["controlled_loop_runner_stage_execution_checksum"] = execution_checksum
+            outcome_plan["controlled_loop_runner_stage_closeout"]["checksum"] = closeout_checksum
+            outcome_plan["checksums"]["controlled_loop_runner_stage_closeout"] = closeout_checksum
+            outcome_plan["outcome_target"]["controlled_loop_runner_stage_closeout_checksum"] = closeout_checksum
+            outcome_plan["outcome_target_checksum"] = checksum_json(outcome_plan["outcome_target"])
+            chain["controlled_loop_runner_stage_outcome_plan"] = outcome_plan
+            chain["controlled_loop_runner_stage_outcome_plan_path"].write_text(
+                json.dumps(outcome_plan),
+                encoding="utf-8",
+            )
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_completion_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_completion_execution_selected_stage_plan_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertIsNone(output["completion_target"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
     def test_controlled_loop_runner_completion_blocks_completion_target_closeout_status_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)

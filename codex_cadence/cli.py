@@ -13006,6 +13006,7 @@ def controlled_loop_runner_completion_command(args: argparse.Namespace) -> int:
         closeout_selection_source = closeout.get("stage_selection_source", "initial")
         if closeout_selection_source != stage_selection_source:
             source_mismatches["closeout.stage_selection_source"] = closeout_selection_source
+    execution_selected_stage = None
     if isinstance(execution, dict):
         execution_selection_source = execution.get("stage_selection_source", "initial")
         if execution_selection_source != stage_selection_source:
@@ -13622,6 +13623,26 @@ def controlled_loop_runner_completion_command(args: argparse.Namespace) -> int:
                     mismatches=mismatched_stage_fields,
                 )
             )
+        if execution_selected_stage is not None:
+            execution_stage_mismatches = {
+                field: {"expected": plan_stage.get(field), "actual": execution_selected_stage.get(field)}
+                for field in [
+                    "step",
+                    "command",
+                    "evidence_files",
+                    "execution_authority",
+                    "allowed_side_effects_when_executed",
+                ]
+                if plan_stage.get(field) != execution_selected_stage.get(field)
+            }
+            if execution_stage_mismatches:
+                blockers.append(
+                    controlled_loop_runner_completion_blocker(
+                        "controlled_runner_completion_execution_selected_stage_plan_mismatch",
+                        "controlled runner completion execution selected stage does not match the approved runner plan",
+                        mismatches=execution_stage_mismatches,
+                    )
+                )
 
     valid = not blockers
     recommended_next_action, reason = controlled_loop_runner_completion_recommendation(blockers)

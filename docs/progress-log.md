@@ -63,7 +63,8 @@ Confidence change:
 Evidence:
 - Focused Task 67 completion suite: 3 tests passed.
 - Focused runner completion/outcome/continuation suite, including review
-  regression coverage: 13 tests passed.
+  regression coverage and the PR bot selected-stage replay regression: 14 tests
+  passed.
 - Syntax check: `python -m py_compile scripts/cadence.py codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py` passed.
 - Protocol validation: `python scripts/validate_protocol.py` printed `Protocol validation passed.`.
 - Package verification: `python scripts/verify_package.py` printed `Package verification passed.`.

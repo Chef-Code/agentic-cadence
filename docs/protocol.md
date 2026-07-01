@@ -2747,8 +2747,9 @@ complete_controlled_runner`. The nested outcome target must carry `purpose:
 controlled_loop_runner_completion`, the completed-stage number, no next-stage
 number, and checksum anchors for the saved closeout, execution, runner-start,
 runner-plan, and dry-run packets. The closeout and execution evidence must be
-completed for the requested completed stage, and stale anchors block the packet
-instead of treating completion as accepted.
+completed for the requested completed stage, the execution packet's selected
+stage must match the approved runner-plan stage fields, and stale anchors block
+the packet instead of treating completion as accepted.
 
 A valid packet emits `controlled-loop-runner-completion.v1` with
 `packet: controlled_loop_runner_completion`, `read_only: true`,
@@ -2796,7 +2797,8 @@ Stable blockers include `controlled_runner_completion_outcome_evidence_missing`,
 `controlled_runner_completion_execution_forbidden_flags`,
 `controlled_runner_completion_execution_stage_number_mismatch`,
 `controlled_runner_completion_stage_missing_from_runner_plan`,
-`controlled_runner_completion_selected_stage_plan_mismatch`, and rewritten
+`controlled_runner_completion_selected_stage_plan_mismatch`,
+`controlled_runner_completion_execution_selected_stage_plan_mismatch`, and rewritten
 upstream next-stage, start, plan, and dry-run blockers.
 
 `controlled-loop-runner-next-stage-continuation` is the read-only selector for
