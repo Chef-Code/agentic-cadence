@@ -42,7 +42,7 @@ Summary:
   stage-input binding evidence.
 - Continuation closeout now requires `execution-start.v1` output for completed
   stage-2 `start-governed-execution`, binds the stage output to captured
-  stdout, and remains read-only with no audit append, retry, loop
+  stdout and approved task identity, and remains read-only with no audit append, retry, loop
   continuation, executor invocation, or Git/GitHub write.
 - Continuation outcome planning maps completed stage 2 to controlled runner
   completion and maps failed continuation closeout to inspection plus future
@@ -62,7 +62,7 @@ Confidence change:
 
 Evidence:
 - Focused closeout/outcome preservation suite: 7 tests passed.
-- Focused Task 66 continuation suite: 8 tests passed.
+- Focused Task 66 continuation suite: 11 tests passed.
 - Syntax check: `python -m py_compile scripts/cadence.py codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py` passed.
 - Protocol validation: `python scripts/validate_protocol.py` printed `Protocol validation passed.`.
 - Package verification: `python scripts/verify_package.py` printed `Package verification passed.`.

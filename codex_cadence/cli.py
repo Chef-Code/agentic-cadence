@@ -20211,6 +20211,8 @@ def controlled_loop_runner_stage_closeout_output_evidence(
     stage_output_file: Path | None,
     expected_output_file: Path | None,
     expected_output_identity: dict[str, Any] | None,
+    execution_start_context: dict[str, Any] | None = None,
+    input_binding: dict[str, Any] | None = None,
     command_stdout: str,
     stage_execution_status: str | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -20357,6 +20359,14 @@ def controlled_loop_runner_stage_closeout_output_evidence(
                 invalid_fields["epoch_started"] = output_packet.get("epoch_started")
             if output_packet.get("executor_started") is not False:
                 invalid_fields["executor_started"] = output_packet.get("executor_started")
+            if output_packet.get("read_only") is not False:
+                invalid_fields["read_only"] = output_packet.get("read_only")
+            if output_packet.get("pr_action_started") is not False:
+                invalid_fields["pr_action_started"] = output_packet.get("pr_action_started")
+            if output_packet.get("approval_state") != "approved":
+                invalid_fields["approval_state"] = output_packet.get("approval_state")
+            if output_packet.get("blockers") != []:
+                invalid_fields["blockers"] = output_packet.get("blockers")
             if output_packet.get("recommended_next_action") != "handoff_to_executor":
                 invalid_fields["recommended_next_action"] = output_packet.get("recommended_next_action")
             if invalid_fields:
@@ -20372,6 +20382,76 @@ def controlled_loop_runner_stage_closeout_output_evidence(
                     controlled_loop_runner_stage_closeout_blocker(
                         "controlled_runner_stage_closeout_execution_start_audit_record_missing",
                         "completed start-governed-execution closeout requires execution-start audit record evidence",
+                    )
+                )
+            identity_mismatches: dict[str, Any] = {}
+            if isinstance(execution_start_context, dict):
+                expected_task_file_value = execution_start_context.get("task_file")
+                expected_task_checksum = execution_start_context.get("task_checksum")
+                expected_cwd_value = execution_start_context.get("cwd")
+                if isinstance(expected_task_file_value, str) and expected_task_file_value.strip():
+                    expected_task_file = Path(expected_task_file_value).expanduser().resolve(strict=False)
+                    context_file = stage_output_file if stage_output_file is not None else expected_task_file
+                    if not controlled_loop_runner_plan_file_matches(
+                        context_file,
+                        output_packet.get("task_file"),
+                        expected_task_file,
+                    ):
+                        identity_mismatches["task_file"] = {
+                            "expected": str(expected_task_file),
+                            "actual": output_packet.get("task_file"),
+                        }
+                if output_packet.get("task_checksum") != expected_task_checksum:
+                    identity_mismatches["task_checksum"] = {
+                        "expected": expected_task_checksum,
+                        "actual": output_packet.get("task_checksum"),
+                    }
+                repo = output_packet.get("repo") if isinstance(output_packet.get("repo"), dict) else {}
+                if isinstance(expected_cwd_value, str) and expected_cwd_value.strip():
+                    expected_cwd = Path(expected_cwd_value).expanduser().resolve(strict=False)
+                    context_file = stage_output_file if stage_output_file is not None else expected_cwd
+                    if not controlled_loop_runner_plan_file_matches(
+                        context_file,
+                        repo.get("path"),
+                        expected_cwd,
+                    ):
+                        identity_mismatches["repo.path"] = {
+                            "expected": str(expected_cwd),
+                            "actual": repo.get("path"),
+                        }
+            binding_task = (
+                input_binding.get("executor_task")
+                if isinstance(input_binding, dict) and isinstance(input_binding.get("executor_task"), dict)
+                else {}
+            )
+            expected_task_id = binding_task.get("task_id")
+            if expected_task_id is not None and output_packet.get("task_id") != expected_task_id:
+                identity_mismatches["task_id"] = {
+                    "expected": expected_task_id,
+                    "actual": output_packet.get("task_id"),
+                }
+            audit_record = output_packet.get("audit_record") if isinstance(output_packet.get("audit_record"), dict) else {}
+            audit_expected_values = {
+                "event": "execution_start_decision",
+                "valid": True,
+                "epoch_started": True,
+                "executor_started": False,
+                "task_id": output_packet.get("task_id"),
+                "task_checksum": output_packet.get("task_checksum"),
+            }
+            audit_mismatches = {
+                field: {"expected": expected, "actual": audit_record.get(field)}
+                for field, expected in audit_expected_values.items()
+                if audit_record.get(field) != expected
+            }
+            if audit_mismatches:
+                identity_mismatches["audit_record"] = audit_mismatches
+            if identity_mismatches:
+                blockers.append(
+                    controlled_loop_runner_stage_closeout_blocker(
+                        "controlled_runner_stage_closeout_execution_start_output_identity_mismatch",
+                        "completed start-governed-execution output does not match the approved continuation input binding",
+                        mismatches=identity_mismatches,
                     )
                 )
     return evidence, blockers
@@ -21428,6 +21508,8 @@ def controlled_loop_runner_stage_closeout_command(args: argparse.Namespace) -> i
         expected_output_identity=controlled_loop_runner_stage_closeout_expected_output_identity(
             execution_selected_stage
         ),
+        execution_start_context=command_context,
+        input_binding=input_binding if isinstance(input_binding, dict) else None,
         command_stdout=command_stdout,
         stage_execution_status=execution_stage_status if isinstance(execution_stage_status, str) else None,
     )
@@ -21668,6 +21750,8 @@ def controlled_loop_runner_stage_outcome_plan_recommendation(
             or code.startswith("controlled_runner_stage_outcome_plan_approval")
             or code.startswith("controlled_runner_stage_outcome_plan_readiness")
             or code.startswith("controlled_runner_stage_outcome_plan_next_stage")
+            or code.startswith("controlled_runner_stage_outcome_plan_continuation")
+            or code.startswith("controlled_runner_stage_outcome_plan_stage_input_binding")
         )
         for code in all_codes
     ):

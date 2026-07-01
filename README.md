@@ -1006,7 +1006,9 @@ select another stage, continue the loop, append audit evidence, write
 Git/GitHub state, merge, release, publish packages, assign roles, or schedule
 agents. Continuation-backed closeout requires the matching reviewed
 stage-input binding checksum and, for `start-governed-execution`, completed
-`execution-start.v1` output with `packet: execution_start`.
+`execution-start.v1` output with `packet: execution_start`, an approved
+execution-start envelope, and task id/file/checksum values matching the
+approved continuation input binding.
 
 `controlled-loop-runner-stage-outcome-plan` consumes saved
 `controlled-loop-runner-stage-closeout.v1`,

@@ -110,13 +110,14 @@ stage-execution approval without executing the stage, then prepare the exact
 continuation stage invocation boundary for `start-governed-execution` without
 starting a process, then execute that approved continuation stage once while
 allowing only the declared `epoch_started` and `execution_start_decision`
-effects. It still cannot close out or plan the outcome for a continuation
-stage, execute more than one approved runner stage,
-invoke an executor from the runner, retry, or independently implement code
-outside approved command evidence, autonomously push branches, autonomously
-open pull requests, assign agent roles, launch fresh sessions, coordinate an
-agent pool, merge, release, publish packages, or continue in an unattended
-loop.
+effects, then close out that continuation stage and plan controlled runner
+completion or inspection without selecting another stage. It still cannot
+emit controlled runner completion evidence, execute more than one approved
+runner stage, invoke an executor from the runner, retry, or independently
+implement code outside approved command evidence, autonomously push branches,
+autonomously open pull requests, assign agent roles, launch fresh sessions,
+coordinate an agent pool, merge, release, publish packages, or continue in an
+unattended loop.
 
 Current confidence for unattended continuous operation is 25% as a stable
 headline; the progress log records Task 66 projected capability at 61%.

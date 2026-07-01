@@ -8007,6 +8007,12 @@ class CadenceCliTests(unittest.TestCase):
                     "recommended_next_action": "handoff_to_executor",
                     "reason": "governed execution start accepted",
                     "audit_record": {
+                        "event": "execution_start_decision",
+                        "valid": True,
+                        "epoch_started": True,
+                        "executor_started": False,
+                        "task_id": chain["executor_task"]["task"]["id"],
+                        "task_checksum": task_checksum,
                         "chain_index": 1,
                         "event_hash": "sha256:" + "1" * 64,
                     },
@@ -14341,6 +14347,75 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["stage_retry_started"])
             self.assertFalse(output["loop_continuation_started"])
 
+    def test_controlled_loop_runner_stage_closeout_blocks_continuation_wrong_execution_start_task(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_continuation_stage_closeout_chain(tmp, repo)
+            forged_output = json.loads(chain["stage_output_file"].read_text(encoding="utf-8"))
+            forged_output["task_checksum"] = "sha256:" + "0" * 64
+            forged_output["task_file"] = str(Path(tmp) / "other-executor-task.json")
+            forged_stdout = json.dumps(forged_output) + "\n"
+            chain["stage_output_file"].write_text(forged_stdout, encoding="utf-8")
+            execution = json.loads(chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8"))
+            execution["command_result"]["stdout"] = forged_stdout
+            execution["command_result_checksum"] = checksum_json(execution["command_result"])
+            execution["selected_stage"]["side_effects"] = ["epoch_started", "execution_start_decision"]
+            chain["controlled_loop_runner_stage_execution_path"].write_text(
+                json.dumps(execution),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                *self.controlled_loop_runner_continuation_stage_closeout_argv(tmp, chain)[2:],
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_selection_source"], "continuation")
+            self.assertEqual(output["stage_closeout_status"], "blocked")
+            self.assertIn(
+                "controlled_runner_stage_closeout_execution_start_output_identity_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["loop_continuation_started"])
+
+    def test_controlled_loop_runner_stage_closeout_blocks_continuation_bad_execution_start_envelope(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_continuation_stage_closeout_chain(tmp, repo)
+            forged_output = json.loads(chain["stage_output_file"].read_text(encoding="utf-8"))
+            forged_output["approval_state"] = "missing"
+            forged_output["blockers"] = [{"code": "operator_approval_missing", "message": "forged"}]
+            forged_output["read_only"] = True
+            forged_stdout = json.dumps(forged_output) + "\n"
+            chain["stage_output_file"].write_text(forged_stdout, encoding="utf-8")
+            execution = json.loads(chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8"))
+            execution["command_result"]["stdout"] = forged_stdout
+            execution["command_result_checksum"] = checksum_json(execution["command_result"])
+            execution["selected_stage"]["side_effects"] = ["epoch_started", "execution_start_decision"]
+            chain["controlled_loop_runner_stage_execution_path"].write_text(
+                json.dumps(execution),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                *self.controlled_loop_runner_continuation_stage_closeout_argv(tmp, chain)[2:],
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_selection_source"], "continuation")
+            self.assertEqual(output["stage_closeout_status"], "blocked")
+            self.assertIn(
+                "controlled_runner_stage_closeout_execution_start_output_invalid",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["loop_continuation_started"])
+
     def test_controlled_loop_runner_stage_closeout_blocks_mixed_selection_sources(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -14957,17 +15032,29 @@ class CadenceCliTests(unittest.TestCase):
 
     def test_controlled_loop_runner_stage_outcome_plan_targets_completion_for_continuation_final_stage(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
             init_committed_repo(repo)
             chain = self.write_controlled_loop_runner_continuation_stage_outcome_plan_chain(tmp, repo)
             audit_before = audit_records(tmp)
             runtime_before = runtime_tree_manifest(tmp)
+            stdout = StringIO()
 
-            result, output = run_cli(
-                tmp,
-                *self.controlled_loop_runner_continuation_stage_outcome_plan_argv(tmp, chain)[2:],
-            )
+            with mock.patch("subprocess.run", side_effect=AssertionError("outcome plan must not start a process")):
+                with mock.patch(
+                    "codex_cadence.cli.append_audit_record",
+                    side_effect=AssertionError("outcome plan must not append audit"),
+                ):
+                    with redirect_stdout(stdout):
+                        try:
+                            code = cadence_cli.main(
+                                self.controlled_loop_runner_continuation_stage_outcome_plan_argv(tmp, chain)
+                            )
+                        except SystemExit as exc:
+                            code = exc.code
 
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(code, 0, stdout.getvalue())
+            output = json.loads(stdout.getvalue())
             self.assertTrue(output["valid"], output["blockers"])
             self.assertEqual(output["stage_selection_source"], "continuation")
             self.assertEqual(output["stage_outcome_plan_status"], "completed")
@@ -14986,6 +15073,8 @@ class CadenceCliTests(unittest.TestCase):
 
     def test_controlled_loop_runner_stage_outcome_plan_targets_continuation_failure_inspection_without_retry(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
             init_committed_repo(repo)
             chain = self.write_controlled_loop_runner_continuation_stage_outcome_plan_chain(
                 tmp,
@@ -14996,13 +15085,23 @@ class CadenceCliTests(unittest.TestCase):
             )
             audit_before = audit_records(tmp)
             runtime_before = runtime_tree_manifest(tmp)
+            stdout = StringIO()
 
-            result, output = run_cli(
-                tmp,
-                *self.controlled_loop_runner_continuation_stage_outcome_plan_argv(tmp, chain)[2:],
-            )
+            with mock.patch("subprocess.run", side_effect=AssertionError("outcome plan must not start a process")):
+                with mock.patch(
+                    "codex_cadence.cli.append_audit_record",
+                    side_effect=AssertionError("outcome plan must not append audit"),
+                ):
+                    with redirect_stdout(stdout):
+                        try:
+                            code = cadence_cli.main(
+                                self.controlled_loop_runner_continuation_stage_outcome_plan_argv(tmp, chain)
+                            )
+                        except SystemExit as exc:
+                            code = exc.code
 
-            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(code, 0, stdout.getvalue())
+            output = json.loads(stdout.getvalue())
             self.assertTrue(output["valid"], output["blockers"])
             self.assertEqual(output["stage_selection_source"], "continuation")
             self.assertEqual(output["stage_closeout_status"], "failed")
@@ -15041,6 +15140,23 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["process_started"])
             self.assertFalse(output["stage_retry_started"])
             self.assertFalse(output["loop_continuation_started"])
+
+    def test_controlled_loop_runner_stage_outcome_plan_recommends_refresh_for_stale_continuation_binding(self):
+        import codex_cadence.cli as cadence_cli
+
+        for code in [
+            "controlled_runner_stage_outcome_plan_continuation_not_selected",
+            "controlled_runner_stage_outcome_plan_stage_input_binding_not_bound",
+        ]:
+            with self.subTest(code=code):
+                recommended_next_action, reason = (
+                    cadence_cli.controlled_loop_runner_stage_outcome_plan_recommendation(
+                        [{"code": code, "message": "stale continuation evidence"}]
+                    )
+                )
+
+                self.assertEqual(recommended_next_action, "refresh_controlled_runner_stage_execution")
+                self.assertEqual(reason, "controlled runner stage execution chain is stale")
 
     def test_controlled_loop_runner_stage_outcome_plan_targets_next_stage_selection_without_side_effects(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

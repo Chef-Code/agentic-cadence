@@ -2530,8 +2530,14 @@ evidence identity. For the current `loop-run-plan` runner stage, that means
 `loop-run-plan.v1` packets do not emit a top-level `valid` field. For
 continuation stage-2 `start-governed-execution`, completed closeout requires
 `schema_version: execution-start.v1`, `packet: execution_start`, `valid: true`,
-`epoch_started: true`, `executor_started: false`,
-`recommended_next_action: handoff_to_executor`, and an object `audit_record`.
+`read_only: false`, `epoch_started: true`, `executor_started: false`,
+`pr_action_started: false`, `approval_state: approved`, empty `blockers`,
+`recommended_next_action: handoff_to_executor`, an object `audit_record`, and
+`task_file`, `task_checksum`, `task_id`, and `repo.path` values that match the
+approved continuation input binding and boundary command context. The
+`audit_record` summary must identify an `execution_start_decision` for the same
+task id and checksum. Closeout does not read or append audit evidence while
+checking that identity.
 A failed stage may close out with empty or non-JSON diagnostic stdout when the
 terminal execution evidence is otherwise consistent; it is not retried and no
 continuation is selected.
@@ -2581,6 +2587,7 @@ Stable blockers include
 `controlled_runner_stage_closeout_stage_output_not_json_object`,
 `controlled_runner_stage_closeout_stage_output_packet_mismatch`,
 `controlled_runner_stage_closeout_execution_start_output_invalid`,
+`controlled_runner_stage_closeout_execution_start_output_identity_mismatch`,
 `controlled_runner_stage_closeout_execution_start_audit_record_missing`,
 `controlled_runner_stage_closeout_selected_stage_mismatch`,
 `controlled_runner_stage_closeout_boundary_file_mismatch`,
