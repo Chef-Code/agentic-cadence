@@ -2737,7 +2737,9 @@ execute Git commands, call GitHub APIs, create branches, commit, push, create
 PRs, merge, release, publish packages, assign roles, or schedule agents.
 Task 68 retry planning is initial-stage only; continuation-sourced outcome
 plans are blocked until a later slice adds explicit continuation/input-binding
-retry-planning evidence and ownership-bound continuation checks.
+retry-planning evidence. Ownership-bound continuation readiness is handled by
+the stage invocation boundary and execution verifier when the approved
+side-effect policy includes `work_ownership_epoch_bound`.
 
 Retry planning rereads and rechecks the reviewed stage outcome plan, source
 closeout, source execution packet, runner-start evidence, runner-plan evidence,

@@ -161,10 +161,12 @@ no approval token, starting no process or epoch, appending no audit evidence,
 and writing no Git/GitHub state, and continuation-backed
 `controlled-loop-runner-stage-execute` evidence that consumes the reviewed
 stage-2 boundary, executes the exact `start-governed-execution` argv once,
-observes only the approved `epoch_started` and `execution_start_decision`
-effects, appends one stage-execution audit record after process start, and
-still does not start an executor, retry, execute a second stage, continue the
-loop, or write Git/GitHub state, and continuation-backed closeout/outcome
+observes only declared stage-policy effects, including `epoch_started`,
+`execution_start_decision`, and `work_ownership_epoch_bound` when the approved
+continuation boundary carries ownership evidence, appends one stage-execution
+audit record after process start, and still does not start an executor, retry,
+execute a second stage, continue the loop, or write Git/GitHub state, and
+continuation-backed closeout/outcome
 planning can now bind that `execution-start.v1` output and map it to controlled
 runner completion or inspection/operator-gated retry planning without
 continuing the loop, and `controlled-loop-runner-completion` evidence can
@@ -965,8 +967,9 @@ nonempty JSON evidence. The command observes explicit stdout `side_effects`
 plus true side-effect flags such as `epoch_started` and `github_write_started`
 and blocks any observed effect outside the approved stage policy. For
 continuation stage-2 `start-governed-execution`, the approved effects are
-`epoch_started` and one `execution_start_decision` audit append reported by the
-child command after process start. A nonzero stage exit code is
+`epoch_started`, one `execution_start_decision` audit append reported by the
+child command after process start, and `work_ownership_epoch_bound` only when
+the reviewed boundary includes ownership arguments. A nonzero stage exit code is
 recorded as terminal `stage_execution_status: failed` evidence without retrying
 or continuing; stdout side-effect checks still run to validate reported effects
 against the approved stage policy, but they do not override the terminal failure
@@ -1689,9 +1692,11 @@ with `shell=False`. Valid packets emit
 timestamps, approved output-file path, and `command_result_checksum`, and
 append at most one `controlled_runner_stage_execution` audit record after
 process start. Continuation `start-governed-execution` is limited to observed
-`epoch_started` and `execution_start_decision` effects. Nonzero exit codes are
-terminal failed-stage evidence, not retry authority. Pre-start blockers append
-no audit evidence. The command never invokes an executor, starts a retry,
+`epoch_started`, `execution_start_decision`, and optional
+`work_ownership_epoch_bound` effects declared by the approved runner plan.
+Nonzero exit codes are terminal failed-stage evidence, not retry authority.
+Pre-start blockers append no audit evidence. The command never invokes an
+executor, starts a retry,
 executes a second stage, continues the loop, writes Git/GitHub state, merges,
 releases, publishes packages, assigns roles, or schedules agents.
 

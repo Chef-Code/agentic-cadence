@@ -76,7 +76,10 @@ from codex_cadence.handoff_loop import (
 )
 from codex_cadence.model import BUCKETS, TASK_TYPES, estimate_task, governance_permissions, policy_for_bucket
 from codex_cadence.ownership import (
+    ACTIVE_WORK_OWNERSHIP_STATUS,
     DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+    _active_records_for_duplicate_scan,
+    _duplicate_active_blockers,
     claim_work_ownership,
     closeout_work_ownership,
     find_work_ownership_record,
@@ -512,21 +515,11 @@ def validate_execution_start_ownership(
     """Validate active ownership evidence for a governed execution start."""
     task = task_packet["task"]
     task_id = task["id"]
-    validation = validate_work_ownership(
-        root=root,
-        target=target,
-        cwd=cwd,
-        repo=repo_packet["name"],
-        branch=repo_packet["branch"],
-        task_id=task_id,
-        require_active=True,
-        max_age_minutes=max_age_minutes,
-    )
-    blockers = list(validation.get("blockers", []))
-    summary = validation.get("record") if isinstance(validation.get("record"), dict) else None
-    path = Path(summary["path"]) if isinstance(summary, dict) and isinstance(summary.get("path"), str) else None
+    path, state, find_blockers = find_work_ownership_record(root, target)
+    blockers = list(find_blockers)
+    summary: dict[str, Any] | None = None
     record: dict[str, Any] | None = None
-    if path is not None and not blockers:
+    if path is not None:
         try:
             loaded = read_json(path)
             if isinstance(loaded, dict):
@@ -547,6 +540,29 @@ def validate_execution_start_ownership(
                     path=str(path),
                 )
             )
+        if record is not None:
+            blockers.extend(
+                validate_work_ownership_record(
+                    record,
+                    path=path,
+                    state=state,
+                    expected_id=path.stem,
+                    expected_repo=repo_packet["name"],
+                    expected_branch=repo_packet["branch"],
+                    expected_task_id=task_id,
+                    require_active=True,
+                    max_age_minutes=max_age_minutes,
+                )
+            )
+            if record.get("status") == ACTIVE_WORK_OWNERSHIP_STATUS:
+                duplicate_records, duplicate_scan_blockers = _active_records_for_duplicate_scan(
+                    root,
+                    repo=record.get("repo"),
+                    branch=record.get("branch"),
+                    task_id=record.get("task_id"),
+                )
+                blockers.extend(duplicate_scan_blockers)
+                blockers.extend(_duplicate_active_blockers(duplicate_records))
     if not role:
         blockers.append(
             execution_start_ownership_blocker(
@@ -7005,6 +7021,7 @@ def controlled_loop_outcome_plan_command(args: argparse.Namespace) -> int:
 
 
 CONTROLLED_LOOP_RUN_MANIFEST_PLAN_SCHEMA_VERSION = "controlled-loop-run-manifest-plan.v1"
+CONTROLLED_LOOP_RUNNER_OWNERSHIP_BIND_SIDE_EFFECT = "work_ownership_epoch_bound"
 
 CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE = [
     {
@@ -7019,7 +7036,11 @@ CONTROLLED_LOOP_RUN_MANIFEST_COMMAND_SEQUENCE = [
         "command": "start-governed-execution",
         "evidence_files": ["execution_start"],
         "execution_authority": "operator_approved",
-        "allowed_side_effects_when_executed": ["epoch_started", "execution_start_decision"],
+        "allowed_side_effects_when_executed": [
+            "epoch_started",
+            "execution_start_decision",
+            CONTROLLED_LOOP_RUNNER_OWNERSHIP_BIND_SIDE_EFFECT,
+        ],
     },
     {
         "step": 3,
@@ -19092,6 +19113,101 @@ def controlled_loop_runner_stage_invocation_boundary_plan_stage(
     return None
 
 
+def controlled_loop_runner_stage_invocation_boundary_ownership_arguments(
+    source: argparse.Namespace | dict[str, Any] | None,
+) -> dict[str, Any]:
+    if source is None:
+        return {"ownership_target": None, "ownership_role": None, "ownership_claimer": None}
+    if isinstance(source, argparse.Namespace):
+        return {
+            "ownership_target": getattr(source, "ownership_target", None),
+            "ownership_role": getattr(source, "ownership_role", None),
+            "ownership_claimer": getattr(source, "ownership_claimer", None),
+        }
+    return {
+        "ownership_target": source.get("ownership_target"),
+        "ownership_role": source.get("ownership_role"),
+        "ownership_claimer": source.get("ownership_claimer"),
+    }
+
+
+def controlled_loop_runner_stage_invocation_boundary_ownership_arguments_from_boundary(
+    boundary: dict[str, Any] | None,
+) -> dict[str, Any]:
+    invocation_boundary = (
+        boundary.get("invocation_boundary")
+        if isinstance(boundary, dict) and isinstance(boundary.get("invocation_boundary"), dict)
+        else {}
+    )
+    normalized_arguments = (
+        invocation_boundary.get("normalized_arguments")
+        if isinstance(invocation_boundary.get("normalized_arguments"), dict)
+        else {}
+    )
+    return controlled_loop_runner_stage_invocation_boundary_ownership_arguments(normalized_arguments)
+
+
+def controlled_loop_runner_stage_invocation_boundary_ownership_requested(
+    ownership_arguments: dict[str, Any],
+) -> bool:
+    return any(value is not None for value in ownership_arguments.values())
+
+
+def controlled_loop_runner_stage_invocation_boundary_ownership_complete(
+    ownership_arguments: dict[str, Any],
+) -> bool:
+    return all(isinstance(value, str) and bool(value.strip()) for value in ownership_arguments.values())
+
+
+def controlled_loop_runner_stage_invocation_boundary_ownership_blockers(
+    *,
+    ownership_arguments: dict[str, Any],
+    stage_selection_source: str | None,
+    plan_stage: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if not controlled_loop_runner_stage_invocation_boundary_ownership_requested(ownership_arguments):
+        return []
+    blockers: list[dict[str, Any]] = []
+    if not controlled_loop_runner_stage_invocation_boundary_ownership_complete(ownership_arguments):
+        blockers.append(
+            controlled_loop_runner_stage_invocation_boundary_blocker(
+                "controlled_runner_stage_invocation_boundary_ownership_arguments_incomplete",
+                "ownership-bound continuation requires ownership target, role, and claimer",
+                actual=ownership_arguments,
+            )
+        )
+        return blockers
+    if (
+        stage_selection_source != "continuation"
+        or not isinstance(plan_stage, dict)
+        or plan_stage.get("command") != "start-governed-execution"
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_invocation_boundary_blocker(
+                "controlled_runner_stage_invocation_boundary_ownership_not_supported",
+                "ownership arguments are only supported for continuation-backed start-governed-execution",
+                actual=ownership_arguments,
+                stage_selection_source=stage_selection_source,
+                command=plan_stage.get("command") if isinstance(plan_stage, dict) else None,
+            )
+        )
+        return blockers
+    allowed_side_effects = plan_stage.get("allowed_side_effects_when_executed")
+    if (
+        not isinstance(allowed_side_effects, list)
+        or CONTROLLED_LOOP_RUNNER_OWNERSHIP_BIND_SIDE_EFFECT not in allowed_side_effects
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_invocation_boundary_blocker(
+                "controlled_runner_stage_invocation_boundary_ownership_side_effect_policy_missing",
+                "ownership-bound continuation requires an explicit work ownership binding side-effect policy",
+                required_side_effect=CONTROLLED_LOOP_RUNNER_OWNERSHIP_BIND_SIDE_EFFECT,
+                allowed_side_effects_when_executed=allowed_side_effects,
+            )
+        )
+    return blockers
+
+
 def controlled_loop_runner_stage_invocation_boundary_start_governed_execution_context(
     *,
     approval: dict[str, Any] | None,
@@ -19101,6 +19217,10 @@ def controlled_loop_runner_stage_invocation_boundary_start_governed_execution_co
     stage_cwd: Path,
     approval_secret: str | None,
     expected_operator_id: str,
+    root: Path | None = None,
+    ownership_target: str | None = None,
+    ownership_role: str | None = None,
+    ownership_claimer: str | None = None,
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     blockers: list[dict[str, Any]] = []
     if not isinstance(approval, dict):
@@ -19388,17 +19508,64 @@ def controlled_loop_runner_stage_invocation_boundary_start_governed_execution_co
             )
         )
 
+    ownership_arguments = {
+        "ownership_target": ownership_target,
+        "ownership_role": ownership_role,
+        "ownership_claimer": ownership_claimer,
+    }
+    ownership_requested = controlled_loop_runner_stage_invocation_boundary_ownership_requested(ownership_arguments)
+    ownership_summary: dict[str, Any] | None = None
+    if ownership_requested:
+        if not controlled_loop_runner_stage_invocation_boundary_ownership_complete(ownership_arguments):
+            blockers.append(
+                controlled_loop_runner_stage_invocation_boundary_blocker(
+                    "controlled_runner_stage_invocation_boundary_ownership_arguments_incomplete",
+                    "ownership-bound continuation requires ownership target, role, and claimer",
+                    actual=ownership_arguments,
+                )
+            )
+        elif root is None:
+            blockers.append(
+                controlled_loop_runner_stage_invocation_boundary_blocker(
+                    "controlled_runner_stage_invocation_boundary_ownership_root_missing",
+                    "ownership-bound continuation requires a runtime root for ownership evidence validation",
+                )
+            )
+        elif expected_cwd is not None and not blockers:
+            ownership_blockers, ownership_summary, _ownership_path, _ownership_record = validate_execution_start_ownership(
+                root=root,
+                target=ownership_target,
+                cwd=expected_cwd,
+                repo_packet=repo_packet,
+                task_packet=task_packet,
+                role=ownership_role,
+                claimer=ownership_claimer,
+                max_age_minutes=DEFAULT_WORK_OWNERSHIP_MAX_AGE_MINUTES,
+            )
+            for ownership_blocker in ownership_blockers:
+                mapped = dict(ownership_blocker)
+                mapped["code"] = f"controlled_runner_stage_invocation_boundary_{ownership_blocker.get('code')}"
+                mapped["upstream_code"] = ownership_blocker.get("code")
+                blockers.append(mapped)
+
     if blockers:
         return None, blockers
-    return (
-        {
-            "task_file": str(task_path),
-            "task_checksum": current_task_checksum,
-            "approval_token": expected_approval_token,
-            "cwd": str(expected_cwd),
-        },
-        [],
-    )
+    command_context = {
+        "task_file": str(task_path),
+        "task_checksum": current_task_checksum,
+        "approval_token": expected_approval_token,
+        "cwd": str(expected_cwd),
+    }
+    if ownership_requested:
+        command_context.update(
+            {
+                "ownership_target": ownership_target,
+                "ownership_role": ownership_role,
+                "ownership_claimer": ownership_claimer,
+                "ownership": ownership_summary,
+            }
+        )
+    return (command_context, [])
 
 
 def controlled_loop_runner_stage_invocation_boundary_policy_blockers(
@@ -19523,20 +19690,48 @@ def controlled_loop_runner_stage_invocation_boundary_command_arguments(
         approval_token = command_context.get("approval_token")
         cwd = command_context.get("cwd")
         if all(isinstance(value, str) and value.strip() for value in [task_file, approval_token, cwd]):
+            command_argv = [
+                "--task-file",
+                task_file,
+                "--approval-token",
+                approval_token,
+                "--cwd",
+                cwd,
+            ]
+            normalized_arguments = {
+                "task_file": task_file,
+                "approval_token": approval_token,
+                "cwd": cwd,
+            }
+            ownership_arguments = controlled_loop_runner_stage_invocation_boundary_ownership_arguments(
+                command_context
+            )
+            if controlled_loop_runner_stage_invocation_boundary_ownership_requested(ownership_arguments):
+                if not controlled_loop_runner_stage_invocation_boundary_ownership_complete(ownership_arguments):
+                    return None
+                ownership_target = ownership_arguments["ownership_target"]
+                ownership_role = ownership_arguments["ownership_role"]
+                ownership_claimer = ownership_arguments["ownership_claimer"]
+                command_argv.extend(
+                    [
+                        "--ownership-target",
+                        ownership_target,
+                        "--ownership-role",
+                        ownership_role,
+                        "--ownership-claimer",
+                        ownership_claimer,
+                    ]
+                )
+                normalized_arguments.update(
+                    {
+                        "ownership_target": ownership_target,
+                        "ownership_role": ownership_role,
+                        "ownership_claimer": ownership_claimer,
+                    }
+                )
             return (
-                [
-                    "--task-file",
-                    task_file,
-                    "--approval-token",
-                    approval_token,
-                    "--cwd",
-                    cwd,
-                ],
-                {
-                    "task_file": task_file,
-                    "approval_token": approval_token,
-                    "cwd": cwd,
-                },
+                command_argv,
+                normalized_arguments,
             )
     return None
 
@@ -20128,22 +20323,7 @@ def controlled_loop_runner_stage_invocation_boundary_command(args: argparse.Name
                 "controlled runner continuation boundary requires the reviewed stage input binding checksum",
             )
         )
-    ownership_arguments = {
-        "ownership_target": getattr(args, "ownership_target", None),
-        "ownership_role": getattr(args, "ownership_role", None),
-        "ownership_claimer": getattr(args, "ownership_claimer", None),
-    }
-    supplied_ownership_arguments = {
-        field: value for field, value in ownership_arguments.items() if value is not None
-    }
-    if supplied_ownership_arguments:
-        blockers.append(
-            controlled_loop_runner_stage_invocation_boundary_blocker(
-                "controlled_runner_stage_invocation_boundary_ownership_not_supported",
-                "Task 64 continuation invocation boundary does not support ownership-bound start-governed-execution",
-                actual=supplied_ownership_arguments,
-            )
-        )
+    ownership_arguments = controlled_loop_runner_stage_invocation_boundary_ownership_arguments(args)
 
     approval, approval_read_blockers = read_controlled_loop_runner_stage_invocation_boundary_packet(
         approval_path,
@@ -20319,6 +20499,14 @@ def controlled_loop_runner_stage_invocation_boundary_command(args: argparse.Name
         runner_plan if isinstance(runner_plan, dict) else None,
         stage_number,
     )
+    blockers.extend(
+        controlled_loop_runner_stage_invocation_boundary_ownership_blockers(
+            ownership_arguments=ownership_arguments,
+            stage_selection_source=stage_selection_source,
+            plan_stage=plan_stage,
+        )
+    )
+    root = args.root.expanduser().resolve() if args.root is not None else None
     stage_cwd = Path(args.stage_cwd).expanduser().resolve(strict=False)
     command_context = None
     if stage_selection_source == "continuation" and isinstance(plan_stage, dict):
@@ -20332,6 +20520,8 @@ def controlled_loop_runner_stage_invocation_boundary_command(args: argparse.Name
                     stage_cwd=stage_cwd,
                     approval_secret=operator_approval_secret_from_args(args),
                     expected_operator_id=args.expected_operator_id,
+                    root=root,
+                    **ownership_arguments,
                 )
             )
             blockers.extend(command_context_blockers)
@@ -20346,7 +20536,6 @@ def controlled_loop_runner_stage_invocation_boundary_command(args: argparse.Name
 
     valid = not blockers
     recommended_next_action, reason = controlled_loop_runner_stage_invocation_boundary_recommendation(blockers)
-    root = args.root.expanduser().resolve() if args.root is not None else None
     stage_output_file = Path(args.stage_output_file).expanduser().resolve(strict=False)
     timeout_seconds = int(args.stage_timeout_seconds)
     selected_boundary_stage = (
@@ -20487,7 +20676,7 @@ def controlled_loop_runner_stage_invocation_boundary_command(args: argparse.Name
             expected_input_binding_checksum
         )
         if command_context is not None:
-            payload["start_governed_execution"] = {
+            start_governed_execution = {
                 "task_file": command_context["task_file"],
                 "task_checksum": command_context["task_checksum"],
                 "approval_token": command_context["approval_token"],
@@ -20496,6 +20685,18 @@ def controlled_loop_runner_stage_invocation_boundary_command(args: argparse.Name
                 "epoch_started": False,
                 "executor_started": False,
             }
+            if controlled_loop_runner_stage_invocation_boundary_ownership_requested(
+                controlled_loop_runner_stage_invocation_boundary_ownership_arguments(command_context)
+            ):
+                start_governed_execution.update(
+                    {
+                        "ownership_target": command_context.get("ownership_target"),
+                        "ownership_role": command_context.get("ownership_role"),
+                        "ownership_claimer": command_context.get("ownership_claimer"),
+                        "ownership": command_context.get("ownership"),
+                    }
+                )
+            payload["start_governed_execution"] = start_governed_execution
     elif stage_selection_source == "initial":
         payload["controlled_loop_runner_next_stage"] = {
             "file": str(next_stage_path) if next_stage_path is not None else None,
@@ -21432,6 +21633,14 @@ def controlled_loop_runner_stage_execution_boundary_blockers(
     if plan_stage is None or approved_stage is None or invocation_boundary is None:
         return blockers
 
+    blockers.extend(
+        controlled_loop_runner_stage_invocation_boundary_ownership_blockers(
+            ownership_arguments=controlled_loop_runner_stage_invocation_boundary_ownership_arguments(command_context),
+            stage_selection_source=stage_selection_source,
+            plan_stage=plan_stage,
+        )
+    )
+
     selected_boundary_stage = controlled_loop_runner_stage_invocation_boundary_stage(approved_stage, plan_stage)
     if boundary.get("selected_stage") != selected_boundary_stage:
         blockers.append(
@@ -21606,6 +21815,7 @@ def controlled_loop_runner_stage_execution_stdout_blockers(
     stdout_text: str,
     returncode: int | None,
     allowed_side_effects: list[Any],
+    ownership_binding_expected: bool = False,
 ) -> list[dict[str, Any]]:
     stdout_packet: Any = None
     if not stdout_text.strip():
@@ -21660,6 +21870,17 @@ def controlled_loop_runner_stage_execution_stdout_blockers(
                 allowed=allowed_side_effects,
                 actual=observed_side_effects,
                 undeclared=undeclared,
+            )
+        ]
+    if (
+        CONTROLLED_LOOP_RUNNER_OWNERSHIP_BIND_SIDE_EFFECT in observed_side_effects
+        and not ownership_binding_expected
+    ):
+        return [
+            controlled_loop_runner_stage_execution_blocker(
+                "controlled_runner_stage_execution_unexpected_ownership_side_effect",
+                "controlled runner stage reported work ownership binding without ownership-bound invocation arguments",
+                actual=observed_side_effects,
             )
         ]
     return []
@@ -22236,6 +22457,9 @@ def controlled_loop_runner_stage_execution_command(args: argparse.Namespace) -> 
             if isinstance(boundary_cwd_value, str) and boundary_cwd_value.strip()
             else Path()
         )
+        ownership_arguments = controlled_loop_runner_stage_invocation_boundary_ownership_arguments_from_boundary(
+            boundary if isinstance(boundary, dict) else None
+        )
         command_context, command_context_blockers = (
             controlled_loop_runner_stage_invocation_boundary_start_governed_execution_context(
                 approval=approval if isinstance(approval, dict) else None,
@@ -22245,6 +22469,8 @@ def controlled_loop_runner_stage_execution_command(args: argparse.Namespace) -> 
                 stage_cwd=boundary_stage_cwd,
                 approval_secret=operator_approval_secret_from_args(args),
                 expected_operator_id=args.expected_operator_id,
+                root=root,
+                **ownership_arguments,
             )
         )
         for blocker in command_context_blockers:
@@ -22453,11 +22679,17 @@ def controlled_loop_runner_stage_execution_command(args: argparse.Namespace) -> 
         if isinstance(invocation_boundary.get("allowed_side_effects_when_executed"), list)
         else []
     )
+    ownership_binding_expected = controlled_loop_runner_stage_invocation_boundary_ownership_requested(
+        controlled_loop_runner_stage_invocation_boundary_ownership_arguments_from_boundary(
+            boundary if isinstance(boundary, dict) else None
+        )
+    )
     post_start_blockers.extend(
         controlled_loop_runner_stage_execution_stdout_blockers(
             stdout_text=stdout_text,
             returncode=returncode,
             allowed_side_effects=allowed_side_effects,
+            ownership_binding_expected=ownership_binding_expected,
         )
     )
 
@@ -23037,10 +23269,19 @@ def controlled_loop_runner_stage_closeout_command_result_blockers(
         if isinstance(invocation_boundary.get("allowed_side_effects_when_executed"), list)
         else []
     )
+    normalized_arguments = (
+        invocation_boundary.get("normalized_arguments")
+        if isinstance(invocation_boundary.get("normalized_arguments"), dict)
+        else {}
+    )
+    ownership_binding_expected = controlled_loop_runner_stage_invocation_boundary_ownership_requested(
+        controlled_loop_runner_stage_invocation_boundary_ownership_arguments(normalized_arguments)
+    )
     stdout_blockers = controlled_loop_runner_stage_execution_stdout_blockers(
         stdout_text=stdout_text,
         returncode=returncode if returncode_is_integer or returncode is None else None,
         allowed_side_effects=allowed_side_effects,
+        ownership_binding_expected=ownership_binding_expected,
     )
     blockers.extend(
         [controlled_loop_runner_stage_closeout_rewrite_blocker(blocker) for blocker in stdout_blockers]
@@ -23811,6 +24052,9 @@ def controlled_loop_runner_stage_closeout_command(args: argparse.Namespace) -> i
             if isinstance(boundary_cwd_value, str) and boundary_cwd_value.strip()
             else Path()
         )
+        ownership_arguments = controlled_loop_runner_stage_invocation_boundary_ownership_arguments_from_boundary(
+            boundary if isinstance(boundary, dict) else None
+        )
         command_context, command_context_blockers = (
             controlled_loop_runner_stage_invocation_boundary_start_governed_execution_context(
                 approval=approval if isinstance(approval, dict) else None,
@@ -23820,6 +24064,8 @@ def controlled_loop_runner_stage_closeout_command(args: argparse.Namespace) -> i
                 stage_cwd=boundary_stage_cwd,
                 approval_secret=operator_approval_secret_from_args(args),
                 expected_operator_id=args.expected_operator_id,
+                root=root,
+                **ownership_arguments,
             )
         )
         for blocker in command_context_blockers:
@@ -25066,6 +25312,9 @@ def controlled_loop_runner_stage_outcome_plan_command(args: argparse.Namespace) 
             if isinstance(boundary_cwd_value, str) and boundary_cwd_value.strip()
             else Path()
         )
+        ownership_arguments = controlled_loop_runner_stage_invocation_boundary_ownership_arguments_from_boundary(
+            boundary if isinstance(boundary, dict) else None
+        )
         command_context, command_context_blockers = (
             controlled_loop_runner_stage_invocation_boundary_start_governed_execution_context(
                 approval=approval if isinstance(approval, dict) else None,
@@ -25075,6 +25324,8 @@ def controlled_loop_runner_stage_outcome_plan_command(args: argparse.Namespace) 
                 stage_cwd=boundary_stage_cwd,
                 approval_secret=operator_approval_secret_from_args(args),
                 expected_operator_id=args.expected_operator_id,
+                root=root,
+                **ownership_arguments,
             )
         )
         for blocker in command_context_blockers:
