@@ -138,16 +138,16 @@ evidence, appends one execution audit record after process start, and still
 does not invoke an executor, retry, execute a second stage, continue the loop,
 or write Git/GitHub state, and
 `controlled-loop-runner-stage-closeout` evidence that rechecks the saved
-execution, invocation-boundary, approval, readiness, and upstream runner
-packets, binds the approved output file to captured stdout, classifies the
-stage as completed, failed, or blocked, and appends no audit evidence while
-still not selecting another stage, retrying, continuing, invoking an executor,
-or writing Git/GitHub state, and
+execution, invocation-boundary, approval, readiness, and either initial or
+continuation-backed stage-selection evidence, binds the approved output file
+to captured stdout, classifies the stage as completed, failed, or blocked, and
+appends no audit evidence while still not selecting another stage, retrying,
+continuing, invoking an executor, or writing Git/GitHub state, and
 `controlled-loop-runner-stage-outcome-plan` evidence that rechecks that
-closeout and upstream runner chain before emitting only the next operator
-target for continuation selection, completion, or inspection/retry planning
-without selecting a stage, retrying, continuing, appending audit, or writing
-Git/GitHub state, and
+closeout and either initial or continuation-backed stage-selection evidence
+before emitting only the next operator target for continuation selection,
+controlled runner completion, or inspection/retry planning without selecting a
+stage, retrying, continuing, appending audit, or writing Git/GitHub state, and
 `controlled-loop-runner-next-stage-continuation` evidence that rechecks the
 reviewed outcome target plus closeout, execution, runner-start, runner-plan,
 and dry-run evidence before selecting exactly the next runner-plan stage
@@ -163,7 +163,10 @@ stage-2 boundary, executes the exact `start-governed-execution` argv once,
 observes only the approved `epoch_started` and `execution_start_decision`
 effects, appends one stage-execution audit record after process start, and
 still does not start an executor, retry, execute a second stage, continue the
-loop, or write Git/GitHub state.
+loop, or write Git/GitHub state, and continuation-backed closeout/outcome
+planning can now bind that `execution-start.v1` output and map it to controlled
+runner completion or inspection/future operator-gated retry planning without
+continuing the loop.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -861,8 +864,8 @@ still does not execute the stage, start an executor or epoch, append audit
 evidence, continue the loop, or write Git/GitHub state. The invocation-boundary
 command can consume that continuation approval for stage-2
 `start-governed-execution`; the stage-execute command can now consume the
-continuation boundary, while continuation closeout and outcome planning remain
-future controlled slices.
+continuation boundary, and continuation closeout/outcome planning can bind the
+resulting `execution-start.v1` evidence without continuing the loop.
 
 Example initial-stage approval:
 
@@ -973,14 +976,20 @@ state, merge, release, publish packages, assign roles, or schedule agents.
 `controlled-loop-runner-stage-invocation-boundary.v1`,
 `controlled-loop-runner-stage-execution-approval.v1`,
 `controlled-loop-runner-stage-execution-readiness.v1`,
-`controlled-loop-runner-next-stage.v1`, `controlled-loop-runner-start.v1`,
-`controlled-loop-runner-plan.v1`, and `controlled-loop-runner-dry-run.v1`
-packets. When the approved invocation boundary requires stdout JSON evidence,
-it also consumes the approved stage output file and binds it to the captured
-stdout evidence:
+either `controlled-loop-runner-next-stage.v1` or
+`controlled-loop-runner-next-stage-continuation.v1` plus a matching
+`controlled-loop-runner-stage-input-binding.v1`,
+`controlled-loop-runner-start.v1`, `controlled-loop-runner-plan.v1`, and
+`controlled-loop-runner-dry-run.v1` packets. When the approved invocation
+boundary requires stdout JSON evidence, it also consumes the approved stage
+output file and binds it to the captured stdout evidence:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-closeout --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-stage-invocation-boundary-file controlled-loop-runner-stage-invocation-boundary.json --controlled-loop-runner-stage-execution-approval-file controlled-loop-runner-stage-execution-approval.json --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-file controlled-loop-runner-next-stage.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --stage-output-file controlled-loop-runner-stage-output.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 1
+```
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-closeout --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-stage-invocation-boundary-file controlled-loop-runner-stage-invocation-boundary.json --controlled-loop-runner-stage-execution-approval-file controlled-loop-runner-stage-execution-approval.json --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-continuation-file controlled-loop-runner-next-stage-continuation.json --controlled-loop-runner-stage-input-binding-file controlled-loop-runner-stage-input-binding.json --expected-stage-input-binding-checksum sha256:<reviewed-stage-input-binding-checksum> --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --stage-output-file controlled-loop-runner-stage-output.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 2
 ```
 
 Completed closeout packets emit
@@ -995,7 +1004,11 @@ closeout recommends `inspect_controlled_runner_stage_failure`. The command
 does not start a process, execute a runner stage, invoke or retry an executor,
 select another stage, continue the loop, append audit evidence, write
 Git/GitHub state, merge, release, publish packages, assign roles, or schedule
-agents.
+agents. Continuation-backed closeout requires the matching reviewed
+stage-input binding checksum and, for `start-governed-execution`, completed
+`execution-start.v1` output with `packet: execution_start`, an approved
+execution-start envelope, and task id/file/checksum values matching the
+approved continuation input binding.
 
 `controlled-loop-runner-stage-outcome-plan` consumes saved
 `controlled-loop-runner-stage-closeout.v1`,
@@ -1003,12 +1016,18 @@ agents.
 `controlled-loop-runner-stage-invocation-boundary.v1`,
 `controlled-loop-runner-stage-execution-approval.v1`,
 `controlled-loop-runner-stage-execution-readiness.v1`,
-`controlled-loop-runner-next-stage.v1`, `controlled-loop-runner-start.v1`,
-`controlled-loop-runner-plan.v1`, and `controlled-loop-runner-dry-run.v1`
-packets:
+either `controlled-loop-runner-next-stage.v1` or
+`controlled-loop-runner-next-stage-continuation.v1` plus a matching
+`controlled-loop-runner-stage-input-binding.v1`,
+`controlled-loop-runner-start.v1`, `controlled-loop-runner-plan.v1`, and
+`controlled-loop-runner-dry-run.v1` packets:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-outcome-plan --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --expected-stage-closeout-checksum sha256:<reviewed-stage-closeout-checksum> --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-stage-invocation-boundary-file controlled-loop-runner-stage-invocation-boundary.json --controlled-loop-runner-stage-execution-approval-file controlled-loop-runner-stage-execution-approval.json --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-file controlled-loop-runner-next-stage.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 1
+```
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-outcome-plan --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --expected-stage-closeout-checksum sha256:<reviewed-stage-closeout-checksum> --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-stage-invocation-boundary-file controlled-loop-runner-stage-invocation-boundary.json --controlled-loop-runner-stage-execution-approval-file controlled-loop-runner-stage-execution-approval.json --controlled-loop-runner-stage-execution-readiness-file controlled-loop-runner-stage-execution-readiness.json --controlled-loop-runner-next-stage-continuation-file controlled-loop-runner-next-stage-continuation.json --controlled-loop-runner-stage-input-binding-file controlled-loop-runner-stage-input-binding.json --expected-stage-input-binding-checksum sha256:<reviewed-stage-input-binding-checksum> --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 2
 ```
 
 Valid outcome-plan packets emit
@@ -1017,12 +1036,14 @@ to match the reviewed `--expected-stage-closeout-checksum`, recheck the closeout
 execution, invocation-boundary, approval, readiness, next-stage, runner-start,
 runner-plan, and dry-run chain, and produce a deterministic target only. A
 completed non-final stage targets next-stage continuation selection; a
-completed final stage targets controlled runner completion; failed and blocked
-stages target operator inspection plus future operator-gated retry planning.
-The command does not select a next stage, execute or plan an automatic retry,
-continue the loop, append audit evidence, start a process, invoke an executor,
-write Git/GitHub state, merge, release, publish packages, assign roles, or
-schedule agents.
+completed final stage targets controlled runner completion. A completed
+continuation stage-2 closeout targets controlled runner completion rather than
+selecting another stage in this slice. Failed and blocked stages target
+operator inspection plus future operator-gated retry planning. The command
+does not select a next stage, execute or plan an automatic retry, continue the
+loop, append audit evidence, start a process, invoke an executor, write
+Git/GitHub state, merge, release, publish packages, assign roles, or schedule
+agents.
 
 `controlled-loop-runner-next-stage-continuation` consumes the reviewed
 outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,
@@ -1583,8 +1604,9 @@ stage `start-governed-execution` also requires
 task checksum before the command derives the future
 `approve-executor-task:<checksum>` token. Invocation-boundary preparation now
 consumes that continuation approval for stage-2 `start-governed-execution`;
-execution, closeout, and outcome planning remain future controlled slices for
-continuation stages.
+execution, closeout, and outcome planning now preserve those continuation
+anchors for stage-2 `start-governed-execution` without starting an executor,
+retrying, continuing the loop, or writing Git/GitHub state.
 Valid packets mark the selected stage as `approved_not_executed`, recommend
 `review_controlled_runner_stage_execution_approval`, and still append no audit
 evidence or start any stage, executor, loop continuation, Git/GitHub write,
