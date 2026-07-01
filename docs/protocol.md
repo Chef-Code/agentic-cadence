@@ -2394,21 +2394,26 @@ packet after stage-invocation-boundary review. It reads
 `--expected-invocation-boundary-checksum`,
 `--controlled-loop-runner-stage-execution-approval-file`,
 `--controlled-loop-runner-stage-execution-readiness-file`,
-`--controlled-loop-runner-next-stage-file`,
+either `--controlled-loop-runner-next-stage-file` or
+`--controlled-loop-runner-next-stage-continuation-file` plus
+`--controlled-loop-runner-stage-input-binding-file` and
+`--expected-stage-input-binding-checksum`,
 `--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
 `--controlled-loop-runner-dry-run-file`, `--expected-operator-id`,
 `--approval-secret` or `--approval-secret-env`, and optional `--stage-number`.
 It requires a runtime `--root` for the execution audit record. Before process
 start, it revalidates the upstream runner start/plan/dry-run chain, rereads
-the next-stage, readiness, approval, and invocation-boundary packets, verifies
-their file/checksum anchors, re-verifies the saved operator approval signature,
-purpose, target checksum, and expected operator through the shared
+the selection packet, readiness, approval, and invocation-boundary packets,
+verifies their file/checksum anchors, re-verifies the saved operator approval
+signature, purpose, target checksum, and expected operator through the shared
 operator-approval verifier, confirms the approval remains operator-approved for
 purpose `controlled_loop_runner_stage_execution`, and requires the invocation
-boundary checksum to match `--expected-invocation-boundary-checksum`. It also
-requires the exact argv, normalized arguments, fixed cwd policy, stdout JSON
-output policy, finite timeout, execution authority, and allowed side-effect
-policy to match the approved runner plan.
+boundary checksum to match `--expected-invocation-boundary-checksum`. For
+continuation execution it also rechecks the continuation packet, matching
+stage-input binding packet, and reviewed binding checksum. It requires the
+exact argv, normalized arguments, fixed cwd policy, stdout JSON output policy,
+finite timeout, execution authority, and allowed side-effect policy to match
+the approved runner plan.
 
 When pre-start validation passes, the command invokes exactly one stage command
 using the boundary `argv`, boundary fixed `cwd`, `capture_output=True`,
@@ -2417,11 +2422,16 @@ captured stdout to the approved stage output file, records stdout, stderr,
 return code, timestamps, timeout state, and `shell: false` in
 `command_result`, emits `command_result_checksum`, and appends at most one
 `controlled_runner_stage_execution` audit record with the stage number,
-boundary checksum, approval checksum, readiness checksum, command-result
-checksum, output path, return code, and timeout state. Successful stage stdout
-must be nonempty JSON evidence. Stage stdout that declares `side_effects` must
-stay within the approved stage's `allowed_side_effects_when_executed`, even
-when the stage exits nonzero.
+boundary checksum, approval checksum, readiness checksum, payload checksum,
+command-result checksum, output path, return code, and timeout state.
+Successful stage stdout must be nonempty JSON evidence. The command observes
+explicit stdout `side_effects` plus true side-effect flags such as
+`epoch_started` and `github_write_started`, and every observed effect must stay
+within the approved stage's `allowed_side_effects_when_executed`, even when the
+stage exits nonzero. For continuation stage-2 `start-governed-execution`, the
+approved effects are initially `epoch_started` and one
+`execution_start_decision` audit append reported by the child command after
+process start.
 
 The valid packet is
 `controlled-loop-runner-stage-execution.v1` with
@@ -2442,7 +2452,10 @@ roles, or schedule agents. Stable blockers include
 `controlled_runner_stage_execution_approval_evidence_missing`,
 `controlled_runner_stage_execution_readiness_evidence_missing`,
 `controlled_runner_stage_execution_next_stage_evidence_missing`,
+`controlled_runner_stage_execution_continuation_evidence_missing`,
+`controlled_runner_stage_execution_stage_input_binding_evidence_missing`,
 `controlled_runner_stage_execution_upstream_invalid`,
+`controlled_runner_stage_execution_stage_input_binding_checksum_mismatch`,
 `controlled_runner_stage_execution_approval_packet_mismatch`,
 `controlled_runner_stage_execution_approval_not_completed`,
 `controlled_runner_stage_execution_approval_target_checksum_mismatch`,
