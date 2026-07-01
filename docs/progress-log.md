@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-06-25
+Last updated: 2026-07-01
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,57 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-07-01 - Controlled runner continuation closeout and outcome planning
+
+Summary:
+- Generalized `controlled-loop-runner-stage-closeout` and
+  `controlled-loop-runner-stage-outcome-plan` so they accept either initial
+  next-stage evidence or continuation next-stage evidence plus matching
+  stage-input binding evidence.
+- Continuation closeout now requires `execution-start.v1` output for completed
+  stage-2 `start-governed-execution`, binds the stage output to captured
+  stdout, and remains read-only with no audit append, retry, loop
+  continuation, executor invocation, or Git/GitHub write.
+- Continuation outcome planning maps completed stage 2 to controlled runner
+  completion and maps failed continuation closeout to inspection plus future
+  operator-gated retry planning without selecting another stage.
+
+Completed slices:
+- Task 66: controlled runner continuation stage closeout and outcome planning.
+
+Confidence change:
+- Previous projected capability: 60%.
+- New projected capability: 61%.
+- Stable headline confidence: remains 25%.
+- Reason: continuation execution can now be classified and mapped to a
+  terminal or follow-up operator target, but completion evidence, retry
+  planning, autonomous Git/GitHub writes, executor invocation from the runner,
+  and unattended orchestration remain future work.
+
+Evidence:
+- Focused closeout/outcome preservation suite: 7 tests passed.
+- Focused Task 66 continuation suite: 8 tests passed.
+- Syntax check: `python -m py_compile scripts/cadence.py codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py` passed.
+- Protocol validation: `python scripts/validate_protocol.py` printed `Protocol validation passed.`.
+- Package verification: `python scripts/verify_package.py` printed `Package verification passed.`.
+- Diff whitespace check: `git diff --check` exited 0 with normal Windows LF/CRLF warnings.
+
+New risks or blockers:
+- Controlled runner completion evidence is still missing after a final
+  continuation outcome target.
+- The runner still cannot autonomously assign agents, schedule workers, retry
+  stages, push branches, open or update PRs, merge, release, publish packages,
+  invoke an executor from the runner, or continue unattended.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+- `docs/progress-log.md`
 
 ## 2026-06-25 - Controlled runner continuation single-stage execution
 

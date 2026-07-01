@@ -2489,7 +2489,10 @@ one saved runner-stage execution. It reads
 `--controlled-loop-runner-stage-invocation-boundary-file`,
 `--controlled-loop-runner-stage-execution-approval-file`,
 `--controlled-loop-runner-stage-execution-readiness-file`,
-`--controlled-loop-runner-next-stage-file`,
+exactly one of `--controlled-loop-runner-next-stage-file` or
+`--controlled-loop-runner-next-stage-continuation-file`,
+`--controlled-loop-runner-stage-input-binding-file` and
+`--expected-stage-input-binding-checksum` when the continuation source is used,
 `--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
 `--controlled-loop-runner-dry-run-file`, `--expected-operator-id`,
 `--approval-secret` or `--approval-secret-env`, optional `--stage-output-file`,
@@ -2501,16 +2504,19 @@ commit, push, create PRs, merge, release, publish packages, assign roles, or
 schedule agents.
 
 Closeout rereads the full runner chain and reuses the same upstream validation
-as stage execution: runner plan, dry-run, runner start, next-stage,
-stage-execution readiness, stage-execution approval, invocation boundary, and
-the saved operator approval must remain anchored by their recorded file and
-checksum fields. The operator approval is verified through the shared
+as stage execution: runner plan, dry-run, runner start, exactly one
+stage-selection source, stage-execution readiness, stage-execution approval,
+invocation boundary, and the saved operator approval must remain anchored by
+their recorded file and checksum fields. Continuation closeout requires the
+next-stage continuation packet, matching stage-input binding packet, and
+reviewed binding checksum to match the saved continuation-backed execution
+chain. The operator approval is verified through the shared
 approval-secret-backed signature verifier, must have purpose
 `controlled_loop_runner_stage_execution`, must match the expected operator,
 and its target checksum must match
 `stage_execution_approval_target_checksum`. The stage execution packet must be
 `controlled-loop-runner-stage-execution.v1` for the same selected stage,
-boundary checksum, approval checksum, readiness checksum, next-stage checksum,
+boundary checksum, approval checksum, readiness checksum, stage-selection checksum,
 runner-start checksum, runner-plan checksum, dry-run checksum, argv, cwd,
 timeout, output policy, output file, and `command_result_checksum`.
 
@@ -2521,7 +2527,11 @@ the captured stdout byte-for-byte after the same text capture semantics, and
 parse as a nonempty JSON object matching the selected stage's expected
 evidence identity. For the current `loop-run-plan` runner stage, that means
 `schema_version: loop-run-plan.v1` and `packet: loop_run_plan`; real
-`loop-run-plan.v1` packets do not emit a top-level `valid` field.
+`loop-run-plan.v1` packets do not emit a top-level `valid` field. For
+continuation stage-2 `start-governed-execution`, completed closeout requires
+`schema_version: execution-start.v1`, `packet: execution_start`, `valid: true`,
+`epoch_started: true`, `executor_started: false`,
+`recommended_next_action: handoff_to_executor`, and an object `audit_record`.
 A failed stage may close out with empty or non-JSON diagnostic stdout when the
 terminal execution evidence is otherwise consistent; it is not retried and no
 continuation is selected.
@@ -2546,6 +2556,10 @@ Stable blockers include
 `controlled_runner_stage_closeout_approval_evidence_missing`,
 `controlled_runner_stage_closeout_readiness_evidence_missing`,
 `controlled_runner_stage_closeout_next_stage_evidence_missing`,
+`controlled_runner_stage_closeout_continuation_evidence_missing`,
+`controlled_runner_stage_closeout_stage_input_binding_evidence_missing`,
+`controlled_runner_stage_closeout_stage_input_binding_required`,
+`controlled_runner_stage_closeout_stage_input_binding_checksum_required`,
 `controlled_runner_stage_closeout_execution_packet_mismatch`,
 `controlled_runner_stage_closeout_execution_not_valid`,
 `controlled_runner_stage_closeout_root_missing`,
@@ -2566,11 +2580,15 @@ Stable blockers include
 `controlled_runner_stage_closeout_stage_output_not_json`,
 `controlled_runner_stage_closeout_stage_output_not_json_object`,
 `controlled_runner_stage_closeout_stage_output_packet_mismatch`,
+`controlled_runner_stage_closeout_execution_start_output_invalid`,
+`controlled_runner_stage_closeout_execution_start_audit_record_missing`,
 `controlled_runner_stage_closeout_selected_stage_mismatch`,
 `controlled_runner_stage_closeout_boundary_file_mismatch`,
 `controlled_runner_stage_closeout_approval_file_mismatch`,
 `controlled_runner_stage_closeout_readiness_file_mismatch`,
 `controlled_runner_stage_closeout_next_stage_file_mismatch`,
+`controlled_runner_stage_closeout_continuation_file_mismatch`,
+`controlled_runner_stage_closeout_stage_input_binding_file_mismatch`,
 `controlled_runner_stage_closeout_start_file_mismatch`,
 `controlled_runner_stage_closeout_plan_file_mismatch`,
 `controlled_runner_stage_closeout_dry_run_file_mismatch`,
@@ -2579,6 +2597,9 @@ Stable blockers include
 `controlled_runner_stage_closeout_approval_checksum_mismatch`,
 `controlled_runner_stage_closeout_readiness_checksum_mismatch`,
 `controlled_runner_stage_closeout_next_stage_checksum_mismatch`,
+`controlled_runner_stage_closeout_continuation_checksum_mismatch`,
+`controlled_runner_stage_closeout_stage_input_binding_checksum_mismatch`,
+`controlled_runner_stage_closeout_stage_input_binding_expected_checksum_mismatch`,
 `controlled_runner_stage_closeout_start_checksum_mismatch`,
 `controlled_runner_stage_closeout_plan_checksum_mismatch`,
 `controlled_runner_stage_closeout_dry_run_checksum_mismatch`,
@@ -2601,7 +2622,10 @@ for one closed-out runner stage. It reads
 `--controlled-loop-runner-stage-invocation-boundary-file`,
 `--controlled-loop-runner-stage-execution-approval-file`,
 `--controlled-loop-runner-stage-execution-readiness-file`,
-`--controlled-loop-runner-next-stage-file`,
+exactly one of `--controlled-loop-runner-next-stage-file` or
+`--controlled-loop-runner-next-stage-continuation-file`,
+`--controlled-loop-runner-stage-input-binding-file` and
+`--expected-stage-input-binding-checksum` when the continuation source is used,
 `--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
 `--controlled-loop-runner-dry-run-file`, `--expected-operator-id`,
 `--approval-secret` or `--approval-secret-env`, and optional
@@ -2612,13 +2636,16 @@ GitHub APIs, create branches, commit, push, create PRs, merge, release,
 publish packages, assign roles, or schedule agents.
 
 Outcome planning rereads and rechecks the closeout, execution, invocation
-boundary, stage-execution approval, stage-execution readiness, next-stage,
-runner-start, runner-plan, and dry-run chain. It requires the closeout
-checksum to match the reviewed `--expected-stage-closeout-checksum` and reuses
-the same saved operator approval verification as closeout, including expected
-operator id, approval purpose `controlled_loop_runner_stage_execution`,
-approval target checksum, file anchors, and checksums. The closeout packet must
-be `controlled-loop-runner-stage-closeout.v1` for the requested stage and may
+boundary, stage-execution approval, stage-execution readiness, exactly one
+stage-selection source, runner-start, runner-plan, and dry-run chain. For a
+continuation source it also rechecks the next-stage continuation packet,
+stage-input binding packet, reviewed binding checksum, and the continuation
+anchors saved in closeout. It requires the closeout checksum to match the
+reviewed `--expected-stage-closeout-checksum` and reuses the same saved
+operator approval verification as closeout, including expected operator id,
+approval purpose `controlled_loop_runner_stage_execution`, approval target
+checksum, file anchors, and checksums. The closeout packet must be
+`controlled-loop-runner-stage-closeout.v1` for the requested stage and may
 carry `stage_closeout_status: completed`, `failed`, or `blocked`; blocked
 closeouts remain valid inputs for inspection planning only when they retain the
 closed-out blocked shape emitted by closeout: `valid: false` with a non-empty
@@ -2634,7 +2661,10 @@ every consumed packet and checksum, `outcome_target`, and
 `next_controlled_action: select_controlled_runner_next_stage_continuation`
 without selecting the next stage. Completed final stages produce
 `stage_outcome_decision: complete_runner` and
-`next_controlled_action: complete_controlled_runner`. Failed stages produce
+`next_controlled_action: complete_controlled_runner`. A completed continuation
+stage-2 closeout is treated as the final stage for this slice and targets
+`controlled_loop_runner_completion`; it does not select stage 3 or continue
+the loop. Failed stages produce
 `stage_outcome_decision: inspect_stage_failure`; blocked stages produce
 `stage_outcome_decision: inspect_stage_blocked`. Failed and blocked packets
 also include a future `controlled_loop_runner_stage_retry_planning` target with
@@ -2647,6 +2677,10 @@ Stable blockers include
 `controlled_runner_stage_outcome_plan_approval_evidence_missing`,
 `controlled_runner_stage_outcome_plan_readiness_evidence_missing`,
 `controlled_runner_stage_outcome_plan_next_stage_evidence_missing`,
+`controlled_runner_stage_outcome_plan_continuation_evidence_missing`,
+`controlled_runner_stage_outcome_plan_stage_input_binding_evidence_missing`,
+`controlled_runner_stage_outcome_plan_stage_input_binding_required`,
+`controlled_runner_stage_outcome_plan_stage_input_binding_checksum_required`,
 `controlled_runner_stage_outcome_plan_upstream_invalid`,
 `controlled_runner_stage_outcome_plan_root_missing`,
 `controlled_runner_stage_outcome_plan_closeout_checksum_mismatch`,
@@ -2660,6 +2694,8 @@ Stable blockers include
 `controlled_runner_stage_outcome_plan_closeout_approval_file_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_readiness_file_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_next_stage_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_continuation_file_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_stage_input_binding_file_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_start_file_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_plan_file_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_dry_run_file_mismatch`,
@@ -2668,6 +2704,9 @@ Stable blockers include
 `controlled_runner_stage_outcome_plan_closeout_approval_checksum_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_readiness_checksum_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_next_stage_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_continuation_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_stage_input_binding_checksum_mismatch`,
+`controlled_runner_stage_outcome_plan_closeout_stage_input_binding_expected_checksum_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_start_checksum_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_plan_checksum_mismatch`,
 `controlled_runner_stage_outcome_plan_closeout_dry_run_checksum_mismatch`,
