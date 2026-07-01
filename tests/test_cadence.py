@@ -8573,6 +8573,50 @@ class CadenceCliTests(unittest.TestCase):
         output = json.loads(raw_output) if raw_output.strip() else {}
         return code, output, audit_before, runtime_before
 
+    def rewrite_controlled_loop_runner_stage_retry_plan_execution_anchor(self, chain, execution):
+        chain["controlled_loop_runner_stage_execution_path"].write_text(
+            json.dumps(execution),
+            encoding="utf-8",
+        )
+        execution_checksum = checksum_json(execution)
+        closeout = json.loads(
+            chain["controlled_loop_runner_stage_closeout_path"].read_text(encoding="utf-8")
+        )
+        closeout["controlled_loop_runner_stage_execution"]["checksum"] = execution_checksum
+        closeout["checksums"]["controlled_loop_runner_stage_execution"] = execution_checksum
+        chain["controlled_loop_runner_stage_closeout_path"].write_text(
+            json.dumps(closeout),
+            encoding="utf-8",
+        )
+        closeout_checksum = checksum_json(closeout)
+        outcome_plan = json.loads(
+            chain["controlled_loop_runner_stage_outcome_plan_path"].read_text(encoding="utf-8")
+        )
+        outcome_plan["controlled_loop_runner_stage_execution"]["checksum"] = execution_checksum
+        outcome_plan["checksums"]["controlled_loop_runner_stage_execution"] = execution_checksum
+        outcome_plan["controlled_loop_runner_stage_closeout"]["checksum"] = closeout_checksum
+        outcome_plan["checksums"]["controlled_loop_runner_stage_closeout"] = closeout_checksum
+        outcome_plan["outcome_target"]["controlled_loop_runner_stage_execution_checksum"] = (
+            execution_checksum
+        )
+        outcome_plan["outcome_target"]["controlled_loop_runner_stage_closeout_checksum"] = (
+            closeout_checksum
+        )
+        outcome_plan["outcome_target_checksum"] = checksum_json(outcome_plan["outcome_target"])
+        outcome_plan["retry_planning_target"]["controlled_loop_runner_stage_execution_checksum"] = (
+            execution_checksum
+        )
+        outcome_plan["retry_planning_target"]["controlled_loop_runner_stage_closeout_checksum"] = (
+            closeout_checksum
+        )
+        chain["controlled_loop_runner_stage_outcome_plan_path"].write_text(
+            json.dumps(outcome_plan),
+            encoding="utf-8",
+        )
+        chain["controlled_loop_runner_stage_execution"] = execution
+        chain["controlled_loop_runner_stage_closeout"] = closeout
+        chain["controlled_loop_runner_stage_outcome_plan"] = outcome_plan
+
     def controlled_loop_runner_completion_argv(self, tmp, chain, **overrides):
         values = {
             "controlled_loop_runner_stage_outcome_plan_file": chain[
@@ -15557,6 +15601,86 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["retry_planning_target"]["stage_closeout_status"], "blocked")
             self.assertEqual(output["retry_approval_target"]["stage_closeout_status"], "blocked")
             self.assertTrue(output["retry_approval_target"]["operator_approval_required"])
+            self.assertFalse(output["stage_retry_started"])
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_plan_blocks_continuation_outcome(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_continuation_stage_outcome_plan_chain(
+                tmp,
+                repo,
+                returncode=7,
+                stdout_text="",
+                stderr_text="failed",
+            )
+            outcome_result, outcome_plan = run_cli(
+                tmp,
+                *self.controlled_loop_runner_continuation_stage_outcome_plan_argv(tmp, chain)[2:],
+            )
+            self.assertEqual(outcome_result.returncode, 0, outcome_result.stderr)
+            self.assertEqual(outcome_plan["stage_selection_source"], "continuation")
+            self.assertEqual(outcome_plan["stage_outcome_decision"], "inspect_stage_failure")
+            outcome_plan_path = Path(tmp) / "controlled-loop-runner-stage-outcome-plan.json"
+            outcome_plan_path.write_text(json.dumps(outcome_plan), encoding="utf-8")
+            chain["controlled_loop_runner_stage_outcome_plan_path"] = outcome_plan_path
+            chain["controlled_loop_runner_stage_outcome_plan"] = outcome_plan
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_plan_in_process(
+                    tmp,
+                    chain,
+                    stage_number=2,
+                )
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_selection_source"], "continuation")
+            self.assertIn(
+                "controlled_runner_stage_retry_plan_continuation_unsupported",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertIsNone(output["retry_planning_target"])
+            self.assertIsNone(output["retry_approval_target"])
+            self.assertFalse(output["stage_retry_started"])
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_plan_blocks_execution_command_result_checksum_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_plan_chain(
+                tmp,
+                repo,
+                returncode=7,
+                stdout_text="",
+                stderr_text="failed",
+            )
+            execution = json.loads(
+                chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8")
+            )
+            execution["command_result_checksum"] = "sha256:" + "0" * 64
+            self.rewrite_controlled_loop_runner_stage_retry_plan_execution_anchor(chain, execution)
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_plan_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_stage_retry_plan_command_result_checksum_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertIsNone(output["retry_approval_target"])
             self.assertFalse(output["stage_retry_started"])
             self.assertFalse(output["process_started"])
             self.assertFalse(output["loop_continuation_started"])

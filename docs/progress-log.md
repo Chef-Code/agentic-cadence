@@ -36,13 +36,13 @@ Docs updated:
 ## 2026-07-01 - Controlled runner retry planning
 
 Summary:
-- Added `controlled-loop-runner-stage-retry-plan` to consume reviewed failed or
-  blocked stage-outcome planning plus saved closeout, execution, runner-start,
-  runner-plan, and dry-run evidence.
+- Added `controlled-loop-runner-stage-retry-plan` to consume reviewed
+  initial-stage failed or blocked stage-outcome planning plus saved closeout,
+  execution, runner-start, runner-plan, and dry-run evidence.
 - The command emits a read-only `controlled-loop-runner-stage-retry-plan.v1`
   packet with a retry approval target only after rechecking the reviewed
-  outcome checksum, source outcome/closeout/execution anchors, and retry
-  planning target.
+  outcome checksum, source outcome/closeout/execution anchors, executed-once
+  source proof, and retry planning target.
 - Retry planning starts no process, executes no retry, selects no next stage,
   appends no audit evidence, continues no loop, invokes no executor, and writes
   no Git/GitHub state.
@@ -60,9 +60,10 @@ Confidence change:
   orchestration remain future work.
 
 Evidence:
-- Focused Task 68 retry-plan suite: 4 tests passed.
-- Focused retry/outcome suite, including failed, blocked, continuation-failure,
-  non-retryable, and stale-anchor coverage: 7 tests passed.
+- Focused Task 68 retry-plan suite: 6 tests passed.
+- Focused retry/outcome suite, including failed, blocked, continuation
+  outcome-plan failure, retry-plan continuation rejection, non-retryable,
+  malformed execution proof, and stale-anchor coverage: 9 tests passed.
 - Syntax check: `python -m py_compile scripts/cadence.py codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py` passed.
 - Protocol validation: `python scripts/validate_protocol.py` printed `Protocol validation passed.`.
 - Package verification: `python scripts/verify_package.py` printed `Package verification passed.`.

@@ -241,10 +241,11 @@ runner completion can now consume the final-stage outcome plan and emit a
 terminal read-only completion packet without selecting another stage, retrying,
 continuing, appending audit evidence, invoking an executor, or writing
 Git/GitHub state. Read-only controlled runner retry planning can now consume
-failed or blocked outcome evidence and emit a retry approval target without
-executing the retry. Autonomous branch/commit/push or PR creation, automatic
-session launch, distributed work ownership, role assignment, and continuous
-loop orchestration remain missing.
+initial-stage failed or blocked outcome evidence and emit a retry approval
+target without executing the retry, while continuation-sourced retry planning
+remains blocked for a later explicit slice. Autonomous branch/commit/push or
+PR creation, automatic session launch, distributed work ownership, role
+assignment, and continuous loop orchestration remain missing.
 Current unattended-operation confidence is 25%. Progress-log entries record
 Task 68 projected capability at 63% while this stable headline remains 25%.
 
@@ -841,12 +842,13 @@ Validation needed:
   planning, and does not select another stage, retry, continue the loop,
   append audit evidence, invoke an executor, or write Git/GitHub state:
   complete for Task 66.
-- controlled-loop-runner-stage-retry-plan consumes failed or blocked
-  stage-outcome-plan evidence, rechecks the saved closeout, execution,
-  runner-start, runner-plan, and dry-run chain, and emits only a retry approval
-  target without starting a process, executing a retry, appending audit
-  evidence, continuing the loop, invoking an executor, or writing Git/GitHub
-  state: complete for Task 68.
+- controlled-loop-runner-stage-retry-plan consumes initial-stage failed or
+  blocked stage-outcome-plan evidence, rechecks the saved closeout, execution,
+  runner-start, runner-plan, dry-run chain, and executed-once source proof, and
+  emits only a retry approval target without starting a process, executing a
+  retry, appending audit evidence, continuing the loop, invoking an executor,
+  or writing Git/GitHub state; continuation-sourced retry planning is blocked
+  for this slice: complete for Task 68.
 
 Codex implementation rule: Codex can implement this directly if it remains
 generic, bounded, and does not push, merge, or release.

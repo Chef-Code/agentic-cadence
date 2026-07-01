@@ -1050,22 +1050,24 @@ loop, append audit evidence, start a process, invoke an executor, write
 Git/GitHub state, merge, release, publish packages, assign roles, or schedule
 agents.
 
-`controlled-loop-runner-stage-retry-plan` consumes a reviewed failed or blocked
-stage-outcome-plan packet plus saved closeout, execution, runner-start,
-runner-plan, and dry-run evidence:
+`controlled-loop-runner-stage-retry-plan` consumes a reviewed initial-stage
+failed or blocked stage-outcome-plan packet plus saved closeout, execution,
+runner-start, runner-plan, and dry-run evidence:
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-retry-plan --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --expected-stage-outcome-plan-checksum sha256:<reviewed-stage-outcome-plan-checksum> --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --stage-number 1
 ```
 
 Valid retry-plan packets emit `controlled-loop-runner-stage-retry-plan.v1`,
-require the reviewed outcome-plan checksum, require a failed or blocked
-inspection outcome with a matching `retry_planning_target`, recheck the
-closeout/execution/start/plan/dry-run anchors, and emit only a
-`retry_approval_target` for future operator approval. The packet does not select
-another stage, emit readiness, execute a retry, continue the runner or loop,
-append audit evidence, start a process, invoke an executor, write Git/GitHub
-state, merge, release, publish packages, assign roles, or schedule agents.
+require the reviewed outcome-plan checksum, require an initial failed or
+blocked inspection outcome with a matching `retry_planning_target`, recheck the
+closeout/execution/start/plan/dry-run anchors plus executed-once source
+execution proof, and emit only a `retry_approval_target` for future operator
+approval. Continuation-sourced outcome plans are blocked in this slice. The
+packet does not select another stage, emit readiness, execute a retry, continue
+the runner or loop, append audit evidence, start a process, invoke an executor,
+write Git/GitHub state, merge, release, publish packages, assign roles, or
+schedule agents.
 
 `controlled-loop-runner-completion` consumes the reviewed final-stage
 outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,

@@ -730,12 +730,13 @@ anchors plus the reviewed closeout checksum, and emit only the next operator
 target for continuation selection, runner completion, or inspection/operator-gated
 retry planning without selecting a stage, retrying, continuing,
 appending audit evidence, or writing Git/GitHub state.
-`controlled-loop-runner-stage-retry-plan` can then consume failed or blocked
-outcome-plan evidence plus saved closeout, execution, runner-start, runner-plan,
-and dry-run evidence, recheck the reviewed outcome checksum and anchors, and
-emit only a retry approval target without selecting a stage, emitting readiness,
-executing a retry, continuing, appending audit evidence, or writing Git/GitHub
-state.
+`controlled-loop-runner-stage-retry-plan` can then consume initial-stage failed
+or blocked outcome-plan evidence plus saved closeout, execution, runner-start,
+runner-plan, and dry-run evidence, recheck the reviewed outcome checksum,
+anchors, and executed-once source proof, and emit only a retry approval target
+without selecting a stage, emitting readiness, executing a retry, continuing,
+appending audit evidence, or writing Git/GitHub state. Continuation-sourced
+retry planning remains blocked for a later explicit slice.
 `controlled-loop-runner-next-stage-continuation` can then consume the reviewed
 outcome-plan target plus completed closeout, execution, runner-start,
 runner-plan, and dry-run evidence, recheck the full runner chain and reviewed
