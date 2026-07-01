@@ -14592,6 +14592,16 @@ def controlled_loop_runner_stage_retry_plan_command(args: argparse.Namespace) ->
                 )
             )
         elif expected_decision_payload is not None:
+            expected_retry_planning_target_checksum = checksum_json(retry_planning_target)
+            if outcome_plan.get("retry_planning_target_checksum") != expected_retry_planning_target_checksum:
+                blockers.append(
+                    controlled_loop_runner_stage_retry_plan_blocker(
+                        "controlled_runner_stage_retry_plan_target_checksum_mismatch",
+                        "controlled runner stage retry planning target checksum is stale",
+                        expected=expected_retry_planning_target_checksum,
+                        actual=outcome_plan.get("retry_planning_target_checksum"),
+                    )
+                )
             if retry_planning_target != expected_decision_payload["retry_planning_target"]:
                 blockers.append(
                     controlled_loop_runner_stage_retry_plan_blocker(
@@ -14658,6 +14668,9 @@ def controlled_loop_runner_stage_retry_plan_command(args: argparse.Namespace) ->
 
     if isinstance(closeout, dict):
         closeout_status = closeout.get("stage_closeout_status")
+        expected_closeout_next_action, _reason = controlled_loop_runner_stage_closeout_recommendation(
+            closeout_status if isinstance(closeout_status, str) else "blocked"
+        )
         closeout_blockers = closeout.get("blockers")
         blocked_closeout_inconsistent = (
             closeout_status == "blocked"
@@ -14706,6 +14719,8 @@ def controlled_loop_runner_stage_retry_plan_command(args: argparse.Namespace) ->
             closeout.get("read_only") is not True
             or closeout.get("runner_stage_execution_authority") != "stage_closeout_only"
             or closeout.get("side_effects") != []
+            or closeout.get("recommended_next_action") != expected_closeout_next_action
+            or closeout.get("next_controlled_action") != expected_closeout_next_action
             or closeout.get("limitations") != CONTROLLED_LOOP_RUNNER_STAGE_CLOSEOUT_LIMITATIONS
             or closeout_status not in {"failed", "blocked"}
             or (
@@ -14728,6 +14743,9 @@ def controlled_loop_runner_stage_retry_plan_command(args: argparse.Namespace) ->
                     runner_stage_execution_authority=closeout.get("runner_stage_execution_authority"),
                     side_effects=closeout.get("side_effects"),
                     blocker_codes=closeout_blockers,
+                    expected_next_controlled_action=expected_closeout_next_action,
+                    recommended_next_action=closeout.get("recommended_next_action"),
+                    next_controlled_action=closeout.get("next_controlled_action"),
                     limitations=closeout.get("limitations"),
                     side_effect_flags=closeout_forbidden_flags,
                 )
@@ -14816,6 +14834,20 @@ def controlled_loop_runner_stage_retry_plan_command(args: argparse.Namespace) ->
                     "controlled runner stage retry planning requires valid executed source stage evidence",
                     valid=execution.get("valid"),
                     stage_execution_status=execution_status,
+                )
+            )
+        if (
+            isinstance(closeout, dict)
+            and closeout.get("stage_closeout_status") == "failed"
+            and execution_status != "failed"
+        ):
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    "controlled_runner_stage_retry_plan_execution_closeout_status_mismatch",
+                    "controlled runner stage retry planning failed closeout must be backed by failed execution evidence",
+                    expected_stage_execution_status="failed",
+                    actual_stage_execution_status=execution_status,
+                    stage_closeout_status=closeout.get("stage_closeout_status"),
                 )
             )
         if (
@@ -24235,6 +24267,9 @@ def controlled_loop_runner_stage_outcome_plan_decision(
         "outcome_target": outcome_target,
         "outcome_target_checksum": checksum_json(outcome_target),
         "retry_planning_target": retry_planning_target,
+        "retry_planning_target_checksum": (
+            checksum_json(retry_planning_target) if retry_planning_target is not None else None
+        ),
     }
 
 
@@ -25226,6 +25261,9 @@ def controlled_loop_runner_stage_outcome_plan_command(args: argparse.Namespace) 
         "outcome_target": decision_payload["outcome_target"] if valid else None,
         "outcome_target_checksum": decision_payload["outcome_target_checksum"] if valid else None,
         "retry_planning_target": decision_payload["retry_planning_target"] if valid else None,
+        "retry_planning_target_checksum": (
+            decision_payload["retry_planning_target_checksum"] if valid else None
+        ),
         "controlled_loop_runner_stage_closeout": {
             "file": str(closeout_path),
             "checksum": closeout_checksum,
@@ -25305,6 +25343,7 @@ def controlled_loop_runner_stage_outcome_plan_command(args: argparse.Namespace) 
             "controlled_loop_runner_plan": runner_plan_checksum,
             "controlled_loop_runner_dry_run": dry_run_checksum,
             "outcome_target": decision_payload["outcome_target_checksum"] if valid else None,
+            "retry_planning_target": decision_payload["retry_planning_target_checksum"] if valid else None,
         },
         "blockers": blockers,
         "limitations": CONTROLLED_LOOP_RUNNER_STAGE_OUTCOME_PLAN_LIMITATIONS,
