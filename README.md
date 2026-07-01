@@ -62,6 +62,7 @@ read-only `controlled-loop-runner-stage-invocation-boundary`,
 controlled `controlled-loop-runner-stage-execute`,
 read-only `controlled-loop-runner-stage-closeout`,
 read-only `controlled-loop-runner-stage-outcome-plan`,
+read-only `controlled-loop-runner-stage-retry-plan`,
 read-only `controlled-loop-runner-next-stage-continuation`,
 read-only `controlled-loop-runner-stage-input-binding`,
 reusable `verify-operator-approval`,
@@ -165,7 +166,7 @@ effects, appends one stage-execution audit record after process start, and
 still does not start an executor, retry, execute a second stage, continue the
 loop, or write Git/GitHub state, and continuation-backed closeout/outcome
 planning can now bind that `execution-start.v1` output and map it to controlled
-runner completion or inspection/future operator-gated retry planning without
+runner completion or inspection/operator-gated retry planning without
 continuing the loop, and `controlled-loop-runner-completion` evidence can
 consume that final-stage outcome target and emit a terminal, read-only
 `controlled-loop-runner-completion.v1` packet without selecting another stage,
@@ -1043,11 +1044,28 @@ completed non-final stage targets next-stage continuation selection; a
 completed final stage targets controlled runner completion. A completed
 continuation stage-2 closeout targets controlled runner completion rather than
 selecting another stage in this slice. Failed and blocked stages target
-operator inspection plus future operator-gated retry planning. The command
+operator inspection plus operator-gated retry planning. The command
 does not select a next stage, execute or plan an automatic retry, continue the
 loop, append audit evidence, start a process, invoke an executor, write
 Git/GitHub state, merge, release, publish packages, assign roles, or schedule
 agents.
+
+`controlled-loop-runner-stage-retry-plan` consumes a reviewed failed or blocked
+stage-outcome-plan packet plus saved closeout, execution, runner-start,
+runner-plan, and dry-run evidence:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-retry-plan --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --expected-stage-outcome-plan-checksum sha256:<reviewed-stage-outcome-plan-checksum> --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --stage-number 1
+```
+
+Valid retry-plan packets emit `controlled-loop-runner-stage-retry-plan.v1`,
+require the reviewed outcome-plan checksum, require a failed or blocked
+inspection outcome with a matching `retry_planning_target`, recheck the
+closeout/execution/start/plan/dry-run anchors, and emit only a
+`retry_approval_target` for future operator approval. The packet does not select
+another stage, emit readiness, execute a retry, continue the runner or loop,
+append audit evidence, start a process, invoke an executor, write Git/GitHub
+state, merge, release, publish packages, assign roles, or schedule agents.
 
 `controlled-loop-runner-completion` consumes the reviewed final-stage
 outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,
@@ -1685,10 +1703,11 @@ and dry-run packets, revalidates the same chain, and emits only an
 emit terminal completion evidence from the reviewed target, failed stages to
 `inspect_controlled_runner_stage_failure`, and blocked stages to
 `inspect_controlled_runner_stage_blocked`. Failed and blocked outcomes include
-a future `controlled_loop_runner_stage_retry_planning` target that explicitly
-requires operator approval. The packet remains read-only and never selects the
-next stage, executes a retry, continues the loop, appends audit evidence, or
-writes Git/GitHub state.
+a `controlled_loop_runner_stage_retry_planning` target that
+`controlled-loop-runner-stage-retry-plan` can convert into a reviewed
+`retry_approval_target` for future operator approval. Both packets remain
+read-only and never select the next stage, execute a retry, continue the loop,
+append audit evidence, or write Git/GitHub state.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can
