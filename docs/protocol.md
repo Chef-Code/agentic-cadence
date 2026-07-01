@@ -2722,6 +2722,83 @@ and rewritten upstream stage-execution, stage-boundary, stage-approval,
 stage-readiness, and next-stage blockers, plus shared `operator_approval_*`
 blockers from the operator-approval verifier.
 
+`controlled-loop-runner-completion` is the read-only terminal evidence packet
+for a final controlled runner outcome. It reads
+`--controlled-loop-runner-stage-outcome-plan-file`,
+`--expected-stage-outcome-plan-checksum`,
+`--controlled-loop-runner-stage-closeout-file`,
+`--controlled-loop-runner-stage-execution-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, and optional
+`--completed-stage-number` (default `1`). It consumes already-recorded
+evidence only. The command must not continue the runner or loop, select another
+stage, emit stage-execution readiness, execute a retry, append audit evidence,
+start a process, invoke an executor, execute Git commands, call GitHub APIs,
+create branches, commit, push, create PRs, merge, release, publish packages,
+assign roles, or schedule agents.
+
+Completion rereads and rechecks the reviewed stage outcome plan, completed
+closeout, completed execution packet, runner-start evidence, runner-plan
+evidence, and dry-run evidence. It requires the outcome-plan checksum to match
+the reviewed `--expected-stage-outcome-plan-checksum`, the outcome plan to be
+valid and completed, and the outcome plan to carry
+`stage_outcome_decision: complete_runner` plus `next_controlled_action:
+complete_controlled_runner`. The nested outcome target must carry `purpose:
+controlled_loop_runner_completion`, the completed-stage number, no next-stage
+number, and checksum anchors for the saved closeout, execution, runner-start,
+runner-plan, and dry-run packets. The closeout and execution evidence must be
+completed for the requested completed stage, and stale anchors block the packet
+instead of treating completion as accepted.
+
+A valid packet emits `controlled-loop-runner-completion.v1` with
+`packet: controlled_loop_runner_completion`, `read_only: true`,
+`side_effects: []`, `runner_completion_status: completed`, references to every
+consumed packet and checksum, `completion_target`, and
+`completion_target_checksum`. It sets `recommended_next_action` and
+`next_controlled_action` to `review_controlled_runner_completion`; the packet
+is terminal evidence and grants no retry, continuation, executor, Git/GitHub,
+merge, release, publication, role, or scheduling authority.
+
+Stable blockers include `controlled_runner_completion_outcome_evidence_missing`,
+`controlled_runner_completion_closeout_evidence_missing`,
+`controlled_runner_completion_execution_evidence_missing`,
+`controlled_runner_completion_upstream_invalid`,
+`controlled_runner_completion_root_missing`,
+`controlled_runner_completion_outcome_checksum_mismatch`,
+`controlled_runner_completion_outcome_packet_mismatch`,
+`controlled_runner_completion_outcome_not_completed`,
+`controlled_runner_completion_outcome_stage_number_mismatch`,
+`controlled_runner_completion_outcome_selection_source_mismatch`,
+`controlled_runner_completion_outcome_not_complete_runner`,
+`controlled_runner_completion_outcome_closeout_file_mismatch`,
+`controlled_runner_completion_outcome_execution_file_mismatch`,
+`controlled_runner_completion_outcome_start_file_mismatch`,
+`controlled_runner_completion_outcome_plan_file_mismatch`,
+`controlled_runner_completion_outcome_dry_run_file_mismatch`,
+`controlled_runner_completion_outcome_target_missing`,
+`controlled_runner_completion_outcome_target_checksum_mismatch`,
+`controlled_runner_completion_outcome_target_purpose_invalid`,
+`controlled_runner_completion_outcome_target_closeout_status_mismatch`,
+`controlled_runner_completion_outcome_closed_out_stage_mismatch`,
+`controlled_runner_completion_outcome_completed_stage_mismatch`,
+`controlled_runner_completion_outcome_next_stage_present`,
+`controlled_runner_completion_outcome_total_stage_count_mismatch`,
+`controlled_runner_completion_outcome_not_final_stage`,
+`controlled_runner_completion_closeout_checksum_mismatch`,
+`controlled_runner_completion_execution_checksum_mismatch`,
+`controlled_runner_completion_start_checksum_mismatch`,
+`controlled_runner_completion_runner_plan_checksum_mismatch`,
+`controlled_runner_completion_dry_run_checksum_mismatch`,
+`controlled_runner_completion_closeout_packet_mismatch`,
+`controlled_runner_completion_closeout_not_completed`,
+`controlled_runner_completion_execution_packet_mismatch`,
+`controlled_runner_completion_execution_not_completed`,
+`controlled_runner_completion_execution_forbidden_flags`,
+`controlled_runner_completion_execution_stage_number_mismatch`,
+`controlled_runner_completion_stage_missing_from_runner_plan`,
+`controlled_runner_completion_selected_stage_plan_mismatch`, and rewritten
+upstream next-stage, start, plan, and dry-run blockers.
+
 `controlled-loop-runner-next-stage-continuation` is the read-only selector for
 stage `N+1` after a completed runner stage. It reads
 `--controlled-loop-runner-stage-outcome-plan-file`,

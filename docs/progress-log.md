@@ -33,6 +33,57 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-07-01 - Controlled runner completion evidence
+
+Summary:
+- Added `controlled-loop-runner-completion` to consume reviewed final-stage
+  outcome planning plus saved closeout, execution, runner-start, runner-plan,
+  and dry-run evidence.
+- The command emits a deterministic read-only
+  `controlled-loop-runner-completion.v1` packet only for
+  `stage_outcome_decision: complete_runner` with purpose
+  `controlled_loop_runner_completion`.
+- Completion evidence rechecks final-stage file and checksum anchors and
+  starts no runner continuation, retry, process, executor invocation, audit
+  append, Git/GitHub write, merge, release, package publication, role
+  assignment, or scheduler action.
+
+Completed slices:
+- Task 67: controlled runner completion evidence.
+
+Confidence change:
+- Previous projected capability: 61%.
+- New projected capability: 62%.
+- Stable headline confidence: remains 25%.
+- Reason: final runner outcomes now have terminal completion evidence, but
+  retry planning, retry execution, autonomous Git/GitHub writes, executor
+  invocation from the runner, role scheduling, and unattended orchestration
+  remain future work.
+
+Evidence:
+- Focused Task 67 completion suite: 3 tests passed.
+- Focused runner completion/outcome/continuation suite, including review
+  regression coverage: 13 tests passed.
+- Syntax check: `python -m py_compile scripts/cadence.py codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py` passed.
+- Protocol validation: `python scripts/validate_protocol.py` printed `Protocol validation passed.`.
+- Package verification: `python scripts/verify_package.py` printed `Package verification passed.`.
+- Diff whitespace check: `git diff --check` exited 0 with normal Windows LF/CRLF warnings.
+
+New risks or blockers:
+- Read-only controlled runner retry planning is still missing for failed or
+  blocked stage outcomes.
+- The runner still cannot autonomously assign agents, schedule workers, retry
+  stages, push branches, open or update PRs, merge, release, publish packages,
+  invoke an executor from the runner, or continue unattended.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-07-01 - Controlled runner continuation closeout and outcome planning
 
 Summary:

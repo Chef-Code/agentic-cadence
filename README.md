@@ -166,7 +166,11 @@ still does not start an executor, retry, execute a second stage, continue the
 loop, or write Git/GitHub state, and continuation-backed closeout/outcome
 planning can now bind that `execution-start.v1` output and map it to controlled
 runner completion or inspection/future operator-gated retry planning without
-continuing the loop.
+continuing the loop, and `controlled-loop-runner-completion` evidence can
+consume that final-stage outcome target and emit a terminal, read-only
+`controlled-loop-runner-completion.v1` packet without selecting another stage,
+retrying, continuing, appending audit evidence, invoking an executor, or
+writing Git/GitHub state.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -1045,6 +1049,23 @@ loop, append audit evidence, start a process, invoke an executor, write
 Git/GitHub state, merge, release, publish packages, assign roles, or schedule
 agents.
 
+`controlled-loop-runner-completion` consumes the reviewed final-stage
+outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,
+and dry-run evidence:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-completion --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --expected-stage-outcome-plan-checksum sha256:<reviewed-stage-outcome-plan-checksum> --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --completed-stage-number 2
+```
+
+Valid completion packets emit `controlled-loop-runner-completion.v1`, require
+the reviewed outcome-plan checksum, require a completed
+`stage_outcome_decision: complete_runner` target with purpose
+`controlled_loop_runner_completion`, recheck the closeout/execution/start/plan
+and dry-run anchors, and produce terminal completion evidence only. The packet
+does not select another stage, execute a retry, continue the runner or loop,
+append audit evidence, start a process, invoke an executor, write Git/GitHub
+state, merge, release, publish packages, assign roles, or schedule agents.
+
 `controlled-loop-runner-next-stage-continuation` consumes the reviewed
 outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,
 and dry-run evidence:
@@ -1660,7 +1681,8 @@ stage-execution approval, readiness, next-stage, runner-start, runner-plan,
 and dry-run packets, revalidates the same chain, and emits only an
 `outcome_target` plus checksum. It maps completed non-final stages to
 `select_controlled_runner_next_stage_continuation`, completed final stages to
-`complete_controlled_runner`, failed stages to
+`complete_controlled_runner`, where `controlled-loop-runner-completion` can
+emit terminal completion evidence from the reviewed target, failed stages to
 `inspect_controlled_runner_stage_failure`, and blocked stages to
 `inspect_controlled_runner_stage_blocked`. Failed and blocked outcomes include
 a future `controlled_loop_runner_stage_retry_planning` target that explicitly
