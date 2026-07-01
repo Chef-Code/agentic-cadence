@@ -937,10 +937,20 @@ def validate_controlled_runner_stage_execution_audit_record(record: dict[str, An
                 line,
             )
         )
-    if (
+    returncode = record.get("returncode")
+    if record.get("timed_out") is True:
+        if "returncode" in record and returncode is not None:
+            blockers.append(
+                audit_replay_blocker(
+                    "audit_controlled_runner_stage_execution_returncode_invalid",
+                    "controlled_runner_stage_execution returncode must be absent or null when timed_out is true",
+                    line,
+                )
+            )
+    elif (
         "returncode" not in record
-        or not isinstance(record.get("returncode"), int)
-        or isinstance(record.get("returncode"), bool)
+        or not isinstance(returncode, int)
+        or isinstance(returncode, bool)
     ):
         blockers.append(
             audit_replay_blocker(

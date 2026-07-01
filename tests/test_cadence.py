@@ -13339,6 +13339,53 @@ class CadenceCliTests(unittest.TestCase):
             self.assertIn("stage_output_written", output["side_effects"])
             self.assertIn("controlled_runner_stage_execution_audit_appended", output["side_effects"])
 
+    def test_controlled_loop_runner_stage_execute_timeout_audit_replays_without_returncode(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_execute_chain(tmp, repo)
+            boundary = chain["controlled_loop_runner_stage_invocation_boundary"]
+            invocation_boundary = boundary["invocation_boundary"]
+            timeout_error = subprocess.TimeoutExpired(
+                invocation_boundary["argv"],
+                invocation_boundary["timeout_policy"]["timeout_seconds"],
+                output="",
+                stderr="stage timed out",
+            )
+            stdout = StringIO()
+            audit_before = audit_records(tmp)
+
+            with mock.patch("subprocess.run", side_effect=timeout_error) as run_mock:
+                with redirect_stdout(stdout):
+                    try:
+                        code = cadence_cli.main(self.controlled_loop_runner_stage_execute_argv(tmp, chain))
+                    except SystemExit as exc:
+                        code = exc.code
+
+            self.assertEqual(code, 0)
+            output = json.loads(stdout.getvalue())
+            self.assertTrue(output["valid"], output["blockers"])
+            self.assertEqual(output["stage_execution_status"], "failed")
+            self.assertTrue(output["process_started"])
+            self.assertFalse(output["stage_retry_started"])
+            self.assertFalse(output["second_stage_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertEqual(output["recommended_next_action"], "closeout_controlled_runner_stage")
+            command_result = output["command_result"]
+            self.assertIsNone(command_result["returncode"])
+            self.assertTrue(command_result["timed_out"])
+            self.assertEqual(command_result["stderr"], "stage timed out")
+            self.assertEqual(run_mock.call_count, 1)
+            records = audit_records(tmp)
+            self.assertEqual(len(records), len(audit_before) + 1)
+            self.assertEqual(records[-1]["event"], "controlled_runner_stage_execution")
+            self.assertTrue(records[-1]["timed_out"])
+            self.assertNotIn("returncode", records[-1])
+            audit_result, audit_replay = run_cli(tmp, "audit-replay")
+            self.assertEqual(audit_result.returncode, 0, audit_replay)
+            self.assertTrue(audit_replay["valid"], audit_replay["blockers"])
+
     def test_controlled_loop_runner_stage_execute_runs_continuation_start_governed_execution_once(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             import codex_cadence.cli as cadence_cli
