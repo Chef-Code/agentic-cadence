@@ -33,6 +33,57 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-07-01 - Controlled runner retry planning
+
+Summary:
+- Added `controlled-loop-runner-stage-retry-plan` to consume reviewed
+  initial-stage failed or blocked stage-outcome planning plus saved closeout,
+  execution, runner-start, runner-plan, and dry-run evidence.
+- The command emits a read-only `controlled-loop-runner-stage-retry-plan.v1`
+  packet with a retry approval target only after rechecking the reviewed
+  outcome checksum, source outcome/closeout/execution anchors, executed-once
+  source proof, and retry planning target.
+- Retry planning starts no process, executes no retry, selects no next stage,
+  appends no audit evidence, continues no loop, invokes no executor, and writes
+  no Git/GitHub state.
+
+Completed slices:
+- Task 68: controlled runner retry planning, read-only.
+
+Confidence change:
+- Previous projected capability: 62%.
+- New projected capability: 63%.
+- Stable headline confidence: remains 25%.
+- Reason: failed and blocked runner stages now have a governed retry approval
+  target, but retry approval materialization/execution, executor invocation
+  from the runner, autonomous Git/GitHub writes, role scheduling, and unattended
+  orchestration remain future work.
+
+Evidence:
+- Focused Task 68 retry-plan suite: 6 tests passed.
+- Focused retry/outcome suite, including failed, blocked, continuation
+  outcome-plan failure, retry-plan continuation rejection, non-retryable,
+  malformed execution proof, and stale-anchor coverage: 9 tests passed.
+- Syntax check: `python -m py_compile scripts/cadence.py codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py` passed.
+- Protocol validation: `python scripts/validate_protocol.py` printed `Protocol validation passed.`.
+- Package verification: `python scripts/verify_package.py` printed `Package verification passed.`.
+- Diff whitespace check: `git diff --check` exited 0 with normal Windows LF/CRLF warnings.
+
+New risks or blockers:
+- Retry approval materialization and retry execution are still missing.
+- The runner still cannot autonomously assign agents, schedule workers, retry
+  stages, push branches, open or update PRs, merge, release, publish packages,
+  invoke an executor from the runner, or continue unattended.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-07-01 - Controlled runner completion evidence
 
 Summary:

@@ -2674,8 +2674,8 @@ stage-2 closeout is treated as the final stage for this slice and targets
 the loop. Failed stages produce
 `stage_outcome_decision: inspect_stage_failure`; blocked stages produce
 `stage_outcome_decision: inspect_stage_blocked`. Failed and blocked packets
-also include a future `controlled_loop_runner_stage_retry_planning` target with
-`operator_approval_required: true`, but no retry is executed or authorized.
+also include a `controlled_loop_runner_stage_retry_planning` target with
+`operator_approval_required: true`; no retry is executed or authorized.
 
 Stable blockers include
 `controlled_runner_stage_outcome_plan_closeout_evidence_missing`,
@@ -2721,6 +2721,114 @@ Stable blockers include
 and rewritten upstream stage-execution, stage-boundary, stage-approval,
 stage-readiness, and next-stage blockers, plus shared `operator_approval_*`
 blockers from the operator-approval verifier.
+
+`controlled-loop-runner-stage-retry-plan` is the read-only retry approval-target
+packet for failed or blocked initial controlled runner stage outcomes. It reads
+`--controlled-loop-runner-stage-outcome-plan-file`,
+`--expected-stage-outcome-plan-checksum`,
+`--controlled-loop-runner-stage-closeout-file`,
+`--controlled-loop-runner-stage-execution-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, and optional `--stage-number` (default
+`1`). It consumes already-recorded evidence only. The command must not continue
+the runner or loop, select another stage, emit stage-execution readiness,
+execute a retry, append audit evidence, start a process, invoke an executor,
+execute Git commands, call GitHub APIs, create branches, commit, push, create
+PRs, merge, release, publish packages, assign roles, or schedule agents.
+Task 68 retry planning is initial-stage only; continuation-sourced outcome
+plans are blocked until a later slice adds explicit continuation/input-binding
+retry-planning evidence and ownership-bound continuation checks.
+
+Retry planning rereads and rechecks the reviewed stage outcome plan, source
+closeout, source execution packet, runner-start evidence, runner-plan evidence,
+and dry-run evidence. It requires the outcome-plan checksum to match the
+reviewed `--expected-stage-outcome-plan-checksum`, the outcome plan to be valid
+and completed, and the outcome plan to carry either
+`stage_outcome_decision: inspect_stage_failure` or
+`stage_outcome_decision: inspect_stage_blocked` with the matching
+`next_controlled_action`. The nested `retry_planning_target` must carry
+`purpose: controlled_loop_runner_stage_retry_planning`,
+`operator_approval_required: true`, false retry-start flags, the requested
+stage number, and checksum anchors for the saved closeout, execution,
+runner-start, runner-plan, and dry-run packets. The source execution packet
+must prove one executed runner stage: valid executed evidence, started runner
+and process flags, execution side-effect and audit proof, a command-result
+checksum and returncode compatible with the execution status, empty execution
+blockers, `runner_stage_execution_authority: stage_executed_once`, expected
+stage-execution limitations, `next_controlled_action:
+closeout_controlled_runner_stage`, and a selected stage that still matches the
+approved runner plan.
+
+A valid packet emits `controlled-loop-runner-stage-retry-plan.v1` with
+`packet: controlled_loop_runner_stage_retry_plan`, `read_only: true`,
+`side_effects: []`, `stage_retry_plan_status: planned`, references to every
+consumed packet and checksum, `retry_planning_target`, and a
+`retry_approval_target` plus checksum. It sets `recommended_next_action` to
+`review_controlled_runner_stage_retry_plan` and `next_controlled_action` to
+`approve_controlled_runner_stage_retry`; the packet grants no retry execution,
+continuation, executor, Git/GitHub, merge, release, publication, role, or
+scheduling authority.
+
+Stable blockers include
+`controlled_runner_stage_retry_plan_outcome_evidence_missing`,
+`controlled_runner_stage_retry_plan_closeout_evidence_missing`,
+`controlled_runner_stage_retry_plan_execution_evidence_missing`,
+`controlled_runner_stage_retry_plan_upstream_invalid`,
+`controlled_runner_stage_retry_plan_root_missing`,
+`controlled_runner_stage_retry_plan_continuation_unsupported`,
+`controlled_runner_stage_retry_plan_outcome_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_packet_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_not_completed`,
+`controlled_runner_stage_retry_plan_outcome_stage_number_mismatch`,
+`controlled_runner_stage_retry_plan_selection_source_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_not_retryable`,
+`controlled_runner_stage_retry_plan_outcome_decision_mismatch`,
+`controlled_runner_stage_retry_plan_target_missing`,
+`controlled_runner_stage_retry_plan_target_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_target_missing`,
+`controlled_runner_stage_retry_plan_outcome_target_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_target_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_closeout_file_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_closeout_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_execution_file_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_execution_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_start_file_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_start_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_runner_plan_file_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_runner_plan_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_dry_run_file_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_dry_run_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_packet_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_not_retryable`,
+`controlled_runner_stage_retry_plan_closeout_stage_number_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_status_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_execution_file_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_execution_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_start_file_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_start_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_runner_plan_file_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_runner_plan_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_dry_run_file_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_dry_run_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_selected_stage_mismatch`,
+`controlled_runner_stage_retry_plan_execution_packet_mismatch`,
+`controlled_runner_stage_retry_plan_execution_not_executed`,
+`controlled_runner_stage_retry_plan_execution_not_started`,
+`controlled_runner_stage_retry_plan_execution_proof_missing`,
+`controlled_runner_stage_retry_plan_command_result_missing`,
+`controlled_runner_stage_retry_plan_command_result_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_command_result_status_mismatch`,
+`controlled_runner_stage_retry_plan_execution_not_self_consistent`,
+`controlled_runner_stage_retry_plan_execution_stage_number_mismatch`,
+`controlled_runner_stage_retry_plan_execution_forbidden_flags`,
+`controlled_runner_stage_retry_plan_execution_start_file_mismatch`,
+`controlled_runner_stage_retry_plan_execution_start_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_execution_runner_plan_file_mismatch`,
+`controlled_runner_stage_retry_plan_execution_runner_plan_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_execution_dry_run_file_mismatch`,
+`controlled_runner_stage_retry_plan_execution_dry_run_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_stage_missing_from_runner_plan`, and
+`controlled_runner_stage_retry_plan_execution_selected_stage_plan_mismatch`.
 
 `controlled-loop-runner-completion` is the read-only terminal evidence packet
 for a final controlled runner outcome. It reads
