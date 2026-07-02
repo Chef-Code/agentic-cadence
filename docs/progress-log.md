@@ -33,6 +33,59 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-07-01 - Ownership-bound continuation readiness
+
+Summary:
+- Added explicit ownership-bound continuation readiness for controlled runner
+  stage-2 `start-governed-execution` boundaries.
+- Stage invocation boundary planning now accepts ownership target, role, and
+  claimer only for continuation-backed `start-governed-execution`, only after
+  active ownership evidence validates, and only when the approved runner plan
+  declares `work_ownership_epoch_bound`.
+- Stage execution and closeout revalidation preserve the exact ownership-bound
+  argv and block reported `work_ownership_epoch_bound` effects when the reviewed
+  boundary did not carry ownership arguments.
+
+Completed slices:
+- Task 69: ownership-bound continuation readiness.
+
+Confidence change:
+- Previous projected capability: 63%.
+- New projected capability: 64%.
+- Stable headline confidence: remains 25%.
+- Reason: continuation-backed runner execution can now carry active ownership
+  evidence through the approved boundary and side-effect policy, but role/work
+  assignment planning, retry materialization/execution, runner-launched executor
+  invocation, Git/GitHub writes, and unattended orchestration remain future work.
+
+Evidence:
+- Focused Task 69 ownership-bound boundary/execution suite plus ownership
+  validator regressions: 10 tests passed.
+- Continuation closeout/outcome regression checks: 4 tests passed.
+- Syntax check: `python -m py_compile scripts/cadence.py codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py` passed.
+- Protocol validation: `python scripts/validate_protocol.py` printed `Protocol validation passed.`.
+- Package verification: `python scripts/verify_package.py` printed `Package verification passed.`.
+- Diff whitespace check: `git diff --check` exited 0.
+- Line-ending note: Git emitted normal Windows LF/CRLF warnings.
+- Full `python -m unittest tests.test_cadence` was attempted and hit the
+  1200-second tool timeout before returning a result.
+
+New risks or blockers:
+- Full local unittest completion was not observed because the command exceeded
+  the tool timeout.
+- Role/work assignment planning, retry execution, runner-launched executor
+  invocation, autonomous Git/GitHub writes, and unattended orchestration remain
+  missing.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-07-01 - Controlled runner retry planning
 
 Summary:
