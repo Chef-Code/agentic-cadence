@@ -19353,6 +19353,7 @@ def controlled_loop_runner_stage_invocation_boundary_start_governed_execution_co
     ownership_target: str | None = None,
     ownership_role: str | None = None,
     ownership_claimer: str | None = None,
+    validate_active_ownership: bool = True,
 ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
     blockers: list[dict[str, Any]] = []
     if not isinstance(approval, dict):
@@ -19656,21 +19657,21 @@ def controlled_loop_runner_stage_invocation_boundary_start_governed_execution_co
                     actual=ownership_arguments,
                 )
             )
-        elif root is None:
+        elif validate_active_ownership and root is None:
             blockers.append(
                 controlled_loop_runner_stage_invocation_boundary_blocker(
                     "controlled_runner_stage_invocation_boundary_ownership_root_missing",
                     "ownership-bound continuation requires a runtime root for ownership evidence validation",
                 )
             )
-        elif expected_cwd is not None and not blockers:
+        elif validate_active_ownership and expected_cwd is not None and not blockers:
             blockers.extend(
                 controlled_loop_runner_stage_invocation_boundary_live_repo_blockers(
                     cwd=expected_cwd,
                     repo_packet=repo_packet,
                 )
             )
-        if expected_cwd is not None and not blockers:
+        if validate_active_ownership and expected_cwd is not None and not blockers:
             ownership_blockers, ownership_summary, _ownership_path, _ownership_record = validate_execution_start_ownership(
                 root=root,
                 target=ownership_target,
@@ -24204,6 +24205,7 @@ def controlled_loop_runner_stage_closeout_command(args: argparse.Namespace) -> i
                 approval_secret=operator_approval_secret_from_args(args),
                 expected_operator_id=args.expected_operator_id,
                 root=root,
+                validate_active_ownership=False,
                 **ownership_arguments,
             )
         )
@@ -25464,6 +25466,7 @@ def controlled_loop_runner_stage_outcome_plan_command(args: argparse.Namespace) 
                 approval_secret=operator_approval_secret_from_args(args),
                 expected_operator_id=args.expected_operator_id,
                 root=root,
+                validate_active_ownership=False,
                 **ownership_arguments,
             )
         )

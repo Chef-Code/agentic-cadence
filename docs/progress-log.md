@@ -65,7 +65,8 @@ Evidence:
 - Syntax check: `python -m py_compile scripts/cadence.py codex_cadence/cli.py codex_cadence/policy_audit.py tests/test_cadence.py` passed.
 - Protocol validation: `python scripts/validate_protocol.py` printed `Protocol validation passed.`.
 - Package verification: `python scripts/verify_package.py` printed `Package verification passed.`.
-- Diff whitespace check: `git diff --check` exited 0 with normal Windows LF/CRLF warnings.
+- Diff whitespace check: `git diff --check` exited 0.
+- Line-ending note: Git emitted normal Windows LF/CRLF warnings.
 - Full `python -m unittest tests.test_cadence` was attempted and hit the
   1200-second tool timeout before returning a result.
 

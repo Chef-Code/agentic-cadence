@@ -14690,6 +14690,12 @@ class CadenceCliTests(unittest.TestCase):
                 "reason": "governed execution start accepted",
                 "side_effects": ["work_ownership_epoch_bound"],
                 "audit_record": {
+                    "event": "execution_start_decision",
+                    "valid": True,
+                    "epoch_started": True,
+                    "executor_started": False,
+                    "task_id": chain["executor_task"]["task"]["id"],
+                    "task_checksum": task_checksum,
                     "chain_index": 1,
                     "event_hash": "sha256:" + "1" * 64,
                 },
@@ -14778,6 +14784,12 @@ class CadenceCliTests(unittest.TestCase):
                 "reason": "governed execution start reported unexpected ownership binding",
                 "side_effects": ["work_ownership_epoch_bound"],
                 "audit_record": {
+                    "event": "execution_start_decision",
+                    "valid": True,
+                    "epoch_started": True,
+                    "executor_started": False,
+                    "task_id": chain["executor_task"]["task"]["id"],
+                    "task_checksum": task_checksum,
                     "chain_index": 1,
                     "event_hash": "sha256:" + "1" * 64,
                 },
@@ -15271,6 +15283,136 @@ class CadenceCliTests(unittest.TestCase):
             self.assertNotIn("audit_record", output)
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_closeout_and_outcome_preserve_closed_ownership_bound_execution(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_continuation_stage_invocation_boundary_chain(tmp, repo)
+            task_packet = json.loads(chain["executor_task_path"].read_text(encoding="utf-8"))
+            align_repo_to_executor_task_repo(repo, task_packet)
+            ownership_path, ownership_record = write_work_ownership(
+                tmp,
+                "ownership-1",
+                task_id=task_packet["task"]["id"],
+                candidate_id=task_packet["task"]["id"],
+                branch=task_packet["repo"]["branch"],
+                head=task_packet["repo"]["head"],
+                epoch_id=None,
+                handoff_id=None,
+            )
+            code, boundary, audit_before_boundary, runtime_before_boundary = (
+                self.run_controlled_loop_runner_continuation_stage_invocation_boundary_in_process(
+                    tmp,
+                    chain,
+                    ownership_target="ownership-1",
+                    ownership_role="implementer",
+                    ownership_claimer="test-agent",
+                )
+            )
+            self.assertEqual(code, 0, boundary.get("blockers"))
+            self.assertEqual(audit_records(tmp), audit_before_boundary)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before_boundary)
+            boundary_path = Path(tmp) / "controlled-loop-runner-ownership-continuation-stage-invocation-boundary.json"
+            boundary_path.write_text(json.dumps(boundary), encoding="utf-8")
+            chain["controlled_loop_runner_stage_invocation_boundary_path"] = boundary_path
+            chain["controlled_loop_runner_stage_invocation_boundary"] = boundary
+            invocation_boundary = boundary["invocation_boundary"]
+            task_checksum = checksum_json(chain["executor_task"])
+            stage_stdout_packet = {
+                "schema_version": "execution-start.v1",
+                "packet": "execution_start",
+                "read_only": False,
+                "valid": True,
+                "epoch_started": True,
+                "executor_started": False,
+                "pr_action_started": False,
+                "approval_state": "approved",
+                "task_file": str(chain["executor_task_path"]),
+                "task_checksum": task_checksum,
+                "task_id": chain["executor_task"]["task"]["id"],
+                "repo": chain["executor_task"]["repo"],
+                "snapshot": chain["executor_task"]["snapshot"],
+                "epoch_id": "epoch-task-69-closeout-test",
+                "ownership": {"id": "ownership-1", "epoch_id": "epoch-task-69-closeout-test"},
+                "blockers": [],
+                "recommended_next_action": "handoff_to_executor",
+                "reason": "governed execution start accepted",
+                "side_effects": ["work_ownership_epoch_bound"],
+                "audit_record": {
+                    "event": "execution_start_decision",
+                    "valid": True,
+                    "epoch_started": True,
+                    "executor_started": False,
+                    "task_id": chain["executor_task"]["task"]["id"],
+                    "task_checksum": task_checksum,
+                    "chain_index": 1,
+                    "event_hash": "sha256:" + "1" * 64,
+                },
+                "limitations": [
+                    "executor_not_started",
+                    "executor_invocation_out_of_scope",
+                    "git_pr_writes_out_of_scope",
+                    "merge_release_publish_out_of_scope",
+                ],
+            }
+            completed = subprocess.CompletedProcess(
+                invocation_boundary["argv"],
+                0,
+                stdout=json.dumps(stage_stdout_packet) + "\n",
+                stderr="",
+            )
+            stdout = StringIO()
+            with mock.patch("subprocess.run", return_value=completed):
+                with redirect_stdout(stdout):
+                    try:
+                        code = cadence_cli.main(
+                            self.controlled_loop_runner_continuation_stage_execute_argv(tmp, chain)
+                        )
+                    except SystemExit as exc:
+                        code = exc.code
+            self.assertEqual(code, 0, stdout.getvalue())
+            execution = json.loads(stdout.getvalue())
+            execution_path = Path(tmp) / "controlled-loop-runner-ownership-continuation-stage-execution.json"
+            execution_path.write_text(json.dumps(execution), encoding="utf-8")
+            chain["controlled_loop_runner_stage_execution_path"] = execution_path
+            chain["controlled_loop_runner_stage_execution"] = execution
+
+            ownership_record["status"] = "CLOSED"
+            ownership_record["updated_at"] = utc_now()
+            closed_path = Path(tmp) / "work-ownership" / "closed" / "ownership-1.json"
+            closed_path.parent.mkdir(parents=True, exist_ok=True)
+            closed_path.write_text(json.dumps(ownership_record), encoding="utf-8")
+            ownership_path.unlink()
+
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                try:
+                    code = cadence_cli.main(self.controlled_loop_runner_continuation_stage_closeout_argv(tmp, chain))
+                except SystemExit as exc:
+                    code = exc.code
+            self.assertEqual(code, 0, stdout.getvalue())
+            closeout = json.loads(stdout.getvalue())
+            self.assertTrue(closeout["valid"], closeout["blockers"])
+            self.assertEqual(closeout["stage_closeout_status"], "completed")
+            closeout_path = Path(tmp) / "controlled-loop-runner-ownership-continuation-stage-closeout.json"
+            closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+            chain["controlled_loop_runner_stage_closeout_path"] = closeout_path
+            chain["controlled_loop_runner_stage_closeout"] = closeout
+
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                try:
+                    code = cadence_cli.main(
+                        self.controlled_loop_runner_continuation_stage_outcome_plan_argv(tmp, chain)
+                    )
+                except SystemExit as exc:
+                    code = exc.code
+            self.assertEqual(code, 0, stdout.getvalue())
+            outcome = json.loads(stdout.getvalue())
+            self.assertTrue(outcome["valid"], outcome["blockers"])
+            self.assertEqual(outcome["stage_outcome_decision"], "complete_runner")
 
     def test_controlled_loop_runner_stage_closeout_blocks_continuation_missing_execution_start_output(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
