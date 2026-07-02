@@ -91,6 +91,7 @@ def init_committed_repo(path):
 
 
 def align_repo_to_executor_task_repo(repo, task_packet):
+    """Force-create or move the task branch to the executor packet head."""
     repo_packet = task_packet["repo"]
     git(repo, "switch", "-C", repo_packet["branch"], repo_packet["head"])
 
