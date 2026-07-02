@@ -574,11 +574,12 @@ Reasoning:
 - `controlled-loop-runner-stage-invocation-boundary` can now consume that
   continuation approval/readiness chain, preserve stage-1 boundary behavior,
   and prepare the exact stage-2 `start-governed-execution` argv from the
-  verified executor task file, derived approval token, and repo cwd while
-  rejecting ownership arguments and still not starting a process or epoch,
-  appending audit evidence, continuing the loop, writing Git/GitHub state,
-  merging, releasing, publishing packages, assigning roles, or scheduling
-  agents.
+  verified executor task file, derived approval token, and repo cwd, optionally
+  carrying a complete ownership tuple only after live repo branch/HEAD, active
+  ownership evidence, and the `work_ownership_epoch_bound` stage policy are
+  rechecked, while still not starting a process or epoch, appending audit
+  evidence, continuing the loop, writing Git/GitHub state, merging, releasing,
+  publishing packages, assigning roles, or scheduling agents.
 - `controlled-loop-runner-stage-execute` can now consume that continuation
   boundary, matching continuation packet, and stage-input binding, preserve the
   initial stage-1 execution behavior, execute the exact stage-2

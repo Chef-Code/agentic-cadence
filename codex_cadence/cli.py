@@ -19208,6 +19208,138 @@ def controlled_loop_runner_stage_invocation_boundary_ownership_blockers(
     return blockers
 
 
+def controlled_loop_runner_stage_invocation_boundary_git_dir(
+    cwd: Path,
+) -> tuple[Path | None, list[dict[str, Any]]]:
+    dot_git = cwd / ".git"
+    if dot_git.is_dir():
+        return dot_git, []
+    if dot_git.is_file():
+        try:
+            contents = dot_git.read_text(encoding="utf-8").strip()
+        except OSError as exc:
+            return None, [
+                controlled_loop_runner_stage_invocation_boundary_blocker(
+                    "controlled_runner_stage_invocation_boundary_live_repo_unreadable",
+                    "ownership-bound continuation could not read the live repo gitdir pointer",
+                    path=str(dot_git),
+                    error=str(exc),
+                )
+            ]
+        prefix = "gitdir:"
+        if contents.lower().startswith(prefix):
+            git_dir = Path(contents[len(prefix) :].strip())
+            if not git_dir.is_absolute():
+                git_dir = (cwd / git_dir).resolve(strict=False)
+            return git_dir, []
+    return None, [
+        controlled_loop_runner_stage_invocation_boundary_blocker(
+            "controlled_runner_stage_invocation_boundary_live_repo_unreadable",
+            "ownership-bound continuation requires readable live git metadata",
+            cwd=str(cwd),
+        )
+    ]
+
+
+def controlled_loop_runner_stage_invocation_boundary_read_git_ref(
+    git_dir: Path,
+    ref_name: str,
+) -> str | None:
+    ref_path = git_dir / ref_name
+    try:
+        if ref_path.is_file():
+            return ref_path.read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+    packed_refs = git_dir / "packed-refs"
+    try:
+        if packed_refs.is_file():
+            for line in packed_refs.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or stripped.startswith("^"):
+                    continue
+                pieces = stripped.split(" ", 1)
+                if len(pieces) == 2 and pieces[1] == ref_name:
+                    return pieces[0]
+    except OSError:
+        return None
+    return None
+
+
+def controlled_loop_runner_stage_invocation_boundary_live_repo_identity(
+    cwd: Path,
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    git_dir, blockers = controlled_loop_runner_stage_invocation_boundary_git_dir(cwd)
+    if blockers or git_dir is None:
+        return None, blockers
+    head_path = git_dir / "HEAD"
+    try:
+        head_contents = head_path.read_text(encoding="utf-8").strip()
+    except OSError as exc:
+        return None, [
+            controlled_loop_runner_stage_invocation_boundary_blocker(
+                "controlled_runner_stage_invocation_boundary_live_repo_unreadable",
+                "ownership-bound continuation could not read the live repo HEAD",
+                path=str(head_path),
+                error=str(exc),
+            )
+        ]
+    branch = None
+    head = head_contents or None
+    ref_prefix = "ref:"
+    heads_prefix = "refs/heads/"
+    if head_contents.startswith(ref_prefix):
+        ref_name = head_contents[len(ref_prefix) :].strip()
+        if ref_name.startswith(heads_prefix):
+            branch = ref_name[len(heads_prefix) :]
+        else:
+            branch = ref_name
+        head = controlled_loop_runner_stage_invocation_boundary_read_git_ref(git_dir, ref_name)
+    if not isinstance(head, str) or not head:
+        return None, [
+            controlled_loop_runner_stage_invocation_boundary_blocker(
+                "controlled_runner_stage_invocation_boundary_live_repo_unreadable",
+                "ownership-bound continuation could not resolve the live repo HEAD",
+                cwd=str(cwd),
+            )
+        ]
+    return {"branch": branch, "head": head}, []
+
+
+def controlled_loop_runner_stage_invocation_boundary_live_repo_blockers(
+    *,
+    cwd: Path,
+    repo_packet: dict[str, Any],
+) -> list[dict[str, Any]]:
+    identity, blockers = controlled_loop_runner_stage_invocation_boundary_live_repo_identity(cwd)
+    if blockers or identity is None:
+        return blockers
+    blockers = []
+    expected_branch = repo_packet.get("branch")
+    expected_head = repo_packet.get("head")
+    if identity.get("branch") != expected_branch:
+        blockers.append(
+            controlled_loop_runner_stage_invocation_boundary_blocker(
+                "controlled_runner_stage_invocation_boundary_live_repo_branch_mismatch",
+                "ownership-bound continuation live repo branch must match executor task repo.branch",
+                expected=expected_branch,
+                actual=identity.get("branch"),
+                cwd=str(cwd),
+            )
+        )
+    if identity.get("head") != expected_head:
+        blockers.append(
+            controlled_loop_runner_stage_invocation_boundary_blocker(
+                "controlled_runner_stage_invocation_boundary_live_repo_head_mismatch",
+                "ownership-bound continuation live repo HEAD must match executor task repo.head",
+                expected=expected_head,
+                actual=identity.get("head"),
+                cwd=str(cwd),
+            )
+        )
+    return blockers
+
+
 def controlled_loop_runner_stage_invocation_boundary_start_governed_execution_context(
     *,
     approval: dict[str, Any] | None,
@@ -19532,6 +19664,13 @@ def controlled_loop_runner_stage_invocation_boundary_start_governed_execution_co
                 )
             )
         elif expected_cwd is not None and not blockers:
+            blockers.extend(
+                controlled_loop_runner_stage_invocation_boundary_live_repo_blockers(
+                    cwd=expected_cwd,
+                    repo_packet=repo_packet,
+                )
+            )
+        if expected_cwd is not None and not blockers:
             ownership_blockers, ownership_summary, _ownership_path, _ownership_record = validate_execution_start_ownership(
                 root=root,
                 target=ownership_target,

@@ -2312,9 +2312,13 @@ packet, requires the current checksum to match every executor-task checksum
 anchor in the binding and approval packet, requires the approval packet's
 derived `start_governed_execution.approval_token` to match
 `approve-executor-task:<current-task-checksum>`, and requires `--stage-cwd` to
-match the executor task repo path. The emitted argv includes only
-`--task-file`, `--approval-token`, and `--cwd` for that command; ownership
-arguments are not allowed in Tasks 61-66.
+match the executor task repo path. The emitted argv includes `--task-file`,
+`--approval-token`, and `--cwd` for that command. It may also include
+`--ownership-target`, `--ownership-role`, and `--ownership-claimer` only when
+all three are supplied for continuation-backed stage-2
+`start-governed-execution`, the live repo branch/HEAD and active ownership
+record still match the executor task, and the approved runner-plan stage
+declares `work_ownership_epoch_bound`.
 
 The command starts no process, starts or closes no epoch, executes no runner
 stage, invokes no executor, retries no executor, continues no loop, appends no
@@ -2361,7 +2365,22 @@ Stable blockers include
 `controlled_runner_stage_invocation_boundary_stage_input_binding_unexpected`,
 `controlled_runner_stage_invocation_boundary_stage_input_binding_checksum_unexpected`,
 `controlled_runner_stage_invocation_boundary_stage_input_binding_checksum_required`,
+`controlled_runner_stage_invocation_boundary_ownership_arguments_incomplete`,
 `controlled_runner_stage_invocation_boundary_ownership_not_supported`,
+`controlled_runner_stage_invocation_boundary_ownership_side_effect_policy_missing`,
+`controlled_runner_stage_invocation_boundary_live_repo_unreadable`,
+`controlled_runner_stage_invocation_boundary_live_repo_branch_mismatch`,
+`controlled_runner_stage_invocation_boundary_live_repo_head_mismatch`,
+`controlled_runner_stage_invocation_boundary_ownership_record_missing`,
+`controlled_runner_stage_invocation_boundary_ownership_closed`,
+`controlled_runner_stage_invocation_boundary_ownership_stale`,
+`controlled_runner_stage_invocation_boundary_duplicate_active_ownership`,
+`controlled_runner_stage_invocation_boundary_ownership_repo_mismatch`,
+`controlled_runner_stage_invocation_boundary_ownership_branch_mismatch`,
+`controlled_runner_stage_invocation_boundary_ownership_head_mismatch`,
+`controlled_runner_stage_invocation_boundary_ownership_candidate_mismatch`,
+`controlled_runner_stage_invocation_boundary_ownership_role_mismatch`,
+`controlled_runner_stage_invocation_boundary_ownership_claimer_mismatch`,
 `controlled_runner_stage_invocation_boundary_start_governed_execution_binding_missing`,
 `controlled_runner_stage_invocation_boundary_executor_task_file_missing`,
 `controlled_runner_stage_invocation_boundary_executor_task_file_unreadable`,
@@ -2429,9 +2448,10 @@ explicit stdout `side_effects` plus true side-effect flags such as
 `epoch_started` and `github_write_started`, and every observed effect must stay
 within the approved stage's `allowed_side_effects_when_executed`, even when the
 stage exits nonzero. For continuation stage-2 `start-governed-execution`, the
-approved effects are initially `epoch_started` and one
-`execution_start_decision` audit append reported by the child command after
-process start.
+approved effects are `epoch_started`, one `execution_start_decision` audit
+append reported by the child command after process start, and
+`work_ownership_epoch_bound` only when the reviewed boundary carried ownership
+arguments.
 
 The valid packet is
 `controlled-loop-runner-stage-execution.v1` with
@@ -2476,6 +2496,7 @@ roles, or schedule agents. Stable blockers include
 `controlled_runner_stage_execution_stdout_not_json`,
 `controlled_runner_stage_execution_stage_side_effects_invalid`,
 `controlled_runner_stage_execution_undeclared_side_effects`,
+`controlled_runner_stage_execution_unexpected_ownership_side_effect`,
 `controlled_runner_stage_execution_process_start_failed`,
 `controlled_runner_stage_execution_output_write_failed`, and
 `controlled_runner_stage_execution_audit_append_failed`, plus shared

@@ -930,7 +930,11 @@ For continuation stage-2 `start-governed-execution`, the emitted argv includes
 the exact `--task-file` path from the verified stage-input binding, the exact
 derived `--approval-token` from verified executor-task approval evidence, and
 the fixed `--cwd` from the executor task repo anchor. Ownership arguments are
-not accepted for Tasks 61-66.
+accepted only for continuation-backed stage-2 `start-governed-execution` when
+`--ownership-target`, `--ownership-role`, and `--ownership-claimer` are all
+supplied, the live repo branch/HEAD and active local ownership record still
+match the executor task, and the approved stage policy declares
+`work_ownership_epoch_bound`.
 They do not start a process, start or close an epoch, execute a runner stage,
 invoke or retry an executor, continue the loop, or write Git/GitHub state.
 
@@ -1669,9 +1673,10 @@ normalized arguments, fixed cwd policy, stdout JSON evidence-output policy,
 finite timeout policy, selected-stage execution authority, allowed side
 effects, and `invocation_boundary_checksum`. Continuation
 `start-governed-execution` boundaries bind the verified executor task file,
-derived approval token, and executor task repo cwd, and reject ownership
-arguments in Tasks 61-66. Valid packets mark the selected
-stage as `boundary_prepared_not_started`, recommend
+derived approval token, and executor task repo cwd; they may also carry a
+complete ownership tuple only when the active ownership evidence, live repo
+branch/HEAD, and approved `work_ownership_epoch_bound` side-effect policy all
+match. Valid packets mark the selected stage as `boundary_prepared_not_started`, recommend
 `review_controlled_runner_stage_invocation_boundary`, set
 `next_controlled_action: execute_approved_runner_stage_once`, and still append
 no audit evidence or start any process, runner stage, executor, loop
