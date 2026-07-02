@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-07-01
+Last updated: 2026-07-02
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,51 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-07-02 - Continuation retry planning
+
+Summary:
+- Extended read-only controlled runner stage retry planning to failed and
+  blocked continuation-stage outcomes.
+- Continuation retry planning now requires matching next-stage continuation
+  evidence, stage-input binding evidence, and the reviewed stage-input binding
+  checksum before emitting a retry approval target.
+- Retry planning remains read-only and does not execute retries, emit
+  stage-execution readiness, select another stage, append audit evidence,
+  continue the loop, or write Git/GitHub state.
+
+Completed slices:
+- Task 70: continuation retry planning, read-only.
+
+Confidence change:
+- Previous projected capability: 64%.
+- New projected capability: 65%.
+- Stable headline confidence: remains 25%.
+- Reason: failed and blocked continuation stages now have the same read-only
+  retry approval-target path as initial stages, but retry approval
+  materialization/execution, runner-launched executor invocation, Git/GitHub
+  writes, role scheduling, and unattended orchestration remain future work.
+
+Evidence:
+- Focused retry-plan suite: 13 tests passed.
+- Syntax check: `python -m py_compile scripts\cadence.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py` exited 0.
+- Protocol validation: `python scripts\validate_protocol.py` printed `Protocol validation passed.`.
+- Package verification: `python scripts\verify_package.py` printed `Package verification passed.`.
+- Diff whitespace check: `git diff --check` exited 0 with normal Windows LF/CRLF warnings.
+
+New risks or blockers:
+- Retry approval materialization, retry invocation boundary, retry execution,
+  runner-launched executor invocation, autonomous Git/GitHub writes, role
+  scheduling, and unattended orchestration remain future work.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+- `docs/progress-log.md`
 
 ## 2026-07-01 - Ownership-bound continuation readiness
 
