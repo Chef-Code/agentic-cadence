@@ -8646,6 +8646,206 @@ class CadenceCliTests(unittest.TestCase):
         output = json.loads(raw_output) if raw_output.strip() else {}
         return code, output, audit_before, runtime_before
 
+    def write_controlled_loop_runner_stage_retry_approval_chain(self, tmp, repo):
+        chain = self.write_controlled_loop_runner_stage_retry_plan_chain(
+            tmp,
+            repo,
+            returncode=7,
+            stdout_text="",
+            stderr_text="failed",
+        )
+        code, retry_plan, audit_before, runtime_before = (
+            self.run_controlled_loop_runner_stage_retry_plan_in_process(tmp, chain)
+        )
+        self.assertEqual(code, 0, retry_plan.get("blockers"))
+        self.assertEqual(audit_records(tmp), audit_before)
+        self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+        retry_plan_path = Path(tmp) / "controlled-loop-runner-stage-retry-plan.json"
+        retry_plan_path.write_text(json.dumps(retry_plan), encoding="utf-8")
+        chain["controlled_loop_runner_stage_retry_plan_path"] = retry_plan_path
+        chain["controlled_loop_runner_stage_retry_plan"] = retry_plan
+        approval_path, approval = write_operator_approval(
+            Path(tmp) / "operator-approval-controlled-runner-stage-retry.json",
+            target_checksum=retry_plan["retry_approval_target_checksum"],
+            purpose="controlled_loop_runner_stage_retry",
+        )
+        chain["controlled_loop_runner_stage_retry_approval_path"] = approval_path
+        chain["controlled_loop_runner_stage_retry_approval"] = approval
+        return chain
+
+    def write_controlled_loop_runner_continuation_stage_retry_approval_chain(self, tmp, repo):
+        chain = self.write_controlled_loop_runner_continuation_stage_retry_plan_chain(
+            tmp,
+            repo,
+            returncode=7,
+            stdout_text="",
+            stderr_text="failed",
+        )
+        code, retry_plan, audit_before, runtime_before = (
+            self.run_controlled_loop_runner_stage_retry_plan_in_process(
+                tmp,
+                chain,
+                stage_number=2,
+                controlled_loop_runner_next_stage_continuation_file=chain[
+                    "controlled_loop_runner_next_stage_continuation_path"
+                ],
+                controlled_loop_runner_stage_input_binding_file=chain[
+                    "controlled_loop_runner_stage_input_binding_path"
+                ],
+                expected_stage_input_binding_checksum=checksum_json(
+                    chain["controlled_loop_runner_stage_input_binding"]
+                ),
+            )
+        )
+        self.assertEqual(code, 0, retry_plan.get("blockers"))
+        self.assertEqual(audit_records(tmp), audit_before)
+        self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+        retry_plan_path = Path(tmp) / "controlled-loop-runner-continuation-stage-retry-plan.json"
+        retry_plan_path.write_text(json.dumps(retry_plan), encoding="utf-8")
+        chain["controlled_loop_runner_stage_retry_plan_path"] = retry_plan_path
+        chain["controlled_loop_runner_stage_retry_plan"] = retry_plan
+        approval_path, approval = write_operator_approval(
+            Path(tmp) / "operator-approval-controlled-runner-continuation-stage-retry.json",
+            target_checksum=retry_plan["retry_approval_target_checksum"],
+            purpose="controlled_loop_runner_stage_retry",
+        )
+        chain["controlled_loop_runner_stage_retry_approval_path"] = approval_path
+        chain["controlled_loop_runner_stage_retry_approval"] = approval
+        return chain
+
+    def controlled_loop_runner_stage_retry_approval_argv(self, tmp, chain, **overrides):
+        values = {
+            "controlled_loop_runner_stage_retry_plan_file": chain[
+                "controlled_loop_runner_stage_retry_plan_path"
+            ],
+            "controlled_loop_runner_stage_outcome_plan_file": chain[
+                "controlled_loop_runner_stage_outcome_plan_path"
+            ],
+            "controlled_loop_runner_stage_closeout_file": chain[
+                "controlled_loop_runner_stage_closeout_path"
+            ],
+            "controlled_loop_runner_stage_execution_file": chain[
+                "controlled_loop_runner_stage_execution_path"
+            ],
+            "controlled_loop_runner_start_file": chain["controlled_loop_runner_start_path"],
+            "controlled_loop_runner_plan_file": chain["controlled_loop_runner_plan_path"],
+            "controlled_loop_runner_dry_run_file": chain["controlled_loop_runner_dry_run_path"],
+            "controlled_loop_runner_next_stage_continuation_file": None,
+            "controlled_loop_runner_stage_input_binding_file": None,
+            "expected_stage_input_binding_checksum": None,
+            "approval_file": chain["controlled_loop_runner_stage_retry_approval_path"],
+            "expected_operator_id": "operator@example.test",
+            "approval_secret": OPERATOR_APPROVAL_SECRET,
+            "approval_secret_env": None,
+            "stage_number": 1,
+        }
+        values.update(overrides)
+        argv = [
+            "--root",
+            str(tmp),
+            "controlled-loop-runner-stage-retry-approval",
+            "--controlled-loop-runner-stage-retry-plan-file",
+            str(values["controlled_loop_runner_stage_retry_plan_file"]),
+            "--controlled-loop-runner-stage-outcome-plan-file",
+            str(values["controlled_loop_runner_stage_outcome_plan_file"]),
+            "--controlled-loop-runner-stage-closeout-file",
+            str(values["controlled_loop_runner_stage_closeout_file"]),
+            "--controlled-loop-runner-stage-execution-file",
+            str(values["controlled_loop_runner_stage_execution_file"]),
+            "--controlled-loop-runner-start-file",
+            str(values["controlled_loop_runner_start_file"]),
+            "--controlled-loop-runner-plan-file",
+            str(values["controlled_loop_runner_plan_file"]),
+            "--controlled-loop-runner-dry-run-file",
+            str(values["controlled_loop_runner_dry_run_file"]),
+            "--approval-file",
+            str(values["approval_file"]),
+            "--expected-operator-id",
+            str(values["expected_operator_id"]),
+            "--stage-number",
+            str(values["stage_number"]),
+        ]
+        if values["controlled_loop_runner_next_stage_continuation_file"] is not None:
+            argv.extend(
+                [
+                    "--controlled-loop-runner-next-stage-continuation-file",
+                    str(values["controlled_loop_runner_next_stage_continuation_file"]),
+                ]
+            )
+        if values["controlled_loop_runner_stage_input_binding_file"] is not None:
+            argv.extend(
+                [
+                    "--controlled-loop-runner-stage-input-binding-file",
+                    str(values["controlled_loop_runner_stage_input_binding_file"]),
+                ]
+            )
+        if values["expected_stage_input_binding_checksum"] is not None:
+            argv.extend(
+                [
+                    "--expected-stage-input-binding-checksum",
+                    str(values["expected_stage_input_binding_checksum"]),
+                ]
+            )
+        if values["approval_secret"] is not None:
+            argv.extend(["--approval-secret", str(values["approval_secret"])])
+        if values["approval_secret_env"] is not None:
+            argv.extend(["--approval-secret-env", str(values["approval_secret_env"])])
+        return argv
+
+    def run_controlled_loop_runner_stage_retry_approval_in_process(self, tmp, chain, **overrides):
+        import codex_cadence.cli as cadence_cli
+
+        audit_before = audit_records(tmp)
+        runtime_before = runtime_tree_manifest(tmp)
+        stdout = StringIO()
+        with mock.patch(
+            "subprocess.run",
+            side_effect=AssertionError("runner retry approval must not start a process"),
+        ):
+            with mock.patch(
+                "codex_cadence.cli.append_audit_record",
+                side_effect=AssertionError("runner retry approval must not append audit"),
+            ):
+                with redirect_stdout(stdout):
+                    try:
+                        code = cadence_cli.main(
+                            self.controlled_loop_runner_stage_retry_approval_argv(
+                                tmp,
+                                chain,
+                                **overrides,
+                            )
+                        )
+                    except SystemExit as exc:
+                        code = exc.code
+        raw_output = stdout.getvalue()
+        output = json.loads(raw_output) if raw_output.strip() else {}
+        return code, output, audit_before, runtime_before
+
+    def assert_controlled_loop_runner_stage_retry_approval_no_side_effects(self, output):
+        for flag in [
+            "runner_started",
+            "process_started",
+            "stage_execution_started",
+            "next_stage_selected",
+            "audit_evidence_appended",
+            "executor_started",
+            "stage_retry_started",
+            "retry_execution_started",
+            "stage_execution_readiness_emitted",
+            "second_stage_started",
+            "epoch_started",
+            "pr_action_started",
+            "github_write_started",
+            "merge_started",
+            "release_started",
+            "package_publication_started",
+            "role_assignment_started",
+            "agent_scheduling_started",
+            "loop_continuation_started",
+        ]:
+            self.assertFalse(output[flag], flag)
+        self.assertEqual(output["side_effects"], [])
+
     def assert_controlled_loop_runner_stage_retry_plan_no_side_effects(self, output):
         for flag in [
             "runner_started",
@@ -17232,6 +17432,194 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["process_started"])
             self.assertFalse(output["loop_continuation_started"])
             self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_approval_accepts_initial_failed_stage_without_execution(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_approval_chain(tmp, repo)
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_approval_in_process(tmp, chain)
+            )
+
+            retry_plan = chain["controlled_loop_runner_stage_retry_plan"]
+            self.assertEqual(code, 0)
+            self.assertEqual(output["schema_version"], "controlled-loop-runner-stage-retry-approval.v1")
+            self.assertEqual(output["packet"], "controlled_loop_runner_stage_retry_approval")
+            self.assertTrue(output["read_only"])
+            self.assertTrue(output["valid"], output["blockers"])
+            self.assertEqual(output["approval_status"], "completed")
+            self.assertEqual(output["runner_stage_retry_authority"], "operator_approved_not_executed")
+            self.assertEqual(output["recommended_next_action"], "review_controlled_runner_stage_retry_approval")
+            self.assertEqual(output["next_controlled_action"], "prepare_controlled_runner_stage_retry_boundary")
+            self.assertEqual(output["stage_number"], 1)
+            self.assertEqual(output["stage_selection_source"], "initial")
+            self.assertEqual(output["source_stage_outcome_decision"], "inspect_stage_failure")
+            self.assertEqual(output["source_stage_closeout_status"], "failed")
+            self.assertEqual(output["retry_approval_target"], retry_plan["retry_approval_target"])
+            self.assertEqual(
+                output["retry_approval_target_checksum"],
+                retry_plan["retry_approval_target_checksum"],
+            )
+            self.assertEqual(
+                output["controlled_loop_runner_stage_retry_plan"]["checksum"],
+                checksum_json(retry_plan),
+            )
+            self.assertEqual(output["approval"]["purpose"], "controlled_loop_runner_stage_retry")
+            self.assertEqual(output["approval"]["approval_purpose"], "controlled_loop_runner_stage_retry")
+            self.assertEqual(
+                output["approval"]["target_checksum"],
+                retry_plan["retry_approval_target_checksum"],
+            )
+            self.assertEqual(
+                output["approval"]["approval_target_checksum"],
+                retry_plan["retry_approval_target_checksum"],
+            )
+            self.assertEqual(output["approval"]["expected_operator_id"], "operator@example.test")
+            self.assertEqual(output["approval"]["operator_id"], "operator@example.test")
+            self.assertTrue(output["approval"]["signature_verified"])
+            self.assertEqual(output["approval"]["blocker_codes"], [])
+            self.assertEqual(output["blockers"], [])
+            self.assertNotIn("stage_retry_boundary_target", output)
+            self.assert_controlled_loop_runner_stage_retry_approval_no_side_effects(output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_approval_accepts_continuation_failed_stage_without_execution(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_continuation_stage_retry_approval_chain(tmp, repo)
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_approval_in_process(
+                    tmp,
+                    chain,
+                    stage_number=2,
+                    controlled_loop_runner_next_stage_continuation_file=chain[
+                        "controlled_loop_runner_next_stage_continuation_path"
+                    ],
+                    controlled_loop_runner_stage_input_binding_file=chain[
+                        "controlled_loop_runner_stage_input_binding_path"
+                    ],
+                    expected_stage_input_binding_checksum=checksum_json(
+                        chain["controlled_loop_runner_stage_input_binding"]
+                    ),
+                )
+            )
+
+            retry_plan = chain["controlled_loop_runner_stage_retry_plan"]
+            continuation_checksum = checksum_json(chain["controlled_loop_runner_next_stage_continuation"])
+            input_binding_checksum = checksum_json(chain["controlled_loop_runner_stage_input_binding"])
+            self.assertEqual(code, 0)
+            self.assertEqual(output["schema_version"], "controlled-loop-runner-stage-retry-approval.v1")
+            self.assertTrue(output["valid"], output["blockers"])
+            self.assertEqual(output["approval_status"], "completed")
+            self.assertEqual(output["stage_number"], 2)
+            self.assertEqual(output["stage_selection_source"], "continuation")
+            self.assertEqual(output["retry_approval_target"], retry_plan["retry_approval_target"])
+            self.assertEqual(output["retry_approval_target"]["stage_selection_source"], "continuation")
+            self.assertEqual(
+                output["controlled_loop_runner_next_stage_continuation"]["checksum"],
+                continuation_checksum,
+            )
+            self.assertEqual(
+                output["controlled_loop_runner_stage_input_binding"]["checksum"],
+                input_binding_checksum,
+            )
+            self.assertEqual(
+                output["controlled_loop_runner_stage_input_binding"]["expected_checksum"],
+                input_binding_checksum,
+            )
+            self.assertEqual(
+                output["checksums"]["controlled_loop_runner_next_stage_continuation"],
+                continuation_checksum,
+            )
+            self.assertEqual(
+                output["checksums"]["controlled_loop_runner_stage_input_binding"],
+                input_binding_checksum,
+            )
+            self.assertEqual(output["approval"]["purpose"], "controlled_loop_runner_stage_retry")
+            self.assertTrue(output["approval"]["signature_verified"])
+            self.assertEqual(output["approval"]["blocker_codes"], [])
+            self.assertNotIn("stage_retry_boundary_target", output)
+            self.assert_controlled_loop_runner_stage_retry_approval_no_side_effects(output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_approval_blocks_invalid_operator_approval(self):
+        cases = [
+            (
+                "wrong-purpose",
+                {"purpose": "controlled_loop_runner_stage_execution"},
+                "operator_approval_purpose_mismatch",
+            ),
+            (
+                "wrong-target",
+                {"target_checksum": "sha256:" + "0" * 64},
+                "operator_approval_target_mismatch",
+            ),
+        ]
+        for name, approval_overrides, expected_code in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    chain = self.write_controlled_loop_runner_stage_retry_approval_chain(tmp, repo)
+                    approval_values = {
+                        "target_checksum": chain["controlled_loop_runner_stage_retry_plan"][
+                            "retry_approval_target_checksum"
+                        ],
+                        "purpose": "controlled_loop_runner_stage_retry",
+                    }
+                    approval_values.update(approval_overrides)
+                    approval_path, approval = write_operator_approval(
+                        chain["controlled_loop_runner_stage_retry_approval_path"],
+                        **approval_values,
+                    )
+                    chain["controlled_loop_runner_stage_retry_approval_path"] = approval_path
+                    chain["controlled_loop_runner_stage_retry_approval"] = approval
+
+                    code, output, audit_before, runtime_before = (
+                        self.run_controlled_loop_runner_stage_retry_approval_in_process(tmp, chain)
+                    )
+
+                    self.assertEqual(code, 2)
+                    self.assertFalse(output["valid"])
+                    self.assertEqual(output["approval_status"], "blocked")
+                    self.assertEqual(output["recommended_next_action"], "fix_controlled_runner_stage_retry_approval")
+                    self.assertIn(expected_code, {blocker["code"] for blocker in output["blockers"]})
+                    self.assertIn(expected_code, output["approval"]["blocker_codes"])
+                    self.assert_controlled_loop_runner_stage_retry_approval_no_side_effects(output)
+                    self.assertEqual(audit_records(tmp), audit_before)
+                    self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_approval_blocks_stale_retry_plan_source_anchor(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_approval_chain(tmp, repo)
+            execution = json.loads(
+                chain["controlled_loop_runner_stage_execution_path"].read_text(encoding="utf-8")
+            )
+            execution["command_result"]["stderr"] = "changed after retry plan review"
+            execution["command_result_checksum"] = checksum_json(execution["command_result"])
+            chain["controlled_loop_runner_stage_execution_path"].write_text(
+                json.dumps(execution),
+                encoding="utf-8",
+            )
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_approval_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["approval_status"], "blocked")
+            self.assertIn(
+                "controlled_runner_stage_retry_approval_retry_plan_stage_execution_checksum_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assert_controlled_loop_runner_stage_retry_approval_no_side_effects(output)
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
