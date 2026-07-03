@@ -1,7 +1,7 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-07-02
+Last updated: 2026-07-03
 Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled loop real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, controlled-loop-runner-start evidence, read-only controlled loop runner next-stage evidence, read-only controlled loop runner stage-execution readiness evidence, read-only controlled loop runner stage-execution approval evidence, read-only controlled loop runner stage-invocation boundary evidence, controlled loop runner single-stage execution evidence, read-only controlled loop runner stage-closeout evidence, read-only controlled loop runner stage-outcome planning evidence, read-only controlled loop runner next-stage continuation evidence, read-only controlled loop runner stage-input binding evidence, continuation-aware controlled loop runner stage-execution readiness evidence, continuation-aware controlled loop runner stage-execution approval evidence with executor-task approval binding, continuation-aware controlled loop runner stage-invocation boundary evidence, continuation-aware controlled loop runner single-stage execution evidence, continuation-aware controlled loop runner closeout/outcome planning evidence, read-only controlled runner completion evidence, read-only initial and continuation controlled runner retry planning evidence, read-only controlled runner stage-retry approval evidence, read-only controlled runner stage-retry boundary evidence, ownership-bound controlled runner continuation readiness evidence, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 1-72 complete in the current implementation
 
 This document tracks the smallest implementation slices expected to move
@@ -877,6 +877,12 @@ Validation needed:
   writing Git/GitHub state: complete for Task 71.
 - controlled-loop-runner-stage-retry-boundary consumes completed retry
   approval evidence plus the planned retry and source evidence chain, rechecks
+  the saved operator approval through approval-secret-backed signature and
+  identity validation, rejects retry output paths outside the runtime root or
+  overlapping input evidence, recomputes the retry approval target from the
+  current source chain, revalidates continuation executor-task approval before
+  deriving retry argv approval tokens, preserves ownership arguments for
+  ownership-bound continuation retries,
   continuation and stage-input binding internal anchors for continuation
   retries, and emits exact argv, cwd, retry output, timeout, execution
   authority, allowed side-effect policy, and boundary checksum evidence for

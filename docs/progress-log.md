@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-07-02
+Last updated: 2026-07-03
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -44,6 +44,13 @@ Summary:
   outcome/closeout/execution, runner start/plan/dry-run, and continuation
   input-binding anchors before emitting exact retry argv/cwd/output/timeout
   evidence.
+- The boundary now revalidates the saved operator approval, rejects stale
+  approval anchors, requires retry output evidence to stay inside the runtime
+  root without overwriting input evidence, and preserves ownership arguments
+  for ownership-bound continuation retries.
+- Review hardening added retry approval target recomputation, continuation
+  executor-task approval revalidation, and embedded prior-stage-output
+  rechecks before retry argv evidence is emitted.
 - Continuation retry boundaries reconstruct the `start-governed-execution`
   task file, checksum, approval token, and cwd from the supplied stage-input
   binding without revalidating active ownership after the source stage.
@@ -60,7 +67,7 @@ Confidence change:
   scheduling, and unattended orchestration remain future work.
 
 Evidence:
-- Focused retry-plan/retry-approval/retry-boundary suite: 30 tests passed.
+- Focused retry-plan/retry-approval/retry-boundary suite: 36 tests passed.
 - Syntax check: `python -m py_compile scripts\cadence.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py scripts\validate_protocol.py` exited 0.
 - Protocol validation: `python scripts\validate_protocol.py` printed `Protocol validation passed.`.
 - Package verification: `python scripts\verify_package.py` printed `Package verification passed.`.
