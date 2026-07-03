@@ -33,6 +33,52 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-07-03 - Controlled runner stage retry boundary
+
+Summary:
+- Added read-only controlled runner stage retry invocation-boundary evidence
+  for reviewed retry approvals.
+- Added `controlled-loop-runner-stage-retry-boundary`, emitting
+  `controlled-loop-runner-stage-retry-boundary.v1` packets.
+- The new boundary command rechecks retry approval, retry plan, source
+  outcome/closeout/execution, runner start/plan/dry-run, and continuation
+  input-binding anchors before emitting exact retry argv/cwd/output/timeout
+  evidence.
+- Continuation retry boundaries reconstruct the `start-governed-execution`
+  task file, checksum, approval token, and cwd from the supplied stage-input
+  binding without revalidating active ownership after the source stage.
+
+Completed slices:
+- Task 72: controlled runner stage retry invocation boundary, read-only.
+
+Confidence change:
+- Previous projected capability: 66%.
+- New projected capability: 67%.
+- Stable headline confidence: remains 25%.
+- Reason: approved retries now have a reviewed invocation boundary, but retry
+  execution, runner-launched executor invocation, Git/GitHub writes, role
+  scheduling, and unattended orchestration remain future work.
+
+Evidence:
+- Focused retry-plan/retry-approval/retry-boundary suite: 30 tests passed.
+- Syntax check: `python -m py_compile scripts\cadence.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py scripts\validate_protocol.py` exited 0.
+- Protocol validation: `python scripts\validate_protocol.py` printed `Protocol validation passed.`.
+- Package verification: `python scripts\verify_package.py` printed `Package verification passed.`.
+- Diff whitespace check: `git diff --check` exited 0 with normal Windows LF/CRLF warnings.
+
+New risks or blockers:
+- Retry execution, runner-launched executor invocation, autonomous Git/GitHub
+  writes, role scheduling, and unattended orchestration remain future work.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/implementation-slices.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-07-03 - Controlled runner stage retry approval
 
 Summary:
