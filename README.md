@@ -1057,24 +1057,32 @@ loop, append audit evidence, start a process, invoke an executor, write
 Git/GitHub state, merge, release, publish packages, assign roles, or schedule
 agents.
 
-`controlled-loop-runner-stage-retry-plan` consumes a reviewed initial-stage
-failed or blocked stage-outcome-plan packet plus saved closeout, execution,
-runner-start, runner-plan, and dry-run evidence:
+`controlled-loop-runner-stage-retry-plan` consumes reviewed failed or blocked
+stage-outcome-plan evidence from either an initial stage or a continuation
+stage. Continuation retry planning also requires the matching
+`controlled-loop-runner-next-stage-continuation.v1` and
+`controlled-loop-runner-stage-input-binding.v1` evidence plus the reviewed
+stage-input binding checksum. It emits only a retry approval target and still
+does not execute the retry.
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-retry-plan --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --expected-stage-outcome-plan-checksum sha256:<reviewed-stage-outcome-plan-checksum> --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --stage-number 1
 ```
 
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-retry-plan --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --expected-stage-outcome-plan-checksum sha256:<reviewed-stage-outcome-plan-checksum> --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-next-stage-continuation-file controlled-loop-runner-next-stage-continuation.json --controlled-loop-runner-stage-input-binding-file controlled-loop-runner-stage-input-binding.json --expected-stage-input-binding-checksum sha256:<reviewed-stage-input-binding-checksum> --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --stage-number 2
+```
+
 Valid retry-plan packets emit `controlled-loop-runner-stage-retry-plan.v1`,
-require the reviewed outcome-plan checksum, require an initial failed or
-blocked inspection outcome with a matching `retry_planning_target`, recheck the
+require the reviewed outcome-plan checksum, require a failed or blocked
+inspection outcome with a matching `retry_planning_target`, recheck the
 closeout/execution/start/plan/dry-run anchors plus executed-once source
-execution proof, and emit only a `retry_approval_target` for future operator
-approval. Continuation-sourced outcome plans are blocked in this slice. The
-packet does not select another stage, emit readiness, execute a retry, continue
-the runner or loop, append audit evidence, start a process, invoke an executor,
-write Git/GitHub state, merge, release, publish packages, assign roles, or
-schedule agents.
+execution proof, and, for continuation sources, recheck the saved continuation
+and stage-input binding anchors before emitting only a `retry_approval_target`
+for future operator approval. The packet does not select another stage, emit
+readiness, execute a retry, continue the runner or loop, append audit evidence,
+start a process, invoke an executor, write Git/GitHub state, merge, release,
+publish packages, assign roles, or schedule agents.
 
 `controlled-loop-runner-completion` consumes the reviewed final-stage
 outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,

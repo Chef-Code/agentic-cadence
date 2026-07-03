@@ -2744,23 +2744,25 @@ stage-readiness, and next-stage blockers, plus shared `operator_approval_*`
 blockers from the operator-approval verifier.
 
 `controlled-loop-runner-stage-retry-plan` is the read-only retry approval-target
-packet for failed or blocked initial controlled runner stage outcomes. It reads
+packet for failed or blocked initial or continuation controlled runner stage
+outcomes. It reads
 `--controlled-loop-runner-stage-outcome-plan-file`,
 `--expected-stage-outcome-plan-checksum`,
 `--controlled-loop-runner-stage-closeout-file`,
 `--controlled-loop-runner-stage-execution-file`,
 `--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
 `--controlled-loop-runner-dry-run-file`, and optional `--stage-number` (default
-`1`). It consumes already-recorded evidence only. The command must not continue
-the runner or loop, select another stage, emit stage-execution readiness,
-execute a retry, append audit evidence, start a process, invoke an executor,
-execute Git commands, call GitHub APIs, create branches, commit, push, create
-PRs, merge, release, publish packages, assign roles, or schedule agents.
-Task 68 retry planning is initial-stage only; continuation-sourced outcome
-plans are blocked until a later slice adds explicit continuation/input-binding
-retry-planning evidence. Ownership-bound continuation readiness is handled by
-the stage invocation boundary and execution verifier when the approved
-side-effect policy includes `work_ownership_epoch_bound`.
+`1`). Continuation retry planning also reads
+`--controlled-loop-runner-next-stage-continuation-file`,
+`--controlled-loop-runner-stage-input-binding-file`, and
+`--expected-stage-input-binding-checksum`. It consumes already-recorded evidence
+only. The command must not continue the runner or loop, select another stage,
+emit stage-execution readiness, execute a retry, append audit evidence, start a
+process, invoke an executor, execute Git commands, call GitHub APIs, create
+branches, commit, push, create PRs, merge, release, publish packages, assign
+roles, or schedule agents. Ownership-bound continuation evidence is treated as
+already-recorded source execution/closeout evidence; retry planning does not
+create or mutate ownership records and does not revalidate active ownership.
 
 Retry planning rereads and rechecks the reviewed stage outcome plan, source
 closeout, source execution packet, runner-start evidence, runner-plan evidence,
@@ -2773,14 +2775,22 @@ and completed, and the outcome plan to carry either
 `purpose: controlled_loop_runner_stage_retry_planning`,
 `operator_approval_required: true`, false retry-start flags, the requested
 stage number, and checksum anchors for the saved closeout, execution,
-runner-start, runner-plan, and dry-run packets. The source execution packet
-must prove one executed runner stage: valid executed evidence, started runner
-and process flags, execution side-effect and audit proof, a command-result
-checksum and returncode compatible with the execution status, empty execution
-blockers, `runner_stage_execution_authority: stage_executed_once`, expected
+runner-start, runner-plan, and dry-run packets. Continuation retry planning
+additionally requires selected
+`controlled-loop-runner-next-stage-continuation.v1` evidence, bound
+`controlled-loop-runner-stage-input-binding.v1` evidence, the reviewed
+stage-input binding checksum, matching continuation/input-binding linkage, and
+matching continuation/input-binding anchors in the outcome plan, closeout, and
+execution packets. The source execution packet must prove one executed runner
+stage: valid executed evidence, started runner and process flags, execution
+side-effect and audit proof, a command-result checksum and returncode compatible
+with the execution status, empty execution blockers,
+`runner_stage_execution_authority: stage_executed_once`, expected
 stage-execution limitations, `next_controlled_action:
 closeout_controlled_runner_stage`, and a selected stage that still matches the
-approved runner plan.
+approved runner plan. Continuation source execution may report an
+already-recorded `epoch_started: true` from a governed `start-governed-execution`
+stage; the retry-plan packet itself still reports `epoch_started: false`.
 
 A valid packet emits `controlled-loop-runner-stage-retry-plan.v1` with
 `packet: controlled_loop_runner_stage_retry_plan`, `read_only: true`,
@@ -2798,7 +2808,43 @@ Stable blockers include
 `controlled_runner_stage_retry_plan_execution_evidence_missing`,
 `controlled_runner_stage_retry_plan_upstream_invalid`,
 `controlled_runner_stage_retry_plan_root_missing`,
-`controlled_runner_stage_retry_plan_continuation_unsupported`,
+`controlled_runner_stage_retry_plan_continuation_evidence_missing`,
+`controlled_runner_stage_retry_plan_stage_input_binding_evidence_missing`,
+`controlled_runner_stage_retry_plan_stage_input_binding_expected_checksum_missing`,
+`controlled_runner_stage_retry_plan_stage_input_binding_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_unexpected_continuation_evidence`,
+`controlled_runner_stage_retry_plan_continuation_invalid`,
+`controlled_runner_stage_retry_plan_continuation_authority_flags_invalid`,
+`controlled_runner_stage_retry_plan_continuation_selected_stage_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_continuation_selected_stage_mismatch`,
+`controlled_runner_stage_retry_plan_continuation_start_file_mismatch`,
+`controlled_runner_stage_retry_plan_continuation_start_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_continuation_runner_plan_file_mismatch`,
+`controlled_runner_stage_retry_plan_continuation_runner_plan_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_continuation_dry_run_file_mismatch`,
+`controlled_runner_stage_retry_plan_continuation_dry_run_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_invalid`,
+`controlled_runner_stage_retry_plan_stage_input_binding_authority_flags_invalid`,
+`controlled_runner_stage_retry_plan_stage_input_binding_selected_stage_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_stage_sequence_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_selected_stage_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_continuation_stage_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_continuation_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_continuation_file_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_start_file_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_start_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_runner_plan_file_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_runner_plan_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_dry_run_file_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_dry_run_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_prior_stage_output_file_missing`,
+`controlled_runner_stage_retry_plan_stage_input_binding_prior_stage_output_file_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_prior_stage_output_file_unreadable`,
+`controlled_runner_stage_retry_plan_stage_input_binding_prior_stage_output_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_executor_task_file_missing`,
+`controlled_runner_stage_retry_plan_stage_input_binding_executor_task_file_mismatch`,
+`controlled_runner_stage_retry_plan_stage_input_binding_executor_task_file_unreadable`,
+`controlled_runner_stage_retry_plan_stage_input_binding_executor_task_checksum_mismatch`,
 `controlled_runner_stage_retry_plan_outcome_checksum_mismatch`,
 `controlled_runner_stage_retry_plan_outcome_packet_mismatch`,
 `controlled_runner_stage_retry_plan_outcome_not_completed`,
@@ -2807,6 +2853,7 @@ Stable blockers include
 `controlled_runner_stage_retry_plan_outcome_not_retryable`,
 `controlled_runner_stage_retry_plan_outcome_decision_mismatch`,
 `controlled_runner_stage_retry_plan_target_missing`,
+`controlled_runner_stage_retry_plan_target_checksum_mismatch`,
 `controlled_runner_stage_retry_plan_target_mismatch`,
 `controlled_runner_stage_retry_plan_outcome_target_missing`,
 `controlled_runner_stage_retry_plan_outcome_target_checksum_mismatch`,
@@ -2821,6 +2868,10 @@ Stable blockers include
 `controlled_runner_stage_retry_plan_outcome_runner_plan_checksum_mismatch`,
 `controlled_runner_stage_retry_plan_outcome_dry_run_file_mismatch`,
 `controlled_runner_stage_retry_plan_outcome_dry_run_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_continuation_file_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_continuation_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_stage_input_binding_file_mismatch`,
+`controlled_runner_stage_retry_plan_outcome_stage_input_binding_checksum_mismatch`,
 `controlled_runner_stage_retry_plan_closeout_packet_mismatch`,
 `controlled_runner_stage_retry_plan_closeout_not_retryable`,
 `controlled_runner_stage_retry_plan_closeout_stage_number_mismatch`,
@@ -2833,9 +2884,14 @@ Stable blockers include
 `controlled_runner_stage_retry_plan_closeout_runner_plan_checksum_mismatch`,
 `controlled_runner_stage_retry_plan_closeout_dry_run_file_mismatch`,
 `controlled_runner_stage_retry_plan_closeout_dry_run_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_continuation_file_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_continuation_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_stage_input_binding_file_mismatch`,
+`controlled_runner_stage_retry_plan_closeout_stage_input_binding_checksum_mismatch`,
 `controlled_runner_stage_retry_plan_closeout_selected_stage_mismatch`,
 `controlled_runner_stage_retry_plan_execution_packet_mismatch`,
 `controlled_runner_stage_retry_plan_execution_not_executed`,
+`controlled_runner_stage_retry_plan_execution_closeout_status_mismatch`,
 `controlled_runner_stage_retry_plan_execution_not_started`,
 `controlled_runner_stage_retry_plan_execution_proof_missing`,
 `controlled_runner_stage_retry_plan_command_result_missing`,
@@ -2844,6 +2900,10 @@ Stable blockers include
 `controlled_runner_stage_retry_plan_execution_not_self_consistent`,
 `controlled_runner_stage_retry_plan_execution_stage_number_mismatch`,
 `controlled_runner_stage_retry_plan_execution_forbidden_flags`,
+`controlled_runner_stage_retry_plan_execution_continuation_file_mismatch`,
+`controlled_runner_stage_retry_plan_execution_continuation_checksum_mismatch`,
+`controlled_runner_stage_retry_plan_execution_stage_input_binding_file_mismatch`,
+`controlled_runner_stage_retry_plan_execution_stage_input_binding_checksum_mismatch`,
 `controlled_runner_stage_retry_plan_execution_start_file_mismatch`,
 `controlled_runner_stage_retry_plan_execution_start_checksum_mismatch`,
 `controlled_runner_stage_retry_plan_execution_runner_plan_file_mismatch`,
