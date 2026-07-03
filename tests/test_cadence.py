@@ -15,7 +15,10 @@ from unittest import mock
 import codex_cadence.executor_readiness as executor_readiness
 import codex_cadence.github_evidence as github_evidence
 from codex_cadence.approvals import build_operator_approval_verification_packet
-from codex_cadence.cli import build_executor_result_validation_payload
+from codex_cadence.cli import (
+    build_executor_result_validation_payload,
+    controlled_loop_runner_stage_retry_approval_recommendation,
+)
 from codex_cadence.executor_contract import (
     DEFAULT_EXECUTOR_STOP_CONDITIONS,
     build_execution_run_record,
@@ -17622,6 +17625,23 @@ class CadenceCliTests(unittest.TestCase):
             self.assert_controlled_loop_runner_stage_retry_approval_no_side_effects(output)
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_approval_recommendation_uses_operator_approval_blocker_reason(self):
+        recommended_next_action, reason = controlled_loop_runner_stage_retry_approval_recommendation(
+            [
+                {
+                    "code": "controlled_runner_stage_retry_approval_retry_plan_stage_execution_checksum_mismatch",
+                    "message": "retry plan source changed",
+                },
+                {
+                    "code": "operator_approval_target_mismatch",
+                    "message": "operator approval target does not match retry approval target",
+                },
+            ]
+        )
+
+        self.assertEqual(recommended_next_action, "fix_controlled_runner_stage_retry_approval")
+        self.assertEqual(reason, "operator approval target does not match retry approval target")
 
     def test_controlled_loop_runner_stage_outcome_plan_blocks_continuation_input_binding_checksum_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

@@ -15859,10 +15859,18 @@ def controlled_loop_runner_stage_retry_approval_recommendation(
             "review_controlled_runner_stage_retry_approval",
             "controlled runner stage retry approval verified without executing retry",
         )
-    if any(str(blocker.get("code", "")).startswith("operator_approval_") for blocker in blockers):
+    operator_approval_blocker = next(
+        (
+            blocker
+            for blocker in blockers
+            if str(blocker.get("code", "")).startswith("operator_approval_")
+        ),
+        None,
+    )
+    if operator_approval_blocker is not None:
         return (
             "fix_controlled_runner_stage_retry_approval",
-            blockers[0]["message"],
+            operator_approval_blocker["message"],
         )
     return (
         "refresh_controlled_runner_stage_retry_plan",
