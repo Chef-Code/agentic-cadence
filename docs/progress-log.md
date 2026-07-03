@@ -58,7 +58,7 @@ Confidence change:
   writes, role scheduling, and unattended orchestration remain future work.
 
 Evidence:
-- Focused retry-plan suite: 13 tests passed.
+- Focused retry-plan suite: 17 tests passed.
 - Syntax check: `python -m py_compile scripts\cadence.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py` exited 0.
 - Protocol validation: `python scripts\validate_protocol.py` printed `Protocol validation passed.`.
 - Package verification: `python scripts\verify_package.py` printed `Package verification passed.`.

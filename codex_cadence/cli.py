@@ -14359,6 +14359,88 @@ def controlled_loop_runner_stage_retry_plan_anchor_blockers(
     return blockers
 
 
+def controlled_loop_runner_stage_retry_plan_embedded_anchor_blockers(
+    *,
+    packet: dict[str, Any],
+    packet_path: Path,
+    code_prefix: str,
+    message_subject: str,
+    keys: list[tuple[str, str]],
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    files = controlled_loop_runner_stage_retry_plan_ref(packet, "files")
+    checksums = controlled_loop_runner_stage_retry_plan_ref(packet, "checksums")
+    for key, short_name in keys:
+        ref = controlled_loop_runner_stage_retry_plan_ref(packet, key)
+        ref_file = ref.get("file")
+        files_file = files.get(key)
+        file_value = ref_file if isinstance(ref_file, str) else files_file
+        if not isinstance(file_value, str) or not file_value:
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    f"{code_prefix}_{short_name}_file_missing",
+                    f"{message_subject} embedded file anchor is missing",
+                    anchor=key,
+                    actual={f"{key}.file": ref_file, f"files.{key}": files_file},
+                )
+            )
+            continue
+        expected_path = controlled_tick_context_path(packet_path, file_value)
+        file_mismatches = {
+            f"{key}.file": ref_file,
+            f"files.{key}": files_file,
+        }
+        file_mismatches = {
+            field: value
+            for field, value in file_mismatches.items()
+            if not controlled_loop_runner_plan_file_matches(packet_path, value, expected_path)
+        }
+        if file_mismatches:
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    f"{code_prefix}_{short_name}_file_mismatch",
+                    f"{message_subject} embedded file anchors do not match each other",
+                    expected=str(expected_path),
+                    actual=file_mismatches,
+                )
+            )
+        try:
+            anchored_packet = read_json(expected_path)
+        except (OSError, ValueError, json.JSONDecodeError) as exc:
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    f"{code_prefix}_{short_name}_file_unreadable",
+                    f"{message_subject} embedded anchor file could not be read as JSON",
+                    path=str(expected_path),
+                    error=str(exc),
+                )
+            )
+            continue
+        actual_checksum = checksum_json(anchored_packet)
+        checksum_mismatches = {
+            f"{key}.checksum": ref.get("checksum"),
+            f"checksums.{key}": checksums.get(key),
+        }
+        expected_ref_key = f"expected_{key}"
+        if "expected_checksum" in ref:
+            checksum_mismatches[f"{key}.expected_checksum"] = ref.get("expected_checksum")
+        if expected_ref_key in checksums:
+            checksum_mismatches[f"checksums.{expected_ref_key}"] = checksums.get(expected_ref_key)
+        checksum_mismatches = {
+            field: value for field, value in checksum_mismatches.items() if value != actual_checksum
+        }
+        if checksum_mismatches:
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    f"{code_prefix}_{short_name}_checksum_mismatch",
+                    f"{message_subject} embedded checksum anchors do not match the saved anchor file",
+                    expected=actual_checksum,
+                    actual=checksum_mismatches,
+                )
+            )
+    return blockers
+
+
 def controlled_loop_runner_stage_retry_plan_command(args: argparse.Namespace) -> int:
     root = Path(args.root).expanduser().resolve(strict=False) if args.root else None
     outcome_plan_path = Path(args.controlled_loop_runner_stage_outcome_plan_file)
@@ -14543,18 +14625,43 @@ def controlled_loop_runner_stage_retry_plan_command(args: argparse.Namespace) ->
             )
         )
 
+    retry_plan_stage = controlled_loop_runner_next_stage_continuation_plan_stage(
+        runner_plan if isinstance(runner_plan, dict) else None,
+        stage_number,
+    )
     if isinstance(continuation, dict):
+        continuation_selected_stage = (
+            continuation.get("selected_stage")
+            if isinstance(continuation.get("selected_stage"), dict)
+            else None
+        )
+        continuation_selected_stage_checksum = (
+            checksum_json(continuation_selected_stage) if continuation_selected_stage is not None else None
+        )
         if (
             continuation.get("schema_version") != CONTROLLED_LOOP_RUNNER_NEXT_STAGE_CONTINUATION_SCHEMA_VERSION
             or continuation.get("packet") != "controlled_loop_runner_next_stage_continuation"
             or continuation.get("read_only") is not True
             or continuation.get("valid") is not True
             or not controlled_loop_runner_stage_input_binding_strict_int_matches(
+                continuation.get("completed_stage_number"),
+                stage_number - 1,
+            )
+            or not controlled_loop_runner_stage_input_binding_strict_int_matches(
                 continuation.get("next_stage_number"),
                 stage_number,
             )
+            or continuation.get("runner_started") is not True
+            or continuation.get("next_stage_selected") is not True
+            or continuation.get("operator_confirmation_required") is not True
             or continuation.get("runner_next_stage_continuation_status") != "selected"
+            or continuation.get("recommended_next_action")
+            != "review_controlled_runner_next_stage_continuation"
+            or continuation.get("next_controlled_action")
+            != "generalize_controlled_runner_stage_execution_readiness_for_continuation"
+            or continuation.get("side_effects") != []
             or continuation.get("blockers") != []
+            or continuation.get("limitations") != CONTROLLED_LOOP_RUNNER_NEXT_STAGE_CONTINUATION_LIMITATIONS
         ):
             blockers.append(
                 controlled_loop_runner_stage_retry_plan_blocker(
@@ -14564,13 +14671,127 @@ def controlled_loop_runner_stage_retry_plan_command(args: argparse.Namespace) ->
                     packet=continuation.get("packet"),
                     read_only=continuation.get("read_only"),
                     valid=continuation.get("valid"),
+                    expected_completed_stage_number=stage_number - 1,
+                    actual_completed_stage_number=continuation.get("completed_stage_number"),
                     expected_stage_number=stage_number,
                     actual_next_stage_number=continuation.get("next_stage_number"),
+                    runner_started=continuation.get("runner_started"),
+                    next_stage_selected=continuation.get("next_stage_selected"),
+                    operator_confirmation_required=continuation.get("operator_confirmation_required"),
                     status=continuation.get("runner_next_stage_continuation_status"),
+                    recommended_next_action=continuation.get("recommended_next_action"),
+                    next_controlled_action=continuation.get("next_controlled_action"),
+                    side_effects=continuation.get("side_effects"),
                     blockers=continuation.get("blockers"),
+                    limitations=continuation.get("limitations"),
+                )
+            )
+        continuation_invalid_flags = {
+            flag: continuation.get(flag)
+            for flag in [
+                "process_started",
+                "stage_execution_started",
+                "executor_started",
+                "stage_retry_started",
+                "second_stage_started",
+                "epoch_started",
+                "pr_action_started",
+                "github_write_started",
+                "merge_started",
+                "release_started",
+                "package_publication_started",
+                "role_assignment_started",
+                "agent_scheduling_started",
+                "loop_continuation_started",
+                "audit_evidence_appended",
+            ]
+            if continuation.get(flag) is not False
+        }
+        if continuation_invalid_flags:
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    "controlled_runner_stage_retry_plan_continuation_authority_flags_invalid",
+                    "controlled runner next-stage continuation must not report execution or side-effect authority",
+                    flags=continuation_invalid_flags,
+                )
+            )
+        continuation_checksums = controlled_loop_runner_stage_retry_plan_ref(continuation, "checksums")
+        continuation_selected_stage_checksum_mismatches = {
+            "selected_stage_checksum": continuation.get("selected_stage_checksum"),
+            "checksums.selected_stage": continuation_checksums.get("selected_stage"),
+        }
+        continuation_selected_stage_checksum_mismatches = {
+            field: value
+            for field, value in continuation_selected_stage_checksum_mismatches.items()
+            if value != continuation_selected_stage_checksum
+        }
+        if continuation_selected_stage_checksum_mismatches:
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    "controlled_runner_stage_retry_plan_continuation_selected_stage_checksum_mismatch",
+                    "controlled runner next-stage continuation selected-stage checksum is stale",
+                    expected=continuation_selected_stage_checksum,
+                    actual=continuation_selected_stage_checksum_mismatches,
+                )
+            )
+        if retry_plan_stage is not None and continuation_selected_stage is not None:
+            continuation_selected_stage_mismatches = {
+                field: {
+                    "expected": retry_plan_stage.get(field),
+                    "actual": continuation_selected_stage.get(field),
+                }
+                for field in [
+                    "step",
+                    "command",
+                    "evidence_files",
+                    "execution_authority",
+                    "allowed_side_effects_when_executed",
+                ]
+                if retry_plan_stage.get(field) != continuation_selected_stage.get(field)
+            }
+        else:
+            continuation_selected_stage_mismatches = {}
+        if continuation_selected_stage_mismatches:
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    "controlled_runner_stage_retry_plan_continuation_selected_stage_mismatch",
+                    "controlled runner next-stage continuation selected stage must match the approved runner plan",
+                    mismatches=continuation_selected_stage_mismatches,
+                )
+            )
+        if continuation_path is not None:
+            blockers.extend(
+                controlled_loop_runner_stage_retry_plan_anchor_blockers(
+                    packet=continuation,
+                    packet_path=continuation_path,
+                    code_prefix="controlled_runner_stage_retry_plan_continuation",
+                    message_subject="controlled runner next-stage continuation",
+                    entries=[
+                        ("controlled_loop_runner_start", "start", start_path, start_checksum),
+                        (
+                            "controlled_loop_runner_plan",
+                            "runner_plan",
+                            runner_plan_path,
+                            runner_plan_checksum,
+                        ),
+                        (
+                            "controlled_loop_runner_dry_run",
+                            "dry_run",
+                            dry_run_path,
+                            dry_run_checksum,
+                        ),
+                    ],
                 )
             )
     if isinstance(input_binding, dict):
+        input_binding_selected_stage = (
+            input_binding.get("selected_stage")
+            if isinstance(input_binding.get("selected_stage"), dict)
+            else None
+        )
+        input_binding_selected_stage_checksum = (
+            checksum_json(input_binding_selected_stage) if input_binding_selected_stage is not None else None
+        )
         input_binding_continuation = controlled_loop_runner_stage_retry_plan_ref(
             input_binding,
             "controlled_loop_runner_next_stage_continuation",
@@ -14582,11 +14803,23 @@ def controlled_loop_runner_stage_retry_plan_command(args: argparse.Namespace) ->
             or input_binding.get("read_only") is not True
             or input_binding.get("valid") is not True
             or not controlled_loop_runner_stage_input_binding_strict_int_matches(
+                input_binding.get("completed_stage_number"),
+                stage_number - 1,
+            )
+            or not controlled_loop_runner_stage_input_binding_strict_int_matches(
                 input_binding.get("next_stage_number"),
                 stage_number,
             )
+            or input_binding.get("runner_started") is not True
+            or input_binding.get("operator_confirmation_required") is not True
             or input_binding.get("stage_input_binding_status") != "bound"
+            or input_binding.get("recommended_next_action")
+            != "review_controlled_runner_stage_input_binding"
+            or input_binding.get("next_controlled_action")
+            != "prepare_controlled_runner_continuation_stage_execution_readiness"
+            or input_binding.get("side_effects") != []
             or input_binding.get("blockers") != []
+            or input_binding.get("limitations") != CONTROLLED_LOOP_RUNNER_STAGE_INPUT_BINDING_LIMITATIONS
         ):
             blockers.append(
                 controlled_loop_runner_stage_retry_plan_blocker(
@@ -14596,18 +14829,127 @@ def controlled_loop_runner_stage_retry_plan_command(args: argparse.Namespace) ->
                     packet=input_binding.get("packet"),
                     read_only=input_binding.get("read_only"),
                     valid=input_binding.get("valid"),
+                    expected_completed_stage_number=stage_number - 1,
+                    actual_completed_stage_number=input_binding.get("completed_stage_number"),
                     expected_stage_number=stage_number,
                     actual_next_stage_number=input_binding.get("next_stage_number"),
+                    runner_started=input_binding.get("runner_started"),
+                    operator_confirmation_required=input_binding.get("operator_confirmation_required"),
                     status=input_binding.get("stage_input_binding_status"),
+                    recommended_next_action=input_binding.get("recommended_next_action"),
+                    next_controlled_action=input_binding.get("next_controlled_action"),
+                    side_effects=input_binding.get("side_effects"),
                     blockers=input_binding.get("blockers"),
+                    limitations=input_binding.get("limitations"),
+                )
+            )
+        input_binding_invalid_flags = {
+            flag: input_binding.get(flag)
+            for flag in [
+                "process_started",
+                "stage_execution_started",
+                "executor_started",
+                "stage_retry_started",
+                "second_stage_started",
+                "epoch_started",
+                "pr_action_started",
+                "github_write_started",
+                "merge_started",
+                "release_started",
+                "package_publication_started",
+                "role_assignment_started",
+                "agent_scheduling_started",
+                "loop_continuation_started",
+                "audit_evidence_appended",
+            ]
+            if input_binding.get(flag) is not False
+        }
+        if input_binding_invalid_flags:
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    "controlled_runner_stage_retry_plan_stage_input_binding_authority_flags_invalid",
+                    "controlled runner stage input binding must not report execution or side-effect authority",
+                    flags=input_binding_invalid_flags,
+                )
+            )
+        input_binding_selected_stage_checksum_mismatches = {
+            "selected_stage_checksum": input_binding.get("selected_stage_checksum"),
+            "checksums.selected_stage": input_binding_checksums.get("selected_stage"),
+        }
+        input_binding_selected_stage_checksum_mismatches = {
+            field: value
+            for field, value in input_binding_selected_stage_checksum_mismatches.items()
+            if value != input_binding_selected_stage_checksum
+        }
+        if input_binding_selected_stage_checksum_mismatches:
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    "controlled_runner_stage_retry_plan_stage_input_binding_selected_stage_checksum_mismatch",
+                    "controlled runner stage input binding selected-stage checksum is stale",
+                    expected=input_binding_selected_stage_checksum,
+                    actual=input_binding_selected_stage_checksum_mismatches,
+                )
+            )
+        if isinstance(continuation, dict) and (
+            input_binding.get("completed_stage_number") != continuation.get("completed_stage_number")
+            or input_binding.get("next_stage_number") != continuation.get("next_stage_number")
+        ):
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    "controlled_runner_stage_retry_plan_stage_input_binding_stage_sequence_mismatch",
+                    "controlled runner stage input binding stage sequence must match continuation evidence",
+                    expected_completed_stage_number=continuation.get("completed_stage_number"),
+                    actual_completed_stage_number=input_binding.get("completed_stage_number"),
+                    expected_next_stage_number=continuation.get("next_stage_number"),
+                    actual_next_stage_number=input_binding.get("next_stage_number"),
+                )
+            )
+        if retry_plan_stage is not None and input_binding_selected_stage is not None:
+            input_binding_selected_stage_mismatches = {
+                field: {
+                    "expected": retry_plan_stage.get(field),
+                    "actual": input_binding_selected_stage.get(field),
+                }
+                for field in [
+                    "step",
+                    "command",
+                    "evidence_files",
+                    "execution_authority",
+                    "allowed_side_effects_when_executed",
+                ]
+                if retry_plan_stage.get(field) != input_binding_selected_stage.get(field)
+            }
+        else:
+            input_binding_selected_stage_mismatches = {}
+        if input_binding_selected_stage_mismatches:
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    "controlled_runner_stage_retry_plan_stage_input_binding_selected_stage_mismatch",
+                    "controlled runner stage input binding selected stage must match the approved runner plan",
+                    mismatches=input_binding_selected_stage_mismatches,
+                )
+            )
+        if isinstance(continuation, dict) and input_binding_selected_stage != continuation.get("selected_stage"):
+            blockers.append(
+                controlled_loop_runner_stage_retry_plan_blocker(
+                    "controlled_runner_stage_retry_plan_stage_input_binding_continuation_stage_mismatch",
+                    "controlled runner stage input binding selected stage must match continuation evidence",
+                    expected=continuation.get("selected_stage"),
+                    actual=input_binding_selected_stage,
                 )
             )
         linkage_mismatches = {
             "controlled_loop_runner_next_stage_continuation.checksum": input_binding_continuation.get(
                 "checksum"
             ),
+            "controlled_loop_runner_next_stage_continuation.expected_checksum": (
+                input_binding_continuation.get("expected_checksum")
+            ),
             "checksums.controlled_loop_runner_next_stage_continuation": input_binding_checksums.get(
                 "controlled_loop_runner_next_stage_continuation"
+            ),
+            "checksums.expected_controlled_loop_runner_next_stage_continuation": (
+                input_binding_checksums.get("expected_controlled_loop_runner_next_stage_continuation")
             ),
         }
         linkage_mismatches = {
@@ -14622,6 +14964,43 @@ def controlled_loop_runner_stage_retry_plan_command(args: argparse.Namespace) ->
                     "controlled runner stage input binding must be bound to the supplied continuation evidence",
                     expected=continuation_checksum,
                     actual=linkage_mismatches,
+                )
+            )
+        if input_binding_path is not None:
+            input_binding_anchor_entries: list[tuple[str, str, Path, str | None]] = [
+                ("controlled_loop_runner_start", "start", start_path, start_checksum),
+                ("controlled_loop_runner_plan", "runner_plan", runner_plan_path, runner_plan_checksum),
+                ("controlled_loop_runner_dry_run", "dry_run", dry_run_path, dry_run_checksum),
+            ]
+            if continuation_path is not None:
+                input_binding_anchor_entries.insert(
+                    0,
+                    (
+                        "controlled_loop_runner_next_stage_continuation",
+                        "continuation",
+                        continuation_path,
+                        continuation_checksum,
+                    ),
+                )
+            blockers.extend(
+                controlled_loop_runner_stage_retry_plan_anchor_blockers(
+                    packet=input_binding,
+                    packet_path=input_binding_path,
+                    code_prefix="controlled_runner_stage_retry_plan_stage_input_binding",
+                    message_subject="controlled runner stage input binding",
+                    entries=input_binding_anchor_entries,
+                )
+            )
+            blockers.extend(
+                controlled_loop_runner_stage_retry_plan_embedded_anchor_blockers(
+                    packet=input_binding,
+                    packet_path=input_binding_path,
+                    code_prefix="controlled_runner_stage_retry_plan_stage_input_binding",
+                    message_subject="controlled runner stage input binding",
+                    keys=[
+                        ("prior_stage_output", "prior_stage_output"),
+                        ("executor_task", "executor_task"),
+                    ],
                 )
             )
 

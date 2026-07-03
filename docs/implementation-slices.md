@@ -856,10 +856,12 @@ Validation needed:
 - controlled-loop-runner-stage-retry-plan consumes initial-stage or
   continuation-stage failed or blocked stage-outcome-plan evidence, rechecks
   the saved closeout, execution, runner-start, runner-plan, dry-run chain,
-  executed-once source proof, and continuation/input-binding anchors when
-  present, and emits only a retry approval target without starting a process,
-  executing a retry, appending audit evidence, continuing the loop, invoking an
-  executor, or writing Git/GitHub state: complete for Task 70.
+  and executed-once source proof, requires and rechecks continuation and
+  stage-input binding evidence/checksums for continuation-stage sources, blocks
+  continuation-only evidence for initial-stage sources, and emits only a retry
+  approval target without starting a process, executing a retry, appending
+  audit evidence, continuing the loop, invoking an executor, or writing
+  Git/GitHub state: complete for Task 70.
 - Ownership-bound continuation readiness is explicit for Task 69: stage-2
   `start-governed-execution` boundaries can carry ownership evidence only after
   active ownership validation and only when the approved side-effect policy

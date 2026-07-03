@@ -734,12 +734,13 @@ appending audit evidence, or writing Git/GitHub state.
 `controlled-loop-runner-stage-retry-plan` can then consume initial-stage or
 continuation-stage failed or blocked outcome-plan evidence plus saved closeout,
 execution, runner-start, runner-plan, and dry-run evidence, recheck the
-reviewed outcome checksum, anchors, executed-once source proof, and
-continuation/input-binding anchors when supplied, and emit only a retry
-approval target without selecting a stage, emitting readiness, executing a
-retry, continuing, appending audit evidence, or writing Git/GitHub state. Retry
-approval materialization and retry execution remain blocked for later explicit
-slices.
+reviewed outcome checksum, anchors, and executed-once source proof, require and
+recheck continuation and stage-input binding evidence/checksums for
+continuation-stage sources, block continuation-only evidence for initial-stage
+sources, and emit only a retry approval target without selecting a stage,
+emitting readiness, executing a retry, continuing, appending audit evidence, or
+writing Git/GitHub state. Retry approval materialization and retry execution
+remain blocked for later explicit slices.
 `controlled-loop-runner-next-stage-continuation` can then consume the reviewed
 outcome-plan target plus completed closeout, execution, runner-start,
 runner-plan, and dry-run evidence, recheck the full runner chain and reviewed
