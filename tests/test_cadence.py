@@ -18725,6 +18725,31 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
+    def test_controlled_loop_runner_stage_retry_boundary_blocks_initial_start_governed_execution_stage(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_boundary_chain(tmp, repo)
+            runner_plan = json.loads(chain["controlled_loop_runner_plan_path"].read_text(encoding="utf-8"))
+            runner_plan["runner_plan"]["planned_steps"][0]["command"] = "start-governed-execution"
+            chain["controlled_loop_runner_plan_path"].write_text(json.dumps(runner_plan), encoding="utf-8")
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_boundary_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertIn(
+                "controlled_runner_stage_retry_boundary_start_governed_execution_requires_continuation",
+                blocker_codes,
+            )
+            self.assertNotIn("controlled_runner_stage_retry_boundary_unknown_stage_command", blocker_codes)
+            self.assertIsNone(output["stage_retry_boundary"])
+            self.assert_controlled_loop_runner_stage_retry_boundary_no_side_effects(output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
     def test_controlled_loop_runner_stage_retry_boundary_blocks_input_evidence_output_overwrite(self):
         for label, path_key in [
             ("retry approval", "controlled_loop_runner_stage_retry_approval_evidence_path"),

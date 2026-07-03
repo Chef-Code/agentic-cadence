@@ -17564,6 +17564,19 @@ def controlled_loop_runner_stage_retry_boundary_command(args: argparse.Namespace
         )
 
     command_context = None
+    initial_start_governed_execution_retry = (
+        stage_selection_source != "continuation"
+        and isinstance(plan_stage, dict)
+        and plan_stage.get("command") == "start-governed-execution"
+    )
+    if initial_start_governed_execution_retry:
+        blockers.append(
+            controlled_loop_runner_stage_retry_boundary_blocker(
+                "controlled_runner_stage_retry_boundary_start_governed_execution_requires_continuation",
+                "start-governed-execution retry boundaries are only supported for continuation-backed stages",
+                stage_selection_source=stage_selection_source,
+            )
+        )
     if stage_selection_source == "continuation" and isinstance(plan_stage, dict):
         if plan_stage.get("command") == "start-governed-execution":
             ownership_arguments, ownership_blockers = (
@@ -17586,7 +17599,7 @@ def controlled_loop_runner_stage_retry_boundary_command(args: argparse.Namespace
                 )
             )
             blockers.extend(command_context_blockers)
-    if isinstance(plan_stage, dict):
+    if isinstance(plan_stage, dict) and not initial_start_governed_execution_retry:
         command_args = controlled_loop_runner_stage_invocation_boundary_command_arguments(
             plan_stage.get("command"),
             stage_cwd,
