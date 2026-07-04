@@ -938,6 +938,28 @@ def claimed_handoff_path(root, handoff_id):
 
 
 class CadenceCliTests(unittest.TestCase):
+    CONTROLLED_LOOP_RUNNER_STAGE_RETRY_NO_SIDE_EFFECT_FLAGS = (
+        "runner_started",
+        "process_started",
+        "stage_execution_started",
+        "next_stage_selected",
+        "audit_evidence_appended",
+        "executor_started",
+        "stage_retry_started",
+        "retry_execution_started",
+        "stage_execution_readiness_emitted",
+        "second_stage_started",
+        "epoch_started",
+        "pr_action_started",
+        "github_write_started",
+        "merge_started",
+        "release_started",
+        "package_publication_started",
+        "role_assignment_started",
+        "agent_scheduling_started",
+        "loop_continuation_started",
+    )
+
     def test_write_closeout_packets_preserves_explicit_empty_overrides(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
@@ -9661,52 +9683,12 @@ class CadenceCliTests(unittest.TestCase):
         return code, output, audit_before, runtime_before
 
     def assert_controlled_loop_runner_stage_retry_boundary_no_side_effects(self, output):
-        for flag in [
-            "runner_started",
-            "process_started",
-            "stage_execution_started",
-            "next_stage_selected",
-            "audit_evidence_appended",
-            "executor_started",
-            "stage_retry_started",
-            "retry_execution_started",
-            "stage_execution_readiness_emitted",
-            "second_stage_started",
-            "epoch_started",
-            "pr_action_started",
-            "github_write_started",
-            "merge_started",
-            "release_started",
-            "package_publication_started",
-            "role_assignment_started",
-            "agent_scheduling_started",
-            "loop_continuation_started",
-        ]:
+        for flag in self.CONTROLLED_LOOP_RUNNER_STAGE_RETRY_NO_SIDE_EFFECT_FLAGS:
             self.assertFalse(output[flag], flag)
         self.assertEqual(output["side_effects"], [])
 
     def assert_controlled_loop_runner_stage_retry_approval_no_side_effects(self, output):
-        for flag in [
-            "runner_started",
-            "process_started",
-            "stage_execution_started",
-            "next_stage_selected",
-            "audit_evidence_appended",
-            "executor_started",
-            "stage_retry_started",
-            "retry_execution_started",
-            "stage_execution_readiness_emitted",
-            "second_stage_started",
-            "epoch_started",
-            "pr_action_started",
-            "github_write_started",
-            "merge_started",
-            "release_started",
-            "package_publication_started",
-            "role_assignment_started",
-            "agent_scheduling_started",
-            "loop_continuation_started",
-        ]:
+        for flag in self.CONTROLLED_LOOP_RUNNER_STAGE_RETRY_NO_SIDE_EFFECT_FLAGS:
             self.assertFalse(output[flag], flag)
         self.assertEqual(output["side_effects"], [])
 
@@ -9734,27 +9716,7 @@ class CadenceCliTests(unittest.TestCase):
         self.assertEqual(output["side_effects"], [])
 
     def assert_controlled_loop_runner_stage_retry_closeout_no_side_effects(self, output):
-        for flag in [
-            "runner_started",
-            "process_started",
-            "stage_execution_started",
-            "next_stage_selected",
-            "audit_evidence_appended",
-            "executor_started",
-            "stage_retry_started",
-            "retry_execution_started",
-            "stage_execution_readiness_emitted",
-            "second_stage_started",
-            "epoch_started",
-            "pr_action_started",
-            "github_write_started",
-            "merge_started",
-            "release_started",
-            "package_publication_started",
-            "role_assignment_started",
-            "agent_scheduling_started",
-            "loop_continuation_started",
-        ]:
+        for flag in self.CONTROLLED_LOOP_RUNNER_STAGE_RETRY_NO_SIDE_EFFECT_FLAGS:
             self.assertFalse(output[flag], flag)
         self.assertEqual(output["side_effects"], [])
 
@@ -20487,6 +20449,49 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["stage_retry_started"])
             self.assertFalse(output["loop_continuation_started"])
             self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_closeout_blocks_valid_blocked_retry_execution(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            blocked_stdout = json.dumps(
+                {
+                    "schema_version": "loop-run-plan.v1",
+                    "packet": "loop_run_plan",
+                    "valid": True,
+                    "executor_started": True,
+                }
+            ) + "\n"
+            chain = self.write_controlled_loop_runner_stage_retry_closeout_chain(
+                tmp,
+                repo,
+                retry_stdout_text=blocked_stdout,
+                expected_retry_execute_code=2,
+            )
+            retry_execution = json.loads(
+                chain["controlled_loop_runner_stage_retry_execution_path"].read_text(encoding="utf-8")
+            )
+            self.assertEqual(retry_execution["stage_retry_execution_status"], "blocked")
+            self.assertFalse(retry_execution["valid"])
+            retry_execution["valid"] = True
+            chain["controlled_loop_runner_stage_retry_execution_path"].write_text(
+                json.dumps(retry_execution),
+                encoding="utf-8",
+            )
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_closeout_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_retry_closeout_status"], "blocked")
+            self.assertIn(
+                "controlled_runner_stage_retry_closeout_execution_not_terminal",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assert_controlled_loop_runner_stage_retry_closeout_no_side_effects(output)
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
