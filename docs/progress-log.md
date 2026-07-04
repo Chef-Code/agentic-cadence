@@ -33,6 +33,65 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-07-04 - Controlled runner retry closeout and outcome planning
+
+Summary:
+- Added read-only controlled runner stage retry closeout and outcome planning.
+- Added `controlled-loop-runner-stage-retry-closeout`, emitting
+  `controlled-loop-runner-stage-retry-closeout.v1` packets from saved retry
+  execution evidence.
+- Added `controlled-loop-runner-stage-retry-outcome-plan`, emitting
+  `controlled-loop-runner-stage-retry-outcome-plan.v1` packets from reviewed
+  retry closeout evidence.
+- Retry closeout rechecks retry execution, boundary, approval, retry plan,
+  source outcome/closeout/execution, runner start/plan/dry-run, optional
+  continuation/input-binding anchors, terminal command evidence, and retry
+  output evidence before classifying the retry as completed, failed, or
+  blocked.
+- Retry outcome planning maps completed retry closeout to next-stage selection
+  or runner completion targets, maps failed/blocked retry closeout to
+  inspection targets, and emits no second retry planning target.
+- Review hardening added terminal retry-started flag checks, command-result
+  timestamp validation, retry output anchor validation, closeout/execution
+  consistency checks, and forbidden-authority flag coverage.
+
+Completed slices:
+- Task 74: controlled runner retry closeout and outcome planning, read-only
+  after saved retry execution evidence.
+
+Confidence change:
+- Previous projected capability: 68%.
+- New projected capability: 69%.
+- Stable headline confidence: remains 25%.
+- Reason: saved retry execution can now be closed out and mapped to a bounded
+  post-retry operator target, but post-retry target consumption, runner-launched
+  executor invocation, Git/GitHub writes, role scheduling, and unattended
+  orchestration remain future work.
+
+Evidence:
+- Focused retry closeout/outcome suite plus review-hardening regressions: 13 tests
+  passed.
+- Syntax check: `python -B -m py_compile scripts\cadence.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py scripts\validate_protocol.py` exited 0.
+- Protocol validation: `python scripts\validate_protocol.py` printed `Protocol validation passed.`.
+- Package verification: `python scripts\verify_package.py` printed `Package verification passed.`.
+- Diff whitespace check: `git diff --check` exited 0 with normal Windows
+  LF/CRLF warnings.
+
+New risks or blockers:
+- Post-retry outcome targets are not consumed by next-stage selection or runner
+  completion commands yet.
+- There is still no second retry, automatic next-stage selection, or loop
+  continuation authority.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-07-04 - Controlled runner stage retry execution
 
 Summary:

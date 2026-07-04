@@ -3271,6 +3271,153 @@ retry-boundary/operator-approval/input-binding anchor blockers under the
 side-effect blockers under the same prefix, and shared `operator_approval_*`
 blockers from the operator-approval verifier.
 
+`controlled-loop-runner-stage-retry-closeout` is the read-only closeout packet
+for saved retry-execution evidence. It reads
+`--controlled-loop-runner-stage-retry-execution-file`,
+`--controlled-loop-runner-stage-retry-boundary-file`,
+`--controlled-loop-runner-stage-retry-approval-file`,
+`--controlled-loop-runner-stage-retry-plan-file`,
+`--controlled-loop-runner-stage-outcome-plan-file`,
+`--controlled-loop-runner-stage-closeout-file`,
+`--controlled-loop-runner-stage-execution-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, `--expected-operator-id`,
+approval-secret inputs, optional `--stage-retry-output-file`, and optional
+`--stage-number` (default `1`). Continuation retry closeout also reads
+`--controlled-loop-runner-next-stage-continuation-file`,
+`--controlled-loop-runner-stage-input-binding-file`, and
+`--expected-stage-input-binding-checksum`.
+
+Retry closeout consumes already-recorded retry execution only. It rechecks the
+saved retry execution, reviewed retry boundary, retry approval, retry plan,
+source outcome plan, source closeout, source execution, runner-start,
+runner-plan, dry-run, and, for continuation retries, continuation/input-binding
+anchors. It validates the retry boundary status, retry attempt `1`, terminal
+post-start retry execution evidence, command-result checksum, exact argv/cwd
+identity against the reviewed boundary, terminal status derived from
+returncode/timeout/stdout side-effect policy, selected-stage proof, and retry
+output evidence. It does not append audit evidence; any retry-execution audit
+evidence must already be present in the consumed Task 73 packet.
+
+A valid packet emits `controlled-loop-runner-stage-retry-closeout.v1` with
+`packet: controlled_loop_runner_stage_retry_closeout`, `read_only: true`,
+`side_effects: []`, `runner_stage_retry_authority:
+stage_retry_closeout_only`, `stage_retry_closeout_status` of `completed`,
+`failed`, or `blocked`, the observed `command_result`, retry output evidence,
+and file/checksum anchors for the consumed retry/source/runner chain. It sets
+`recommended_next_action` and `next_controlled_action` to
+`plan_controlled_runner_stage_retry_outcome`. The packet must not start a
+process, execute a runner stage, start a second retry, select the next stage,
+continue the runner or loop, invoke an executor, execute Git commands, call
+GitHub APIs, create branches, commit, push, create PRs, merge, release,
+publish packages, assign roles, or schedule agents.
+
+Stable blockers include
+`controlled_runner_stage_retry_closeout_execution_evidence_missing`,
+`controlled_runner_stage_retry_closeout_boundary_evidence_missing`,
+`controlled_runner_stage_retry_closeout_approval_evidence_missing`,
+`controlled_runner_stage_retry_closeout_retry_plan_evidence_missing`,
+`controlled_runner_stage_retry_closeout_outcome_evidence_missing`,
+`controlled_runner_stage_retry_closeout_source_closeout_evidence_missing`,
+`controlled_runner_stage_retry_closeout_source_execution_evidence_missing`,
+`controlled_runner_stage_retry_closeout_upstream_invalid`,
+`controlled_runner_stage_retry_closeout_root_missing`,
+`controlled_runner_stage_retry_closeout_continuation_evidence_missing`,
+`controlled_runner_stage_retry_closeout_stage_input_binding_evidence_missing`,
+`controlled_runner_stage_retry_closeout_stage_input_binding_expected_checksum_missing`,
+`controlled_runner_stage_retry_closeout_stage_input_binding_checksum_mismatch`,
+`controlled_runner_stage_retry_closeout_unexpected_continuation_evidence`,
+`controlled_runner_stage_retry_closeout_boundary_packet_mismatch`,
+`controlled_runner_stage_retry_closeout_boundary_not_completed`,
+`controlled_runner_stage_retry_closeout_boundary_limitations_invalid`,
+`controlled_runner_stage_retry_closeout_boundary_checksum_mismatch`,
+`controlled_runner_stage_retry_closeout_output_file_invalid`,
+`controlled_runner_stage_retry_closeout_output_file_mismatch`,
+`controlled_runner_stage_retry_closeout_execution_packet_mismatch`,
+`controlled_runner_stage_retry_closeout_execution_status_invalid`,
+`controlled_runner_stage_retry_closeout_execution_not_terminal`,
+`controlled_runner_stage_retry_closeout_execution_forbidden_flags`,
+`controlled_runner_stage_retry_closeout_command_result_missing`,
+`controlled_runner_stage_retry_closeout_command_result_checksum_mismatch`,
+`controlled_runner_stage_retry_closeout_command_result_boundary_mismatch`,
+`controlled_runner_stage_retry_closeout_command_result_invalid`,
+`controlled_runner_stage_retry_closeout_command_result_status_mismatch`,
+`controlled_runner_stage_retry_closeout_stage_retry_output_file_mismatch`,
+and mapped retry/source/runner anchor or retry output blockers under the
+`controlled_runner_stage_retry_closeout_*` prefix.
+
+`controlled-loop-runner-stage-retry-outcome-plan` is the read-only outcome
+planning packet for reviewed retry closeout evidence. It reads
+`--controlled-loop-runner-stage-retry-closeout-file`,
+`--expected-stage-retry-closeout-checksum`,
+`--controlled-loop-runner-stage-retry-execution-file`,
+`--controlled-loop-runner-stage-retry-boundary-file`,
+`--controlled-loop-runner-stage-retry-approval-file`,
+`--controlled-loop-runner-stage-retry-plan-file`,
+`--controlled-loop-runner-stage-outcome-plan-file`,
+`--controlled-loop-runner-stage-closeout-file`,
+`--controlled-loop-runner-stage-execution-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, `--expected-operator-id`,
+approval-secret inputs, and optional `--stage-number` (default `1`).
+Continuation retry outcome planning also reads
+`--controlled-loop-runner-next-stage-continuation-file`,
+`--controlled-loop-runner-stage-input-binding-file`, and
+`--expected-stage-input-binding-checksum`.
+
+Retry outcome planning requires the reviewed retry closeout checksum, rechecks
+that retry closeout is valid read-only `stage_retry_closeout_only` evidence,
+rechecks the same retry/source/runner anchors, and emits only the next
+operator target. Completed non-final retry closeout maps to
+`stage_retry_outcome_decision: select_next_stage_after_retry` with target
+purpose `controlled_loop_runner_next_stage_selection`; completed final retry
+closeout maps to `complete_runner_after_retry` with target purpose
+`controlled_loop_runner_completion`; failed retry closeout maps to
+`inspect_stage_retry_failure`; blocked retry closeout maps to
+`inspect_stage_retry_blocked`. Failed and blocked retry outcomes set
+`second_retry_planning_target` and `second_retry_planning_target_checksum` to
+`null`.
+
+A valid packet emits `controlled-loop-runner-stage-retry-outcome-plan.v1` with
+`packet: controlled_loop_runner_stage_retry_outcome_plan`, `read_only: true`,
+`side_effects: []`, `runner_stage_retry_authority:
+stage_retry_outcome_planned`, `stage_retry_outcome_decision`,
+`retry_outcome_target`, `retry_outcome_target_checksum`, and no second retry
+planning target. The packet does not select the next stage itself, start a
+second retry, execute a runner stage, continue the runner or loop, append audit
+evidence, start a process, invoke an executor, execute Git commands, call
+GitHub APIs, create branches, commit, push, create PRs, merge, release,
+publish packages, assign roles, or schedule agents.
+
+Stable blockers include
+`controlled_runner_stage_retry_outcome_plan_closeout_evidence_missing`,
+`controlled_runner_stage_retry_outcome_plan_execution_evidence_missing`,
+`controlled_runner_stage_retry_outcome_plan_boundary_evidence_missing`,
+`controlled_runner_stage_retry_outcome_plan_approval_evidence_missing`,
+`controlled_runner_stage_retry_outcome_plan_retry_plan_evidence_missing`,
+`controlled_runner_stage_retry_outcome_plan_source_outcome_evidence_missing`,
+`controlled_runner_stage_retry_outcome_plan_source_closeout_evidence_missing`,
+`controlled_runner_stage_retry_outcome_plan_source_execution_evidence_missing`,
+`controlled_runner_stage_retry_outcome_plan_closeout_checksum_mismatch`,
+`controlled_runner_stage_retry_outcome_plan_upstream_invalid`,
+`controlled_runner_stage_retry_outcome_plan_root_missing`,
+`controlled_runner_stage_retry_outcome_plan_continuation_evidence_missing`,
+`controlled_runner_stage_retry_outcome_plan_stage_input_binding_evidence_missing`,
+`controlled_runner_stage_retry_outcome_plan_stage_input_binding_expected_checksum_missing`,
+`controlled_runner_stage_retry_outcome_plan_stage_input_binding_checksum_mismatch`,
+`controlled_runner_stage_retry_outcome_plan_unexpected_continuation_evidence`,
+`controlled_runner_stage_retry_outcome_plan_closeout_packet_mismatch`,
+`controlled_runner_stage_retry_outcome_plan_closeout_status_invalid`,
+`controlled_runner_stage_retry_outcome_plan_closeout_not_closed_out`,
+`controlled_runner_stage_retry_outcome_plan_closeout_forbidden_flags`,
+`controlled_runner_stage_retry_outcome_plan_closeout_selected_stage_mismatch`,
+`controlled_runner_stage_retry_outcome_plan_closeout_execution_status_mismatch`,
+`controlled_runner_stage_retry_outcome_plan_closeout_status_execution_mismatch`,
+`controlled_runner_stage_retry_outcome_plan_closeout_command_result_mismatch`,
+`controlled_runner_stage_retry_outcome_plan_closeout_command_result_checksum_mismatch`,
+and mapped retry/source/runner anchor blockers under the
+`controlled_runner_stage_retry_outcome_plan_*` prefix.
+
 `controlled-loop-runner-completion` is the read-only terminal evidence packet
 for a final controlled runner outcome. It reads
 `--controlled-loop-runner-stage-outcome-plan-file`,
