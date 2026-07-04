@@ -3418,6 +3418,75 @@ Stable blockers include
 and mapped retry/source/runner anchor blockers under the
 `controlled_runner_stage_retry_outcome_plan_*` prefix.
 
+`controlled-loop-runner-executor-invocation-readiness` is the read-only
+handoff packet from a successful continuation `start-governed-execution` stage,
+or from a successful attempt-1 retry of that stage, to the existing executor
+invocation readiness path. It reads
+`--controlled-loop-runner-stage-execution-file`,
+`--controlled-loop-runner-stage-closeout-file`,
+`--controlled-loop-runner-stage-outcome-plan-file`,
+`--controlled-loop-runner-stage-execution-approval-file`,
+`--controlled-loop-runner-next-stage-continuation-file`,
+`--controlled-loop-runner-stage-input-binding-file`,
+`--expected-stage-input-binding-checksum`, `--executor-task-file`,
+`--expected-operator-id`, approval-secret inputs, and optional
+`--stage-number` (default `2`). Retry-sourced readiness also reads
+`--controlled-loop-runner-stage-retry-execution-file`,
+`--controlled-loop-runner-stage-retry-closeout-file`, and
+`--controlled-loop-runner-stage-retry-outcome-plan-file`; all three retry
+inputs are required together.
+
+Executor invocation readiness rechecks the saved `execution-start.v1` stdout
+packet from the stage execution or retry execution, verifies the executor task
+checksum against the stage-input binding and active epoch record, validates the
+continuation and input-binding chain, rechecks source closeout/outcome anchors,
+and verifies the already bound executor-task approval evidence without
+requiring active ownership to still be open. Retry-sourced readiness requires
+completed retry execution, completed read-only retry closeout, and completed
+read-only retry outcome planning with `stage_retry_outcome_decision:
+complete_runner_after_retry` before it can emit the handoff target. Retry
+outcomes that select another stage, request a second retry, or continue the
+runner are rejected by this command.
+
+A valid packet emits `controlled-loop-runner-executor-invocation-readiness.v1`
+with `packet: controlled_loop_runner_executor_invocation_readiness`,
+`read_only: true`, `execution_source`, `source_execution_start`,
+`source_execution_checksum`, `active_epoch`, and
+`executor_invocation_readiness_target` with purpose
+`executor_invocation_readiness`. The packet emits only this target for the
+existing controlled real executor invocation approval/readiness path. It does
+not start a process, execute or retry a runner stage, invoke an executor,
+select another stage, continue the runner or loop, append audit evidence,
+execute Git commands, call GitHub APIs, create branches, commit, push, create
+PRs, merge, release, publish packages, assign roles, or schedule agents.
+
+Stable blockers include
+`controlled_runner_executor_invocation_readiness_retry_evidence_incomplete`,
+`controlled_runner_executor_invocation_readiness_stage_number_unsupported`,
+`controlled_runner_executor_invocation_readiness_execution_not_ready`,
+`controlled_runner_executor_invocation_readiness_closeout_not_ready`,
+`controlled_runner_executor_invocation_readiness_outcome_not_ready`,
+`controlled_runner_executor_invocation_readiness_retry_execution_not_completed`,
+`controlled_runner_executor_invocation_readiness_retry_execution_authority_mismatch`,
+`controlled_runner_executor_invocation_readiness_retry_execution_forbidden_flags`,
+`controlled_runner_executor_invocation_readiness_retry_closeout_not_completed`,
+`controlled_runner_executor_invocation_readiness_retry_closeout_authority_mismatch`,
+`controlled_runner_executor_invocation_readiness_retry_closeout_forbidden_flags`,
+`controlled_runner_executor_invocation_readiness_retry_outcome_not_completed`,
+`controlled_runner_executor_invocation_readiness_retry_outcome_authority_unsupported`,
+`controlled_runner_executor_invocation_readiness_retry_outcome_authority_mismatch`,
+`controlled_runner_executor_invocation_readiness_retry_outcome_target_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_retry_outcome_forbidden_flags`,
+`controlled_runner_executor_invocation_readiness_execution_start_invalid`,
+`controlled_runner_executor_invocation_readiness_execution_start_task_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_execution_start_task_id_mismatch`,
+`controlled_runner_executor_invocation_readiness_executor_task_file_mismatch`,
+`controlled_runner_executor_invocation_readiness_executor_task_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_active_epoch_status_invalid`,
+and mapped continuation, stage-input binding, approval, source-chain, and
+retry-chain anchor blockers under the
+`controlled_runner_executor_invocation_readiness_*` prefix.
+
 `controlled-loop-runner-completion` is the read-only terminal evidence packet
 for a final controlled runner outcome. It reads
 `--controlled-loop-runner-stage-outcome-plan-file`,

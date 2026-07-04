@@ -1245,6 +1245,38 @@ runner or loop, append audit evidence, start a process, invoke an executor,
 write Git/GitHub state, merge, release, publish packages, assign roles, or
 schedule agents.
 
+`controlled-loop-runner-executor-invocation-readiness` is the read-only
+handoff packet from a completed continuation `start-governed-execution` stage,
+or from a successful attempt-1 retry of that stage, into the existing real
+executor invocation readiness path. It consumes the saved stage execution,
+stage closeout, stage outcome plan, stage execution approval, next-stage
+continuation, stage-input binding, and executor task evidence. Retry-sourced
+readiness additionally consumes saved retry execution, retry closeout, and
+retry outcome-plan evidence. The command rechecks the `execution-start.v1`
+stdout packet, executor task checksum, stage-input binding checksum, active
+epoch compatibility, source chain anchors, and the already bound executor-task
+approval evidence without requiring active work ownership to still be open.
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-executor-invocation-readiness --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --controlled-loop-runner-stage-execution-approval-file controlled-loop-runner-stage-execution-approval.json --controlled-loop-runner-next-stage-continuation-file controlled-loop-runner-next-stage-continuation.json --controlled-loop-runner-stage-input-binding-file controlled-loop-runner-stage-input-binding.json --expected-stage-input-binding-checksum sha256:<reviewed-stage-input-binding-checksum> --executor-task-file executor-task.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 2
+```
+
+For successful retry evidence, add
+`--controlled-loop-runner-stage-retry-execution-file`,
+`--controlled-loop-runner-stage-retry-closeout-file`, and
+`--controlled-loop-runner-stage-retry-outcome-plan-file`. The retry outcome
+must be the terminal `complete_runner_after_retry` target; retry outcomes that
+select another stage remain outside this command. A valid packet emits
+`controlled-loop-runner-executor-invocation-readiness.v1` with
+`packet: controlled_loop_runner_executor_invocation_readiness`,
+`read_only: true`, `execution_source: stage_execution` or
+`stage_retry_execution`, `source_execution_start`, `source_execution_checksum`,
+`active_epoch`, and an `executor_invocation_readiness_target` with
+`purpose: executor_invocation_readiness`. The packet does not start a process,
+execute or retry a runner stage, invoke an executor, select another stage,
+continue the runner or loop, append audit evidence, write Git/GitHub state,
+merge, release, publish packages, assign roles, or schedule agents.
+
 `controlled-loop-runner-completion` consumes the reviewed final-stage
 outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,
 and dry-run evidence:
