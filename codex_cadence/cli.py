@@ -10303,6 +10303,33 @@ CONTROLLED_LOOP_RUNNER_STAGE_RETRY_BOUNDARY_LIMITATIONS = [
     "does_not_assign_roles",
     "does_not_schedule_agents",
 ]
+CONTROLLED_LOOP_RUNNER_STAGE_RETRY_EXECUTION_SCHEMA_VERSION = (
+    "controlled-loop-runner-stage-retry-execution.v1"
+)
+CONTROLLED_LOOP_RUNNER_STAGE_RETRY_EXECUTION_LIMITATIONS = [
+    "single_stage_retry_execution",
+    "single_retry_attempt_only",
+    "starts_one_approved_retry_subprocess",
+    "captures_terminal_retry_evidence",
+    "appends_one_retry_execution_audit_after_process_start",
+    "does_not_select_next_stage",
+    "does_not_execute_second_stage",
+    "does_not_continue_loop",
+    "does_not_start_executor",
+    "does_not_invoke_executor",
+    "does_not_write_git_or_github_state",
+    "does_not_execute_git_commands",
+    "does_not_call_github",
+    "does_not_create_branch",
+    "does_not_commit",
+    "does_not_push",
+    "does_not_create_pr",
+    "does_not_merge",
+    "does_not_release",
+    "does_not_publish_packages",
+    "does_not_assign_roles",
+    "does_not_schedule_agents",
+]
 CONTROLLED_LOOP_RUNNER_COMPLETION_SCHEMA_VERSION = "controlled-loop-runner-completion.v1"
 CONTROLLED_LOOP_RUNNER_COMPLETION_LIMITATIONS = [
     "runner_completion_evidence_only",
@@ -17823,6 +17850,1347 @@ def controlled_loop_runner_stage_retry_boundary_command(args: argparse.Namespace
             payload["start_governed_execution"] = start_governed_execution
     emit(payload)
     return 0 if valid else 2
+
+
+def controlled_loop_runner_stage_retry_execution_blocker(
+    code: str,
+    message: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def read_controlled_loop_runner_stage_retry_execution_packet(
+    path: Path,
+    *,
+    code: str,
+    label: str,
+) -> tuple[Any | None, list[dict[str, Any]]]:
+    try:
+        packet = read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, [
+            controlled_loop_runner_stage_retry_execution_blocker(
+                code,
+                f"{label} could not be read as JSON",
+                path=str(path),
+                error=str(exc),
+            )
+        ]
+    if not isinstance(packet, dict):
+        return None, [
+            controlled_loop_runner_stage_retry_execution_blocker(
+                code,
+                f"{label} must be a JSON object",
+                path=str(path),
+            )
+        ]
+    return packet, []
+
+
+def controlled_loop_runner_stage_retry_execution_recommendation(
+    blockers: list[dict[str, Any]],
+    *,
+    process_started: bool,
+) -> tuple[str, str]:
+    if not blockers:
+        return (
+            "closeout_controlled_runner_stage_retry",
+            "controlled runner stage retry executed exactly once and terminal evidence is ready for closeout",
+        )
+    if process_started:
+        return (
+            "inspect_controlled_runner_stage_retry_execution",
+            "controlled runner stage retry completed with evidence validation blockers",
+        )
+    return (
+        "refresh_controlled_runner_stage_retry_execution",
+        "controlled runner stage retry inputs are stale or invalid before process start",
+    )
+
+
+def controlled_loop_runner_stage_retry_execution_mapped_blocker(
+    blocker: dict[str, Any],
+) -> dict[str, Any]:
+    mapped = dict(blocker)
+    code = mapped.get("code")
+    if isinstance(code, str):
+        mapped["upstream_code"] = code
+        mapped["code"] = code.replace(
+            "controlled_runner_stage_retry_boundary",
+            "controlled_runner_stage_retry_execution",
+        ).replace(
+            "controlled_runner_stage_execution",
+            "controlled_runner_stage_retry_execution",
+        )
+    return mapped
+
+
+def controlled_loop_runner_stage_retry_execution_stage(
+    selected_stage: dict[str, Any] | None,
+    *,
+    status: str,
+    process_started: bool,
+    stage_side_effects: list[Any],
+) -> dict[str, Any] | None:
+    if selected_stage is None:
+        return None
+    stage = dict(selected_stage)
+    stage["source_stage_status"] = selected_stage.get("stage_status")
+    stage["stage_status"] = status
+    stage["process_started"] = process_started
+    stage["stage_execution_started"] = False
+    stage["stage_retry_started"] = process_started
+    stage["retry_execution_started"] = process_started
+    stage["executor_started"] = False
+    stage["side_effects"] = stage_side_effects
+    return stage
+
+
+def controlled_loop_runner_stage_retry_execution_audit_record(payload: dict[str, Any]) -> dict[str, Any]:
+    boundary = (
+        payload.get("controlled_loop_runner_stage_retry_boundary")
+        if isinstance(payload.get("controlled_loop_runner_stage_retry_boundary"), dict)
+        else {}
+    )
+    approval = (
+        payload.get("controlled_loop_runner_stage_retry_approval")
+        if isinstance(payload.get("controlled_loop_runner_stage_retry_approval"), dict)
+        else {}
+    )
+    retry_plan = (
+        payload.get("controlled_loop_runner_stage_retry_plan")
+        if isinstance(payload.get("controlled_loop_runner_stage_retry_plan"), dict)
+        else {}
+    )
+    source_execution = (
+        payload.get("controlled_loop_runner_stage_execution")
+        if isinstance(payload.get("controlled_loop_runner_stage_execution"), dict)
+        else {}
+    )
+    command_result = payload.get("command_result") if isinstance(payload.get("command_result"), dict) else {}
+    record = {
+        "event": "controlled_runner_stage_retry_execution",
+        "action": "record_controlled_runner_stage_retry_execution",
+        "reason": payload.get("reason"),
+        "valid": payload.get("valid"),
+        "stage_number": payload.get("stage_number"),
+        "stage_selection_source": payload.get("stage_selection_source"),
+        "retry_attempt": payload.get("retry_attempt"),
+        "stage_retry_execution_status": payload.get("stage_retry_execution_status"),
+        "boundary_checksum": boundary.get("checksum"),
+        "stage_retry_boundary_checksum": boundary.get("stage_retry_boundary_checksum"),
+        "approval_checksum": approval.get("checksum"),
+        "retry_plan_checksum": retry_plan.get("checksum"),
+        "source_stage_execution_checksum": source_execution.get("checksum"),
+        "payload_checksum": checksum_json(payload),
+        "command_result_checksum": payload.get("command_result_checksum"),
+        "stage_retry_output_file": payload.get("stage_retry_output_file"),
+        "returncode": command_result.get("returncode"),
+        "timed_out": command_result.get("timed_out"),
+    }
+    return {key: value for key, value in record.items() if value is not None}
+
+
+def controlled_loop_runner_stage_retry_execution_base_payload(
+    *,
+    args: argparse.Namespace,
+    boundary_path: Path,
+    retry_approval_path: Path,
+    retry_plan_path: Path,
+    outcome_plan_path: Path,
+    closeout_path: Path,
+    execution_path: Path,
+    start_path: Path,
+    runner_plan_path: Path,
+    dry_run_path: Path,
+    continuation_path: Path | None,
+    input_binding_path: Path | None,
+    boundary: dict[str, Any] | None,
+    retry_approval: dict[str, Any] | None,
+    retry_plan: dict[str, Any] | None,
+    outcome_plan: dict[str, Any] | None,
+    closeout: dict[str, Any] | None,
+    execution: dict[str, Any] | None,
+    continuation: dict[str, Any] | None,
+    input_binding: dict[str, Any] | None,
+    retry_approval_checksum: str | None,
+    retry_plan_checksum: str | None,
+    outcome_checksum: str | None,
+    closeout_checksum: str | None,
+    execution_checksum: str | None,
+    start_checksum: str | None,
+    runner_plan_checksum: str | None,
+    dry_run_checksum: str | None,
+    continuation_checksum: str | None,
+    input_binding_checksum: str | None,
+    expected_input_binding_checksum: str | None,
+    blockers: list[dict[str, Any]],
+    process_started: bool,
+    stage_retry_execution_status: str,
+    command_result: dict[str, Any] | None,
+    command_result_checksum: str | None,
+    stage_retry_output_file: Path | None,
+    side_effects: list[str],
+    selected_stage: dict[str, Any] | None,
+    stage_selection_source: str,
+    retry_attempt: int | None,
+) -> dict[str, Any]:
+    recommended_next_action, reason = controlled_loop_runner_stage_retry_execution_recommendation(
+        blockers,
+        process_started=process_started,
+    )
+    valid = not blockers
+    payload = {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": CONTROLLED_LOOP_RUNNER_STAGE_RETRY_EXECUTION_SCHEMA_VERSION,
+        "packet": "controlled_loop_runner_stage_retry_execution",
+        "generated_at": utc_now(),
+        "read_only": False,
+        "valid": valid,
+        "stage_number": int(args.stage_number),
+        "stage_selection_source": stage_selection_source,
+        "retry_attempt": retry_attempt,
+        "stage_retry_execution_status": stage_retry_execution_status,
+        "runner_stage_retry_authority": "stage_retry_executed_once" if process_started else "none",
+        "reason": reason,
+        "runner_started": False,
+        "process_started": process_started,
+        "stage_execution_started": False,
+        "next_stage_selected": False,
+        "audit_evidence_appended": False,
+        "executor_started": False,
+        "stage_retry_started": process_started,
+        "retry_execution_started": process_started,
+        "stage_execution_readiness_emitted": False,
+        "second_stage_started": False,
+        "epoch_started": (
+            bool(
+                process_started
+                and isinstance(selected_stage, dict)
+                and isinstance(selected_stage.get("side_effects"), list)
+                and "epoch_started" in selected_stage["side_effects"]
+            )
+        ),
+        "pr_action_started": False,
+        "github_write_started": False,
+        "merge_started": False,
+        "release_started": False,
+        "package_publication_started": False,
+        "role_assignment_started": False,
+        "agent_scheduling_started": False,
+        "loop_continuation_started": False,
+        "operator_confirmation_required": False,
+        "side_effects": side_effects,
+        "recommended_next_action": recommended_next_action,
+        "next_controlled_action": (
+            "closeout_controlled_runner_stage_retry"
+            if process_started and not blockers
+            else recommended_next_action
+        ),
+        "selected_stage": selected_stage,
+        "stage_retry_output_file": (
+            str(stage_retry_output_file) if stage_retry_output_file is not None else None
+        ),
+        "command_result": command_result,
+        "command_result_checksum": command_result_checksum,
+        "source_stage_outcome_decision": (
+            boundary.get("source_stage_outcome_decision") if isinstance(boundary, dict) else None
+        ),
+        "source_stage_closeout_status": (
+            boundary.get("source_stage_closeout_status") if isinstance(boundary, dict) else None
+        ),
+        "controlled_loop_runner_stage_retry_boundary": {
+            "file": str(boundary_path),
+            "checksum": checksum_json(boundary) if isinstance(boundary, dict) else None,
+            "status": boundary.get("boundary_status") if isinstance(boundary, dict) else None,
+            "next_controlled_action": boundary.get("next_controlled_action") if isinstance(boundary, dict) else None,
+            "stage_retry_boundary_checksum": (
+                boundary.get("stage_retry_boundary_checksum") if isinstance(boundary, dict) else None
+            ),
+        },
+        "controlled_loop_runner_stage_retry_approval": {
+            "file": str(retry_approval_path),
+            "checksum": retry_approval_checksum,
+            "status": retry_approval.get("approval_status") if isinstance(retry_approval, dict) else None,
+        },
+        "controlled_loop_runner_stage_retry_plan": {
+            "file": str(retry_plan_path),
+            "checksum": retry_plan_checksum,
+            "status": retry_plan.get("stage_retry_plan_status") if isinstance(retry_plan, dict) else None,
+        },
+        "controlled_loop_runner_stage_outcome_plan": {
+            "file": str(outcome_plan_path),
+            "checksum": outcome_checksum,
+            "status": outcome_plan.get("stage_outcome_plan_status") if isinstance(outcome_plan, dict) else None,
+        },
+        "controlled_loop_runner_stage_closeout": {
+            "file": str(closeout_path),
+            "checksum": closeout_checksum,
+            "status": closeout.get("stage_closeout_status") if isinstance(closeout, dict) else None,
+        },
+        "controlled_loop_runner_stage_execution": {
+            "file": str(execution_path),
+            "checksum": execution_checksum,
+            "status": execution.get("stage_execution_status") if isinstance(execution, dict) else None,
+        },
+        "controlled_loop_runner_start": {"file": str(start_path), "checksum": start_checksum},
+        "controlled_loop_runner_plan": {"file": str(runner_plan_path), "checksum": runner_plan_checksum},
+        "controlled_loop_runner_dry_run": {"file": str(dry_run_path), "checksum": dry_run_checksum},
+        "files": {
+            "controlled_loop_runner_stage_retry_boundary": str(boundary_path),
+            "controlled_loop_runner_stage_retry_approval": str(retry_approval_path),
+            "controlled_loop_runner_stage_retry_plan": str(retry_plan_path),
+            "controlled_loop_runner_stage_outcome_plan": str(outcome_plan_path),
+            "controlled_loop_runner_stage_closeout": str(closeout_path),
+            "controlled_loop_runner_stage_execution": str(execution_path),
+            "controlled_loop_runner_start": str(start_path),
+            "controlled_loop_runner_plan": str(runner_plan_path),
+            "controlled_loop_runner_dry_run": str(dry_run_path),
+            "stage_retry_output": (
+                str(stage_retry_output_file) if stage_retry_output_file is not None else None
+            ),
+        },
+        "checksums": {
+            "controlled_loop_runner_stage_retry_boundary": (
+                checksum_json(boundary) if isinstance(boundary, dict) else None
+            ),
+            "controlled_loop_runner_stage_retry_approval": retry_approval_checksum,
+            "controlled_loop_runner_stage_retry_plan": retry_plan_checksum,
+            "controlled_loop_runner_stage_outcome_plan": outcome_checksum,
+            "controlled_loop_runner_stage_closeout": closeout_checksum,
+            "controlled_loop_runner_stage_execution": execution_checksum,
+            "controlled_loop_runner_start": start_checksum,
+            "controlled_loop_runner_plan": runner_plan_checksum,
+            "controlled_loop_runner_dry_run": dry_run_checksum,
+            "stage_retry_boundary": (
+                boundary.get("stage_retry_boundary_checksum") if isinstance(boundary, dict) else None
+            ),
+            "command_result": command_result_checksum,
+        },
+        "blockers": blockers,
+        "limitations": CONTROLLED_LOOP_RUNNER_STAGE_RETRY_EXECUTION_LIMITATIONS,
+        "non_execution_guarantees": [
+            "does_not_select_next_stage",
+            "does_not_execute_second_stage",
+            "does_not_continue_loop",
+            "does_not_start_executor",
+            "does_not_invoke_executor",
+            "does_not_write_git_or_github_state",
+            "does_not_merge",
+            "does_not_release",
+            "does_not_publish_packages",
+            "does_not_assign_roles",
+            "does_not_schedule_agents",
+        ],
+    }
+    if stage_selection_source == "continuation":
+        payload["controlled_loop_runner_next_stage_continuation"] = {
+            "file": str(continuation_path) if continuation_path is not None else None,
+            "checksum": continuation_checksum,
+            "status": (
+                continuation.get("runner_next_stage_continuation_status")
+                if isinstance(continuation, dict)
+                else None
+            ),
+        }
+        payload["controlled_loop_runner_stage_input_binding"] = {
+            "file": str(input_binding_path) if input_binding_path is not None else None,
+            "checksum": input_binding_checksum,
+            "expected_checksum": expected_input_binding_checksum,
+            "status": (
+                input_binding.get("stage_input_binding_status")
+                if isinstance(input_binding, dict)
+                else None
+            ),
+        }
+        payload["files"]["controlled_loop_runner_next_stage_continuation"] = (
+            str(continuation_path) if continuation_path is not None else None
+        )
+        payload["files"]["controlled_loop_runner_stage_input_binding"] = (
+            str(input_binding_path) if input_binding_path is not None else None
+        )
+        payload["checksums"]["controlled_loop_runner_next_stage_continuation"] = continuation_checksum
+        payload["checksums"]["controlled_loop_runner_stage_input_binding"] = input_binding_checksum
+        payload["checksums"]["expected_controlled_loop_runner_stage_input_binding"] = (
+            expected_input_binding_checksum
+        )
+    return payload
+
+
+def controlled_loop_runner_stage_retry_execution_boundary_blockers(
+    *,
+    boundary: dict[str, Any],
+    boundary_path: Path,
+    retry_approval_path: Path,
+    retry_plan_path: Path,
+    outcome_plan_path: Path,
+    closeout_path: Path,
+    execution_path: Path,
+    start_path: Path,
+    runner_plan_path: Path,
+    dry_run_path: Path,
+    continuation_path: Path | None,
+    input_binding_path: Path | None,
+    retry_approval_checksum: str | None,
+    retry_plan_checksum: str | None,
+    outcome_checksum: str | None,
+    closeout_checksum: str | None,
+    execution_checksum: str | None,
+    start_checksum: str | None,
+    runner_plan_checksum: str | None,
+    dry_run_checksum: str | None,
+    continuation_checksum: str | None,
+    input_binding_checksum: str | None,
+    expected_input_binding_checksum: str | None,
+    expected_stage_retry_boundary_checksum: str,
+    plan_stage: dict[str, Any] | None,
+    command_context: dict[str, Any] | None,
+    root: Path,
+    stage_number: int,
+    stage_selection_source: str,
+) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    if (
+        boundary.get("schema_version") != CONTROLLED_LOOP_RUNNER_STAGE_RETRY_BOUNDARY_SCHEMA_VERSION
+        or boundary.get("packet") != "controlled_loop_runner_stage_retry_boundary"
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_boundary_packet_mismatch",
+                "controlled runner stage retry execution requires a stage retry boundary packet",
+                expected_schema_version=CONTROLLED_LOOP_RUNNER_STAGE_RETRY_BOUNDARY_SCHEMA_VERSION,
+                actual_schema_version=boundary.get("schema_version"),
+                actual_packet=boundary.get("packet"),
+            )
+        )
+    invalid_flags = {
+        flag: boundary.get(flag)
+        for flag in [
+            "runner_started",
+            "process_started",
+            "stage_execution_started",
+            "next_stage_selected",
+            "audit_evidence_appended",
+            "executor_started",
+            "stage_retry_started",
+            "retry_execution_started",
+            "stage_execution_readiness_emitted",
+            "second_stage_started",
+            "epoch_started",
+            "pr_action_started",
+            "github_write_started",
+            "merge_started",
+            "release_started",
+            "package_publication_started",
+            "role_assignment_started",
+            "agent_scheduling_started",
+            "loop_continuation_started",
+        ]
+        if boundary.get(flag) is not False
+    }
+    if (
+        boundary.get("valid") is not True
+        or boundary.get("read_only") is not True
+        or boundary.get("boundary_status") != "completed"
+        or boundary.get("runner_stage_retry_authority") != "retry_boundary_prepared_not_started"
+        or boundary.get("next_controlled_action") != "execute_approved_runner_stage_retry_once"
+        or boundary.get("operator_confirmation_required") is not True
+        or boundary.get("side_effects") != []
+        or boundary.get("blockers") != []
+        or invalid_flags
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_boundary_not_completed",
+                "controlled runner stage retry execution requires completed not-started retry boundary evidence",
+                valid=boundary.get("valid"),
+                boundary_status=boundary.get("boundary_status"),
+                runner_stage_retry_authority=boundary.get("runner_stage_retry_authority"),
+                next_controlled_action=boundary.get("next_controlled_action"),
+                invalid_flags=invalid_flags,
+            )
+        )
+    if boundary.get("limitations") != CONTROLLED_LOOP_RUNNER_STAGE_RETRY_BOUNDARY_LIMITATIONS:
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_boundary_limitations_invalid",
+                "controlled runner stage retry boundary limitations must match the boundary-only contract",
+                expected=CONTROLLED_LOOP_RUNNER_STAGE_RETRY_BOUNDARY_LIMITATIONS,
+                actual=boundary.get("limitations"),
+            )
+        )
+    if not controlled_loop_runner_stage_input_binding_strict_int_matches(
+        boundary.get("stage_number"),
+        stage_number,
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_stage_number_mismatch",
+                "controlled runner stage retry execution stage number must match the boundary",
+                expected_stage_number=stage_number,
+                actual_stage_number=boundary.get("stage_number"),
+            )
+        )
+    if boundary.get("stage_selection_source") != stage_selection_source:
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_selection_source_mismatch",
+                "controlled runner stage retry execution source must match the boundary",
+                expected=stage_selection_source,
+                actual=boundary.get("stage_selection_source"),
+            )
+        )
+    retry_attempt = boundary.get("retry_attempt")
+    if retry_attempt != 1:
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_retry_attempt_unsupported",
+                "controlled runner stage retry execution currently supports exactly retry attempt 1",
+                expected=1,
+                actual=retry_attempt,
+            )
+        )
+
+    stage_retry_boundary = (
+        boundary.get("stage_retry_boundary")
+        if isinstance(boundary.get("stage_retry_boundary"), dict)
+        else None
+    )
+    recorded_checksums = boundary.get("checksums") if isinstance(boundary.get("checksums"), dict) else {}
+    if stage_retry_boundary is None:
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_boundary_missing",
+                "controlled runner stage retry boundary must include stage_retry_boundary",
+            )
+        )
+    else:
+        stage_retry_boundary_checksum = checksum_json(stage_retry_boundary)
+        if (
+            boundary.get("stage_retry_boundary_checksum") != stage_retry_boundary_checksum
+            or recorded_checksums.get("stage_retry_boundary") != stage_retry_boundary_checksum
+        ):
+            blockers.append(
+                controlled_loop_runner_stage_retry_execution_blocker(
+                    "controlled_runner_stage_retry_execution_boundary_checksum_mismatch",
+                    "controlled runner stage retry boundary checksum does not match retry invocation details",
+                    expected=stage_retry_boundary_checksum,
+                    actual={
+                        "stage_retry_boundary_checksum": boundary.get("stage_retry_boundary_checksum"),
+                        "checksums.stage_retry_boundary": recorded_checksums.get("stage_retry_boundary"),
+                    },
+                )
+            )
+        if expected_stage_retry_boundary_checksum != stage_retry_boundary_checksum:
+            blockers.append(
+                controlled_loop_runner_stage_retry_execution_blocker(
+                    "controlled_runner_stage_retry_execution_expected_boundary_checksum_mismatch",
+                    "controlled runner stage retry boundary checksum must match the operator-reviewed checksum",
+                    expected=expected_stage_retry_boundary_checksum,
+                    actual=stage_retry_boundary_checksum,
+                )
+            )
+
+    anchor_entries = [
+        ("controlled_loop_runner_stage_retry_approval", "stage_retry_approval", retry_approval_path, retry_approval_checksum),
+        ("controlled_loop_runner_stage_retry_plan", "stage_retry_plan", retry_plan_path, retry_plan_checksum),
+        ("controlled_loop_runner_stage_outcome_plan", "stage_outcome_plan", outcome_plan_path, outcome_checksum),
+        ("controlled_loop_runner_stage_closeout", "stage_closeout", closeout_path, closeout_checksum),
+        ("controlled_loop_runner_stage_execution", "stage_execution", execution_path, execution_checksum),
+        ("controlled_loop_runner_start", "start", start_path, start_checksum),
+        ("controlled_loop_runner_plan", "runner_plan", runner_plan_path, runner_plan_checksum),
+        ("controlled_loop_runner_dry_run", "dry_run", dry_run_path, dry_run_checksum),
+    ]
+    if stage_selection_source == "continuation":
+        anchor_entries.extend(
+            [
+                ("controlled_loop_runner_next_stage_continuation", "continuation", continuation_path, continuation_checksum),
+                ("controlled_loop_runner_stage_input_binding", "stage_input_binding", input_binding_path, input_binding_checksum),
+            ]
+        )
+    blockers.extend(
+        controlled_loop_runner_stage_retry_plan_anchor_blockers(
+            packet=boundary,
+            packet_path=boundary_path,
+            code_prefix="controlled_runner_stage_retry_execution_boundary",
+            message_subject="controlled runner stage retry boundary",
+            entries=anchor_entries,
+        )
+    )
+
+    if stage_retry_boundary is None or plan_stage is None:
+        return blockers
+
+    selected_boundary_stage = controlled_loop_runner_stage_retry_boundary_stage(plan_stage)
+    if boundary.get("selected_stage") != selected_boundary_stage:
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_boundary_selected_stage_mismatch",
+                "controlled runner stage retry boundary selected stage does not match the approved runner plan",
+                expected=selected_boundary_stage,
+                actual=boundary.get("selected_stage"),
+            )
+        )
+
+    policy = (
+        stage_retry_boundary.get("working_directory_policy")
+        if isinstance(stage_retry_boundary.get("working_directory_policy"), dict)
+        else {}
+    )
+    output_policy = (
+        stage_retry_boundary.get("evidence_output_policy")
+        if isinstance(stage_retry_boundary.get("evidence_output_policy"), dict)
+        else {}
+    )
+    timeout_policy = (
+        stage_retry_boundary.get("timeout_policy")
+        if isinstance(stage_retry_boundary.get("timeout_policy"), dict)
+        else {}
+    )
+    argv = stage_retry_boundary.get("argv")
+    cwd_value = policy.get("cwd")
+    stage_cwd = Path(cwd_value).expanduser().resolve(strict=False) if isinstance(cwd_value, str) else None
+    if (
+        policy.get("mode") != "fixed"
+        or not isinstance(cwd_value, str)
+        or not Path(cwd_value).expanduser().is_absolute()
+        or stage_cwd is None
+        or not stage_cwd.exists()
+        or not stage_cwd.is_dir()
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_cwd_invalid",
+                "controlled runner stage retry execution requires a fixed existing absolute cwd",
+                actual=policy,
+            )
+        )
+
+    output_file = controlled_loop_runner_stage_output_file_from_policy(output_policy, policy)
+    files = boundary.get("files") if isinstance(boundary.get("files"), dict) else {}
+    if (
+        output_policy.get("mode") != "capture_stdout_json"
+        or output_file is None
+        or not output_file.parent.exists()
+        or not output_file.parent.is_dir()
+        or (output_file.exists() and output_file.is_dir())
+        or not path_is_relative_to(output_file, root)
+    ):
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_output_file_invalid",
+                "controlled runner stage retry execution output file must resolve under the runtime root",
+                actual=output_policy,
+                root=str(root),
+            )
+        )
+    elif output_file.exists():
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_output_file_already_exists",
+                "controlled runner stage retry execution output file must not already exist before retry start",
+                path=str(output_file),
+            )
+        )
+    elif not controlled_loop_runner_plan_file_matches(boundary_path, files.get("stage_retry_output"), output_file):
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_output_file_mismatch",
+                "controlled runner stage retry boundary output anchor does not match output policy",
+                expected=str(output_file),
+                actual=files.get("stage_retry_output"),
+            )
+        )
+    input_evidence_paths = {
+        path
+        for path in [
+            boundary_path.expanduser().resolve(strict=False),
+            retry_approval_path.expanduser().resolve(strict=False),
+            retry_plan_path.expanduser().resolve(strict=False),
+            outcome_plan_path.expanduser().resolve(strict=False),
+            closeout_path.expanduser().resolve(strict=False),
+            execution_path.expanduser().resolve(strict=False),
+            start_path.expanduser().resolve(strict=False),
+            runner_plan_path.expanduser().resolve(strict=False),
+            dry_run_path.expanduser().resolve(strict=False),
+            continuation_path.expanduser().resolve(strict=False) if continuation_path is not None else None,
+            input_binding_path.expanduser().resolve(strict=False) if input_binding_path is not None else None,
+        ]
+        if path is not None
+    }
+    if output_file is not None and output_file in input_evidence_paths:
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_output_file_overwrites_input_evidence",
+                "retry output file must not overwrite input evidence",
+                stage_retry_output_file=str(output_file),
+            )
+        )
+    source_output_value = output_policy.get("must_not_equal_source_output_file")
+    if isinstance(source_output_value, str) and output_file is not None:
+        source_output_path = Path(source_output_value).expanduser().resolve(strict=False)
+        if output_file == source_output_path:
+            blockers.append(
+                controlled_loop_runner_stage_retry_execution_blocker(
+                    "controlled_runner_stage_retry_execution_output_file_overwrites_source",
+                    "retry output file must not overwrite the original stage output evidence",
+                    source_stage_output_file=str(source_output_path),
+                    stage_retry_output_file=str(output_file),
+                )
+            )
+    timeout_seconds = timeout_policy.get("timeout_seconds")
+    if timeout_policy.get("finite") is not True or not isinstance(timeout_seconds, int) or timeout_seconds <= 0:
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_timeout_invalid",
+                "controlled runner stage retry execution timeout must be finite and positive",
+                actual=timeout_policy,
+            )
+        )
+
+    command_arguments = (
+        controlled_loop_runner_stage_invocation_boundary_command_arguments(
+            plan_stage.get("command"),
+            stage_cwd,
+            command_context=command_context,
+        )
+        if stage_cwd is not None
+        else None
+    )
+    if command_arguments is None:
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_unapproved_command",
+                "controlled runner stage retry execution only supports approved internal Cadence stage commands",
+                actual=plan_stage.get("command"),
+            )
+        )
+        return blockers
+    command_argv, normalized_arguments = command_arguments
+    expected_argv = [
+        sys.executable,
+        "-m",
+        "codex_cadence.cli",
+        "--root",
+        str(root),
+        plan_stage.get("command"),
+        *command_argv,
+    ]
+    expected_allowed_side_effects = (
+        plan_stage.get("allowed_side_effects_when_executed")
+        if isinstance(plan_stage.get("allowed_side_effects_when_executed"), list)
+        else []
+    )
+    expected_command_identity = {
+        "stage_number": stage_number,
+        "stage_selection_source": stage_selection_source,
+        "retry_attempt": 1,
+        "command_name": plan_stage.get("command"),
+        "argv": expected_argv,
+        "normalized_arguments": normalized_arguments,
+        "working_directory_policy": {"mode": "fixed", "cwd": str(stage_cwd), "must_exist": True},
+        "execution_authority": plan_stage.get("execution_authority"),
+        "allowed_side_effects_when_executed": expected_allowed_side_effects,
+    }
+    actual_command_identity = {
+        "stage_number": stage_retry_boundary.get("stage_number"),
+        "stage_selection_source": stage_retry_boundary.get("stage_selection_source"),
+        "retry_attempt": stage_retry_boundary.get("retry_attempt"),
+        "command_name": stage_retry_boundary.get("command_name"),
+        "argv": argv,
+        "normalized_arguments": stage_retry_boundary.get("normalized_arguments"),
+        "working_directory_policy": policy,
+        "execution_authority": stage_retry_boundary.get("execution_authority"),
+        "allowed_side_effects_when_executed": stage_retry_boundary.get("allowed_side_effects_when_executed"),
+    }
+    if not isinstance(argv, list) or any(not isinstance(item, str) for item in argv):
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_argv_invalid",
+                "controlled runner stage retry execution argv must be a list of strings",
+                actual=argv,
+            )
+        )
+    if actual_command_identity != expected_command_identity:
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_unapproved_command",
+                "controlled runner stage retry execution argv and cwd must exactly match the reviewed retry boundary",
+                expected=expected_command_identity,
+                actual=actual_command_identity,
+            )
+        )
+    return blockers
+
+
+def controlled_loop_runner_stage_retry_execute_command(args: argparse.Namespace) -> int:
+    root = args.root.expanduser().resolve() if args.root is not None else None
+    boundary_path = Path(args.controlled_loop_runner_stage_retry_boundary_file)
+    retry_approval_path = Path(args.controlled_loop_runner_stage_retry_approval_file)
+    retry_plan_path = Path(args.controlled_loop_runner_stage_retry_plan_file)
+    outcome_plan_path = Path(args.controlled_loop_runner_stage_outcome_plan_file)
+    closeout_path = Path(args.controlled_loop_runner_stage_closeout_file)
+    execution_path = Path(args.controlled_loop_runner_stage_execution_file)
+    start_path = Path(args.controlled_loop_runner_start_file)
+    runner_plan_path = Path(args.controlled_loop_runner_plan_file)
+    dry_run_path = Path(args.controlled_loop_runner_dry_run_file)
+    continuation_file = getattr(args, "controlled_loop_runner_next_stage_continuation_file", None)
+    input_binding_file = getattr(args, "controlled_loop_runner_stage_input_binding_file", None)
+    expected_input_binding_checksum = getattr(args, "expected_stage_input_binding_checksum", None)
+    continuation_path = Path(continuation_file) if continuation_file else None
+    input_binding_path = Path(input_binding_file) if input_binding_file else None
+    stage_number = int(args.stage_number)
+
+    boundary, boundary_read_blockers = read_controlled_loop_runner_stage_retry_execution_packet(
+        boundary_path,
+        code="controlled_runner_stage_retry_execution_boundary_evidence_missing",
+        label="controlled runner stage retry boundary",
+    )
+    retry_approval, retry_approval_read_blockers = read_controlled_loop_runner_stage_retry_execution_packet(
+        retry_approval_path,
+        code="controlled_runner_stage_retry_execution_approval_evidence_missing",
+        label="controlled runner stage retry approval",
+    )
+    retry_plan, retry_plan_read_blockers = read_controlled_loop_runner_stage_retry_execution_packet(
+        retry_plan_path,
+        code="controlled_runner_stage_retry_execution_retry_plan_evidence_missing",
+        label="controlled runner stage retry plan",
+    )
+    outcome_plan, outcome_read_blockers = read_controlled_loop_runner_stage_retry_execution_packet(
+        outcome_plan_path,
+        code="controlled_runner_stage_retry_execution_outcome_evidence_missing",
+        label="controlled runner stage outcome plan",
+    )
+    closeout, closeout_read_blockers = read_controlled_loop_runner_stage_retry_execution_packet(
+        closeout_path,
+        code="controlled_runner_stage_retry_execution_closeout_evidence_missing",
+        label="controlled runner stage closeout",
+    )
+    execution, execution_read_blockers = read_controlled_loop_runner_stage_retry_execution_packet(
+        execution_path,
+        code="controlled_runner_stage_retry_execution_execution_evidence_missing",
+        label="controlled runner stage execution",
+    )
+    blockers: list[dict[str, Any]] = []
+    blockers.extend(boundary_read_blockers)
+    blockers.extend(retry_approval_read_blockers)
+    blockers.extend(retry_plan_read_blockers)
+    blockers.extend(outcome_read_blockers)
+    blockers.extend(closeout_read_blockers)
+    blockers.extend(execution_read_blockers)
+
+    retry_approval_checksum = checksum_json(retry_approval) if isinstance(retry_approval, dict) else None
+    retry_plan_checksum = checksum_json(retry_plan) if isinstance(retry_plan, dict) else None
+    outcome_checksum = checksum_json(outcome_plan) if isinstance(outcome_plan, dict) else None
+    closeout_checksum = checksum_json(closeout) if isinstance(closeout, dict) else None
+    execution_checksum = checksum_json(execution) if isinstance(execution, dict) else None
+
+    chain_args = argparse.Namespace(
+        root=root,
+        controlled_loop_runner_start_file=str(start_path),
+        controlled_loop_runner_plan_file=str(runner_plan_path),
+        controlled_loop_runner_dry_run_file=str(dry_run_path),
+        stage_number=stage_number,
+    )
+    chain_validation = controlled_loop_runner_next_stage_chain_validation(
+        chain_args,
+        allow_non_initial_stage=True,
+    )
+    start = chain_validation["start"]
+    runner_plan = chain_validation["runner_plan"]
+    dry_run = chain_validation["dry_run"]
+    start_checksum = chain_validation["start_checksum"]
+    runner_plan_checksum = chain_validation["runner_plan_checksum"]
+    dry_run_checksum = chain_validation["dry_run_checksum"]
+    blockers.extend(
+        controlled_loop_runner_stage_retry_execution_blocker(
+            "controlled_runner_stage_retry_execution_upstream_invalid",
+            "controlled runner upstream evidence failed retry execution revalidation",
+            upstream_code=upstream_blocker.get("code"),
+            upstream_blocker=upstream_blocker,
+        )
+        for upstream_blocker in chain_validation["blockers"]
+    )
+    if root is None:
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_root_missing",
+                "controlled runner stage retry execution requires a runtime root for audit evidence",
+            )
+        )
+
+    stage_selection_source = (
+        boundary.get("stage_selection_source")
+        if isinstance(boundary, dict) and isinstance(boundary.get("stage_selection_source"), str)
+        else retry_approval.get("stage_selection_source")
+        if isinstance(retry_approval, dict) and isinstance(retry_approval.get("stage_selection_source"), str)
+        else retry_plan.get("stage_selection_source")
+        if isinstance(retry_plan, dict) and isinstance(retry_plan.get("stage_selection_source"), str)
+        else "initial"
+    )
+    continuation = None
+    input_binding = None
+    continuation_checksum = None
+    input_binding_checksum = None
+    if stage_selection_source == "continuation":
+        if continuation_path is None:
+            blockers.append(
+                controlled_loop_runner_stage_retry_execution_blocker(
+                    "controlled_runner_stage_retry_execution_continuation_evidence_missing",
+                    "controlled runner stage retry execution requires continuation evidence for continuation-sourced retries",
+                )
+            )
+        else:
+            continuation, continuation_read_blockers = read_controlled_loop_runner_stage_retry_execution_packet(
+                continuation_path,
+                code="controlled_runner_stage_retry_execution_continuation_evidence_missing",
+                label="controlled runner next-stage continuation",
+            )
+            blockers.extend(continuation_read_blockers)
+            continuation_checksum = checksum_json(continuation) if isinstance(continuation, dict) else None
+        if input_binding_path is None:
+            blockers.append(
+                controlled_loop_runner_stage_retry_execution_blocker(
+                    "controlled_runner_stage_retry_execution_stage_input_binding_evidence_missing",
+                    "controlled runner stage retry execution requires stage-input binding evidence for continuation-sourced retries",
+                )
+            )
+        else:
+            input_binding, input_binding_read_blockers = read_controlled_loop_runner_stage_retry_execution_packet(
+                input_binding_path,
+                code="controlled_runner_stage_retry_execution_stage_input_binding_evidence_missing",
+                label="controlled runner stage input binding",
+            )
+            blockers.extend(input_binding_read_blockers)
+            input_binding_checksum = checksum_json(input_binding) if isinstance(input_binding, dict) else None
+        if expected_input_binding_checksum is None:
+            blockers.append(
+                controlled_loop_runner_stage_retry_execution_blocker(
+                    "controlled_runner_stage_retry_execution_stage_input_binding_expected_checksum_missing",
+                    "controlled runner stage retry execution requires the reviewed stage-input binding checksum",
+                )
+            )
+        elif input_binding_checksum != expected_input_binding_checksum:
+            blockers.append(
+                controlled_loop_runner_stage_retry_execution_blocker(
+                    "controlled_runner_stage_retry_execution_stage_input_binding_checksum_mismatch",
+                    "controlled runner stage retry execution input binding checksum must match reviewed binding checksum",
+                    expected=expected_input_binding_checksum,
+                    actual=input_binding_checksum,
+                )
+            )
+    elif continuation_path is not None or input_binding_path is not None or expected_input_binding_checksum is not None:
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_unexpected_continuation_evidence",
+                "initial controlled runner stage retry execution must not include continuation-only evidence",
+                stage_selection_source=stage_selection_source,
+            )
+        )
+
+    plan_stage = controlled_loop_runner_stage_invocation_boundary_plan_stage(
+        runner_plan if isinstance(runner_plan, dict) else None,
+        stage_number,
+    )
+    command_context = None
+    boundary_retry_details = (
+        boundary.get("stage_retry_boundary")
+        if isinstance(boundary, dict) and isinstance(boundary.get("stage_retry_boundary"), dict)
+        else {}
+    )
+    boundary_policy = (
+        boundary_retry_details.get("working_directory_policy")
+        if isinstance(boundary_retry_details.get("working_directory_policy"), dict)
+        else {}
+    )
+    boundary_cwd_value = boundary_policy.get("cwd")
+    boundary_stage_cwd = (
+        Path(boundary_cwd_value).expanduser().resolve(strict=False)
+        if isinstance(boundary_cwd_value, str) and boundary_cwd_value.strip()
+        else Path()
+    )
+    if (
+        stage_selection_source == "continuation"
+        and isinstance(plan_stage, dict)
+        and plan_stage.get("command") == "start-governed-execution"
+    ):
+        ownership_arguments, ownership_blockers = controlled_loop_runner_stage_retry_boundary_source_ownership_arguments(
+            execution=execution if isinstance(execution, dict) else None,
+            plan_stage=plan_stage,
+        )
+        blockers.extend(
+            controlled_loop_runner_stage_retry_execution_mapped_blocker(blocker)
+            for blocker in ownership_blockers
+        )
+        command_context, command_context_blockers = (
+            controlled_loop_runner_stage_retry_boundary_start_governed_execution_context(
+                execution=execution if isinstance(execution, dict) else None,
+                execution_path=execution_path,
+                input_binding=input_binding if isinstance(input_binding, dict) else None,
+                input_binding_path=input_binding_path,
+                stage_cwd=boundary_stage_cwd,
+                approval_secret=operator_approval_secret_from_args(args),
+                expected_operator_id=args.expected_operator_id,
+                **ownership_arguments,
+            )
+        )
+        blockers.extend(
+            controlled_loop_runner_stage_retry_execution_mapped_blocker(blocker)
+            for blocker in command_context_blockers
+        )
+
+    retry_attempt = boundary.get("retry_attempt") if isinstance(boundary, dict) else None
+    if isinstance(boundary, dict) and root is not None:
+        blockers.extend(
+            controlled_loop_runner_stage_retry_execution_boundary_blockers(
+                boundary=boundary,
+                boundary_path=boundary_path,
+                retry_approval_path=retry_approval_path,
+                retry_plan_path=retry_plan_path,
+                outcome_plan_path=outcome_plan_path,
+                closeout_path=closeout_path,
+                execution_path=execution_path,
+                start_path=start_path,
+                runner_plan_path=runner_plan_path,
+                dry_run_path=dry_run_path,
+                continuation_path=continuation_path,
+                input_binding_path=input_binding_path,
+                retry_approval_checksum=retry_approval_checksum,
+                retry_plan_checksum=retry_plan_checksum,
+                outcome_checksum=outcome_checksum,
+                closeout_checksum=closeout_checksum,
+                execution_checksum=execution_checksum,
+                start_checksum=start_checksum,
+                runner_plan_checksum=runner_plan_checksum,
+                dry_run_checksum=dry_run_checksum,
+                continuation_checksum=continuation_checksum,
+                input_binding_checksum=input_binding_checksum,
+                expected_input_binding_checksum=expected_input_binding_checksum,
+                expected_stage_retry_boundary_checksum=args.expected_stage_retry_boundary_checksum,
+                plan_stage=plan_stage,
+                command_context=command_context,
+                root=root,
+                stage_number=stage_number,
+                stage_selection_source=stage_selection_source,
+            )
+        )
+    if isinstance(retry_approval, dict):
+        retry_approval_target = (
+            retry_approval.get("retry_approval_target")
+            if isinstance(retry_approval.get("retry_approval_target"), dict)
+            else None
+        )
+        retry_approval_target_checksum = retry_approval.get("retry_approval_target_checksum")
+        blockers.extend(
+            controlled_loop_runner_stage_retry_execution_mapped_blocker(blocker)
+            for blocker in controlled_loop_runner_stage_retry_boundary_target_mismatch_blockers(
+                retry_approval_target=retry_approval_target,
+                retry_plan=retry_plan if isinstance(retry_plan, dict) else None,
+                stage_number=stage_number,
+                stage_selection_source=stage_selection_source,
+                outcome_checksum=outcome_checksum,
+                closeout_checksum=closeout_checksum,
+                execution_checksum=execution_checksum,
+                start_checksum=start_checksum,
+                runner_plan_checksum=runner_plan_checksum,
+                dry_run_checksum=dry_run_checksum,
+                continuation_checksum=continuation_checksum,
+                input_binding_checksum=input_binding_checksum,
+                expected_input_binding_checksum=expected_input_binding_checksum,
+            )
+        )
+        blockers.extend(
+            controlled_loop_runner_stage_retry_execution_mapped_blocker(blocker)
+            for blocker in controlled_loop_runner_stage_retry_boundary_operator_approval_blockers(
+                approval=retry_approval,
+                approval_path=retry_approval_path,
+                target_checksum=retry_approval_target_checksum
+                if isinstance(retry_approval_target_checksum, str)
+                else None,
+                approval_secret=operator_approval_secret_from_args(args),
+                expected_operator_id=args.expected_operator_id,
+            )
+        )
+
+    output_policy = (
+        boundary_retry_details.get("evidence_output_policy")
+        if isinstance(boundary_retry_details.get("evidence_output_policy"), dict)
+        else {}
+    )
+    stage_retry_output_file = controlled_loop_runner_stage_output_file_from_policy(
+        output_policy,
+        boundary_policy,
+    )
+    boundary_selected_stage = (
+        boundary.get("selected_stage")
+        if isinstance(boundary, dict) and isinstance(boundary.get("selected_stage"), dict)
+        else None
+    )
+    if blockers:
+        payload = controlled_loop_runner_stage_retry_execution_base_payload(
+            args=args,
+            boundary_path=boundary_path,
+            retry_approval_path=retry_approval_path,
+            retry_plan_path=retry_plan_path,
+            outcome_plan_path=outcome_plan_path,
+            closeout_path=closeout_path,
+            execution_path=execution_path,
+            start_path=start_path,
+            runner_plan_path=runner_plan_path,
+            dry_run_path=dry_run_path,
+            continuation_path=continuation_path,
+            input_binding_path=input_binding_path,
+            boundary=boundary if isinstance(boundary, dict) else None,
+            retry_approval=retry_approval if isinstance(retry_approval, dict) else None,
+            retry_plan=retry_plan if isinstance(retry_plan, dict) else None,
+            outcome_plan=outcome_plan if isinstance(outcome_plan, dict) else None,
+            closeout=closeout if isinstance(closeout, dict) else None,
+            execution=execution if isinstance(execution, dict) else None,
+            continuation=continuation if isinstance(continuation, dict) else None,
+            input_binding=input_binding if isinstance(input_binding, dict) else None,
+            retry_approval_checksum=retry_approval_checksum,
+            retry_plan_checksum=retry_plan_checksum,
+            outcome_checksum=outcome_checksum,
+            closeout_checksum=closeout_checksum,
+            execution_checksum=execution_checksum,
+            start_checksum=start_checksum,
+            runner_plan_checksum=runner_plan_checksum,
+            dry_run_checksum=dry_run_checksum,
+            continuation_checksum=continuation_checksum,
+            input_binding_checksum=input_binding_checksum,
+            expected_input_binding_checksum=expected_input_binding_checksum,
+            blockers=blockers,
+            process_started=False,
+            stage_retry_execution_status="blocked",
+            command_result=None,
+            command_result_checksum=None,
+            stage_retry_output_file=stage_retry_output_file,
+            side_effects=[],
+            selected_stage=None,
+            stage_selection_source=stage_selection_source,
+            retry_attempt=retry_attempt,
+        )
+        emit(payload)
+        return 2
+
+    argv = boundary_retry_details["argv"]
+    cwd = boundary_retry_details["working_directory_policy"]["cwd"]
+    timeout_seconds = boundary_retry_details["timeout_policy"]["timeout_seconds"]
+    started_at = utc_now()
+    timed_out = False
+    returncode: int | None
+    try:
+        completed = subprocess.run(
+            argv,
+            cwd=cwd,
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+            check=False,
+            shell=False,
+        )
+        stdout_text = controlled_loop_runner_stage_execution_text(completed.stdout)
+        stderr_text = controlled_loop_runner_stage_execution_text(completed.stderr)
+        returncode = completed.returncode
+    except subprocess.TimeoutExpired as exc:
+        timed_out = True
+        stdout_text = controlled_loop_runner_stage_execution_text(exc.stdout)
+        stderr_text = controlled_loop_runner_stage_execution_text(exc.stderr)
+        returncode = None
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        payload = controlled_loop_runner_stage_retry_execution_base_payload(
+            args=args,
+            boundary_path=boundary_path,
+            retry_approval_path=retry_approval_path,
+            retry_plan_path=retry_plan_path,
+            outcome_plan_path=outcome_plan_path,
+            closeout_path=closeout_path,
+            execution_path=execution_path,
+            start_path=start_path,
+            runner_plan_path=runner_plan_path,
+            dry_run_path=dry_run_path,
+            continuation_path=continuation_path,
+            input_binding_path=input_binding_path,
+            boundary=boundary if isinstance(boundary, dict) else None,
+            retry_approval=retry_approval if isinstance(retry_approval, dict) else None,
+            retry_plan=retry_plan if isinstance(retry_plan, dict) else None,
+            outcome_plan=outcome_plan if isinstance(outcome_plan, dict) else None,
+            closeout=closeout if isinstance(closeout, dict) else None,
+            execution=execution if isinstance(execution, dict) else None,
+            continuation=continuation if isinstance(continuation, dict) else None,
+            input_binding=input_binding if isinstance(input_binding, dict) else None,
+            retry_approval_checksum=retry_approval_checksum,
+            retry_plan_checksum=retry_plan_checksum,
+            outcome_checksum=outcome_checksum,
+            closeout_checksum=closeout_checksum,
+            execution_checksum=execution_checksum,
+            start_checksum=start_checksum,
+            runner_plan_checksum=runner_plan_checksum,
+            dry_run_checksum=dry_run_checksum,
+            continuation_checksum=continuation_checksum,
+            input_binding_checksum=input_binding_checksum,
+            expected_input_binding_checksum=expected_input_binding_checksum,
+            blockers=[
+                controlled_loop_runner_stage_retry_execution_blocker(
+                    "controlled_runner_stage_retry_execution_process_start_failed",
+                    "controlled runner stage retry process could not be started",
+                    error=str(exc),
+                    exception_type=type(exc).__name__,
+                )
+            ],
+            process_started=False,
+            stage_retry_execution_status="blocked",
+            command_result=None,
+            command_result_checksum=None,
+            stage_retry_output_file=stage_retry_output_file,
+            side_effects=[],
+            selected_stage=None,
+            stage_selection_source=stage_selection_source,
+            retry_attempt=retry_attempt,
+        )
+        emit(payload)
+        return 2
+    completed_at = utc_now()
+
+    command_result = {
+        "argv": argv,
+        "cwd": cwd,
+        "returncode": returncode,
+        "stdout": stdout_text,
+        "stderr": stderr_text,
+        "timed_out": timed_out,
+        "started_at": started_at,
+        "completed_at": completed_at,
+        "shell": False,
+    }
+    command_result_checksum = checksum_json(command_result)
+    side_effects = ["stage_retry_process_started"]
+    post_start_blockers: list[dict[str, Any]] = []
+    if stage_retry_output_file is not None:
+        try:
+            stage_retry_output_file.write_text(stdout_text, encoding="utf-8")
+            side_effects.append("stage_retry_output_written")
+        except OSError as exc:
+            post_start_blockers.append(
+                controlled_loop_runner_stage_retry_execution_blocker(
+                    "controlled_runner_stage_retry_execution_output_write_failed",
+                    "controlled runner stage retry stdout could not be written to the approved retry output file",
+                    path=str(stage_retry_output_file),
+                    error=str(exc),
+                )
+            )
+
+    allowed_side_effects = (
+        boundary_retry_details.get("allowed_side_effects_when_executed")
+        if isinstance(boundary_retry_details.get("allowed_side_effects_when_executed"), list)
+        else []
+    )
+    ownership_binding_expected = controlled_loop_runner_stage_invocation_boundary_ownership_requested(
+        controlled_loop_runner_stage_invocation_boundary_ownership_arguments(
+            boundary_retry_details.get("normalized_arguments")
+            if isinstance(boundary_retry_details.get("normalized_arguments"), dict)
+            else {}
+        )
+    )
+    post_start_blockers.extend(
+        controlled_loop_runner_stage_retry_execution_mapped_blocker(blocker)
+        for blocker in controlled_loop_runner_stage_execution_stdout_blockers(
+            stdout_text=stdout_text,
+            returncode=returncode,
+            allowed_side_effects=allowed_side_effects,
+            ownership_binding_expected=ownership_binding_expected,
+        )
+    )
+
+    if post_start_blockers:
+        stage_retry_execution_status = "blocked"
+    elif timed_out or returncode != 0:
+        stage_retry_execution_status = "failed"
+    else:
+        stage_retry_execution_status = "completed"
+    stage_packet_side_effects: list[Any] = []
+    if stdout_text.strip():
+        try:
+            stdout_packet = json.loads(stdout_text)
+            stage_packet_side_effects = controlled_loop_runner_stage_execution_observed_side_effects(stdout_packet)
+        except json.JSONDecodeError:
+            stage_packet_side_effects = []
+
+    selected_retry_stage = controlled_loop_runner_stage_retry_execution_stage(
+        boundary_selected_stage,
+        status=stage_retry_execution_status,
+        process_started=True,
+        stage_side_effects=stage_packet_side_effects,
+    )
+    payload = controlled_loop_runner_stage_retry_execution_base_payload(
+        args=args,
+        boundary_path=boundary_path,
+        retry_approval_path=retry_approval_path,
+        retry_plan_path=retry_plan_path,
+        outcome_plan_path=outcome_plan_path,
+        closeout_path=closeout_path,
+        execution_path=execution_path,
+        start_path=start_path,
+        runner_plan_path=runner_plan_path,
+        dry_run_path=dry_run_path,
+        continuation_path=continuation_path,
+        input_binding_path=input_binding_path,
+        boundary=boundary if isinstance(boundary, dict) else None,
+        retry_approval=retry_approval if isinstance(retry_approval, dict) else None,
+        retry_plan=retry_plan if isinstance(retry_plan, dict) else None,
+        outcome_plan=outcome_plan if isinstance(outcome_plan, dict) else None,
+        closeout=closeout if isinstance(closeout, dict) else None,
+        execution=execution if isinstance(execution, dict) else None,
+        continuation=continuation if isinstance(continuation, dict) else None,
+        input_binding=input_binding if isinstance(input_binding, dict) else None,
+        retry_approval_checksum=retry_approval_checksum,
+        retry_plan_checksum=retry_plan_checksum,
+        outcome_checksum=outcome_checksum,
+        closeout_checksum=closeout_checksum,
+        execution_checksum=execution_checksum,
+        start_checksum=start_checksum,
+        runner_plan_checksum=runner_plan_checksum,
+        dry_run_checksum=dry_run_checksum,
+        continuation_checksum=continuation_checksum,
+        input_binding_checksum=input_binding_checksum,
+        expected_input_binding_checksum=expected_input_binding_checksum,
+        blockers=post_start_blockers,
+        process_started=True,
+        stage_retry_execution_status=stage_retry_execution_status,
+        command_result=command_result,
+        command_result_checksum=command_result_checksum,
+        stage_retry_output_file=stage_retry_output_file,
+        side_effects=side_effects,
+        selected_stage=selected_retry_stage,
+        stage_selection_source=stage_selection_source,
+        retry_attempt=retry_attempt,
+    )
+    try:
+        audit_record = append_audit_record(
+            args.root,
+            controlled_loop_runner_stage_retry_execution_audit_record(payload),
+        )
+        payload["audit_record"] = audit_record
+        payload["audit_evidence_appended"] = True
+        payload["side_effects"].append("controlled_runner_stage_retry_execution_audit_appended")
+    except Exception as exc:
+        payload["valid"] = False
+        payload["stage_retry_execution_status"] = "blocked"
+        payload.setdefault("blockers", []).append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_audit_append_failed",
+                "controlled runner stage retry execution audit record could not be appended",
+                error=str(exc),
+            )
+        )
+        payload["recommended_next_action"] = "inspect_controlled_runner_stage_retry_execution"
+        payload["next_controlled_action"] = "inspect_controlled_runner_stage_retry_execution"
+        payload["reason"] = "controlled runner stage retry execution blocked because audit record append failed"
+    emit(payload)
+    return 0 if payload["valid"] else 2
 
 
 def controlled_loop_runner_stage_input_binding_blocker(
@@ -30852,6 +32220,54 @@ def build_parser() -> argparse.ArgumentParser:
     runner_stage_retry_boundary_parser.add_argument("--stage-number", type=int, default=1)
     runner_stage_retry_boundary_parser.set_defaults(
         func=controlled_loop_runner_stage_retry_boundary_command,
+        requires_root=False,
+        guards_runtime_root_only=False,
+    )
+
+    runner_stage_retry_execute_parser = subparsers.add_parser(
+        "controlled-loop-runner-stage-retry-execute",
+        help="Execute exactly one approved controlled runner stage retry from a verified retry boundary",
+    )
+    runner_stage_retry_execute_parser.add_argument(
+        "--controlled-loop-runner-stage-retry-boundary-file",
+        required=True,
+    )
+    runner_stage_retry_execute_parser.add_argument("--expected-stage-retry-boundary-checksum", required=True)
+    runner_stage_retry_execute_parser.add_argument(
+        "--controlled-loop-runner-stage-retry-approval-file",
+        required=True,
+    )
+    runner_stage_retry_execute_parser.add_argument(
+        "--controlled-loop-runner-stage-retry-plan-file",
+        required=True,
+    )
+    runner_stage_retry_execute_parser.add_argument(
+        "--controlled-loop-runner-stage-outcome-plan-file",
+        required=True,
+    )
+    runner_stage_retry_execute_parser.add_argument(
+        "--controlled-loop-runner-stage-closeout-file",
+        required=True,
+    )
+    runner_stage_retry_execute_parser.add_argument(
+        "--controlled-loop-runner-stage-execution-file",
+        required=True,
+    )
+    runner_stage_retry_execute_parser.add_argument("--controlled-loop-runner-start-file", required=True)
+    runner_stage_retry_execute_parser.add_argument("--controlled-loop-runner-plan-file", required=True)
+    runner_stage_retry_execute_parser.add_argument("--controlled-loop-runner-dry-run-file", required=True)
+    runner_stage_retry_execute_parser.add_argument("--controlled-loop-runner-next-stage-continuation-file")
+    runner_stage_retry_execute_parser.add_argument("--controlled-loop-runner-stage-input-binding-file")
+    runner_stage_retry_execute_parser.add_argument("--expected-stage-input-binding-checksum")
+    runner_stage_retry_execute_parser.add_argument("--expected-operator-id", required=True)
+    runner_stage_retry_execute_parser.add_argument("--approval-secret")
+    runner_stage_retry_execute_parser.add_argument(
+        "--approval-secret-env",
+        default=OPERATOR_APPROVAL_SECRET_ENV,
+    )
+    runner_stage_retry_execute_parser.add_argument("--stage-number", type=int, default=1)
+    runner_stage_retry_execute_parser.set_defaults(
+        func=controlled_loop_runner_stage_retry_execute_command,
         requires_root=False,
         guards_runtime_root_only=False,
     )

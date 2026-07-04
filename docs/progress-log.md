@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-07-03
+Last updated: 2026-07-04
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,54 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-07-04 - Controlled runner stage retry execution
+
+Summary:
+- Added controlled runner stage retry execution for reviewed retry boundaries.
+- Added `controlled-loop-runner-stage-retry-execute`, emitting
+  `controlled-loop-runner-stage-retry-execution.v1` packets.
+- The command verifies the reviewed retry boundary checksum, exact argv/cwd,
+  retry approval, retry plan, source outcome/closeout/execution, runner
+  start/plan/dry-run chain, and continuation/input-binding evidence when
+  supplied before process start.
+- Valid retry execution starts exactly one approved subprocess with
+  `shell=False`, writes only the approved retry output, captures terminal
+  command evidence, and appends exactly one post-start audit record.
+- Pre-start validation failures and process-start failures emit blocked
+  no-audit retry-execution evidence.
+
+Completed slices:
+- Task 73: controlled runner stage retry execution, one approved retry only.
+
+Confidence change:
+- Previous projected capability: 67%.
+- New projected capability: 68%.
+- Stable headline confidence: remains 25%.
+- Reason: approved retry boundaries can now execute exactly one retry and
+  record terminal evidence/audit, but retry closeout/outcome planning,
+  runner-launched executor invocation, Git/GitHub writes, role scheduling, and
+  unattended orchestration remain future work.
+
+Evidence:
+- Focused retry-execute and adjacent retry-boundary suite: 8 tests passed.
+- Syntax check: `python -m py_compile scripts\cadence.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py scripts\validate_protocol.py` exited 0.
+- Protocol validation: `python scripts\validate_protocol.py` printed `Protocol validation passed.`.
+- Package verification: `python scripts\verify_package.py` printed `Package verification passed.`.
+- Diff whitespace check: `git diff --check` exited 0 with normal Windows LF/CRLF warnings.
+
+New risks or blockers:
+- Retry closeout/outcome planning remains future work; there is still no second
+  retry, next-stage selection after retry, or loop continuation authority.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+- `docs/progress-log.md`
 
 ## 2026-07-03 - Controlled runner stage retry boundary
 

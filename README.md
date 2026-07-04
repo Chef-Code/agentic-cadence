@@ -65,6 +65,7 @@ read-only `controlled-loop-runner-stage-outcome-plan`,
 read-only `controlled-loop-runner-stage-retry-plan`,
 read-only `controlled-loop-runner-stage-retry-approval`,
 read-only `controlled-loop-runner-stage-retry-boundary`,
+controlled `controlled-loop-runner-stage-retry-execute`,
 read-only `controlled-loop-runner-next-stage-continuation`,
 read-only `controlled-loop-runner-stage-input-binding`,
 reusable `verify-operator-approval`,
@@ -1151,8 +1152,41 @@ for continuation retries, continuation and input-binding internal anchors. The
 packet sets `runner_stage_retry_authority` to
 `retry_boundary_prepared_not_started`, `recommended_next_action` to
 `review_controlled_runner_stage_retry_boundary`, and `next_controlled_action`
-to `execute_approved_runner_stage_retry_once`; that next action remains future
-work and is not performed by this command.
+to `execute_approved_runner_stage_retry_once`; the boundary command still does
+not perform that action.
+
+`controlled-loop-runner-stage-retry-execute` consumes a reviewed
+`controlled-loop-runner-stage-retry-boundary.v1` packet and the same retry
+approval, retry plan, source outcome/closeout/execution, runner start, runner
+plan, and dry-run chain. Continuation retry execution also requires the
+matching continuation and stage-input binding evidence plus the reviewed
+stage-input binding checksum. The command requires
+`--expected-stage-retry-boundary-checksum` to match the reviewed boundary
+checksum, reconstructs the exact approved argv/cwd from the saved runner
+evidence, starts exactly one subprocess with `shell=False`, writes retry stdout
+to the approved retry output file, captures terminal command evidence, and
+appends exactly one retry-execution audit record after process start. Pre-start
+validation failures, including an already-existing retry output file, emit a
+blocked retry-execution packet without appending audit evidence.
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-retry-execute --controlled-loop-runner-stage-retry-boundary-file controlled-loop-runner-stage-retry-boundary.json --expected-stage-retry-boundary-checksum sha256:<reviewed-stage-retry-boundary-checksum> --controlled-loop-runner-stage-retry-approval-file controlled-loop-runner-stage-retry-approval.json --controlled-loop-runner-stage-retry-plan-file controlled-loop-runner-stage-retry-plan.json --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 1
+```
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-retry-execute --controlled-loop-runner-stage-retry-boundary-file controlled-loop-runner-stage-retry-boundary.json --expected-stage-retry-boundary-checksum sha256:<reviewed-stage-retry-boundary-checksum> --controlled-loop-runner-stage-retry-approval-file controlled-loop-runner-stage-retry-approval.json --controlled-loop-runner-stage-retry-plan-file controlled-loop-runner-stage-retry-plan.json --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-next-stage-continuation-file controlled-loop-runner-next-stage-continuation.json --controlled-loop-runner-stage-input-binding-file controlled-loop-runner-stage-input-binding.json --expected-stage-input-binding-checksum sha256:<reviewed-stage-input-binding-checksum> --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 2
+```
+
+Valid retry-execution packets emit
+`controlled-loop-runner-stage-retry-execution.v1` with
+`packet: controlled_loop_runner_stage_retry_execution`. They verify the
+reviewed retry boundary checksum and exact argv/cwd before process start,
+capture stdout/stderr/return code/timeout evidence, and record the audit append
+result. The command may start one approved retry subprocess and may write only
+the approved retry output plus the post-start audit record. It does not select
+another stage, start a second retry, continue the runner or loop, invoke any
+additional executor, execute Git/GitHub state changes, merge, release, publish
+packages, assign roles, or schedule agents.
 
 `controlled-loop-runner-completion` consumes the reviewed final-stage
 outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,
@@ -1798,9 +1832,13 @@ a `controlled_loop_runner_stage_retry_planning` target that
 `retry_approval_target`; `controlled-loop-runner-stage-retry-approval` can then
 verify the target-bound operator approval without executing the retry;
 `controlled-loop-runner-stage-retry-boundary` can then prepare the exact
-reviewed retry invocation boundary for attempt `1` without starting it. These
-packets remain read-only and never select the next stage, execute a retry,
-continue the loop, append audit evidence, or write Git/GitHub state.
+reviewed retry invocation boundary for attempt `1` without starting it.
+`controlled-loop-runner-stage-retry-execute` can then consume that reviewed
+boundary, verify the boundary checksum and exact argv/cwd, execute exactly one
+approved retry subprocess, capture terminal evidence, and append one
+retry-execution audit record after process start. The retry plan, approval, and
+boundary packets remain read-only; retry execution still never selects the next
+stage, starts a second retry, continues the loop, or writes Git/GitHub state.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can
