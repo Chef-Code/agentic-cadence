@@ -51,6 +51,9 @@ Summary:
 - Retry outcome planning maps completed retry closeout to next-stage selection
   or runner completion targets, maps failed/blocked retry closeout to
   inspection targets, and emits no second retry planning target.
+- Review hardening added terminal retry-started flag checks, command-result
+  timestamp validation, retry output anchor validation, closeout/execution
+  consistency checks, and forbidden-authority flag coverage.
 
 Completed slices:
 - Task 74: controlled runner retry closeout and outcome planning, read-only
@@ -66,7 +69,7 @@ Confidence change:
   orchestration remain future work.
 
 Evidence:
-- Focused retry closeout/outcome suite plus retry audit replay guard: 7 tests
+- Focused retry closeout/outcome suite plus review-hardening regressions: 12 tests
   passed.
 - Syntax check: `python -B -m py_compile scripts\cadence.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py scripts\validate_protocol.py` exited 0.
 - Protocol validation: `python scripts\validate_protocol.py` printed `Protocol validation passed.`.

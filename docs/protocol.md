@@ -3342,6 +3342,7 @@ Stable blockers include
 `controlled_runner_stage_retry_closeout_command_result_boundary_mismatch`,
 `controlled_runner_stage_retry_closeout_command_result_invalid`,
 `controlled_runner_stage_retry_closeout_command_result_status_mismatch`,
+`controlled_runner_stage_retry_closeout_stage_retry_output_file_mismatch`,
 and mapped retry/source/runner anchor or retry output blockers under the
 `controlled_runner_stage_retry_closeout_*` prefix.
 
@@ -3410,6 +3411,10 @@ Stable blockers include
 `controlled_runner_stage_retry_outcome_plan_closeout_not_closed_out`,
 `controlled_runner_stage_retry_outcome_plan_closeout_forbidden_flags`,
 `controlled_runner_stage_retry_outcome_plan_closeout_selected_stage_mismatch`,
+`controlled_runner_stage_retry_outcome_plan_closeout_execution_status_mismatch`,
+`controlled_runner_stage_retry_outcome_plan_closeout_status_execution_mismatch`,
+`controlled_runner_stage_retry_outcome_plan_closeout_command_result_mismatch`,
+`controlled_runner_stage_retry_outcome_plan_closeout_command_result_checksum_mismatch`,
 and mapped retry/source/runner anchor blockers under the
 `controlled_runner_stage_retry_outcome_plan_*` prefix.
 

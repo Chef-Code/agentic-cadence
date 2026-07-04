@@ -20518,6 +20518,190 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
+    def test_controlled_loop_runner_stage_retry_closeout_blocks_unstarted_retry_execution_flags(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_closeout_chain(tmp, repo)
+            retry_execution = json.loads(
+                chain["controlled_loop_runner_stage_retry_execution_path"].read_text(encoding="utf-8")
+            )
+            retry_execution["process_started"] = False
+            retry_execution["stage_retry_started"] = False
+            retry_execution["retry_execution_started"] = False
+            chain["controlled_loop_runner_stage_retry_execution_path"].write_text(
+                json.dumps(retry_execution),
+                encoding="utf-8",
+            )
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_closeout_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_stage_retry_closeout_execution_not_terminal",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assert_controlled_loop_runner_stage_retry_closeout_no_side_effects(output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_closeout_blocks_missing_command_result_timestamps(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_closeout_chain(tmp, repo)
+            retry_execution = json.loads(
+                chain["controlled_loop_runner_stage_retry_execution_path"].read_text(encoding="utf-8")
+            )
+            retry_execution["command_result"].pop("started_at")
+            retry_execution["command_result_checksum"] = checksum_json(retry_execution["command_result"])
+            chain["controlled_loop_runner_stage_retry_execution_path"].write_text(
+                json.dumps(retry_execution),
+                encoding="utf-8",
+            )
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_closeout_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_stage_retry_closeout_command_result_invalid",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assert_controlled_loop_runner_stage_retry_closeout_no_side_effects(output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_closeout_blocks_stale_retry_output_file_anchors(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_closeout_chain(tmp, repo)
+            retry_execution = json.loads(
+                chain["controlled_loop_runner_stage_retry_execution_path"].read_text(encoding="utf-8")
+            )
+            stale_output = str(Path(tmp) / "stale-retry-output.json")
+            retry_execution["stage_retry_output_file"] = stale_output
+            retry_execution["files"]["stage_retry_output"] = stale_output
+            chain["controlled_loop_runner_stage_retry_execution_path"].write_text(
+                json.dumps(retry_execution),
+                encoding="utf-8",
+            )
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_closeout_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_stage_retry_closeout_stage_retry_output_file_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assert_controlled_loop_runner_stage_retry_closeout_no_side_effects(output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_outcome_plan_blocks_stale_closeout_checksum(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_closeout_chain(tmp, repo)
+            code, closeout, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_closeout_in_process(tmp, chain)
+            )
+            self.assertEqual(code, 0, closeout.get("blockers"))
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+            closeout_path = Path(tmp) / "controlled-loop-runner-stage-retry-closeout.json"
+            closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+            chain["controlled_loop_runner_stage_retry_closeout_path"] = closeout_path
+            chain["controlled_loop_runner_stage_retry_closeout"] = closeout
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_outcome_plan_in_process(
+                    tmp,
+                    chain,
+                    expected_stage_retry_closeout_checksum="sha256:" + "0" * 64,
+                )
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_stage_retry_outcome_plan_closeout_checksum_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assert_controlled_loop_runner_stage_retry_closeout_no_side_effects(output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_outcome_plan_blocks_forged_closeout_flags(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_closeout_chain(tmp, repo)
+            code, closeout, _audit_before, _runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_closeout_in_process(tmp, chain)
+            )
+            self.assertEqual(code, 0, closeout.get("blockers"))
+            closeout["runner_started"] = True
+            closeout_path = Path(tmp) / "controlled-loop-runner-stage-retry-closeout.json"
+            closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+            chain["controlled_loop_runner_stage_retry_closeout_path"] = closeout_path
+            chain["controlled_loop_runner_stage_retry_closeout"] = closeout
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_outcome_plan_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_stage_retry_outcome_plan_closeout_forbidden_flags",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assert_controlled_loop_runner_stage_retry_closeout_no_side_effects(output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_outcome_plan_blocks_closeout_status_execution_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_closeout_chain(
+                tmp,
+                repo,
+                retry_returncode=7,
+                retry_stdout_text="",
+                retry_stderr_text="failed",
+            )
+            code, closeout, _audit_before, _runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_closeout_in_process(tmp, chain)
+            )
+            self.assertEqual(code, 0, closeout.get("blockers"))
+            self.assertEqual(closeout["stage_retry_closeout_status"], "failed")
+            closeout["stage_retry_closeout_status"] = "completed"
+            closeout["selected_stage"]["stage_status"] = "retry_closed_out_completed"
+            closeout["selected_stage"]["stage_retry_closeout_status"] = "completed"
+            closeout_path = Path(tmp) / "controlled-loop-runner-stage-retry-closeout.json"
+            closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
+            chain["controlled_loop_runner_stage_retry_closeout_path"] = closeout_path
+            chain["controlled_loop_runner_stage_retry_closeout"] = closeout
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_outcome_plan_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_stage_retry_outcome_plan_closeout_status_execution_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assert_controlled_loop_runner_stage_retry_closeout_no_side_effects(output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
     def test_controlled_loop_runner_stage_outcome_plan_blocks_continuation_input_binding_checksum_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
