@@ -115,11 +115,12 @@ continuation stage and plan controlled runner completion or inspection without
 selecting another stage, then emit read-only controlled runner completion
 evidence from the final-stage outcome target, and plan a read-only retry
 approval target for failed or blocked stage outcomes. It still cannot execute
-more than one approved runner stage, invoke an executor from the runner, execute
-a retry, or independently implement code outside approved command evidence,
-autonomously push branches, autonomously open pull requests, assign agent
-roles, launch fresh sessions, coordinate an agent pool, merge, release, publish
-packages, or continue in an unattended loop.
+more than one approved runner stage, invoke an executor from the runner, start
+a second retry, close out or continue after a retry, or independently implement
+code outside approved command evidence, autonomously push branches,
+autonomously open pull requests, assign agent roles, launch fresh sessions,
+coordinate an agent pool, merge, release, publish packages, or continue in an
+unattended loop.
 
 Current confidence for unattended continuous operation is 25% as a stable
 headline; the progress log records Task 73 projected capability at 68%.

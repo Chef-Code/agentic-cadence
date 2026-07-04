@@ -3172,15 +3172,20 @@ operator-approval signature and operator identity, requires the reviewed
 argv/cwd from the saved runner plan and boundary packet, and rejects drift
 before process start. The approved retry output file must not already exist at
 pre-start validation time, which prevents replaying the same boundary as a
-second retry.
+second retry. The command also replays the local audit log before process start
+and blocks when a prior `controlled_runner_stage_retry_execution` audit record
+already records the same reviewed `stage_retry_boundary_checksum`, stage
+number, selection source, and retry attempt; the audit log is the durable
+single-retry marker even if the retry output file or mutable wrapper packet is
+later removed or rewritten.
 
 When all pre-start checks pass, retry execution starts exactly one subprocess
 with `shell: false`, the reviewed argv, and the reviewed cwd. It writes stdout
 to the approved retry output path, captures stdout, stderr, return code,
 timeout status, start/completion timestamps, argv, cwd, and shell mode in
-`command_result`, records `command_result_checksum`, and appends exactly one
-retry-execution audit record after the process has started. If a pre-start
-validation fails, the command emits a blocked
+`command_result`, records `command_result_checksum`, writes retry stdout with
+exclusive file creation, and appends exactly one replay-valid retry-execution
+audit record after the process has started. If a pre-start validation fails, the command emits a blocked
 `controlled-loop-runner-stage-retry-execution.v1` packet with
 `process_started: false`, `retry_execution_started: false`,
 `audit_evidence_appended: false`, and no audit append. If process start fails,
@@ -3229,12 +3234,23 @@ Stable blockers include
 `controlled_runner_stage_retry_execution_cwd_invalid`,
 `controlled_runner_stage_retry_execution_output_file_invalid`,
 `controlled_runner_stage_retry_execution_output_file_already_exists`,
+`controlled_runner_stage_retry_execution_already_recorded`,
+`controlled_runner_stage_retry_execution_audit_history_invalid`,
+`controlled_runner_stage_retry_execution_audit_history_unreadable`,
 `controlled_runner_stage_retry_execution_output_file_mismatch`,
 `controlled_runner_stage_retry_execution_output_file_overwrites_input_evidence`,
 `controlled_runner_stage_retry_execution_output_file_overwrites_source`,
 `controlled_runner_stage_retry_execution_timeout_invalid`,
 `controlled_runner_stage_retry_execution_unapproved_command`,
 `controlled_runner_stage_retry_execution_argv_invalid`,
+`controlled_runner_stage_retry_execution_retry_plan_packet_mismatch`,
+`controlled_runner_stage_retry_execution_retry_plan_not_planned`,
+`controlled_runner_stage_retry_execution_retry_plan_limitations_invalid`,
+`controlled_runner_stage_retry_execution_retry_plan_authority_flags_invalid`,
+`controlled_runner_stage_retry_execution_approval_packet_mismatch`,
+`controlled_runner_stage_retry_execution_approval_not_completed`,
+`controlled_runner_stage_retry_execution_approval_limitations_invalid`,
+`controlled_runner_stage_retry_execution_approval_target_checksum_mismatch`,
 `controlled_runner_stage_retry_execution_process_start_failed`,
 `controlled_runner_stage_retry_execution_output_write_failed`,
 `controlled_runner_stage_retry_execution_audit_append_failed`, mapped

@@ -962,6 +962,98 @@ def validate_controlled_runner_stage_execution_audit_record(record: dict[str, An
     return blockers
 
 
+def validate_controlled_runner_stage_retry_execution_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
+    """Validate controlled runner stage-retry-execution audit fields."""
+    blockers: list[dict[str, Any]] = []
+    for field in (
+        "action",
+        "reason",
+        "stage_selection_source",
+        "stage_retry_execution_status",
+        "stage_retry_output_file",
+    ):
+        blockers.extend(required_string(record, field, line))
+    blockers.extend(required_bool(record, "valid", line))
+    blockers.extend(required_bool(record, "timed_out", line))
+    for field in (
+        "payload_checksum",
+        "boundary_checksum",
+        "stage_retry_boundary_checksum",
+        "approval_checksum",
+        "retry_plan_checksum",
+        "source_stage_execution_checksum",
+        "command_result_checksum",
+    ):
+        blockers.extend(required_checksum_present(record, field, line))
+    if (
+        not isinstance(record.get("stage_number"), int)
+        or isinstance(record.get("stage_number"), bool)
+        or record.get("stage_number") < 1
+    ):
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_runner_stage_retry_execution_stage_number_invalid",
+                "controlled_runner_stage_retry_execution stage_number must be a positive integer",
+                line,
+            )
+        )
+    if record.get("retry_attempt") != 1:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_runner_stage_retry_execution_retry_attempt_invalid",
+                "controlled_runner_stage_retry_execution retry_attempt must be 1",
+                line,
+            )
+        )
+    if record.get("action") != "record_controlled_runner_stage_retry_execution":
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_runner_stage_retry_execution_action_invalid",
+                "controlled_runner_stage_retry_execution action must be record_controlled_runner_stage_retry_execution",
+                line,
+            )
+        )
+    if record.get("stage_selection_source") not in {"initial", "continuation"}:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_runner_stage_retry_execution_selection_source_invalid",
+                "controlled_runner_stage_retry_execution stage_selection_source must be initial or continuation",
+                line,
+            )
+        )
+    if record.get("stage_retry_execution_status") not in {"completed", "failed", "blocked"}:
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_runner_stage_retry_execution_status_invalid",
+                "controlled_runner_stage_retry_execution status must be completed, failed, or blocked",
+                line,
+            )
+        )
+    returncode = record.get("returncode")
+    if record.get("timed_out") is True:
+        if "returncode" in record and returncode is not None:
+            blockers.append(
+                audit_replay_blocker(
+                    "audit_controlled_runner_stage_retry_execution_returncode_invalid",
+                    "controlled_runner_stage_retry_execution returncode must be absent or null when timed_out is true",
+                    line,
+                )
+            )
+    elif (
+        "returncode" not in record
+        or not isinstance(returncode, int)
+        or isinstance(returncode, bool)
+    ):
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_runner_stage_retry_execution_returncode_invalid",
+                "controlled_runner_stage_retry_execution returncode must be an integer",
+                line,
+            )
+        )
+    return blockers
+
+
 def validate_controlled_pr_cycle_audit_record(record: dict[str, Any], line: int) -> list[dict[str, Any]]:
     """Validate controlled PR-cycle composition audit fields."""
     blockers: list[dict[str, Any]] = []
@@ -1258,6 +1350,8 @@ def validate_audit_record(record: Any, line: int) -> tuple[str | None, list[dict
         blockers.extend(validate_controlled_loop_runner_start_audit_record(record, line))
     elif event == "controlled_runner_stage_execution":
         blockers.extend(validate_controlled_runner_stage_execution_audit_record(record, line))
+    elif event == "controlled_runner_stage_retry_execution":
+        blockers.extend(validate_controlled_runner_stage_retry_execution_audit_record(record, line))
     elif event == "controlled_pr_cycle":
         blockers.extend(validate_controlled_pr_cycle_audit_record(record, line))
     elif event == "work_ownership_mutation":
