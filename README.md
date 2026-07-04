@@ -66,6 +66,8 @@ read-only `controlled-loop-runner-stage-retry-plan`,
 read-only `controlled-loop-runner-stage-retry-approval`,
 read-only `controlled-loop-runner-stage-retry-boundary`,
 controlled `controlled-loop-runner-stage-retry-execute`,
+read-only `controlled-loop-runner-stage-retry-closeout`,
+read-only `controlled-loop-runner-stage-retry-outcome-plan`,
 read-only `controlled-loop-runner-next-stage-continuation`,
 read-only `controlled-loop-runner-stage-input-binding`,
 reusable `verify-operator-approval`,
@@ -1192,6 +1194,56 @@ the approved retry output plus the post-start audit record. It does not select
 another stage, start a second retry, continue the runner or loop, invoke any
 additional executor, execute Git/GitHub state changes, merge, release, publish
 packages, assign roles, or schedule agents.
+
+`controlled-loop-runner-stage-retry-closeout` consumes saved
+`controlled-loop-runner-stage-retry-execution.v1` evidence plus the reviewed
+retry boundary, approval, retry plan, source outcome/closeout/execution,
+runner-start, runner-plan, and dry-run chain. Continuation retry closeout also
+requires the matching continuation and stage-input binding evidence plus the
+reviewed stage-input binding checksum. The command rechecks the observed retry
+execution, command-result checksum, exact argv/cwd, terminal status, output
+evidence, and upstream file/checksum anchors, then classifies the retry as
+completed, failed, or blocked. It is read-only closeout evidence: it does not
+append audit evidence, start a process, execute another retry, select another
+stage, continue the runner or loop, invoke an executor, or write Git/GitHub
+state.
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-retry-closeout --controlled-loop-runner-stage-retry-execution-file controlled-loop-runner-stage-retry-execution.json --controlled-loop-runner-stage-retry-boundary-file controlled-loop-runner-stage-retry-boundary.json --controlled-loop-runner-stage-retry-approval-file controlled-loop-runner-stage-retry-approval.json --controlled-loop-runner-stage-retry-plan-file controlled-loop-runner-stage-retry-plan.json --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 1
+```
+
+Valid retry-closeout packets emit
+`controlled-loop-runner-stage-retry-closeout.v1` with
+`packet: controlled_loop_runner_stage_retry_closeout`, `read_only: true`,
+`runner_stage_retry_authority: stage_retry_closeout_only`,
+`stage_retry_closeout_status`, the observed `command_result`, retry output
+evidence, and checksums for the consumed retry/source/runner chain. The packet
+sets `recommended_next_action` and `next_controlled_action` to
+`plan_controlled_runner_stage_retry_outcome`.
+
+`controlled-loop-runner-stage-retry-outcome-plan` consumes that reviewed retry
+closeout packet plus the same retry/source/runner evidence chain and requires
+`--expected-stage-retry-closeout-checksum` to match the reviewed retry closeout.
+It maps the retry closeout status to the next bounded operator target only:
+completed non-final retries produce `select_next_stage_after_retry`, completed
+final retries produce `complete_runner_after_retry`, failed retries produce
+`inspect_stage_retry_failure`, and blocked retries produce
+`inspect_stage_retry_blocked`. Failed and blocked retry outcomes explicitly
+emit no second retry planning target.
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-retry-outcome-plan --controlled-loop-runner-stage-retry-closeout-file controlled-loop-runner-stage-retry-closeout.json --expected-stage-retry-closeout-checksum sha256:<reviewed-stage-retry-closeout-checksum> --controlled-loop-runner-stage-retry-execution-file controlled-loop-runner-stage-retry-execution.json --controlled-loop-runner-stage-retry-boundary-file controlled-loop-runner-stage-retry-boundary.json --controlled-loop-runner-stage-retry-approval-file controlled-loop-runner-stage-retry-approval.json --controlled-loop-runner-stage-retry-plan-file controlled-loop-runner-stage-retry-plan.json --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 1
+```
+
+Valid retry-outcome-plan packets emit
+`controlled-loop-runner-stage-retry-outcome-plan.v1` with
+`packet: controlled_loop_runner_stage_retry_outcome_plan`, `read_only: true`,
+`stage_retry_outcome_decision`, `retry_outcome_target`,
+`retry_outcome_target_checksum`, and `second_retry_planning_target: null`.
+The packet does not select the next stage, execute a second retry, continue the
+runner or loop, append audit evidence, start a process, invoke an executor,
+write Git/GitHub state, merge, release, publish packages, assign roles, or
+schedule agents.
 
 `controlled-loop-runner-completion` consumes the reviewed final-stage
 outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,
