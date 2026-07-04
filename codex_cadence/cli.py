@@ -18249,6 +18249,7 @@ def controlled_loop_runner_stage_retry_execution_boundary_blockers(
     plan_stage: dict[str, Any] | None,
     command_context: dict[str, Any] | None,
     root: Path,
+    allow_repo_local_root: bool,
     stage_number: int,
     stage_selection_source: str,
 ) -> list[dict[str, Any]]:
@@ -18466,6 +18467,15 @@ def controlled_loop_runner_stage_retry_execution_boundary_blockers(
                 "controlled_runner_stage_retry_execution_cwd_invalid",
                 "controlled runner stage retry execution requires a fixed existing absolute cwd",
                 actual=policy,
+            )
+        )
+    elif not allow_repo_local_root and path_is_relative_to(root, stage_cwd):
+        blockers.append(
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_runtime_root_unsafe",
+                "controlled runner stage retry execution runtime root must not be inside the stage cwd unless explicitly allowed",
+                root=str(root),
+                stage_cwd=str(stage_cwd),
             )
         )
 
@@ -19031,6 +19041,45 @@ def controlled_loop_runner_stage_retry_execution_retry_approval_blockers(
     return blockers
 
 
+def controlled_loop_runner_stage_retry_execution_reservation_path(
+    root: Path,
+    *,
+    stage_retry_boundary_checksum: str,
+    stage_number: int,
+    stage_selection_source: str,
+    retry_attempt: int,
+) -> Path:
+    reservation_identity = {
+        "stage_retry_boundary_checksum": stage_retry_boundary_checksum,
+        "stage_number": stage_number,
+        "stage_selection_source": stage_selection_source,
+        "retry_attempt": retry_attempt,
+    }
+    digest = hashlib.sha256(
+        json.dumps(reservation_identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return root / "stage-retry-execution-reservations" / f"{digest}.json"
+
+
+def controlled_loop_runner_stage_retry_execution_reservation_blocker(
+    *,
+    reservation_path: Path,
+    stage_retry_boundary_checksum: str,
+    stage_number: int,
+    stage_selection_source: str,
+    retry_attempt: int,
+) -> dict[str, Any]:
+    return controlled_loop_runner_stage_retry_execution_blocker(
+        "controlled_runner_stage_retry_execution_reservation_already_exists",
+        "controlled runner stage retry execution reservation already records this reviewed retry boundary",
+        reservation_file=str(reservation_path),
+        stage_retry_boundary_checksum=stage_retry_boundary_checksum,
+        stage_number=stage_number,
+        stage_selection_source=stage_selection_source,
+        retry_attempt=retry_attempt,
+    )
+
+
 def controlled_loop_runner_stage_retry_execution_existing_audit_blockers(
     *,
     root: Path,
@@ -19049,40 +19098,57 @@ def controlled_loop_runner_stage_retry_execution_existing_audit_blockers(
             )
         ]
     target = audit_events_path(root).expanduser().resolve(strict=False)
-    if not target.exists():
-        return []
     boundary_checksum = checksum_json(boundary)
     stage_retry_boundary_checksum = boundary.get("stage_retry_boundary_checksum")
     try:
-        with target.open("r", encoding="utf-8") as handle:
-            for line_number, line in enumerate(handle, start=1):
-                text = line.strip()
-                if not text:
-                    continue
-                try:
-                    record = json.loads(text)
-                except json.JSONDecodeError:
-                    continue
-                if (
-                    isinstance(record, dict)
-                    and record.get("event") == "controlled_runner_stage_retry_execution"
-                    and record.get("stage_number") == stage_number
-                    and record.get("stage_selection_source") == stage_selection_source
-                    and record.get("retry_attempt") == retry_attempt
-                    and isinstance(stage_retry_boundary_checksum, str)
-                    and record.get("stage_retry_boundary_checksum") == stage_retry_boundary_checksum
-                ):
-                    return [
-                        controlled_loop_runner_stage_retry_execution_blocker(
-                            "controlled_runner_stage_retry_execution_already_recorded",
-                            "controlled runner stage retry execution audit already records this reviewed retry boundary",
-                            audit_line=line_number,
-                            boundary_checksum=boundary_checksum,
-                            recorded_boundary_checksum=record.get("boundary_checksum"),
-                            stage_retry_boundary_checksum=stage_retry_boundary_checksum,
-                            retry_attempt=retry_attempt,
-                        )
-                    ]
+        if target.exists():
+            with target.open("r", encoding="utf-8") as handle:
+                for line_number, line in enumerate(handle, start=1):
+                    text = line.strip()
+                    if not text:
+                        continue
+                    try:
+                        record = json.loads(text)
+                    except json.JSONDecodeError:
+                        continue
+                    if (
+                        isinstance(record, dict)
+                        and record.get("event") == "controlled_runner_stage_retry_execution"
+                        and record.get("stage_number") == stage_number
+                        and record.get("stage_selection_source") == stage_selection_source
+                        and record.get("retry_attempt") == retry_attempt
+                        and isinstance(stage_retry_boundary_checksum, str)
+                        and record.get("stage_retry_boundary_checksum") == stage_retry_boundary_checksum
+                    ):
+                        return [
+                            controlled_loop_runner_stage_retry_execution_blocker(
+                                "controlled_runner_stage_retry_execution_already_recorded",
+                                "controlled runner stage retry execution audit already records this reviewed retry boundary",
+                                audit_line=line_number,
+                                boundary_checksum=boundary_checksum,
+                                recorded_boundary_checksum=record.get("boundary_checksum"),
+                                stage_retry_boundary_checksum=stage_retry_boundary_checksum,
+                                retry_attempt=retry_attempt,
+                            )
+                        ]
+        if isinstance(stage_retry_boundary_checksum, str):
+            reservation_path = controlled_loop_runner_stage_retry_execution_reservation_path(
+                root,
+                stage_retry_boundary_checksum=stage_retry_boundary_checksum,
+                stage_number=stage_number,
+                stage_selection_source=stage_selection_source,
+                retry_attempt=retry_attempt if isinstance(retry_attempt, int) and not isinstance(retry_attempt, bool) else -1,
+            )
+            if reservation_path.exists():
+                return [
+                    controlled_loop_runner_stage_retry_execution_reservation_blocker(
+                        reservation_path=reservation_path,
+                        stage_retry_boundary_checksum=stage_retry_boundary_checksum,
+                        stage_number=stage_number,
+                        stage_selection_source=stage_selection_source,
+                        retry_attempt=retry_attempt,
+                    )
+                ]
     except OSError as exc:
         return [
             controlled_loop_runner_stage_retry_execution_blocker(
@@ -19092,6 +19158,93 @@ def controlled_loop_runner_stage_retry_execution_existing_audit_blockers(
             )
         ]
     return []
+
+
+def controlled_loop_runner_stage_retry_execution_acquire_reservation(
+    *,
+    root: Path,
+    boundary: dict[str, Any],
+    stage_number: int,
+    stage_selection_source: str,
+    retry_attempt: int,
+) -> tuple[Path | None, list[dict[str, Any]]]:
+    stage_retry_boundary_checksum = boundary.get("stage_retry_boundary_checksum")
+    if not isinstance(stage_retry_boundary_checksum, str):
+        return None, [
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_reservation_checksum_missing",
+                "controlled runner stage retry execution cannot reserve a missing reviewed boundary checksum",
+                actual=stage_retry_boundary_checksum,
+            )
+        ]
+    if not isinstance(retry_attempt, int) or isinstance(retry_attempt, bool):
+        return None, [
+            controlled_loop_runner_stage_retry_execution_blocker(
+                "controlled_runner_stage_retry_execution_reservation_retry_attempt_invalid",
+                "controlled runner stage retry execution cannot reserve an invalid retry attempt",
+                actual=retry_attempt,
+            )
+        ]
+    reservation_path = controlled_loop_runner_stage_retry_execution_reservation_path(
+        root,
+        stage_retry_boundary_checksum=stage_retry_boundary_checksum,
+        stage_number=stage_number,
+        stage_selection_source=stage_selection_source,
+        retry_attempt=retry_attempt,
+    )
+    with exclusive_lock(lock_path(root, "stage-retry-execution-reservation")):
+        blockers = controlled_loop_runner_stage_retry_execution_existing_audit_blockers(
+            root=root,
+            boundary=boundary,
+            stage_number=stage_number,
+            stage_selection_source=stage_selection_source,
+            retry_attempt=retry_attempt,
+        )
+        if blockers:
+            return None, blockers
+        reservation_path.parent.mkdir(parents=True, exist_ok=True)
+        reservation = {
+            "schema_version": "controlled-loop-runner-stage-retry-execution-reservation.v1",
+            "packet": "controlled_loop_runner_stage_retry_execution_reservation",
+            "reserved_at": utc_now(),
+            "stage_retry_boundary_checksum": stage_retry_boundary_checksum,
+            "stage_number": stage_number,
+            "stage_selection_source": stage_selection_source,
+            "retry_attempt": retry_attempt,
+            "boundary_checksum": checksum_json(boundary),
+        }
+        try:
+            with reservation_path.open("x", encoding="utf-8", newline="\n") as handle:
+                handle.write(json.dumps(reservation, sort_keys=True, separators=(",", ":")) + "\n")
+        except FileExistsError:
+            return None, [
+                controlled_loop_runner_stage_retry_execution_reservation_blocker(
+                    reservation_path=reservation_path,
+                    stage_retry_boundary_checksum=stage_retry_boundary_checksum,
+                    stage_number=stage_number,
+                    stage_selection_source=stage_selection_source,
+                    retry_attempt=retry_attempt,
+                )
+            ]
+        except OSError as exc:
+            return None, [
+                controlled_loop_runner_stage_retry_execution_blocker(
+                    "controlled_runner_stage_retry_execution_reservation_create_failed",
+                    "controlled runner stage retry execution could not reserve the reviewed retry boundary before start",
+                    reservation_file=str(reservation_path),
+                    error=str(exc),
+                )
+            ]
+    return reservation_path, []
+
+
+def controlled_loop_runner_stage_retry_execution_release_reservation(reservation_path: Path | None) -> None:
+    if reservation_path is None:
+        return
+    try:
+        reservation_path.unlink()
+    except FileNotFoundError:
+        return
 
 
 def controlled_loop_runner_stage_retry_execute_command(args: argparse.Namespace) -> int:
@@ -19426,6 +19579,7 @@ def controlled_loop_runner_stage_retry_execute_command(args: argparse.Namespace)
                 plan_stage=plan_stage,
                 command_context=command_context,
                 root=root,
+                allow_repo_local_root=bool(args.allow_repo_local_root),
                 stage_number=stage_number,
                 stage_selection_source=stage_selection_source,
             )
@@ -19501,6 +19655,60 @@ def controlled_loop_runner_stage_retry_execute_command(args: argparse.Namespace)
         emit(payload)
         return 2
 
+    reservation_path, reservation_blockers = controlled_loop_runner_stage_retry_execution_acquire_reservation(
+        root=root,
+        boundary=boundary,
+        stage_number=stage_number,
+        stage_selection_source=stage_selection_source,
+        retry_attempt=retry_attempt,
+    )
+    if reservation_blockers:
+        payload = controlled_loop_runner_stage_retry_execution_base_payload(
+            args=args,
+            boundary_path=boundary_path,
+            retry_approval_path=retry_approval_path,
+            retry_plan_path=retry_plan_path,
+            outcome_plan_path=outcome_plan_path,
+            closeout_path=closeout_path,
+            execution_path=execution_path,
+            start_path=start_path,
+            runner_plan_path=runner_plan_path,
+            dry_run_path=dry_run_path,
+            continuation_path=continuation_path,
+            input_binding_path=input_binding_path,
+            boundary=boundary if isinstance(boundary, dict) else None,
+            retry_approval=retry_approval if isinstance(retry_approval, dict) else None,
+            retry_plan=retry_plan if isinstance(retry_plan, dict) else None,
+            outcome_plan=outcome_plan if isinstance(outcome_plan, dict) else None,
+            closeout=closeout if isinstance(closeout, dict) else None,
+            execution=execution if isinstance(execution, dict) else None,
+            continuation=continuation if isinstance(continuation, dict) else None,
+            input_binding=input_binding if isinstance(input_binding, dict) else None,
+            retry_approval_checksum=retry_approval_checksum,
+            retry_plan_checksum=retry_plan_checksum,
+            outcome_checksum=outcome_checksum,
+            closeout_checksum=closeout_checksum,
+            execution_checksum=execution_checksum,
+            start_checksum=start_checksum,
+            runner_plan_checksum=runner_plan_checksum,
+            dry_run_checksum=dry_run_checksum,
+            continuation_checksum=continuation_checksum,
+            input_binding_checksum=input_binding_checksum,
+            expected_input_binding_checksum=expected_input_binding_checksum,
+            blockers=reservation_blockers,
+            process_started=False,
+            stage_retry_execution_status="blocked",
+            command_result=None,
+            command_result_checksum=None,
+            stage_retry_output_file=stage_retry_output_file,
+            side_effects=[],
+            selected_stage=None,
+            stage_selection_source=stage_selection_source,
+            retry_attempt=retry_attempt,
+        )
+        emit(payload)
+        return 2
+
     argv = boundary_retry_details["argv"]
     cwd = boundary_retry_details["working_directory_policy"]["cwd"]
     timeout_seconds = boundary_retry_details["timeout_policy"]["timeout_seconds"]
@@ -19526,6 +19734,7 @@ def controlled_loop_runner_stage_retry_execute_command(args: argparse.Namespace)
         stderr_text = controlled_loop_runner_stage_execution_text(exc.stderr)
         returncode = None
     except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        controlled_loop_runner_stage_retry_execution_release_reservation(reservation_path)
         payload = controlled_loop_runner_stage_retry_execution_base_payload(
             args=args,
             boundary_path=boundary_path,

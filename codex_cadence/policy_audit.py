@@ -1029,6 +1029,20 @@ def validate_controlled_runner_stage_retry_execution_audit_record(record: dict[s
                 line,
             )
         )
+    elif (
+        record.get("stage_retry_execution_status") == "blocked"
+        and record.get("valid") is not False
+    ) or (
+        record.get("stage_retry_execution_status") in {"completed", "failed"}
+        and record.get("valid") is not True
+    ):
+        blockers.append(
+            audit_replay_blocker(
+                "audit_controlled_runner_stage_retry_execution_valid_status_mismatch",
+                "controlled_runner_stage_retry_execution valid must match stage_retry_execution_status",
+                line,
+            )
+        )
     returncode = record.get("returncode")
     if record.get("timed_out") is True:
         if "returncode" in record and returncode is not None:

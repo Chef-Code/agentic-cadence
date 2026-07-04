@@ -49,9 +49,10 @@ Summary:
 - Pre-start validation failures and process-start failures emit blocked
   no-audit retry-execution evidence.
 - Review hardening added replay-valid retry-execution audit records, audit-log
-  replay prevention for already-recorded stage-retry-boundary checksums,
-  broader retry plan/approval/continuation wrapper revalidation, and exclusive
-  retry-output creation.
+  replay prevention and atomic pre-start reservations for already-recorded
+  stage-retry-boundary checksums, broader retry plan/approval/continuation
+  wrapper revalidation, retry repo-local runtime-root rejection, audit
+  valid/status consistency checks, and exclusive retry-output creation.
 
 Completed slices:
 - Task 73: controlled runner stage retry execution, one approved retry only.
@@ -66,7 +67,7 @@ Confidence change:
   unattended orchestration remain future work.
 
 Evidence:
-- Focused retry-execute and adjacent retry-boundary suite: 12 tests passed.
+- Focused retry-execute and adjacent retry-boundary suite: 16 tests passed.
 - Syntax check: `python -m py_compile scripts\cadence.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py scripts\validate_protocol.py` exited 0.
 - Protocol validation: `python scripts\validate_protocol.py` printed `Protocol validation passed.`.
 - Package verification: `python scripts\verify_package.py` printed `Package verification passed.`.

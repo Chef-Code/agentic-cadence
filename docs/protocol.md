@@ -3172,10 +3172,16 @@ operator-approval signature and operator identity, requires the reviewed
 argv/cwd from the saved runner plan and boundary packet, and rejects drift
 before process start. The approved retry output file must not already exist at
 pre-start validation time, which prevents replaying the same boundary as a
-second retry. The command also replays the local audit log before process start
-and blocks when a prior `controlled_runner_stage_retry_execution` audit record
-already records the same reviewed `stage_retry_boundary_checksum`, stage
-number, selection source, and retry attempt; the audit log is the durable
+second retry. The retry runtime root must not sit inside the reviewed stage cwd
+unless `--allow-repo-local-root` was explicitly provided. The command also
+replays the local audit log before process start and blocks when a prior
+`controlled_runner_stage_retry_execution` audit record already records the same
+reviewed `stage_retry_boundary_checksum`, stage number, selection source, and
+retry attempt. After all pre-start checks pass, it atomically creates a durable
+reservation under `stage-retry-execution-reservations/` for that reviewed
+boundary before `subprocess.run`; an existing reservation blocks with
+`controlled_runner_stage_retry_execution_reservation_already_exists`. Together,
+the audit log and reservation form the durable
 single-retry marker even if the retry output file or mutable wrapper packet is
 later removed or rewritten.
 
@@ -3190,7 +3196,7 @@ audit record after the process has started. If a pre-start validation fails, the
 `process_started: false`, `retry_execution_started: false`,
 `audit_evidence_appended: false`, and no audit append. If process start fails,
 the same no-audit blocked packet shape is used because no approved retry
-subprocess started.
+subprocess started, and any retry reservation is released.
 
 A valid post-start packet emits
 `controlled-loop-runner-stage-retry-execution.v1` with
@@ -3232,9 +3238,11 @@ Stable blockers include
 `controlled_runner_stage_retry_execution_expected_boundary_checksum_mismatch`,
 `controlled_runner_stage_retry_execution_boundary_selected_stage_mismatch`,
 `controlled_runner_stage_retry_execution_cwd_invalid`,
+`controlled_runner_stage_retry_execution_runtime_root_unsafe`,
 `controlled_runner_stage_retry_execution_output_file_invalid`,
 `controlled_runner_stage_retry_execution_output_file_already_exists`,
 `controlled_runner_stage_retry_execution_already_recorded`,
+`controlled_runner_stage_retry_execution_reservation_already_exists`,
 `controlled_runner_stage_retry_execution_audit_history_invalid`,
 `controlled_runner_stage_retry_execution_audit_history_unreadable`,
 `controlled_runner_stage_retry_execution_output_file_mismatch`,
@@ -3251,6 +3259,10 @@ Stable blockers include
 `controlled_runner_stage_retry_execution_approval_not_completed`,
 `controlled_runner_stage_retry_execution_approval_limitations_invalid`,
 `controlled_runner_stage_retry_execution_approval_target_checksum_mismatch`,
+`controlled_runner_stage_retry_execution_reservation_checksum_missing`,
+`controlled_runner_stage_retry_execution_reservation_retry_attempt_invalid`,
+`controlled_runner_stage_retry_execution_reservation_create_failed`,
+`controlled-loop-runner-stage-retry-execution-reservation.v1`,
 `controlled_runner_stage_retry_execution_process_start_failed`,
 `controlled_runner_stage_retry_execution_output_write_failed`,
 `controlled_runner_stage_retry_execution_audit_append_failed`, mapped

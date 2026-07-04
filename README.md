@@ -1166,10 +1166,13 @@ checksum, reconstructs the exact approved argv/cwd from the saved runner
 evidence, starts exactly one subprocess with `shell=False`, writes retry stdout
 to the approved retry output file with exclusive creation, captures terminal
 command evidence, and appends exactly one replay-valid retry-execution audit
-record after process start. Pre-start validation failures, including an
-already-existing retry output file or a prior matching retry-execution audit
-record for the reviewed stage-retry-boundary checksum, emit a blocked
-retry-execution packet without appending audit evidence.
+record after process start. It rejects repo-local runtime roots inside the
+stage cwd unless `--allow-repo-local-root` was explicitly supplied and creates
+a durable `stage-retry-execution-reservations/` marker before subprocess start
+so concurrent attempts cannot both launch. Pre-start validation failures,
+including an already-existing retry output file, reservation, or prior matching
+retry-execution audit record for the reviewed stage-retry-boundary checksum,
+emit a blocked retry-execution packet without appending audit evidence.
 
 ```bash
 agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-retry-execute --controlled-loop-runner-stage-retry-boundary-file controlled-loop-runner-stage-retry-boundary.json --expected-stage-retry-boundary-checksum sha256:<reviewed-stage-retry-boundary-checksum> --controlled-loop-runner-stage-retry-approval-file controlled-loop-runner-stage-retry-approval.json --controlled-loop-runner-stage-retry-plan-file controlled-loop-runner-stage-retry-plan.json --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 1
