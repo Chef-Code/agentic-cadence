@@ -33151,7 +33151,12 @@ def controlled_loop_runner_executor_invocation_readiness_forbidden_flag_blocker(
 
 
 def controlled_loop_runner_executor_invocation_readiness_command(args: argparse.Namespace) -> int:
-    root = Path(args.root).expanduser().resolve(strict=False)
+    root_value = getattr(args, "root", None)
+    root = (
+        Path(root_value).expanduser().resolve(strict=False)
+        if root_value is not None
+        else default_root().expanduser().resolve(strict=False)
+    )
     stage_number = int(args.stage_number)
     execution_path = Path(args.controlled_loop_runner_stage_execution_file)
     closeout_path = Path(args.controlled_loop_runner_stage_closeout_file)
@@ -36612,7 +36617,7 @@ def build_parser() -> argparse.ArgumentParser:
     runner_executor_invocation_readiness_parser.add_argument("--stage-number", type=int, default=2)
     runner_executor_invocation_readiness_parser.set_defaults(
         func=controlled_loop_runner_executor_invocation_readiness_command,
-        requires_root=False,
+        requires_root=True,
         guards_runtime_root_only=False,
     )
 

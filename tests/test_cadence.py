@@ -8497,6 +8497,21 @@ class CadenceCliTests(unittest.TestCase):
             args.extend(["--approval-secret-env", str(values["approval_secret_env"])])
         return args
 
+    def write_active_epoch_for_executor_task(self, tmp, chain, epoch_id):
+        task_checksum = checksum_json(chain["executor_task"])
+        write_active_epoch(
+            tmp,
+            epoch_id,
+            chain["executor_task"]["snapshot"],
+            tasks=[
+                {
+                    "id": chain["executor_task"]["task"]["id"],
+                    "task_type": "execution",
+                    "executor_task_checksum": task_checksum,
+                }
+            ],
+        )
+
     def write_controlled_loop_runner_executor_invocation_readiness_chain(self, tmp, repo):
         chain = self.write_controlled_loop_runner_continuation_stage_outcome_plan_chain(tmp, repo)
         outcome_result, outcome_plan = run_cli(
@@ -8509,19 +8524,7 @@ class CadenceCliTests(unittest.TestCase):
         chain["controlled_loop_runner_stage_outcome_plan_path"] = outcome_plan_path
         chain["controlled_loop_runner_stage_outcome_plan"] = outcome_plan
         execution_start = json.loads(chain["stage_output_file"].read_text(encoding="utf-8"))
-        task_checksum = checksum_json(chain["executor_task"])
-        write_active_epoch(
-            tmp,
-            execution_start["epoch_id"],
-            chain["executor_task"]["snapshot"],
-            tasks=[
-                {
-                    "id": chain["executor_task"]["task"]["id"],
-                    "task_type": "execution",
-                    "executor_task_checksum": task_checksum,
-                }
-            ],
-        )
+        self.write_active_epoch_for_executor_task(tmp, chain, execution_start["epoch_id"])
         return chain
 
     def write_controlled_loop_runner_executor_invocation_readiness_retry_chain(self, tmp, repo):
@@ -8570,19 +8573,7 @@ class CadenceCliTests(unittest.TestCase):
 
         retry_execution = chain["controlled_loop_runner_stage_retry_execution"]
         execution_start = json.loads(retry_execution["command_result"]["stdout"])
-        task_checksum = checksum_json(chain["executor_task"])
-        write_active_epoch(
-            tmp,
-            execution_start["epoch_id"],
-            chain["executor_task"]["snapshot"],
-            tasks=[
-                {
-                    "id": chain["executor_task"]["task"]["id"],
-                    "task_type": "execution",
-                    "executor_task_checksum": task_checksum,
-                }
-            ],
-        )
+        self.write_active_epoch_for_executor_task(tmp, chain, execution_start["epoch_id"])
         return chain
 
     def controlled_loop_runner_executor_invocation_readiness_argv(self, tmp, chain, **overrides):
@@ -8685,21 +8676,22 @@ class CadenceCliTests(unittest.TestCase):
             "subprocess.run",
             side_effect=AssertionError("runner executor invocation readiness must not start a process"),
         ):
-            with mock.patch(
-                "codex_cadence.cli.append_audit_record",
-                side_effect=AssertionError("runner executor invocation readiness must not append audit"),
-            ):
-                with redirect_stdout(stdout):
-                    try:
-                        code = cadence_cli.main(
-                            self.controlled_loop_runner_executor_invocation_readiness_argv(
-                                tmp,
-                                chain,
-                                **overrides,
+            with mock.patch("codex_cadence.cli.runtime_root_safety_issue", return_value=None):
+                with mock.patch(
+                    "codex_cadence.cli.append_audit_record",
+                    side_effect=AssertionError("runner executor invocation readiness must not append audit"),
+                ):
+                    with redirect_stdout(stdout):
+                        try:
+                            code = cadence_cli.main(
+                                self.controlled_loop_runner_executor_invocation_readiness_argv(
+                                    tmp,
+                                    chain,
+                                    **overrides,
+                                )
                             )
-                        )
-                    except SystemExit as exc:
-                        code = exc.code
+                        except SystemExit as exc:
+                            code = exc.code
         raw_output = stdout.getvalue()
         output = json.loads(raw_output) if raw_output.strip() else {}
         return code, output, audit_before, runtime_before
