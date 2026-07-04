@@ -2999,6 +2999,150 @@ Stable blockers include
 `controlled_runner_stage_retry_approval_stage_input_binding_dry_run_checksum_mismatch`,
 and shared `operator_approval_*` blockers from the operator-approval verifier.
 
+`controlled-loop-runner-stage-retry-boundary` is the read-only retry
+invocation-boundary evidence packet for one approved controlled runner stage
+retry attempt. It reads
+`--controlled-loop-runner-stage-retry-approval-file`,
+`--controlled-loop-runner-stage-retry-plan-file`,
+`--controlled-loop-runner-stage-outcome-plan-file`,
+`--controlled-loop-runner-stage-closeout-file`,
+`--controlled-loop-runner-stage-execution-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, `--stage-cwd`,
+`--stage-retry-output-file`, `--stage-timeout-seconds`, `--retry-attempt`,
+`--expected-operator-id`, approval-secret inputs, and optional
+`--stage-number` (default `1`). Continuation retry boundaries also read
+`--controlled-loop-runner-next-stage-continuation-file`,
+`--controlled-loop-runner-stage-input-binding-file`, and
+`--expected-stage-input-binding-checksum`. Only retry attempt `1` is supported
+in this slice.
+
+Retry-boundary preparation consumes already-recorded evidence only. It rereads
+and rechecks the completed retry-approval packet, planned retry-plan packet,
+source outcome plan, source closeout, source execution, runner-start,
+runner-plan, and dry-run packets. Continuation retry boundaries additionally
+recheck the continuation and stage-input binding packet checksums and their
+internal start/plan/dry-run or continuation anchors. The command reconstructs
+the exact command context from the approved runner plan stage. For
+continuation `start-governed-execution` retries, it reconstructs the task file,
+task checksum, approval token, cwd, and any ownership-target, ownership-role,
+and ownership-claimer arguments from the saved source execution and supplied
+stage-input binding without revalidating active ownership after the source
+stage. It also re-reads the saved `operator-approval.v1` referenced by the
+retry approval and verifies its checksum, purpose, target, signature, and
+operator identity through the approval-secret-backed operator approval
+verifier. For continuation `start-governed-execution` retries, it also
+re-reads the source stage-execution approval anchored by the saved source
+execution and re-verifies the embedded `start_governed_execution`
+executor-task approval before deriving the retry argv approval token. The retry
+approval target is recomputed from the current source evidence chain, and the
+stage-input binding's embedded prior-stage-output and executor-task anchors are
+re-read before a boundary can be emitted.
+
+A valid packet emits `controlled-loop-runner-stage-retry-boundary.v1` with
+`packet: controlled_loop_runner_stage_retry_boundary`, `read_only: true`,
+`side_effects: []`, `boundary_status: completed`,
+`runner_stage_retry_authority: retry_boundary_prepared_not_started`, the
+selected stage, `stage_retry_boundary`, and `stage_retry_boundary_checksum`.
+The boundary includes exact argv, normalized arguments, fixed cwd policy,
+retry output policy, timeout policy, execution authority, and allowed
+side-effect policy derived from the approved runner-plan stage. The retry
+output file must be new, inside the runtime root, and must not equal any input
+evidence file or the source stage output file. The command sets
+`recommended_next_action` to
+`review_controlled_runner_stage_retry_boundary` and `next_controlled_action` to
+`execute_approved_runner_stage_retry_once`; it does not perform that action.
+It must not start a runner, start a process, execute a retry, emit
+stage-execution readiness, select another stage, continue the runner or loop,
+append audit evidence, invoke an executor, execute Git commands, call GitHub
+APIs, create branches, commit, push, create PRs, merge, release, publish
+packages, assign roles, or schedule agents.
+
+Stable blockers include
+`controlled_runner_stage_retry_boundary_approval_evidence_missing`,
+`controlled_runner_stage_retry_boundary_retry_plan_evidence_missing`,
+`controlled_runner_stage_retry_boundary_outcome_evidence_missing`,
+`controlled_runner_stage_retry_boundary_closeout_evidence_missing`,
+`controlled_runner_stage_retry_boundary_execution_evidence_missing`,
+`controlled_runner_stage_retry_boundary_upstream_invalid`,
+`controlled_runner_stage_retry_boundary_root_missing`,
+`controlled_runner_stage_retry_boundary_continuation_evidence_missing`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_evidence_missing`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_expected_checksum_missing`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_unexpected_continuation_evidence`,
+`controlled_runner_stage_retry_boundary_retry_attempt_unsupported`,
+`controlled_runner_stage_retry_boundary_cwd_invalid`,
+`controlled_runner_stage_retry_boundary_output_file_invalid`,
+`controlled_runner_stage_retry_boundary_output_file_already_exists`,
+`controlled_runner_stage_retry_boundary_output_file_outside_runtime_root`,
+`controlled_runner_stage_retry_boundary_timeout_invalid`,
+`controlled_runner_stage_retry_boundary_output_file_overwrites_source`,
+`controlled_runner_stage_retry_boundary_output_file_overwrites_input_evidence`,
+`controlled_runner_stage_retry_boundary_approval_packet_mismatch`,
+`controlled_runner_stage_retry_boundary_approval_not_completed`,
+`controlled_runner_stage_retry_boundary_approval_limitations_invalid`,
+`controlled_runner_stage_retry_boundary_stage_number_mismatch`,
+`controlled_runner_stage_retry_boundary_approval_target_missing`,
+`controlled_runner_stage_retry_boundary_approval_target_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_approval_target_purpose_mismatch`,
+`controlled_runner_stage_retry_boundary_approval_target_mismatch`,
+`controlled_runner_stage_retry_boundary_approval_retry_target_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_retry_plan_packet_mismatch`,
+`controlled_runner_stage_retry_boundary_retry_plan_not_planned`,
+`controlled_runner_stage_retry_boundary_retry_plan_limitations_invalid`,
+`controlled_runner_stage_retry_boundary_retry_plan_stage_number_mismatch`,
+`controlled_runner_stage_retry_boundary_approval_stage_retry_plan_file_mismatch`,
+`controlled_runner_stage_retry_boundary_approval_stage_retry_plan_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_approval_stage_outcome_plan_file_mismatch`,
+`controlled_runner_stage_retry_boundary_approval_stage_outcome_plan_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_approval_stage_execution_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_retry_plan_stage_execution_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_continuation_start_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_continuation_runner_plan_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_continuation_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_runner_plan_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_stage_missing_from_runner_plan`,
+`controlled_runner_stage_retry_boundary_unknown_stage_command`,
+`controlled_runner_stage_retry_boundary_start_governed_execution_requires_continuation`,
+`controlled_runner_stage_retry_boundary_side_effect_policy_missing`,
+`controlled_runner_stage_retry_boundary_execution_authority_missing`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_required`,
+`controlled_runner_stage_retry_boundary_operator_approval_file_missing`,
+`controlled_runner_stage_retry_boundary_operator_approval_file_mismatch`,
+`controlled_runner_stage_retry_boundary_operator_approval_file_unreadable`,
+`controlled_runner_stage_retry_boundary_operator_approval_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_approval_identity_mismatch`,
+`controlled_runner_stage_retry_boundary_source_ownership_arguments_incomplete`,
+`controlled_runner_stage_retry_boundary_source_ownership_not_supported`,
+`controlled_runner_stage_retry_boundary_source_ownership_side_effect_policy_missing`,
+`controlled_runner_stage_retry_boundary_stage_execution_approval_file_missing`,
+`controlled_runner_stage_retry_boundary_stage_execution_approval_file_mismatch`,
+`controlled_runner_stage_retry_boundary_stage_execution_approval_file_unreadable`,
+`controlled_runner_stage_retry_boundary_stage_execution_approval_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_executor_task_file_missing`,
+`controlled_runner_stage_retry_boundary_executor_task_file_unreadable`,
+`controlled_runner_stage_retry_boundary_executor_task_file_invalid`,
+`controlled_runner_stage_retry_boundary_executor_task_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_executor_task_repo_path_missing`,
+`controlled_runner_stage_retry_boundary_start_governed_execution_binding_missing`,
+`controlled_runner_stage_retry_boundary_start_governed_execution_task_file_mismatch`,
+`controlled_runner_stage_retry_boundary_start_governed_execution_approval_token_mismatch`,
+`controlled_runner_stage_retry_boundary_executor_task_approval_missing`,
+`controlled_runner_stage_retry_boundary_executor_task_approval_file_mismatch`,
+`controlled_runner_stage_retry_boundary_executor_task_approval_file_unreadable`,
+`controlled_runner_stage_retry_boundary_executor_task_approval_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_executor_task_approval_identity_mismatch`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_prior_stage_output_file_missing`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_prior_stage_output_file_mismatch`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_prior_stage_output_file_unreadable`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_prior_stage_output_checksum_mismatch`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_executor_task_file_missing`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_executor_task_file_mismatch`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_executor_task_file_unreadable`,
+`controlled_runner_stage_retry_boundary_stage_input_binding_executor_task_checksum_mismatch`,
+and `controlled_runner_stage_retry_boundary_stage_cwd_mismatch`.
+
 `controlled-loop-runner-completion` is the read-only terminal evidence packet
 for a final controlled runner outcome. It reads
 `--controlled-loop-runner-stage-outcome-plan-file`,
