@@ -21346,6 +21346,27 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
+    def test_controlled_loop_runner_executor_invocation_readiness_blocks_active_epoch_conflict(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_executor_invocation_readiness_chain(tmp, repo)
+            write_active_epoch(tmp, "epoch-unrelated", chain["executor_task"]["snapshot"])
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_executor_invocation_readiness_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_executor_invocation_readiness_active_epoch_conflict",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertFalse(output["executor_started"])
+            self.assert_controlled_loop_runner_executor_invocation_readiness_no_side_effects(output)
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
     def test_controlled_loop_runner_completion_accepts_final_continuation_outcome_without_side_effects(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)

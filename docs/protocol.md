@@ -3452,8 +3452,7 @@ A valid packet emits `controlled-loop-runner-executor-invocation-readiness.v1`
 with `packet: controlled_loop_runner_executor_invocation_readiness`,
 `read_only: true`, `execution_source`, `source_execution_start`,
 `source_execution_checksum`, `active_epoch`, and
-`executor_invocation_readiness_target` with purpose
-`executor_invocation_readiness`. The packet emits only this target for the
+`executor_invocation_readiness_target` with purpose `executor_invocation_readiness`. The packet emits only this target for the
 existing controlled real executor invocation approval/readiness path. It does
 not start a process, execute or retry a runner stage, invoke an executor,
 select another stage, continue the runner or loop, append audit evidence,
@@ -3482,6 +3481,7 @@ Stable blockers include
 `controlled_runner_executor_invocation_readiness_execution_start_task_id_mismatch`,
 `controlled_runner_executor_invocation_readiness_executor_task_file_mismatch`,
 `controlled_runner_executor_invocation_readiness_executor_task_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_active_epoch_conflict`,
 `controlled_runner_executor_invocation_readiness_active_epoch_status_invalid`,
 and mapped continuation, stage-input binding, approval, source-chain, and
 retry-chain anchor blockers under the

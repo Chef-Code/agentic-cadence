@@ -33032,6 +33032,22 @@ def controlled_loop_runner_executor_invocation_readiness_active_epoch_blockers(
             )
         ]
     epoch_id = execution_start.get("epoch_id")
+    if len(active_epochs) > 1:
+        active_epoch_ids = [
+            epoch.get("id")
+            for _path, epoch in active_epochs
+            if isinstance(epoch, dict)
+        ]
+        return None, [
+            controlled_loop_runner_executor_invocation_readiness_blocker(
+                "controlled_runner_executor_invocation_readiness_active_epoch_conflict",
+                "executor invocation readiness requires exactly one active epoch",
+                expected=1,
+                actual=len(active_epochs),
+                epoch_id=epoch_id,
+                active_epoch_ids=active_epoch_ids,
+            )
+        ]
     matching = [
         (path, epoch)
         for path, epoch in active_epochs
