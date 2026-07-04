@@ -3143,6 +3143,134 @@ Stable blockers include
 `controlled_runner_stage_retry_boundary_stage_input_binding_executor_task_checksum_mismatch`,
 and `controlled_runner_stage_retry_boundary_stage_cwd_mismatch`.
 
+`controlled-loop-runner-stage-retry-execute` is the controlled retry
+execution packet for one approved controlled runner stage retry attempt. It
+reads `--controlled-loop-runner-stage-retry-boundary-file`,
+`--expected-stage-retry-boundary-checksum`,
+`--controlled-loop-runner-stage-retry-approval-file`,
+`--controlled-loop-runner-stage-retry-plan-file`,
+`--controlled-loop-runner-stage-outcome-plan-file`,
+`--controlled-loop-runner-stage-closeout-file`,
+`--controlled-loop-runner-stage-execution-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, `--expected-operator-id`,
+approval-secret inputs, and optional `--stage-number` (default `1`).
+Continuation retry execution also reads
+`--controlled-loop-runner-next-stage-continuation-file`,
+`--controlled-loop-runner-stage-input-binding-file`, and
+`--expected-stage-input-binding-checksum`.
+
+Retry execution consumes already-recorded retry-boundary evidence only after an
+operator has reviewed the boundary checksum. Before process start, it rechecks
+the completed retry boundary, retry approval, retry plan, source outcome plan,
+source closeout, source execution, runner-start, runner-plan, and dry-run
+packets. Continuation retry execution additionally rechecks the continuation
+and stage-input binding packet checksums and their internal anchors. The
+command recomputes the retry approval target, re-verifies the saved
+operator-approval signature and operator identity, requires the reviewed
+`--expected-stage-retry-boundary-checksum`, reconstructs the exact approved
+argv/cwd from the saved runner plan and boundary packet, and rejects drift
+before process start. The approved retry output file must not already exist at
+pre-start validation time, which prevents replaying the same boundary as a
+second retry. The retry runtime root must not sit inside the reviewed stage cwd
+unless `--allow-repo-local-root` was explicitly provided. The command also
+replays the local audit log before process start and blocks when a prior
+`controlled_runner_stage_retry_execution` audit record already records the same
+reviewed `stage_retry_boundary_checksum`, stage number, selection source, and
+retry attempt. After all pre-start checks pass, it atomically creates a durable
+reservation under `stage-retry-execution-reservations/` for that reviewed
+boundary before `subprocess.run`; an existing reservation blocks with
+`controlled_runner_stage_retry_execution_reservation_already_exists`. Together,
+the audit log and reservation form the durable
+single-retry marker even if the retry output file or mutable wrapper packet is
+later removed or rewritten.
+
+When all pre-start checks pass, retry execution starts exactly one subprocess
+with `shell: false`, the reviewed argv, and the reviewed cwd. It writes stdout
+to the approved retry output path, captures stdout, stderr, return code,
+timeout status, start/completion timestamps, argv, cwd, and shell mode in
+`command_result`, records `command_result_checksum`, writes retry stdout with
+exclusive file creation, and appends exactly one replay-valid retry-execution
+audit record after the process has started. If a pre-start validation fails, the command emits a blocked
+`controlled-loop-runner-stage-retry-execution.v1` packet with
+`process_started: false`, `retry_execution_started: false`,
+`audit_evidence_appended: false`, and no audit append. If process start fails,
+the same no-audit blocked packet shape is used because no approved retry
+subprocess started, and any retry reservation is released.
+
+A valid post-start packet emits
+`controlled-loop-runner-stage-retry-execution.v1` with
+`packet: controlled_loop_runner_stage_retry_execution`, `read_only: false`,
+`process_started: true`, `stage_retry_started: true`,
+`retry_execution_started: true`, `runner_stage_retry_authority:
+stage_retry_executed_once`, selected-stage terminal evidence, the verified
+`controlled_loop_runner_stage_retry_boundary`, terminal `command_result`, and a
+post-start audit record. The command's allowed side effects are limited to
+`stage_retry_process_started`, `stage_retry_output_written` when stdout is
+written, and `controlled_runner_stage_retry_execution_audit_appended` when the
+post-start audit append succeeds. It must not start a second retry, select a
+next stage, continue the runner or loop, invoke any additional executor,
+execute Git commands, call GitHub APIs, create branches, commit, push, create
+PRs, merge, release, publish packages, assign roles, or schedule agents.
+
+Stable blockers include
+`controlled_runner_stage_retry_execution_boundary_evidence_missing`,
+`controlled_runner_stage_retry_execution_approval_evidence_missing`,
+`controlled_runner_stage_retry_execution_retry_plan_evidence_missing`,
+`controlled_runner_stage_retry_execution_outcome_evidence_missing`,
+`controlled_runner_stage_retry_execution_closeout_evidence_missing`,
+`controlled_runner_stage_retry_execution_execution_evidence_missing`,
+`controlled_runner_stage_retry_execution_upstream_invalid`,
+`controlled_runner_stage_retry_execution_root_missing`,
+`controlled_runner_stage_retry_execution_continuation_evidence_missing`,
+`controlled_runner_stage_retry_execution_stage_input_binding_evidence_missing`,
+`controlled_runner_stage_retry_execution_stage_input_binding_expected_checksum_missing`,
+`controlled_runner_stage_retry_execution_stage_input_binding_checksum_mismatch`,
+`controlled_runner_stage_retry_execution_unexpected_continuation_evidence`,
+`controlled_runner_stage_retry_execution_boundary_packet_mismatch`,
+`controlled_runner_stage_retry_execution_boundary_not_completed`,
+`controlled_runner_stage_retry_execution_boundary_limitations_invalid`,
+`controlled_runner_stage_retry_execution_stage_number_mismatch`,
+`controlled_runner_stage_retry_execution_selection_source_mismatch`,
+`controlled_runner_stage_retry_execution_retry_attempt_unsupported`,
+`controlled_runner_stage_retry_execution_boundary_missing`,
+`controlled_runner_stage_retry_execution_boundary_checksum_mismatch`,
+`controlled_runner_stage_retry_execution_expected_boundary_checksum_mismatch`,
+`controlled_runner_stage_retry_execution_boundary_selected_stage_mismatch`,
+`controlled_runner_stage_retry_execution_cwd_invalid`,
+`controlled_runner_stage_retry_execution_runtime_root_unsafe`,
+`controlled_runner_stage_retry_execution_output_file_invalid`,
+`controlled_runner_stage_retry_execution_output_file_already_exists`,
+`controlled_runner_stage_retry_execution_already_recorded`,
+`controlled_runner_stage_retry_execution_reservation_already_exists`,
+`controlled_runner_stage_retry_execution_audit_history_invalid`,
+`controlled_runner_stage_retry_execution_audit_history_unreadable`,
+`controlled_runner_stage_retry_execution_output_file_mismatch`,
+`controlled_runner_stage_retry_execution_output_file_overwrites_input_evidence`,
+`controlled_runner_stage_retry_execution_output_file_overwrites_source`,
+`controlled_runner_stage_retry_execution_timeout_invalid`,
+`controlled_runner_stage_retry_execution_unapproved_command`,
+`controlled_runner_stage_retry_execution_argv_invalid`,
+`controlled_runner_stage_retry_execution_retry_plan_packet_mismatch`,
+`controlled_runner_stage_retry_execution_retry_plan_not_planned`,
+`controlled_runner_stage_retry_execution_retry_plan_limitations_invalid`,
+`controlled_runner_stage_retry_execution_retry_plan_authority_flags_invalid`,
+`controlled_runner_stage_retry_execution_approval_packet_mismatch`,
+`controlled_runner_stage_retry_execution_approval_not_completed`,
+`controlled_runner_stage_retry_execution_approval_limitations_invalid`,
+`controlled_runner_stage_retry_execution_approval_target_checksum_mismatch`,
+`controlled_runner_stage_retry_execution_reservation_checksum_missing`,
+`controlled_runner_stage_retry_execution_reservation_retry_attempt_invalid`,
+`controlled_runner_stage_retry_execution_reservation_create_failed`,
+`controlled-loop-runner-stage-retry-execution-reservation.v1`,
+`controlled_runner_stage_retry_execution_process_start_failed`,
+`controlled_runner_stage_retry_execution_output_write_failed`,
+`controlled_runner_stage_retry_execution_audit_append_failed`, mapped
+retry-boundary/operator-approval/input-binding anchor blockers under the
+`controlled_runner_stage_retry_execution_*` prefix, mapped stage stdout
+side-effect blockers under the same prefix, and shared `operator_approval_*`
+blockers from the operator-approval verifier.
+
 `controlled-loop-runner-completion` is the read-only terminal evidence packet
 for a final controlled runner outcome. It reads
 `--controlled-loop-runner-stage-outcome-plan-file`,

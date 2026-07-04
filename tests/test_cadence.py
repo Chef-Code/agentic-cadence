@@ -9133,6 +9133,138 @@ class CadenceCliTests(unittest.TestCase):
         output = json.loads(raw_output) if raw_output.strip() else {}
         return code, output, audit_before, runtime_before
 
+    def write_controlled_loop_runner_stage_retry_execute_chain(self, tmp, repo):
+        chain = self.write_controlled_loop_runner_stage_retry_boundary_chain(tmp, repo)
+        code, boundary, audit_before, runtime_before = (
+            self.run_controlled_loop_runner_stage_retry_boundary_in_process(tmp, chain)
+        )
+        self.assertEqual(code, 0, boundary.get("blockers"))
+        self.assertEqual(audit_records(tmp), audit_before)
+        self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+        boundary_path = Path(tmp) / "controlled-loop-runner-stage-retry-boundary.json"
+        boundary_path.write_text(json.dumps(boundary), encoding="utf-8")
+        chain["controlled_loop_runner_stage_retry_boundary_path"] = boundary_path
+        chain["controlled_loop_runner_stage_retry_boundary"] = boundary
+        return chain
+
+    def write_controlled_loop_runner_continuation_stage_retry_execute_chain(self, tmp, repo):
+        chain = self.write_controlled_loop_runner_continuation_stage_retry_boundary_chain(tmp, repo)
+        code, boundary, audit_before, runtime_before = (
+            self.run_controlled_loop_runner_stage_retry_boundary_in_process(
+                tmp,
+                chain,
+                stage_number=2,
+                controlled_loop_runner_next_stage_continuation_file=chain[
+                    "controlled_loop_runner_next_stage_continuation_path"
+                ],
+                controlled_loop_runner_stage_input_binding_file=chain[
+                    "controlled_loop_runner_stage_input_binding_path"
+                ],
+                expected_stage_input_binding_checksum=checksum_json(
+                    chain["controlled_loop_runner_stage_input_binding"]
+                ),
+            )
+        )
+        self.assertEqual(code, 0, boundary.get("blockers"))
+        self.assertEqual(audit_records(tmp), audit_before)
+        self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+        boundary_path = Path(tmp) / "controlled-loop-runner-continuation-stage-retry-boundary.json"
+        boundary_path.write_text(json.dumps(boundary), encoding="utf-8")
+        chain["controlled_loop_runner_stage_retry_boundary_path"] = boundary_path
+        chain["controlled_loop_runner_stage_retry_boundary"] = boundary
+        return chain
+
+    def controlled_loop_runner_stage_retry_execute_argv(self, tmp, chain, **overrides):
+        values = {
+            "controlled_loop_runner_stage_retry_boundary_file": chain[
+                "controlled_loop_runner_stage_retry_boundary_path"
+            ],
+            "expected_stage_retry_boundary_checksum": chain["controlled_loop_runner_stage_retry_boundary"][
+                "stage_retry_boundary_checksum"
+            ],
+            "controlled_loop_runner_stage_retry_approval_file": chain[
+                "controlled_loop_runner_stage_retry_approval_evidence_path"
+            ],
+            "controlled_loop_runner_stage_retry_plan_file": chain[
+                "controlled_loop_runner_stage_retry_plan_path"
+            ],
+            "controlled_loop_runner_stage_outcome_plan_file": chain[
+                "controlled_loop_runner_stage_outcome_plan_path"
+            ],
+            "controlled_loop_runner_stage_closeout_file": chain[
+                "controlled_loop_runner_stage_closeout_path"
+            ],
+            "controlled_loop_runner_stage_execution_file": chain[
+                "controlled_loop_runner_stage_execution_path"
+            ],
+            "controlled_loop_runner_start_file": chain["controlled_loop_runner_start_path"],
+            "controlled_loop_runner_plan_file": chain["controlled_loop_runner_plan_path"],
+            "controlled_loop_runner_dry_run_file": chain["controlled_loop_runner_dry_run_path"],
+            "controlled_loop_runner_next_stage_continuation_file": None,
+            "controlled_loop_runner_stage_input_binding_file": None,
+            "expected_stage_input_binding_checksum": None,
+            "expected_operator_id": "operator@example.test",
+            "approval_secret": OPERATOR_APPROVAL_SECRET,
+            "approval_secret_env": None,
+            "stage_number": 1,
+        }
+        values.update(overrides)
+        argv = [
+            "--root",
+            str(tmp),
+            "controlled-loop-runner-stage-retry-execute",
+            "--controlled-loop-runner-stage-retry-boundary-file",
+            str(values["controlled_loop_runner_stage_retry_boundary_file"]),
+            "--expected-stage-retry-boundary-checksum",
+            str(values["expected_stage_retry_boundary_checksum"]),
+            "--controlled-loop-runner-stage-retry-approval-file",
+            str(values["controlled_loop_runner_stage_retry_approval_file"]),
+            "--controlled-loop-runner-stage-retry-plan-file",
+            str(values["controlled_loop_runner_stage_retry_plan_file"]),
+            "--controlled-loop-runner-stage-outcome-plan-file",
+            str(values["controlled_loop_runner_stage_outcome_plan_file"]),
+            "--controlled-loop-runner-stage-closeout-file",
+            str(values["controlled_loop_runner_stage_closeout_file"]),
+            "--controlled-loop-runner-stage-execution-file",
+            str(values["controlled_loop_runner_stage_execution_file"]),
+            "--controlled-loop-runner-start-file",
+            str(values["controlled_loop_runner_start_file"]),
+            "--controlled-loop-runner-plan-file",
+            str(values["controlled_loop_runner_plan_file"]),
+            "--controlled-loop-runner-dry-run-file",
+            str(values["controlled_loop_runner_dry_run_file"]),
+            "--expected-operator-id",
+            str(values["expected_operator_id"]),
+            "--stage-number",
+            str(values["stage_number"]),
+        ]
+        if values["approval_secret"] is not None:
+            argv.extend(["--approval-secret", str(values["approval_secret"])])
+        if values["approval_secret_env"] is not None:
+            argv.extend(["--approval-secret-env", str(values["approval_secret_env"])])
+        if values["controlled_loop_runner_next_stage_continuation_file"] is not None:
+            argv.extend(
+                [
+                    "--controlled-loop-runner-next-stage-continuation-file",
+                    str(values["controlled_loop_runner_next_stage_continuation_file"]),
+                ]
+            )
+        if values["controlled_loop_runner_stage_input_binding_file"] is not None:
+            argv.extend(
+                [
+                    "--controlled-loop-runner-stage-input-binding-file",
+                    str(values["controlled_loop_runner_stage_input_binding_file"]),
+                ]
+            )
+        if values["expected_stage_input_binding_checksum"] is not None:
+            argv.extend(
+                [
+                    "--expected-stage-input-binding-checksum",
+                    str(values["expected_stage_input_binding_checksum"]),
+                ]
+            )
+        return argv
+
     def assert_controlled_loop_runner_stage_retry_boundary_no_side_effects(self, output):
         for flag in [
             "runner_started",
@@ -18846,6 +18978,860 @@ class CadenceCliTests(unittest.TestCase):
                     self.assert_controlled_loop_runner_stage_retry_boundary_no_side_effects(output)
                     self.assertEqual(audit_records(tmp), audit_before)
                     self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_execute_runs_boundary_argv_once_and_appends_audit(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_execute_chain(tmp, repo)
+            boundary = chain["controlled_loop_runner_stage_retry_boundary"]
+            retry_boundary = boundary["stage_retry_boundary"]
+            retry_stdout = json.dumps(
+                {
+                    "schema_version": "loop-run-plan.v1",
+                    "packet": "loop_run_plan",
+                    "valid": True,
+                    "recommended_next_action": "stop_no_candidates",
+                }
+            ) + "\n"
+            completed = subprocess.CompletedProcess(
+                retry_boundary["argv"],
+                0,
+                stdout=retry_stdout,
+                stderr="",
+            )
+            stdout = StringIO()
+            audit_before = audit_records(tmp)
+
+            with mock.patch("subprocess.run", return_value=completed) as run_mock:
+                with redirect_stdout(stdout):
+                    try:
+                        code = cadence_cli.main(
+                            self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)
+                        )
+                    except SystemExit as exc:
+                        code = exc.code
+
+            self.assertEqual(code, 0)
+            output = json.loads(stdout.getvalue())
+            self.assertEqual(output["schema_version"], "controlled-loop-runner-stage-retry-execution.v1")
+            self.assertEqual(output["packet"], "controlled_loop_runner_stage_retry_execution")
+            self.assertFalse(output["read_only"])
+            self.assertTrue(output["valid"], output["blockers"])
+            self.assertEqual(output["stage_retry_execution_status"], "completed")
+            self.assertEqual(output["runner_stage_retry_authority"], "stage_retry_executed_once")
+            self.assertEqual(output["stage_number"], 1)
+            self.assertEqual(output["stage_selection_source"], "initial")
+            self.assertEqual(output["retry_attempt"], 1)
+            self.assertTrue(output["process_started"])
+            self.assertTrue(output["stage_retry_started"])
+            self.assertTrue(output["retry_execution_started"])
+            self.assertFalse(output["stage_execution_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["next_stage_selected"])
+            self.assertFalse(output["second_stage_started"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertFalse(output["github_write_started"])
+            self.assertFalse(output["merge_started"])
+            self.assertFalse(output["release_started"])
+            self.assertFalse(output["package_publication_started"])
+            self.assertFalse(output["role_assignment_started"])
+            self.assertFalse(output["agent_scheduling_started"])
+            self.assertEqual(output["recommended_next_action"], "closeout_controlled_runner_stage_retry")
+            self.assertEqual(output["next_controlled_action"], "closeout_controlled_runner_stage_retry")
+            self.assertEqual(output["selected_stage"]["step"], 1)
+            self.assertEqual(output["selected_stage"]["command"], "loop-run-plan")
+            self.assertEqual(output["selected_stage"]["stage_status"], "completed")
+            command_result = output["command_result"]
+            self.assertEqual(command_result["argv"], retry_boundary["argv"])
+            self.assertEqual(command_result["cwd"], retry_boundary["working_directory_policy"]["cwd"])
+            self.assertEqual(command_result["returncode"], 0)
+            self.assertEqual(command_result["stdout"], retry_stdout)
+            self.assertEqual(command_result["stderr"], "")
+            self.assertFalse(command_result["timed_out"])
+            self.assertEqual(output["command_result_checksum"], checksum_json(command_result))
+            self.assertEqual(
+                output["controlled_loop_runner_stage_retry_boundary"]["checksum"],
+                checksum_json(boundary),
+            )
+            self.assertEqual(
+                output["controlled_loop_runner_stage_retry_boundary"]["stage_retry_boundary_checksum"],
+                checksum_json(retry_boundary),
+            )
+            self.assertEqual(Path(output["stage_retry_output_file"]).read_text(encoding="utf-8"), retry_stdout)
+            self.assertEqual(run_mock.call_count, 1)
+            run_mock.assert_called_once_with(
+                retry_boundary["argv"],
+                cwd=retry_boundary["working_directory_policy"]["cwd"],
+                text=True,
+                capture_output=True,
+                timeout=retry_boundary["timeout_policy"]["timeout_seconds"],
+                check=False,
+                shell=False,
+            )
+            records = audit_records(tmp)
+            self.assertEqual(len(records), len(audit_before) + 1)
+            self.assertEqual(records[-1]["event"], "controlled_runner_stage_retry_execution")
+            self.assertEqual(records[-1]["action"], "record_controlled_runner_stage_retry_execution")
+            self.assertEqual(records[-1]["stage_number"], 1)
+            self.assertEqual(records[-1]["retry_attempt"], 1)
+            self.assertEqual(records[-1]["boundary_checksum"], checksum_json(boundary))
+            self.assertEqual(records[-1]["stage_retry_boundary_checksum"], checksum_json(retry_boundary))
+            self.assertEqual(records[-1]["command_result_checksum"], output["command_result_checksum"])
+            self.assertIn("stage_retry_process_started", output["side_effects"])
+            self.assertIn("stage_retry_output_written", output["side_effects"])
+            self.assertIn("controlled_runner_stage_retry_execution_audit_appended", output["side_effects"])
+            replay_result, replay = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay["valid"], replay["blockers"])
+            self.assertEqual(replay["events_by_type"]["controlled_runner_stage_retry_execution"], 1)
+
+    def test_controlled_loop_runner_stage_retry_execute_runs_continuation_boundary_once(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_continuation_stage_retry_execute_chain(tmp, repo)
+            boundary = chain["controlled_loop_runner_stage_retry_boundary"]
+            retry_boundary = boundary["stage_retry_boundary"]
+            task_checksum = checksum_json(chain["executor_task"])
+            retry_stdout_packet = {
+                "schema_version": "execution-start.v1",
+                "packet": "execution_start",
+                "read_only": False,
+                "valid": True,
+                "epoch_started": True,
+                "executor_started": False,
+                "pr_action_started": False,
+                "approval_state": "approved",
+                "task_file": str(chain["executor_task_path"]),
+                "task_checksum": task_checksum,
+                "task_id": chain["executor_task"]["task"]["id"],
+                "repo": {
+                    "name": chain["executor_task"]["repo"]["name"],
+                    "path": str(Path(repo).resolve()),
+                    "branch": current_branch(repo),
+                    "head": current_head(repo),
+                    "expected_branch": current_branch(repo),
+                    "expected_head": current_head(repo),
+                },
+                "snapshot": chain["executor_task"]["snapshot"],
+                "epoch_id": "epoch-task-73-retry-test",
+                "blockers": [],
+                "recommended_next_action": "handoff_to_executor",
+                "reason": "governed execution start accepted",
+                "audit_record": {
+                    "chain_index": 1,
+                    "event_hash": "sha256:" + "1" * 64,
+                },
+                "limitations": [
+                    "executor_not_started",
+                    "executor_invocation_out_of_scope",
+                    "git_pr_writes_out_of_scope",
+                    "merge_release_publish_out_of_scope",
+                ],
+            }
+            retry_stdout = json.dumps(retry_stdout_packet) + "\n"
+            completed = subprocess.CompletedProcess(
+                retry_boundary["argv"],
+                0,
+                stdout=retry_stdout,
+                stderr="",
+            )
+            stdout = StringIO()
+            audit_before = audit_records(tmp)
+
+            with mock.patch("subprocess.run", return_value=completed) as run_mock:
+                with redirect_stdout(stdout):
+                    try:
+                        code = cadence_cli.main(
+                            self.controlled_loop_runner_stage_retry_execute_argv(
+                                tmp,
+                                chain,
+                                stage_number=2,
+                                controlled_loop_runner_next_stage_continuation_file=chain[
+                                    "controlled_loop_runner_next_stage_continuation_path"
+                                ],
+                                controlled_loop_runner_stage_input_binding_file=chain[
+                                    "controlled_loop_runner_stage_input_binding_path"
+                                ],
+                                expected_stage_input_binding_checksum=checksum_json(
+                                    chain["controlled_loop_runner_stage_input_binding"]
+                                ),
+                            )
+                        )
+                    except SystemExit as exc:
+                        code = exc.code
+
+            self.assertEqual(code, 0)
+            output = json.loads(stdout.getvalue())
+            self.assertTrue(output["valid"], output["blockers"])
+            self.assertEqual(output["stage_selection_source"], "continuation")
+            self.assertEqual(output["stage_number"], 2)
+            self.assertEqual(output["stage_retry_execution_status"], "completed")
+            self.assertTrue(output["process_started"])
+            self.assertTrue(output["stage_retry_started"])
+            self.assertTrue(output["retry_execution_started"])
+            self.assertTrue(output["epoch_started"])
+            self.assertFalse(output["executor_started"])
+            self.assertFalse(output["next_stage_selected"])
+            self.assertFalse(output["loop_continuation_started"])
+            self.assertFalse(output["github_write_started"])
+            self.assertEqual(output["selected_stage"]["step"], 2)
+            self.assertEqual(output["selected_stage"]["command"], "start-governed-execution")
+            self.assertEqual(
+                output["selected_stage"]["side_effects"],
+                ["epoch_started", "execution_start_decision"],
+            )
+            self.assertEqual(output["command_result"]["argv"], retry_boundary["argv"])
+            self.assertEqual(output["command_result"]["stdout"], retry_stdout)
+            self.assertEqual(Path(output["stage_retry_output_file"]).read_text(encoding="utf-8"), retry_stdout)
+            self.assertEqual(
+                output["controlled_loop_runner_next_stage_continuation"]["checksum"],
+                checksum_json(chain["controlled_loop_runner_next_stage_continuation"]),
+            )
+            self.assertEqual(
+                output["controlled_loop_runner_stage_input_binding"]["checksum"],
+                checksum_json(chain["controlled_loop_runner_stage_input_binding"]),
+            )
+            self.assertEqual(run_mock.call_count, 1)
+            records = audit_records(tmp)
+            self.assertEqual(len(records), len(audit_before) + 1)
+            self.assertEqual(records[-1]["event"], "controlled_runner_stage_retry_execution")
+            self.assertEqual(records[-1]["stage_number"], 2)
+            self.assertEqual(records[-1]["stage_selection_source"], "continuation")
+
+    def test_controlled_loop_runner_stage_retry_execute_blocks_prior_audit_after_output_removed(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_execute_chain(tmp, repo)
+            boundary = chain["controlled_loop_runner_stage_retry_boundary"]
+            retry_boundary = boundary["stage_retry_boundary"]
+            retry_stdout = json.dumps(
+                {
+                    "schema_version": "loop-run-plan.v1",
+                    "packet": "loop_run_plan",
+                    "valid": True,
+                    "recommended_next_action": "stop_no_candidates",
+                }
+            ) + "\n"
+            completed = subprocess.CompletedProcess(
+                retry_boundary["argv"],
+                0,
+                stdout=retry_stdout,
+                stderr="",
+            )
+            first_stdout = StringIO()
+            with mock.patch("subprocess.run", return_value=completed):
+                with redirect_stdout(first_stdout):
+                    try:
+                        first_code = cadence_cli.main(
+                            self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)
+                        )
+                    except SystemExit as exc:
+                        first_code = exc.code
+            self.assertEqual(first_code, 0)
+            first_output = json.loads(first_stdout.getvalue())
+            Path(first_output["stage_retry_output_file"]).unlink()
+
+            audit_before = audit_records(tmp)
+            second_stdout = StringIO()
+            with mock.patch("subprocess.run", side_effect=AssertionError("second retry process must not start")):
+                with mock.patch(
+                    "codex_cadence.cli.append_audit_record",
+                    side_effect=AssertionError("pre-start replay block must not append audit"),
+                ):
+                    with redirect_stdout(second_stdout):
+                        try:
+                            second_code = cadence_cli.main(
+                                self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)
+                            )
+                        except SystemExit as exc:
+                            second_code = exc.code
+
+            self.assertEqual(second_code, 2)
+            second_output = json.loads(second_stdout.getvalue())
+            self.assertFalse(second_output["valid"])
+            self.assertEqual(second_output["stage_retry_execution_status"], "blocked")
+            self.assertFalse(second_output["process_started"])
+            self.assertFalse(second_output["retry_execution_started"])
+            self.assertIn(
+                "controlled_runner_stage_retry_execution_already_recorded",
+                {blocker["code"] for blocker in second_output["blockers"]},
+            )
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_stage_retry_execute_blocks_prior_audit_after_wrapper_rewrite(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_execute_chain(tmp, repo)
+            boundary = chain["controlled_loop_runner_stage_retry_boundary"]
+            retry_boundary = boundary["stage_retry_boundary"]
+            retry_stdout = json.dumps(
+                {
+                    "schema_version": "loop-run-plan.v1",
+                    "packet": "loop_run_plan",
+                    "valid": True,
+                    "recommended_next_action": "stop_no_candidates",
+                }
+            ) + "\n"
+            completed = subprocess.CompletedProcess(
+                retry_boundary["argv"],
+                0,
+                stdout=retry_stdout,
+                stderr="",
+            )
+            first_stdout = StringIO()
+            with mock.patch("subprocess.run", return_value=completed):
+                with redirect_stdout(first_stdout):
+                    try:
+                        first_code = cadence_cli.main(
+                            self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)
+                        )
+                    except SystemExit as exc:
+                        first_code = exc.code
+            self.assertEqual(first_code, 0)
+            first_output = json.loads(first_stdout.getvalue())
+            Path(first_output["stage_retry_output_file"]).unlink()
+
+            rewritten_boundary = json.loads(
+                chain["controlled_loop_runner_stage_retry_boundary_path"].read_text(encoding="utf-8")
+            )
+            rewritten_boundary["generated_at"] = "2099-01-01T00:00:00Z"
+            rewritten_boundary["reason"] = "rewritten wrapper around the same reviewed retry boundary"
+            chain["controlled_loop_runner_stage_retry_boundary_path"].write_text(
+                json.dumps(rewritten_boundary),
+                encoding="utf-8",
+            )
+            chain["controlled_loop_runner_stage_retry_boundary"] = rewritten_boundary
+
+            audit_before = audit_records(tmp)
+            second_stdout = StringIO()
+            with mock.patch("subprocess.run", side_effect=AssertionError("second retry process must not start")):
+                with mock.patch(
+                    "codex_cadence.cli.append_audit_record",
+                    side_effect=AssertionError("pre-start replay block must not append audit"),
+                ):
+                    with redirect_stdout(second_stdout):
+                        try:
+                            second_code = cadence_cli.main(
+                                self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)
+                            )
+                        except SystemExit as exc:
+                            second_code = exc.code
+
+            self.assertEqual(second_code, 2)
+            second_output = json.loads(second_stdout.getvalue())
+            self.assertFalse(second_output["valid"])
+            self.assertEqual(second_output["stage_retry_execution_status"], "blocked")
+            self.assertFalse(second_output["process_started"])
+            self.assertFalse(second_output["retry_execution_started"])
+            self.assertIn(
+                "controlled_runner_stage_retry_execution_already_recorded",
+                {blocker["code"] for blocker in second_output["blockers"]},
+            )
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_stage_retry_execute_blocks_existing_reservation_before_process_start(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_execute_chain(tmp, repo)
+            boundary = chain["controlled_loop_runner_stage_retry_boundary"]
+            reservation_path = cadence_cli.controlled_loop_runner_stage_retry_execution_reservation_path(
+                Path(tmp),
+                stage_retry_boundary_checksum=boundary["stage_retry_boundary_checksum"],
+                stage_number=1,
+                stage_selection_source="initial",
+                retry_attempt=1,
+            )
+            reservation_path.parent.mkdir(parents=True, exist_ok=True)
+            reservation_path.write_text('{"reserved": true}\n', encoding="utf-8")
+
+            audit_before = audit_records(tmp)
+            stdout = StringIO()
+            with mock.patch("subprocess.run", side_effect=AssertionError("reserved retry must not start")):
+                with mock.patch(
+                    "codex_cadence.cli.append_audit_record",
+                    side_effect=AssertionError("pre-start reservation block must not append audit"),
+                ):
+                    with redirect_stdout(stdout):
+                        try:
+                            code = cadence_cli.main(
+                                self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)
+                            )
+                        except SystemExit as exc:
+                            code = exc.code
+
+            self.assertEqual(code, 2)
+            output = json.loads(stdout.getvalue())
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["retry_execution_started"])
+            self.assertIn(
+                "controlled_runner_stage_retry_execution_reservation_already_exists",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_stage_retry_execute_reserves_before_subprocess_and_keeps_failed_audit_reservation(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_execute_chain(tmp, repo)
+            boundary = chain["controlled_loop_runner_stage_retry_boundary"]
+            retry_boundary = boundary["stage_retry_boundary"]
+            retry_stdout = json.dumps(
+                {
+                    "schema_version": "loop-run-plan.v1",
+                    "packet": "loop_run_plan",
+                    "valid": True,
+                    "recommended_next_action": "stop_no_candidates",
+                }
+            ) + "\n"
+            completed = subprocess.CompletedProcess(
+                retry_boundary["argv"],
+                0,
+                stdout=retry_stdout,
+                stderr="",
+            )
+            reservation_path = cadence_cli.controlled_loop_runner_stage_retry_execution_reservation_path(
+                Path(tmp),
+                stage_retry_boundary_checksum=boundary["stage_retry_boundary_checksum"],
+                stage_number=1,
+                stage_selection_source="initial",
+                retry_attempt=1,
+            )
+
+            def run_after_reservation(*_args, **_kwargs):
+                self.assertTrue(reservation_path.exists())
+                return completed
+
+            audit_before = audit_records(tmp)
+            first_stdout = StringIO()
+            with mock.patch("subprocess.run", side_effect=run_after_reservation):
+                with mock.patch("codex_cadence.cli.append_audit_record", side_effect=OSError("disk full")):
+                    with redirect_stdout(first_stdout):
+                        try:
+                            first_code = cadence_cli.main(
+                                self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)
+                            )
+                        except SystemExit as exc:
+                            first_code = exc.code
+
+            self.assertEqual(first_code, 2)
+            first_output = json.loads(first_stdout.getvalue())
+            self.assertFalse(first_output["valid"])
+            self.assertTrue(first_output["process_started"])
+            self.assertTrue(first_output["retry_execution_started"])
+            self.assertIn(
+                "controlled_runner_stage_retry_execution_audit_append_failed",
+                {blocker["code"] for blocker in first_output["blockers"]},
+            )
+            self.assertTrue(reservation_path.exists())
+            self.assertEqual(audit_records(tmp), audit_before)
+            Path(first_output["stage_retry_output_file"]).unlink()
+
+            second_stdout = StringIO()
+            with mock.patch("subprocess.run", side_effect=AssertionError("second retry process must not start")):
+                with mock.patch(
+                    "codex_cadence.cli.append_audit_record",
+                    side_effect=AssertionError("pre-start reservation block must not append audit"),
+                ):
+                    with redirect_stdout(second_stdout):
+                        try:
+                            second_code = cadence_cli.main(
+                                self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)
+                            )
+                        except SystemExit as exc:
+                            second_code = exc.code
+
+            self.assertEqual(second_code, 2)
+            second_output = json.loads(second_stdout.getvalue())
+            self.assertFalse(second_output["valid"])
+            self.assertFalse(second_output["process_started"])
+            self.assertFalse(second_output["retry_execution_started"])
+            self.assertIn(
+                "controlled_runner_stage_retry_execution_reservation_already_exists",
+                {blocker["code"] for blocker in second_output["blockers"]},
+            )
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_stage_retry_execute_real_subprocess_blocks_replay(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_execute_chain(tmp, repo)
+            previous_pythonpath = os.environ.get("PYTHONPATH")
+            os.environ["PYTHONPATH"] = (
+                str(ROOT)
+                if not previous_pythonpath
+                else str(ROOT) + os.pathsep + previous_pythonpath
+            )
+            try:
+                first_result, first_output = run_cli(
+                    tmp,
+                    *self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)[2:],
+                )
+                self.assertEqual(first_result.returncode, 0, first_result.stderr)
+                self.assertTrue(first_output["valid"], first_output["blockers"])
+                self.assertTrue(first_output["process_started"])
+                self.assertTrue(first_output["retry_execution_started"])
+                self.assertEqual(first_output["command_result"]["returncode"], 0)
+                self.assertFalse(first_output["command_result"]["shell"])
+                self.assertEqual(
+                    first_output["command_result"]["argv"],
+                    chain["controlled_loop_runner_stage_retry_boundary"]["stage_retry_boundary"]["argv"],
+                )
+                replay_result, replay = run_cli(tmp, "audit-replay")
+                self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+                self.assertTrue(replay["valid"], replay["blockers"])
+                self.assertEqual(replay["events_by_type"]["controlled_runner_stage_retry_execution"], 1)
+
+                Path(first_output["stage_retry_output_file"]).unlink()
+                audit_before = audit_records(tmp)
+                second_result, second_output = run_cli(
+                    tmp,
+                    *self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)[2:],
+                )
+                self.assertEqual(second_result.returncode, 2, second_result.stderr)
+                self.assertFalse(second_output["valid"])
+                self.assertFalse(second_output["process_started"])
+                self.assertFalse(second_output["retry_execution_started"])
+                self.assertIn(
+                    "controlled_runner_stage_retry_execution_already_recorded",
+                    {blocker["code"] for blocker in second_output["blockers"]},
+                )
+                self.assertEqual(audit_records(tmp), audit_before)
+            finally:
+                if previous_pythonpath is None:
+                    os.environ.pop("PYTHONPATH", None)
+                else:
+                    os.environ["PYTHONPATH"] = previous_pythonpath
+
+    def test_controlled_loop_runner_stage_retry_execute_blocks_mutated_boundary_before_process_start(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_execute_chain(tmp, repo)
+            boundary = json.loads(
+                chain["controlled_loop_runner_stage_retry_boundary_path"].read_text(encoding="utf-8")
+            )
+            boundary["stage_retry_boundary"]["argv"].append("--unexpected")
+            chain["controlled_loop_runner_stage_retry_boundary_path"].write_text(
+                json.dumps(boundary),
+                encoding="utf-8",
+            )
+            audit_before = audit_records(tmp)
+            stdout = StringIO()
+
+            with mock.patch("subprocess.run", side_effect=AssertionError("retry process must not start")):
+                with mock.patch(
+                    "codex_cadence.cli.append_audit_record",
+                    side_effect=AssertionError("pre-start validation must not append audit"),
+                ):
+                    with redirect_stdout(stdout):
+                        try:
+                            code = cadence_cli.main(
+                                self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)
+                            )
+                        except SystemExit as exc:
+                            code = exc.code
+
+            self.assertEqual(code, 2)
+            output = json.loads(stdout.getvalue())
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_retry_execution_status"], "blocked")
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["stage_retry_started"])
+            self.assertFalse(output["retry_execution_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertIsNone(output["command_result"])
+            self.assertIn(
+                "controlled_runner_stage_retry_execution_boundary_checksum_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_stage_retry_execute_blocks_self_consistent_boundary_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_execute_chain(tmp, repo)
+            original_boundary_checksum = chain["controlled_loop_runner_stage_retry_boundary"][
+                "stage_retry_boundary_checksum"
+            ]
+            boundary = json.loads(
+                chain["controlled_loop_runner_stage_retry_boundary_path"].read_text(encoding="utf-8")
+            )
+            boundary["stage_retry_boundary"]["timeout_policy"]["timeout_seconds"] = 1
+            updated_boundary_checksum = checksum_json(boundary["stage_retry_boundary"])
+            boundary["stage_retry_boundary_checksum"] = updated_boundary_checksum
+            boundary["checksums"]["stage_retry_boundary"] = updated_boundary_checksum
+            chain["controlled_loop_runner_stage_retry_boundary_path"].write_text(
+                json.dumps(boundary),
+                encoding="utf-8",
+            )
+            audit_before = audit_records(tmp)
+            stdout = StringIO()
+
+            with mock.patch("subprocess.run", side_effect=AssertionError("retry process must not start")):
+                with redirect_stdout(stdout):
+                    try:
+                        code = cadence_cli.main(
+                            self.controlled_loop_runner_stage_retry_execute_argv(
+                                tmp,
+                                chain,
+                                expected_stage_retry_boundary_checksum=original_boundary_checksum,
+                            )
+                        )
+                    except SystemExit as exc:
+                        code = exc.code
+
+            self.assertEqual(code, 2)
+            output = json.loads(stdout.getvalue())
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_retry_execution_status"], "blocked")
+            self.assertFalse(output["process_started"])
+            self.assertIn(
+                "controlled_runner_stage_retry_execution_expected_boundary_checksum_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_stage_retry_execute_blocks_retry_plan_wrapper_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_execute_chain(tmp, repo)
+            retry_plan_path = chain["controlled_loop_runner_stage_retry_plan_path"]
+            retry_plan = json.loads(retry_plan_path.read_text(encoding="utf-8"))
+            retry_plan["valid"] = False
+            retry_plan["stage_retry_plan_status"] = "blocked"
+            retry_plan["blockers"] = [{"code": "forged", "message": "forged"}]
+            retry_plan_path.write_text(json.dumps(retry_plan), encoding="utf-8")
+            retry_plan_checksum = checksum_json(retry_plan)
+
+            retry_approval_path = chain["controlled_loop_runner_stage_retry_approval_evidence_path"]
+            retry_approval = json.loads(retry_approval_path.read_text(encoding="utf-8"))
+            retry_approval["controlled_loop_runner_stage_retry_plan"]["checksum"] = retry_plan_checksum
+            retry_approval["controlled_loop_runner_stage_retry_plan"]["status"] = "blocked"
+            retry_approval["checksums"]["controlled_loop_runner_stage_retry_plan"] = retry_plan_checksum
+            retry_approval_path.write_text(json.dumps(retry_approval), encoding="utf-8")
+            retry_approval_checksum = checksum_json(retry_approval)
+
+            boundary_path = chain["controlled_loop_runner_stage_retry_boundary_path"]
+            boundary = json.loads(boundary_path.read_text(encoding="utf-8"))
+            boundary["controlled_loop_runner_stage_retry_plan"]["checksum"] = retry_plan_checksum
+            boundary["controlled_loop_runner_stage_retry_plan"]["status"] = "blocked"
+            boundary["checksums"]["controlled_loop_runner_stage_retry_plan"] = retry_plan_checksum
+            boundary["controlled_loop_runner_stage_retry_approval"]["checksum"] = retry_approval_checksum
+            boundary["checksums"]["controlled_loop_runner_stage_retry_approval"] = retry_approval_checksum
+            boundary_path.write_text(json.dumps(boundary), encoding="utf-8")
+
+            audit_before = audit_records(tmp)
+            stdout = StringIO()
+            with mock.patch("subprocess.run", side_effect=AssertionError("retry process must not start")):
+                with mock.patch(
+                    "codex_cadence.cli.append_audit_record",
+                    side_effect=AssertionError("pre-start validation must not append audit"),
+                ):
+                    with redirect_stdout(stdout):
+                        try:
+                            code = cadence_cli.main(
+                                self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)
+                            )
+                        except SystemExit as exc:
+                            code = exc.code
+
+            self.assertEqual(code, 2)
+            output = json.loads(stdout.getvalue())
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_retry_execution_status"], "blocked")
+            self.assertFalse(output["process_started"])
+            self.assertIn(
+                "controlled_runner_stage_retry_execution_retry_plan_not_planned",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_stage_retry_execute_boundary_blocks_repo_local_root_without_override(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_execute_chain(tmp, repo)
+            boundary = json.loads(json.dumps(chain["controlled_loop_runner_stage_retry_boundary"]))
+            repo_local_root = Path(repo) / "runtime"
+            repo_local_root.mkdir()
+            retry_boundary = boundary["stage_retry_boundary"]
+            retry_boundary["argv"][retry_boundary["argv"].index("--root") + 1] = str(repo_local_root.resolve())
+            retry_output = repo_local_root / "controlled-loop-runner-stage-retry-output-attempt-1.json"
+            retry_boundary["evidence_output_policy"]["output_file"] = str(retry_output.resolve())
+            boundary["files"]["stage_retry_output"] = str(retry_output.resolve())
+            updated_boundary_checksum = checksum_json(retry_boundary)
+            boundary["stage_retry_boundary_checksum"] = updated_boundary_checksum
+            boundary["checksums"]["stage_retry_boundary"] = updated_boundary_checksum
+            plan_stage = cadence_cli.controlled_loop_runner_stage_invocation_boundary_plan_stage(
+                chain["controlled_loop_runner_plan"],
+                1,
+            )
+
+            blockers = cadence_cli.controlled_loop_runner_stage_retry_execution_boundary_blockers(
+                boundary=boundary,
+                boundary_path=chain["controlled_loop_runner_stage_retry_boundary_path"],
+                retry_approval_path=chain["controlled_loop_runner_stage_retry_approval_evidence_path"],
+                retry_plan_path=chain["controlled_loop_runner_stage_retry_plan_path"],
+                outcome_plan_path=chain["controlled_loop_runner_stage_outcome_plan_path"],
+                closeout_path=chain["controlled_loop_runner_stage_closeout_path"],
+                execution_path=chain["controlled_loop_runner_stage_execution_path"],
+                start_path=chain["controlled_loop_runner_start_path"],
+                runner_plan_path=chain["controlled_loop_runner_plan_path"],
+                dry_run_path=chain["controlled_loop_runner_dry_run_path"],
+                continuation_path=None,
+                input_binding_path=None,
+                retry_approval_checksum=checksum_json(chain["controlled_loop_runner_stage_retry_approval_evidence"]),
+                retry_plan_checksum=checksum_json(chain["controlled_loop_runner_stage_retry_plan"]),
+                outcome_checksum=checksum_json(chain["controlled_loop_runner_stage_outcome_plan"]),
+                closeout_checksum=checksum_json(chain["controlled_loop_runner_stage_closeout"]),
+                execution_checksum=checksum_json(chain["controlled_loop_runner_stage_execution"]),
+                start_checksum=checksum_json(chain["controlled_loop_runner_start"]),
+                runner_plan_checksum=checksum_json(chain["controlled_loop_runner_plan"]),
+                dry_run_checksum=checksum_json(chain["controlled_loop_runner_dry_run"]),
+                continuation_checksum=None,
+                input_binding_checksum=None,
+                expected_input_binding_checksum=None,
+                expected_stage_retry_boundary_checksum=updated_boundary_checksum,
+                plan_stage=plan_stage,
+                command_context=None,
+                root=repo_local_root.resolve(),
+                allow_repo_local_root=False,
+                stage_number=1,
+                stage_selection_source="initial",
+            )
+
+            self.assertIn(
+                "controlled_runner_stage_retry_execution_runtime_root_unsafe",
+                {blocker["code"] for blocker in blockers},
+            )
+
+    def test_controlled_loop_runner_stage_retry_execute_blocks_existing_output_before_process_start(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_execute_chain(tmp, repo)
+            retry_boundary = chain["controlled_loop_runner_stage_retry_boundary"]["stage_retry_boundary"]
+            retry_output = Path(retry_boundary["evidence_output_policy"]["output_file"])
+            retry_output.write_text('{"already":"written"}\n', encoding="utf-8")
+            audit_before = audit_records(tmp)
+            stdout = StringIO()
+
+            with mock.patch("subprocess.run", side_effect=AssertionError("second retry process must not start")):
+                with mock.patch(
+                    "codex_cadence.cli.append_audit_record",
+                    side_effect=AssertionError("pre-start validation must not append audit"),
+                ):
+                    with redirect_stdout(stdout):
+                        try:
+                            code = cadence_cli.main(
+                                self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)
+                            )
+                        except SystemExit as exc:
+                            code = exc.code
+
+            self.assertEqual(code, 2)
+            output = json.loads(stdout.getvalue())
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_retry_execution_status"], "blocked")
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["stage_retry_started"])
+            self.assertFalse(output["retry_execution_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertIsNone(output["command_result"])
+            self.assertIn(
+                "controlled_runner_stage_retry_execution_output_file_already_exists",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_stage_retry_execute_structures_start_failure_without_audit(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_execute_chain(tmp, repo)
+            audit_before = audit_records(tmp)
+            stdout = StringIO()
+
+            with mock.patch("subprocess.run", side_effect=FileNotFoundError("missing command")):
+                with redirect_stdout(stdout):
+                    try:
+                        code = cadence_cli.main(
+                            self.controlled_loop_runner_stage_retry_execute_argv(tmp, chain)
+                        )
+                    except SystemExit as exc:
+                        code = exc.code
+
+            self.assertEqual(code, 2)
+            output = json.loads(stdout.getvalue())
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_retry_execution_status"], "blocked")
+            self.assertFalse(output["process_started"])
+            self.assertFalse(output["stage_retry_started"])
+            self.assertFalse(output["retry_execution_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertIsNone(output["command_result"])
+            self.assertIn(
+                "controlled_runner_stage_retry_execution_process_start_failed",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_controlled_loop_runner_stage_retry_execution_audit_replay_rejects_valid_status_mismatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checksum = "sha256:" + "0" * 64
+            append_audit_record(
+                Path(tmp),
+                {
+                    "event": "controlled_runner_stage_retry_execution",
+                    "action": "record_controlled_runner_stage_retry_execution",
+                    "reason": "mismatched retry audit status",
+                    "valid": True,
+                    "stage_number": 1,
+                    "stage_selection_source": "initial",
+                    "retry_attempt": 1,
+                    "stage_retry_execution_status": "blocked",
+                    "boundary_checksum": checksum,
+                    "stage_retry_boundary_checksum": checksum,
+                    "approval_checksum": checksum,
+                    "retry_plan_checksum": checksum,
+                    "source_stage_execution_checksum": checksum,
+                    "payload_checksum": checksum,
+                    "command_result_checksum": checksum,
+                    "stage_retry_output_file": str(Path(tmp) / "retry-output.json"),
+                    "timed_out": False,
+                    "returncode": 0,
+                },
+            )
+
+            replay_result, replay = run_cli(tmp, "audit-replay")
+
+            self.assertEqual(replay_result.returncode, 1, replay_result.stderr)
+            self.assertFalse(replay["valid"])
+            self.assertIn(
+                "audit_controlled_runner_stage_retry_execution_valid_status_mismatch",
+                {blocker["code"] for blocker in replay["blockers"]},
+            )
 
     def test_controlled_loop_runner_stage_outcome_plan_blocks_continuation_input_binding_checksum_mismatch(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
