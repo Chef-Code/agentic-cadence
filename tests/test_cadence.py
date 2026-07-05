@@ -8541,35 +8541,13 @@ class CadenceCliTests(unittest.TestCase):
                 chain["controlled_loop_runner_stage_input_binding"]
             ),
         }
-        code, closeout, audit_before, runtime_before = (
-            self.run_controlled_loop_runner_stage_retry_closeout_in_process(
-                tmp,
-                chain,
-                **continuation_kwargs,
-            )
+        self.write_successful_stage_retry_outcome_packets(
+            tmp,
+            chain,
+            closeout_filename="controlled-loop-runner-executor-readiness-retry-closeout.json",
+            outcome_filename="controlled-loop-runner-executor-readiness-retry-outcome-plan.json",
+            **continuation_kwargs,
         )
-        self.assertEqual(code, 0, closeout.get("blockers"))
-        self.assertEqual(audit_records(tmp), audit_before)
-        self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
-        closeout_path = Path(tmp) / "controlled-loop-runner-executor-readiness-retry-closeout.json"
-        closeout_path.write_text(json.dumps(closeout), encoding="utf-8")
-        chain["controlled_loop_runner_stage_retry_closeout_path"] = closeout_path
-        chain["controlled_loop_runner_stage_retry_closeout"] = closeout
-
-        code, outcome_plan, audit_before, runtime_before = (
-            self.run_controlled_loop_runner_stage_retry_outcome_plan_in_process(
-                tmp,
-                chain,
-                **continuation_kwargs,
-            )
-        )
-        self.assertEqual(code, 0, outcome_plan.get("blockers"))
-        self.assertEqual(audit_records(tmp), audit_before)
-        self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
-        outcome_plan_path = Path(tmp) / "controlled-loop-runner-executor-readiness-retry-outcome-plan.json"
-        outcome_plan_path.write_text(json.dumps(outcome_plan), encoding="utf-8")
-        chain["controlled_loop_runner_stage_retry_outcome_plan_path"] = outcome_plan_path
-        chain["controlled_loop_runner_stage_retry_outcome_plan"] = outcome_plan
 
         retry_execution = chain["controlled_loop_runner_stage_retry_execution"]
         execution_start = json.loads(retry_execution["command_result"]["stdout"])
@@ -10758,30 +10736,54 @@ class CadenceCliTests(unittest.TestCase):
         output = json.loads(raw_output) if raw_output.strip() else {}
         return code, output, audit_before, runtime_before
 
-    def write_successful_initial_stage_retry_outcome_chain(self, tmp, repo):
-        chain = self.write_controlled_loop_runner_stage_retry_closeout_chain(tmp, repo)
+    def write_successful_stage_retry_outcome_packets(
+        self,
+        tmp,
+        chain,
+        *,
+        closeout_filename,
+        outcome_filename,
+        **retry_kwargs,
+    ):
         code, retry_closeout, audit_before, runtime_before = (
-            self.run_controlled_loop_runner_stage_retry_closeout_in_process(tmp, chain)
+            self.run_controlled_loop_runner_stage_retry_closeout_in_process(
+                tmp,
+                chain,
+                **retry_kwargs,
+            )
         )
         self.assertEqual(code, 0, retry_closeout.get("blockers"))
         self.assertEqual(audit_records(tmp), audit_before)
         self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
-        retry_closeout_path = Path(tmp) / "controlled-loop-runner-stage-retry-closeout.json"
+        retry_closeout_path = Path(tmp) / closeout_filename
         retry_closeout_path.write_text(json.dumps(retry_closeout), encoding="utf-8")
         chain["controlled_loop_runner_stage_retry_closeout_path"] = retry_closeout_path
         chain["controlled_loop_runner_stage_retry_closeout"] = retry_closeout
 
         code, retry_outcome, audit_before, runtime_before = (
-            self.run_controlled_loop_runner_stage_retry_outcome_plan_in_process(tmp, chain)
+            self.run_controlled_loop_runner_stage_retry_outcome_plan_in_process(
+                tmp,
+                chain,
+                **retry_kwargs,
+            )
         )
         self.assertEqual(code, 0, retry_outcome.get("blockers"))
         self.assertEqual(audit_records(tmp), audit_before)
         self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
-        retry_outcome_path = Path(tmp) / "controlled-loop-runner-stage-retry-outcome-plan.json"
+        retry_outcome_path = Path(tmp) / outcome_filename
         retry_outcome_path.write_text(json.dumps(retry_outcome), encoding="utf-8")
         chain["controlled_loop_runner_stage_retry_outcome_plan_path"] = retry_outcome_path
         chain["controlled_loop_runner_stage_retry_outcome_plan"] = retry_outcome
         return chain
+
+    def write_successful_initial_stage_retry_outcome_chain(self, tmp, repo):
+        chain = self.write_controlled_loop_runner_stage_retry_closeout_chain(tmp, repo)
+        return self.write_successful_stage_retry_outcome_packets(
+            tmp,
+            chain,
+            closeout_filename="controlled-loop-runner-stage-retry-closeout.json",
+            outcome_filename="controlled-loop-runner-stage-retry-outcome-plan.json",
+        )
 
     def write_successful_continuation_stage_retry_outcome_chain(self, tmp, repo):
         chain = self.write_controlled_loop_runner_continuation_stage_retry_closeout_chain(tmp, repo)
@@ -10797,36 +10799,13 @@ class CadenceCliTests(unittest.TestCase):
                 chain["controlled_loop_runner_stage_input_binding"]
             ),
         }
-        code, retry_closeout, audit_before, runtime_before = (
-            self.run_controlled_loop_runner_stage_retry_closeout_in_process(
-                tmp,
-                chain,
-                **continuation_kwargs,
-            )
+        return self.write_successful_stage_retry_outcome_packets(
+            tmp,
+            chain,
+            closeout_filename="controlled-loop-runner-continuation-stage-retry-closeout.json",
+            outcome_filename="controlled-loop-runner-continuation-stage-retry-outcome-plan.json",
+            **continuation_kwargs,
         )
-        self.assertEqual(code, 0, retry_closeout.get("blockers"))
-        self.assertEqual(audit_records(tmp), audit_before)
-        self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
-        retry_closeout_path = Path(tmp) / "controlled-loop-runner-continuation-stage-retry-closeout.json"
-        retry_closeout_path.write_text(json.dumps(retry_closeout), encoding="utf-8")
-        chain["controlled_loop_runner_stage_retry_closeout_path"] = retry_closeout_path
-        chain["controlled_loop_runner_stage_retry_closeout"] = retry_closeout
-
-        code, retry_outcome, audit_before, runtime_before = (
-            self.run_controlled_loop_runner_stage_retry_outcome_plan_in_process(
-                tmp,
-                chain,
-                **continuation_kwargs,
-            )
-        )
-        self.assertEqual(code, 0, retry_outcome.get("blockers"))
-        self.assertEqual(audit_records(tmp), audit_before)
-        self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
-        retry_outcome_path = Path(tmp) / "controlled-loop-runner-continuation-stage-retry-outcome-plan.json"
-        retry_outcome_path.write_text(json.dumps(retry_outcome), encoding="utf-8")
-        chain["controlled_loop_runner_stage_retry_outcome_plan_path"] = retry_outcome_path
-        chain["controlled_loop_runner_stage_retry_outcome_plan"] = retry_outcome
-        return chain
 
     def refresh_retry_outcome_chain_after_retry_execution_update(self, chain, retry_execution):
         chain["controlled_loop_runner_stage_retry_execution"] = retry_execution
