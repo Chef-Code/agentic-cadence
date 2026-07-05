@@ -1245,6 +1245,19 @@ runner or loop, append audit evidence, start a process, invoke an executor,
 write Git/GitHub state, merge, release, publish packages, assign roles, or
 schedule agents.
 
+Successful retry outcome targets can now be consumed by the existing terminal
+runner consumers without adding execution authority. For completed non-final
+retries, pass `--controlled-loop-runner-stage-retry-outcome-plan-file`,
+`--expected-stage-retry-outcome-plan-checksum`,
+`--controlled-loop-runner-stage-retry-closeout-file`, and
+`--controlled-loop-runner-stage-retry-execution-file` to
+`controlled-loop-runner-next-stage-continuation`; the command rechecks the
+retry target and selects exactly the next stage without emitting readiness or
+executing it. For completed final retries, pass the same retry arguments to
+`controlled-loop-runner-completion`; it emits terminal completion evidence
+from the reviewed retry target. Failed and blocked retry outcomes remain
+inspection targets and still emit no second-retry plan.
+
 `controlled-loop-runner-executor-invocation-readiness` is the read-only
 handoff packet from a completed continuation `start-governed-execution` stage,
 or from a successful attempt-1 retry of that stage, into the existing real
@@ -1925,9 +1938,13 @@ reviewed retry invocation boundary for attempt `1` without starting it.
 `controlled-loop-runner-stage-retry-execute` can then consume that reviewed
 boundary, verify the boundary checksum and exact argv/cwd, execute exactly one
 approved retry subprocess, capture terminal evidence, and append one
-retry-execution audit record after process start. The retry plan, approval, and
-boundary packets remain read-only; retry execution still never selects the next
-stage, starts a second retry, continues the loop, or writes Git/GitHub state.
+retry-execution audit record after process start. Retry closeout/outcome
+planning can then classify the saved retry, and successful retry outcome
+targets can be consumed by the existing next-stage continuation or runner
+completion commands. The retry plan, approval, boundary, closeout, outcome
+consumption, and terminal completion packets remain read-only after saved
+execution evidence; they still never start a second retry, continue the loop,
+or write Git/GitHub state.
 
 After result evidence is written, `closeout-executor-result
 --real-invocation-file <runtime-root>/real-executor-invocations/<id>.json` can
