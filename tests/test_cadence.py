@@ -8674,6 +8674,29 @@ class CadenceCliTests(unittest.TestCase):
         output = json.loads(raw_output) if raw_output.strip() else {}
         return code, output, audit_before, runtime_before
 
+    def write_controlled_loop_runner_executor_invocation_readiness_packet(self, tmp, repo, **overrides):
+        chain = self.write_controlled_loop_runner_executor_invocation_readiness_chain(tmp, repo)
+        code, output, _audit_before, _runtime_before = (
+            self.run_controlled_loop_runner_executor_invocation_readiness_in_process(
+                tmp,
+                chain,
+                **overrides,
+            )
+        )
+        self.assertEqual(code, 0, output)
+        readiness_path = Path(tmp) / "controlled-loop-runner-executor-invocation-readiness.json"
+        readiness_path.write_text(json.dumps(output), encoding="utf-8")
+        chain["controlled_loop_runner_executor_invocation_readiness_path"] = readiness_path
+        chain["controlled_loop_runner_executor_invocation_readiness"] = output
+        target = output.get("executor_invocation_readiness_target") if isinstance(output, dict) else None
+        task_repo = chain["executor_task"].get("repo") if isinstance(chain.get("executor_task"), dict) else {}
+        task_head = task_repo.get("head") if isinstance(task_repo, dict) else None
+        if isinstance(target, dict) and isinstance(task_head, str) and current_head(repo) != task_head:
+            # Keep runner-bound consumption fixtures at the reviewed executor task head;
+            # separate drift tests cover clean HEAD advances after runner review.
+            git(repo, "reset", "--hard", task_head)
+        return chain
+
     def assert_controlled_loop_runner_executor_invocation_readiness_no_side_effects(self, output):
         for flag in self.CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_READINESS_NO_SIDE_EFFECT_FLAGS:
             self.assertFalse(output[flag], flag)
@@ -10575,7 +10598,7 @@ class CadenceCliTests(unittest.TestCase):
         marker.write_text("# TODO inspect controlled runner stage input marker\n", encoding="utf-8")
         git(repo, "add", "stage_input_notes.py")
         git(repo, "commit", "-m", "add stage input marker")
-        evidence_path = Path(tmp) / "stage-input-executor-result.json"
+        evidence_path = Path(tmp) / "executor-results" / "stage-input-executor-result.json"
 
         plan_result, plan = run_cli(
             tmp,
@@ -25857,6 +25880,488 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(json.loads(ownership_path.read_text(encoding="utf-8")), ownership_before)
             self.assertEqual(audit_records(tmp), [])
             self.assertEqual(current_head(repo), task_packet["repo"]["head"])
+
+    def test_executor_invocation_readiness_consumes_controlled_runner_target_without_active_ownership(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            status_result, _status = run_cli(tmp, "status")
+            self.assertEqual(status_result.returncode, 0, status_result.stderr)
+            chain = self.write_controlled_loop_runner_executor_invocation_readiness_packet(tmp, repo)
+            runner_readiness = chain["controlled_loop_runner_executor_invocation_readiness"]
+            runner_readiness_path = chain["controlled_loop_runner_executor_invocation_readiness_path"]
+            target = runner_readiness["executor_invocation_readiness_target"]
+            audit_before = audit_records(tmp)
+
+            result, output = run_cli(
+                tmp,
+                "executor-invocation-readiness",
+                "--cwd",
+                target["cwd"],
+                "--task-file",
+                target["task_file"],
+                "--epoch-id",
+                target["epoch_id"],
+                "--expected-result-path",
+                target["expected_result_path"],
+                "--controlled-loop-runner-executor-invocation-readiness-file",
+                str(runner_readiness_path),
+                "--expected-controlled-loop-runner-executor-invocation-readiness-checksum",
+                checksum_json(runner_readiness),
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertTrue(output["executor_invocation_ready"])
+            self.assertFalse(output["executor_started"])
+            self.assertEqual(output["recommended_next_action"], "invoke_real_executor")
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(output["ownership"], None)
+            self.assertEqual(output["blockers"], [])
+            runner_summary = output["controlled_runner_executor_invocation_readiness"]
+            self.assertEqual(runner_summary["file"], str(runner_readiness_path))
+            self.assertEqual(runner_summary["checksum"], checksum_json(runner_readiness))
+            self.assertEqual(
+                runner_summary["target_checksum"],
+                runner_readiness["executor_invocation_readiness_target_checksum"],
+            )
+            self.assertEqual(runner_summary["source"], target["source"])
+            self.assertEqual(runner_summary["execution_source"], target["execution_source"])
+            self.assertEqual(runner_summary["source_execution_checksum"], target["source_execution_checksum"])
+            self.assertEqual(output["task"]["checksum"], target["task_checksum"])
+            self.assertEqual(output["active_epoch"]["id"], target["epoch_id"])
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_executor_invocation_readiness_blocks_controlled_runner_target_checksum_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            status_result, _status = run_cli(tmp, "status")
+            self.assertEqual(status_result.returncode, 0, status_result.stderr)
+            chain = self.write_controlled_loop_runner_executor_invocation_readiness_packet(tmp, repo)
+            runner_readiness = chain["controlled_loop_runner_executor_invocation_readiness"]
+            target = runner_readiness["executor_invocation_readiness_target"]
+            audit_before = audit_records(tmp)
+
+            result, output = run_cli(
+                tmp,
+                "executor-invocation-readiness",
+                "--cwd",
+                target["cwd"],
+                "--task-file",
+                target["task_file"],
+                "--epoch-id",
+                target["epoch_id"],
+                "--expected-result-path",
+                target["expected_result_path"],
+                "--controlled-loop-runner-executor-invocation-readiness-file",
+                str(chain["controlled_loop_runner_executor_invocation_readiness_path"]),
+                "--expected-controlled-loop-runner-executor-invocation-readiness-checksum",
+                "sha256:" + "0" * 64,
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["executor_invocation_ready"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertIn(
+                "controlled_runner_executor_invocation_readiness_checksum_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_executor_invocation_readiness_blocks_controlled_runner_repo_head_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            status_result, _status = run_cli(tmp, "status")
+            self.assertEqual(status_result.returncode, 0, status_result.stderr)
+            chain = self.write_controlled_loop_runner_executor_invocation_readiness_packet(tmp, repo)
+            runner_readiness = chain["controlled_loop_runner_executor_invocation_readiness"]
+            target = runner_readiness["executor_invocation_readiness_target"]
+            (Path(repo) / "after-runner-readiness.txt").write_text("head drift\n", encoding="utf-8")
+            git(repo, "add", "after-runner-readiness.txt")
+            git(repo, "commit", "-m", "Advance head after runner readiness")
+            audit_before = audit_records(tmp)
+
+            result, output = run_cli(
+                tmp,
+                "executor-invocation-readiness",
+                "--cwd",
+                target["cwd"],
+                "--task-file",
+                target["task_file"],
+                "--epoch-id",
+                target["epoch_id"],
+                "--expected-result-path",
+                target["expected_result_path"],
+                "--controlled-loop-runner-executor-invocation-readiness-file",
+                str(chain["controlled_loop_runner_executor_invocation_readiness_path"]),
+                "--expected-controlled-loop-runner-executor-invocation-readiness-checksum",
+                checksum_json(runner_readiness),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertFalse(output["executor_invocation_ready"])
+            self.assertIn("repo_head_mismatch", {blocker["code"] for blocker in output["blockers"]})
+            self.assertEqual(audit_records(tmp), audit_before)
+
+    def test_executor_invocation_plan_binds_controlled_runner_readiness_target(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            status_result, _status = run_cli(tmp, "status")
+            self.assertEqual(status_result.returncode, 0, status_result.stderr)
+            chain = self.write_controlled_loop_runner_executor_invocation_readiness_packet(tmp, repo)
+            runner_readiness = chain["controlled_loop_runner_executor_invocation_readiness"]
+            target = runner_readiness["executor_invocation_readiness_target"]
+            relative_runner_readiness_path = chain[
+                "controlled_loop_runner_executor_invocation_readiness_path"
+            ].name
+
+            readiness_result, readiness = run_cli_from(
+                tmp,
+                tmp,
+                "executor-invocation-readiness",
+                "--cwd",
+                target["cwd"],
+                "--task-file",
+                target["task_file"],
+                "--epoch-id",
+                target["epoch_id"],
+                "--expected-result-path",
+                target["expected_result_path"],
+                "--controlled-loop-runner-executor-invocation-readiness-file",
+                relative_runner_readiness_path,
+                "--expected-controlled-loop-runner-executor-invocation-readiness-checksum",
+                checksum_json(runner_readiness),
+            )
+            self.assertEqual(readiness_result.returncode, 0, readiness_result.stderr)
+            self.assertTrue(
+                Path(readiness["controlled_runner_executor_invocation_readiness"]["file"]).is_absolute()
+            )
+            readiness_path = Path(tmp) / "runner-bound-executor-invocation-readiness.json"
+            readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
+
+            audit_seed = build_operator_approval_verification_packet(
+                approval=operator_approval_packet(),
+                approval_file=Path(tmp) / "seed-operator-approval.json",
+                expected_target_checksum=OPERATOR_APPROVAL_TARGET,
+                expected_purpose="start_governed_execution",
+                approval_secret=OPERATOR_APPROVAL_SECRET,
+            )
+            append_audit_record(Path(tmp), operator_approval_verification_audit_record(audit_seed))
+            audit_result, audit_replay = run_cli(tmp, "audit-replay")
+            self.assertEqual(audit_result.returncode, 0, audit_result.stderr)
+            self.assertTrue(audit_replay["valid"])
+
+            command = "python -m unittest tests.test_cadence"
+            adapter_path, adapter_packet = write_executor_invocation_adapter(
+                Path(tmp) / "executor-adapter.json",
+                command_template=command,
+            )
+            rollback_path, rollback_packet = write_executor_invocation_rollback(
+                Path(tmp) / "executor-rollback.json",
+                chain["executor_task"],
+            )
+            target_descriptor = executor_invocation_target_descriptor(
+                readiness_packet=readiness,
+                adapter_packet=adapter_packet,
+                rollback_packet=rollback_packet,
+                command=command,
+                cwd=target["cwd"],
+                expected_result_path=target["expected_result_path"],
+                environment_allowlist=["PATH", "PYTHONPATH"],
+                timeout_seconds=300,
+                audit_chain_head=audit_replay["chain_head"],
+            )
+            approval_path, _approval_packet = write_operator_approval(
+                Path(tmp) / "executor-invocation-approval.json",
+                target_checksum=checksum_json(target_descriptor),
+                purpose="real_executor_invocation",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "executor-invocation-plan",
+                "--cwd",
+                target["cwd"],
+                "--readiness-file",
+                str(readiness_path),
+                "--approval-file",
+                str(approval_path),
+                "--approval-secret",
+                OPERATOR_APPROVAL_SECRET,
+                "--adapter-file",
+                str(adapter_path),
+                "--rollback-file",
+                str(rollback_path),
+                "--command",
+                command,
+                "--env-allow",
+                "PATH",
+                "--env-allow",
+                "PYTHONPATH",
+                "--timeout-seconds",
+                "300",
+                "--expected-result-path",
+                target["expected_result_path"],
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output["valid"])
+            self.assertEqual(output["readiness"]["checksum"], checksum_json(readiness))
+            self.assertEqual(output["target"]["readiness_checksum"], checksum_json(readiness))
+            self.assertEqual(output["target_checksum"], checksum_json(target_descriptor))
+            self.assertEqual(
+                readiness["controlled_runner_executor_invocation_readiness"]["target_checksum"],
+                runner_readiness["executor_invocation_readiness_target_checksum"],
+            )
+
+    def test_executor_invocation_plan_blocks_controlled_runner_readiness_file_drift(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            status_result, _status = run_cli(tmp, "status")
+            self.assertEqual(status_result.returncode, 0, status_result.stderr)
+            chain = self.write_controlled_loop_runner_executor_invocation_readiness_packet(tmp, repo)
+            runner_readiness = chain["controlled_loop_runner_executor_invocation_readiness"]
+            target = runner_readiness["executor_invocation_readiness_target"]
+
+            readiness_result, readiness = run_cli(
+                tmp,
+                "executor-invocation-readiness",
+                "--cwd",
+                target["cwd"],
+                "--task-file",
+                target["task_file"],
+                "--epoch-id",
+                target["epoch_id"],
+                "--expected-result-path",
+                target["expected_result_path"],
+                "--controlled-loop-runner-executor-invocation-readiness-file",
+                str(chain["controlled_loop_runner_executor_invocation_readiness_path"]),
+                "--expected-controlled-loop-runner-executor-invocation-readiness-checksum",
+                checksum_json(runner_readiness),
+            )
+            self.assertEqual(readiness_result.returncode, 0, readiness_result.stderr)
+            readiness_path = Path(tmp) / "runner-bound-executor-invocation-readiness.json"
+            readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
+
+            tampered_runner_readiness = dict(runner_readiness)
+            tampered_runner_readiness["generated_at"] = "2099-01-01T00:00:00Z"
+            chain["controlled_loop_runner_executor_invocation_readiness_path"].write_text(
+                json.dumps(tampered_runner_readiness),
+                encoding="utf-8",
+            )
+
+            audit_seed = build_operator_approval_verification_packet(
+                approval=operator_approval_packet(),
+                approval_file=Path(tmp) / "seed-operator-approval.json",
+                expected_target_checksum=OPERATOR_APPROVAL_TARGET,
+                expected_purpose="start_governed_execution",
+                approval_secret=OPERATOR_APPROVAL_SECRET,
+            )
+            append_audit_record(Path(tmp), operator_approval_verification_audit_record(audit_seed))
+            audit_result, audit_replay = run_cli(tmp, "audit-replay")
+            self.assertEqual(audit_result.returncode, 0, audit_result.stderr)
+            self.assertTrue(audit_replay["valid"])
+
+            command = "python -m unittest tests.test_cadence"
+            adapter_path, adapter_packet = write_executor_invocation_adapter(
+                Path(tmp) / "executor-adapter.json",
+                command_template=command,
+            )
+            rollback_path, rollback_packet = write_executor_invocation_rollback(
+                Path(tmp) / "executor-rollback.json",
+                chain["executor_task"],
+            )
+            target_descriptor = executor_invocation_target_descriptor(
+                readiness_packet=readiness,
+                adapter_packet=adapter_packet,
+                rollback_packet=rollback_packet,
+                command=command,
+                cwd=target["cwd"],
+                expected_result_path=target["expected_result_path"],
+                environment_allowlist=["PATH", "PYTHONPATH"],
+                timeout_seconds=300,
+                audit_chain_head=audit_replay["chain_head"],
+            )
+            approval_path, _approval_packet = write_operator_approval(
+                Path(tmp) / "executor-invocation-approval.json",
+                target_checksum=checksum_json(target_descriptor),
+                purpose="real_executor_invocation",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "executor-invocation-plan",
+                "--cwd",
+                target["cwd"],
+                "--readiness-file",
+                str(readiness_path),
+                "--approval-file",
+                str(approval_path),
+                "--approval-secret",
+                OPERATOR_APPROVAL_SECRET,
+                "--adapter-file",
+                str(adapter_path),
+                "--rollback-file",
+                str(rollback_path),
+                "--command",
+                command,
+                "--env-allow",
+                "PATH",
+                "--env-allow",
+                "PYTHONPATH",
+                "--timeout-seconds",
+                "300",
+                "--expected-result-path",
+                target["expected_result_path"],
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_executor_invocation_readiness_checksum_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+
+    def test_executor_invocation_plan_revalidates_controlled_runner_readiness_authority(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            status_result, _status = run_cli(tmp, "status")
+            self.assertEqual(status_result.returncode, 0, status_result.stderr)
+            chain = self.write_controlled_loop_runner_executor_invocation_readiness_packet(tmp, repo)
+            runner_readiness = chain["controlled_loop_runner_executor_invocation_readiness"]
+            target = runner_readiness["executor_invocation_readiness_target"]
+
+            readiness_result, readiness = run_cli(
+                tmp,
+                "executor-invocation-readiness",
+                "--cwd",
+                target["cwd"],
+                "--task-file",
+                target["task_file"],
+                "--epoch-id",
+                target["epoch_id"],
+                "--expected-result-path",
+                target["expected_result_path"],
+                "--controlled-loop-runner-executor-invocation-readiness-file",
+                str(chain["controlled_loop_runner_executor_invocation_readiness_path"]),
+                "--expected-controlled-loop-runner-executor-invocation-readiness-checksum",
+                checksum_json(runner_readiness),
+            )
+            self.assertEqual(readiness_result.returncode, 0, readiness_result.stderr)
+
+            forged_runner_readiness = dict(runner_readiness)
+            forged_runner_readiness["read_only"] = False
+            forged_runner_readiness["side_effects"] = ["executor_started"]
+            forged_checksum = checksum_json(forged_runner_readiness)
+            chain["controlled_loop_runner_executor_invocation_readiness_path"].write_text(
+                json.dumps(forged_runner_readiness),
+                encoding="utf-8",
+            )
+            readiness["controlled_runner_executor_invocation_readiness"]["checksum"] = forged_checksum
+            readiness["controlled_runner_executor_invocation_readiness"]["expected_checksum"] = forged_checksum
+            readiness_path = Path(tmp) / "forged-runner-bound-executor-invocation-readiness.json"
+            readiness_path.write_text(json.dumps(readiness), encoding="utf-8")
+
+            audit_seed = build_operator_approval_verification_packet(
+                approval=operator_approval_packet(),
+                approval_file=Path(tmp) / "seed-operator-approval.json",
+                expected_target_checksum=OPERATOR_APPROVAL_TARGET,
+                expected_purpose="start_governed_execution",
+                approval_secret=OPERATOR_APPROVAL_SECRET,
+            )
+            append_audit_record(Path(tmp), operator_approval_verification_audit_record(audit_seed))
+            audit_result, audit_replay = run_cli(tmp, "audit-replay")
+            self.assertEqual(audit_result.returncode, 0, audit_result.stderr)
+            self.assertTrue(audit_replay["valid"])
+
+            command = "python -m unittest tests.test_cadence"
+            adapter_path, adapter_packet = write_executor_invocation_adapter(
+                Path(tmp) / "executor-adapter.json",
+                command_template=command,
+            )
+            rollback_path, rollback_packet = write_executor_invocation_rollback(
+                Path(tmp) / "executor-rollback.json",
+                chain["executor_task"],
+            )
+            target_descriptor = executor_invocation_target_descriptor(
+                readiness_packet=readiness,
+                adapter_packet=adapter_packet,
+                rollback_packet=rollback_packet,
+                command=command,
+                cwd=target["cwd"],
+                expected_result_path=target["expected_result_path"],
+                environment_allowlist=["PATH", "PYTHONPATH"],
+                timeout_seconds=300,
+                audit_chain_head=audit_replay["chain_head"],
+            )
+            approval_path, _approval_packet = write_operator_approval(
+                Path(tmp) / "executor-invocation-approval.json",
+                target_checksum=checksum_json(target_descriptor),
+                purpose="real_executor_invocation",
+            )
+            inputs = {
+                "readiness_path": readiness_path,
+                "approval_path": approval_path,
+                "adapter_path": adapter_path,
+                "rollback_path": rollback_path,
+                "command": command,
+                "timeout_seconds": 300,
+                "task_packet": chain["executor_task"],
+            }
+
+            result, output = self.run_executor_invocation_plan_cli(tmp, target["cwd"], inputs)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_executor_invocation_readiness_not_read_only",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
+
+    def test_executor_invocation_readiness_blocks_malformed_controlled_runner_target_paths(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            status_result, _status = run_cli(tmp, "status")
+            self.assertEqual(status_result.returncode, 0, status_result.stderr)
+            chain = self.write_controlled_loop_runner_executor_invocation_readiness_packet(tmp, repo)
+            runner_readiness = dict(chain["controlled_loop_runner_executor_invocation_readiness"])
+            target = dict(runner_readiness["executor_invocation_readiness_target"])
+            target["task_file"] = ["not", "a", "path"]
+            target_checksum = checksum_json(target)
+            runner_readiness["executor_invocation_readiness_target"] = target
+            runner_readiness["executor_invocation_readiness_target_checksum"] = target_checksum
+            runner_readiness["checksums"]["executor_invocation_readiness_target"] = target_checksum
+            chain["controlled_loop_runner_executor_invocation_readiness_path"].write_text(
+                json.dumps(runner_readiness),
+                encoding="utf-8",
+            )
+
+            result, output = run_cli(
+                tmp,
+                "executor-invocation-readiness",
+                "--cwd",
+                target["cwd"],
+                "--task-file",
+                chain["controlled_loop_runner_executor_invocation_readiness"][
+                    "executor_invocation_readiness_target"
+                ]["task_file"],
+                "--epoch-id",
+                target["epoch_id"],
+                "--expected-result-path",
+                target["expected_result_path"],
+                "--controlled-loop-runner-executor-invocation-readiness-file",
+                str(chain["controlled_loop_runner_executor_invocation_readiness_path"]),
+                "--expected-controlled-loop-runner-executor-invocation-readiness-checksum",
+                checksum_json(runner_readiness),
+            )
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertIn(
+                "controlled_runner_executor_invocation_readiness_task_file_mismatch",
+                {blocker["code"] for blocker in output["blockers"]},
+            )
 
     def test_executor_invocation_readiness_accepts_repo_subdirectory_cwd(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

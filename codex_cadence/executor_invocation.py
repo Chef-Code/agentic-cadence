@@ -27,6 +27,9 @@ from codex_cadence.store import atomic_write_json, brake_path, read_json, real_e
 
 EXECUTOR_INVOCATION_PLAN_SCHEMA_VERSION = "executor-invocation-plan.v1"
 EXECUTOR_INVOCATION_TARGET_SCHEMA_VERSION = "executor-invocation-target.v1"
+CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_READINESS_SCHEMA_VERSION = (
+    "controlled-loop-runner-executor-invocation-readiness.v1"
+)
 EXECUTOR_ADAPTER_SCHEMA_VERSION = "executor-adapter.v1"
 EXECUTOR_ROLLBACK_SCHEMA_VERSION = "executor-rollback.v1"
 REAL_EXECUTOR_INVOCATION_SCHEMA_VERSION = "real-executor-invocation.v1"
@@ -83,6 +86,15 @@ def _read_json_object(path: Path, *, code: str, label: str) -> tuple[dict[str, A
 
 def _normal_path(value: str | Path) -> str:
     return str(Path(value).expanduser().resolve(strict=False))
+
+
+def _paths_match(left: str | Path | None, right: str | Path | None) -> bool:
+    if left is None or right is None:
+        return left == right
+    try:
+        return _normal_path(left) == _normal_path(right)
+    except (OSError, RuntimeError, TypeError, ValueError):
+        return False
 
 
 def _non_empty_string(value: Any) -> bool:
@@ -494,11 +506,253 @@ def _active_epoch_blockers(
     return blockers
 
 
-def _ownership_blockers(root: Path, cwd: Path, readiness: dict[str, Any], task_packet: dict[str, Any]) -> list[dict[str, Any]]:
+def _controlled_runner_readiness_bridge_blockers(
+    readiness: dict[str, Any],
+    *,
+    task_packet: dict[str, Any],
+    task_checksum: str,
+    repository: dict[str, Any],
+    expected_result_path: str | Path,
+) -> tuple[bool, list[dict[str, Any]]]:
+    summary = (
+        readiness.get("controlled_runner_executor_invocation_readiness")
+        if isinstance(readiness.get("controlled_runner_executor_invocation_readiness"), dict)
+        else None
+    )
+    if summary is None:
+        return False, []
+    if summary.get("valid") is not True:
+        return False, [
+            plan_blocker(
+                "controlled_runner_executor_invocation_readiness_not_ready",
+                "controlled runner readiness summary is not ready",
+            )
+        ]
+    file_value = summary.get("file")
+    expected_checksum = summary.get("expected_checksum")
+    recorded_checksum = summary.get("checksum")
+    recorded_target_checksum = summary.get("target_checksum")
+    if not _non_empty_string(file_value):
+        return False, [
+            plan_blocker(
+                "controlled_runner_executor_invocation_readiness_unreadable",
+                "controlled runner readiness summary file is required",
+            )
+        ]
+    packet, blockers = _read_json_object(
+        Path(file_value),
+        code="controlled_runner_executor_invocation_readiness_unreadable",
+        label="controlled runner executor invocation readiness evidence",
+    )
+    if packet is None:
+        return False, blockers
+    actual_checksum = checksum_json(packet)
+    expected_values = {
+        "summary.checksum": recorded_checksum,
+        "summary.expected_checksum": expected_checksum,
+    }
+    mismatches = {
+        field: value
+        for field, value in expected_values.items()
+        if not _non_empty_string(value) or value != actual_checksum
+    }
+    if mismatches:
+        blockers.append(
+            plan_blocker(
+                "controlled_runner_executor_invocation_readiness_checksum_mismatch",
+                "controlled runner readiness file checksum does not match readiness summary",
+                expected=actual_checksum,
+                actual=mismatches,
+                path=file_value,
+            )
+        )
+    if (
+        packet.get("schema_version") != CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_READINESS_SCHEMA_VERSION
+        or packet.get("packet") != "controlled_loop_runner_executor_invocation_readiness"
+    ):
+        blockers.append(
+            plan_blocker(
+                "controlled_runner_executor_invocation_readiness_schema_invalid",
+                "controlled runner readiness evidence must be controlled-loop-runner-executor-invocation-readiness.v1",
+                path=file_value,
+            )
+        )
+    if packet.get("read_only") is not True or packet.get("side_effects") != []:
+        blockers.append(
+            plan_blocker(
+                "controlled_runner_executor_invocation_readiness_not_read_only",
+                "controlled runner readiness evidence must be read-only",
+                path=file_value,
+            )
+        )
+    if (
+        packet.get("valid") is not True
+        or packet.get("runner_executor_invocation_readiness_status") != "ready"
+        or packet.get("recommended_next_action") != "run_executor_invocation_readiness"
+    ):
+        blockers.append(
+            plan_blocker(
+                "controlled_runner_executor_invocation_readiness_not_ready",
+                "controlled runner readiness evidence is not ready for executor invocation planning",
+                path=file_value,
+            )
+        )
+    for flag in (
+        "executor_started",
+        "process_started",
+        "stage_execution_started",
+        "stage_retry_started",
+        "second_retry_started",
+        "epoch_started",
+        "github_write_started",
+        "merge_started",
+        "release_started",
+        "package_publication_started",
+        "role_assignment_started",
+        "agent_scheduling_started",
+        "loop_continuation_started",
+        "audit_evidence_appended",
+    ):
+        if packet.get(flag) is not False:
+            blockers.append(
+                plan_blocker(
+                    "controlled_runner_executor_invocation_readiness_authority_flags_invalid",
+                    f"controlled runner readiness flag {flag} must be false",
+                    flag=flag,
+                    actual=packet.get(flag),
+                    path=file_value,
+                )
+            )
+    target = packet.get("executor_invocation_readiness_target")
+    target_checksum = packet.get("executor_invocation_readiness_target_checksum")
+    if not isinstance(target, dict):
+        blockers.append(
+            plan_blocker(
+                "controlled_runner_executor_invocation_readiness_target_missing",
+                "controlled runner readiness target is required",
+                path=file_value,
+            )
+        )
+    else:
+        computed_target_checksum = checksum_json(target)
+        checksums = packet.get("checksums") if isinstance(packet.get("checksums"), dict) else {}
+        if (
+            target_checksum != computed_target_checksum
+            or recorded_target_checksum != computed_target_checksum
+            or checksums.get("executor_invocation_readiness_target") != computed_target_checksum
+        ):
+            blockers.append(
+                plan_blocker(
+                    "controlled_runner_executor_invocation_readiness_target_checksum_mismatch",
+                    "controlled runner readiness target checksum does not match readiness summary",
+                    expected=computed_target_checksum,
+                    actual={
+                        "packet.executor_invocation_readiness_target_checksum": target_checksum,
+                        "summary.target_checksum": recorded_target_checksum,
+                        "packet.checksums.executor_invocation_readiness_target": checksums.get(
+                            "executor_invocation_readiness_target"
+                        ),
+                    },
+                    path=file_value,
+                )
+            )
+        if target.get("purpose") != "executor_invocation_readiness":
+            blockers.append(
+                plan_blocker(
+                    "controlled_runner_executor_invocation_readiness_target_purpose_invalid",
+                    "controlled runner readiness target purpose must be executor_invocation_readiness",
+                    actual=target.get("purpose"),
+                    path=file_value,
+                )
+            )
+        if target.get("stage_number") != 2:
+            blockers.append(
+                plan_blocker(
+                    "controlled_runner_executor_invocation_readiness_stage_number_invalid",
+                    "controlled runner readiness target must be scoped to stage 2",
+                    actual=target.get("stage_number"),
+                    path=file_value,
+                )
+            )
+        if target.get("task_checksum") != task_checksum:
+            blockers.append(
+                plan_blocker(
+                    "controlled_runner_executor_invocation_readiness_task_checksum_mismatch",
+                    "controlled runner readiness target task checksum does not match readiness task",
+                    expected=task_checksum,
+                    actual=target.get("task_checksum"),
+                    path=file_value,
+                )
+            )
+        task_summary = readiness.get("task") if isinstance(readiness.get("task"), dict) else {}
+        if not _paths_match(target.get("task_file"), task_summary.get("file")):
+            blockers.append(
+                plan_blocker(
+                    "controlled_runner_executor_invocation_readiness_task_file_mismatch",
+                    "controlled runner readiness target task file does not match readiness task file",
+                    expected=task_summary.get("file"),
+                    actual=target.get("task_file"),
+                    path=file_value,
+                )
+            )
+        active_epoch = readiness.get("active_epoch") if isinstance(readiness.get("active_epoch"), dict) else {}
+        if target.get("epoch_id") != active_epoch.get("id"):
+            blockers.append(
+                plan_blocker(
+                    "controlled_runner_executor_invocation_readiness_epoch_mismatch",
+                    "controlled runner readiness target epoch does not match readiness active epoch",
+                    expected=active_epoch.get("id"),
+                    actual=target.get("epoch_id"),
+                    path=file_value,
+                )
+            )
+        if not _paths_match(target.get("expected_result_path"), expected_result_path):
+            blockers.append(
+                plan_blocker(
+                    "controlled_runner_executor_invocation_readiness_result_path_mismatch",
+                    "controlled runner readiness target result path does not match requested result path",
+                    expected=str(expected_result_path),
+                    actual=target.get("expected_result_path"),
+                    path=file_value,
+                )
+            )
+        if not _paths_match(target.get("cwd"), repository.get("cwd")):
+            blockers.append(
+                plan_blocker(
+                    "controlled_runner_executor_invocation_readiness_cwd_mismatch",
+                    "controlled runner readiness target cwd does not match current repository root",
+                    expected=repository.get("cwd"),
+                    actual=target.get("cwd"),
+                    path=file_value,
+                )
+            )
+        if packet.get("source_execution_checksum") != target.get("source_execution_checksum"):
+            blockers.append(
+                plan_blocker(
+                    "controlled_runner_executor_invocation_readiness_source_checksum_mismatch",
+                    "controlled runner readiness source execution checksum does not match target",
+                    expected=target.get("source_execution_checksum"),
+                    actual=packet.get("source_execution_checksum"),
+                    path=file_value,
+                )
+            )
+    return not blockers, blockers
+
+
+def _ownership_blockers(
+    root: Path,
+    cwd: Path,
+    readiness: dict[str, Any],
+    task_packet: dict[str, Any],
+    *,
+    controlled_runner_readiness_bridge_valid: bool,
+) -> list[dict[str, Any]]:
     task = task_packet.get("task") if isinstance(task_packet.get("task"), dict) else {}
     repo = task_packet.get("repo") if isinstance(task_packet.get("repo"), dict) else {}
     active_epoch = readiness.get("active_epoch") if isinstance(readiness.get("active_epoch"), dict) else {}
     ownership = readiness.get("ownership") if isinstance(readiness.get("ownership"), dict) else {}
+    if controlled_runner_readiness_bridge_valid:
+        return []
     target = ownership.get("id") or ownership.get("path")
     if not _non_empty_string(target):
         return [plan_blocker("ownership_record_missing", "readiness ownership evidence target is required")]
@@ -593,6 +847,7 @@ def build_executor_invocation_plan(
     task_checksum: str | None = None
     approval_packet: Any | None = None
     approval_result: dict[str, Any] | None = None
+    controlled_runner_readiness_bridge_valid = False
 
     if readiness is not None:
         blockers.extend(_readiness_blockers(readiness, now=checked_at))
@@ -602,8 +857,26 @@ def build_executor_invocation_plan(
         blockers.extend(repo_blockers)
         blockers.extend(_brake_blockers(root))
         if task_packet is not None and task_checksum is not None:
+            controlled_runner_readiness_bridge_valid, runner_bridge_blockers = (
+                _controlled_runner_readiness_bridge_blockers(
+                    readiness,
+                    task_packet=task_packet,
+                    task_checksum=task_checksum,
+                    repository=repository,
+                    expected_result_path=expected_result_path,
+                )
+            )
+            blockers.extend(runner_bridge_blockers)
             blockers.extend(_active_epoch_blockers(root, readiness, task_packet, task_checksum))
-            blockers.extend(_ownership_blockers(root, Path(cwd), readiness, task_packet))
+            blockers.extend(
+                _ownership_blockers(
+                    root,
+                    Path(cwd),
+                    readiness,
+                    task_packet,
+                    controlled_runner_readiness_bridge_valid=controlled_runner_readiness_bridge_valid,
+                )
+            )
             blockers.extend(_result_path_blockers(root, expected_result_path, task_packet))
             blockers.extend(_command_blockers(command, task_packet))
 
