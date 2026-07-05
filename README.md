@@ -183,8 +183,10 @@ evidence can consume reviewed runner executor-invocation readiness plus a
 runner-bound `executor-invocation-plan.v1`, recheck both checksums and the
 readiness bridge, then start exactly one approved real executor process through
 the existing `invoke-real-executor` path while still not retrying, selecting
-another stage, continuing the loop, writing Git/GitHub state, assigning roles,
-or scheduling agents.
+another stage, continuing the loop, performing Cadence-owned Git/GitHub writes
+outside the approved executor process, assigning roles, or scheduling agents.
+The approved executor command remains governed by command policy, disabled
+permission gates, branch/head/ref drift checks, and side-effect mode.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -1319,8 +1321,15 @@ before delegating to `invoke-real-executor`; stable pre-start blockers include
 `executor_invocation_plan_checksum_mismatch`,
 `executor_invocation_plan_readiness_checksum_mismatch`, and
 `executor_invocation_plan_target_readiness_checksum_mismatch`. It does not
-retry, select another runner stage, continue the loop, write Git/GitHub state,
-assign roles, or schedule agents.
+retry, select another runner stage, continue the loop, perform Cadence-owned
+Git/GitHub writes outside the approved executor process, assign roles, or
+schedule agents. The approved executor command remains governed by command
+policy, disabled permission gates, branch/head/ref drift checks, and
+side-effect mode. The packet limitation tokens include
+`does_not_perform_cadence_owned_git_or_github_writes`,
+`does_not_call_github_outside_approved_executor_command`,
+`approved_executor_command_governed_by_command_policy`, and
+`branch_head_ref_drift_blocked_after_executor_invocation`.
 
 `controlled-loop-runner-completion` consumes the reviewed final-stage
 outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,

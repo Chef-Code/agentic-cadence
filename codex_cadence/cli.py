@@ -10430,9 +10430,10 @@ CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_LIMITATIONS = [
     "does_not_start_second_retry",
     "does_not_select_next_stage",
     "does_not_continue_loop",
-    "does_not_write_git_or_github_state",
-    "does_not_execute_git_commands",
-    "does_not_call_github",
+    "does_not_perform_cadence_owned_git_or_github_writes",
+    "does_not_call_github_outside_approved_executor_command",
+    "approved_executor_command_governed_by_command_policy",
+    "branch_head_ref_drift_blocked_after_executor_invocation",
     "does_not_create_branch",
     "does_not_commit",
     "does_not_push",
@@ -37259,7 +37260,8 @@ def executor_invocation_plan_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 2
 
 
-def _record_real_executor_invocation_audit(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
+def _record_real_executor_invocation_audit(root: Path, payload: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    audit_appended = False
     record_file = payload.get("record_file") if isinstance(payload, dict) else None
     if isinstance(record_file, str) and record_file.strip():
         try:
@@ -37272,6 +37274,7 @@ def _record_real_executor_invocation_audit(root: Path, payload: dict[str, Any]) 
                     reason="real executor invocation record written",
                 ),
             )
+            audit_appended = True
         except Exception as exc:
             payload = dict(payload)
             payload["valid"] = False
@@ -37309,9 +37312,10 @@ def _record_real_executor_invocation_audit(root: Path, payload: dict[str, Any]) 
                             reason="real executor invocation blocked due to audit write failure",
                         ),
                     )
+                    audit_appended = True
                 except Exception as blocked_audit_exc:
                     payload["audit_record_error"] = str(blocked_audit_exc)
-    return payload
+    return payload, audit_appended
 
 
 def invoke_real_executor_command(args: argparse.Namespace) -> int:
@@ -37323,7 +37327,7 @@ def invoke_real_executor_command(args: argparse.Namespace) -> int:
         allow_repo_local_root=args.allow_repo_local_root,
         max_plan_age_seconds=args.max_plan_age_minutes * 60,
     )
-    payload = _record_real_executor_invocation_audit(args.root, payload)
+    payload, _audit_appended = _record_real_executor_invocation_audit(args.root, payload)
     emit(payload)
     return 0 if payload["valid"] else 2
 
@@ -37668,6 +37672,7 @@ def controlled_loop_runner_executor_invocation_payload(
     plan_checksum: str | None,
     blockers: list[dict[str, Any]],
     real_invocation: dict[str, Any] | None = None,
+    real_invocation_audit_appended: bool = False,
 ) -> dict[str, Any]:
     real_blockers = (
         [blocker for blocker in real_invocation.get("blockers", []) if isinstance(blocker, dict)]
@@ -37737,12 +37742,7 @@ def controlled_loop_runner_executor_invocation_payload(
         "role_assignment_started": False,
         "agent_scheduling_started": False,
         "loop_continuation_started": False,
-        "audit_evidence_appended": bool(
-            valid
-            and isinstance(real_invocation, dict)
-            and isinstance(record_file, str)
-            and record_file.strip()
-        ),
+        "audit_evidence_appended": bool(real_invocation_audit_appended),
         "operator_confirmation_required": False,
         "side_effect_mode": real_invocation.get("side_effect_mode") if isinstance(real_invocation, dict) else None,
         "side_effects": side_effects,
@@ -37790,7 +37790,8 @@ def controlled_loop_runner_executor_invocation_payload(
             "does_not_start_second_retry",
             "does_not_select_next_stage",
             "does_not_continue_loop",
-            "does_not_write_git_or_github_state",
+            "does_not_perform_cadence_owned_git_or_github_writes",
+            "does_not_call_github_outside_approved_executor_command",
             "does_not_assign_roles",
             "does_not_schedule_agents",
         ],
@@ -37811,6 +37812,7 @@ def controlled_loop_runner_executor_invocation_command(args: argparse.Namespace)
         )
     )
     real_invocation: dict[str, Any] | None = None
+    real_invocation_audit_appended = False
     if not blockers:
         real_invocation = invoke_real_executor(
             root=args.root,
@@ -37820,7 +37822,10 @@ def controlled_loop_runner_executor_invocation_command(args: argparse.Namespace)
             allow_repo_local_root=args.allow_repo_local_root,
             max_plan_age_seconds=args.max_plan_age_minutes * 60,
         )
-        real_invocation = _record_real_executor_invocation_audit(args.root, real_invocation)
+        real_invocation, real_invocation_audit_appended = _record_real_executor_invocation_audit(
+            args.root,
+            real_invocation,
+        )
     payload = controlled_loop_runner_executor_invocation_payload(
         runner_readiness_file=runner_readiness_file,
         expected_runner_readiness_checksum=(
@@ -37834,6 +37839,7 @@ def controlled_loop_runner_executor_invocation_command(args: argparse.Namespace)
         plan_checksum=plan_checksum,
         blockers=blockers,
         real_invocation=real_invocation,
+        real_invocation_audit_appended=real_invocation_audit_appended,
     )
     emit(payload)
     return 0 if payload["valid"] else 2

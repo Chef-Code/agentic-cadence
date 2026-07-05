@@ -2,6 +2,7 @@ import hashlib
 import hmac
 import json
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -8697,7 +8698,7 @@ class CadenceCliTests(unittest.TestCase):
             git(repo, "reset", "--hard", task_head)
         return chain
 
-    def write_runner_bound_executor_invocation_plan(self, tmp, repo):
+    def write_runner_bound_executor_invocation_plan(self, tmp, repo, *, write_result=True):
         chain = self.write_controlled_loop_runner_executor_invocation_readiness_packet(tmp, repo)
         runner_readiness = chain["controlled_loop_runner_executor_invocation_readiness"]
         runner_readiness_path = chain["controlled_loop_runner_executor_invocation_readiness_path"]
@@ -8752,7 +8753,7 @@ class CadenceCliTests(unittest.TestCase):
             "status": "succeeded",
             "task_id": chain["executor_task"]["task"]["id"],
             "touch_repo": False,
-            "write_result": True,
+            "write_result": write_result,
         }
         config_path.write_text(json.dumps(config), encoding="utf-8")
         adapter_path, adapter_packet = write_executor_invocation_adapter(
@@ -26555,6 +26556,12 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["recommended_next_action"], "bind_real_executor_closeout")
             self.assertEqual(output["next_controlled_action"], "closeout_executor_result")
             self.assertEqual(output["blockers"], [])
+            self.assertIn(
+                "does_not_perform_cadence_owned_git_or_github_writes",
+                output["limitations"],
+            )
+            self.assertNotIn("does_not_execute_git_commands", output["limitations"])
+            self.assertNotIn("does_not_call_github", output["limitations"])
             self.assertEqual(
                 output["controlled_loop_runner_executor_invocation_readiness"]["file"],
                 str(chain["controlled_loop_runner_executor_invocation_readiness_path"]),
@@ -26585,7 +26592,62 @@ class CadenceCliTests(unittest.TestCase):
             records = audit_records(tmp)
             self.assertEqual(len(records), len(audit_before) + 1)
             self.assertEqual(records[-1]["event"], "real_executor_invocation_record")
+            self.assertEqual(records[-1]["action"], "record_real_executor_invocation")
             self.assertEqual(records[-1]["invocation_id"], real_invocation["invocation_id"])
+            self.assertEqual(records[-1]["invocation_record_file"], str(real_invocation_path))
+            self.assertEqual(records[-1]["invocation_record_checksum"], checksum_json(real_invocation))
+            self.assertEqual(records[-1]["result_evidence_checksum"], real_invocation["result_evidence_checksum"])
+            replay_result, replay_output = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay_output["valid"])
+
+    def test_controlled_loop_runner_executor_invocation_runs_executor_process_once(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            import codex_cadence.cli as cadence_cli
+
+            init_committed_repo(repo)
+            chain = self.write_runner_bound_executor_invocation_plan(tmp, repo)
+            plan = chain["runner_bound_executor_invocation_plan"]
+            expected_argv = shlex.split(plan["command"]["command"], posix=True)
+            stdout = StringIO()
+            real_subprocess_run = cadence_cli.subprocess.run
+            executor_invocations = []
+
+            def counted_run(*args, **kwargs):
+                argv = args[0] if args else kwargs.get("args")
+                if argv == expected_argv:
+                    executor_invocations.append(argv)
+                return real_subprocess_run(*args, **kwargs)
+
+            with mock.patch.object(cadence_cli.subprocess, "run", side_effect=counted_run):
+                with redirect_stdout(stdout):
+                    try:
+                        code = cadence_cli.main(
+                            [
+                                "--root",
+                                str(tmp),
+                                "controlled-loop-runner-executor-invocation",
+                                "--controlled-loop-runner-executor-invocation-readiness-file",
+                                str(chain["controlled_loop_runner_executor_invocation_readiness_path"]),
+                                "--expected-controlled-loop-runner-executor-invocation-readiness-checksum",
+                                checksum_json(chain["controlled_loop_runner_executor_invocation_readiness"]),
+                                "--executor-invocation-plan-file",
+                                str(chain["runner_bound_executor_invocation_plan_path"]),
+                                "--expected-executor-invocation-plan-checksum",
+                                checksum_json(chain["runner_bound_executor_invocation_plan"]),
+                                "--side-effect-mode",
+                                "evidence_only",
+                                "--approval-secret",
+                                OPERATOR_APPROVAL_SECRET,
+                            ]
+                        )
+                    except SystemExit as exc:
+                        code = exc.code
+
+            output = json.loads(stdout.getvalue())
+            self.assertEqual(code, 0)
+            self.assertTrue(output["valid"], output["blockers"])
+            self.assertEqual(len(executor_invocations), 1)
 
     def test_controlled_loop_runner_executor_invocation_blocks_plan_checksum_drift_before_start(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
@@ -26613,35 +26675,19 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
-    def test_controlled_loop_runner_executor_invocation_blocks_forged_readiness_bridge_before_start(self):
+    def test_controlled_loop_runner_executor_invocation_blocks_runner_readiness_checksum_drift_before_start(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
             chain = self.write_runner_bound_executor_invocation_plan(tmp, repo)
-            readiness = json.loads(
-                chain["runner_bound_executor_invocation_readiness_path"].read_text(encoding="utf-8")
-            )
-            readiness["controlled_runner_executor_invocation_readiness"]["checksum"] = (
-                "sha256:" + "0" * 64
-            )
-            chain["runner_bound_executor_invocation_readiness_path"].write_text(
-                json.dumps(readiness),
-                encoding="utf-8",
-            )
-            plan = dict(chain["runner_bound_executor_invocation_plan"])
-            forged_readiness_checksum = checksum_json(readiness)
-            plan["readiness"]["checksum"] = forged_readiness_checksum
-            plan["target"]["readiness_checksum"] = forged_readiness_checksum
-            chain["runner_bound_executor_invocation_plan_path"].write_text(
-                json.dumps(plan),
-                encoding="utf-8",
-            )
             audit_before = audit_records(tmp)
             runtime_before = runtime_tree_manifest(tmp)
 
             result, output = self.run_controlled_loop_runner_executor_invocation_cli(
                 tmp,
                 chain,
-                expected_executor_invocation_plan_checksum=checksum_json(plan),
+                expected_controlled_loop_runner_executor_invocation_readiness_checksum=(
+                    "sha256:" + "0" * 64
+                ),
             )
 
             self.assertEqual(result.returncode, 2, result.stderr)
@@ -26650,11 +26696,106 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["process_started"])
             self.assertEqual(output["side_effects"], [])
             self.assertIn(
-                "executor_invocation_plan_not_runner_bound",
+                "controlled_runner_executor_invocation_readiness_checksum_mismatch",
                 {blocker["code"] for blocker in output["blockers"]},
             )
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_executor_invocation_blocks_forged_readiness_bridge_before_start(self):
+        cases = [
+            (
+                "file",
+                lambda bridge: bridge.update({"file": str(Path("not-the-runner-readiness.json"))}),
+            ),
+            (
+                "checksum",
+                lambda bridge: bridge.update({"checksum": "sha256:" + "0" * 64}),
+            ),
+            (
+                "expected_checksum",
+                lambda bridge: bridge.update({"expected_checksum": "sha256:" + "1" * 64}),
+            ),
+            (
+                "target_checksum",
+                lambda bridge: bridge.update({"target_checksum": "sha256:" + "2" * 64}),
+            ),
+            ("valid", lambda bridge: bridge.update({"valid": False})),
+            ("status", lambda bridge: bridge.update({"status": "blocked"})),
+        ]
+        for name, mutate_bridge in cases:
+            with self.subTest(name=name):
+                with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+                    init_committed_repo(repo)
+                    chain = self.write_runner_bound_executor_invocation_plan(tmp, repo)
+                    readiness = json.loads(
+                        chain["runner_bound_executor_invocation_readiness_path"].read_text(encoding="utf-8")
+                    )
+                    mutate_bridge(readiness["controlled_runner_executor_invocation_readiness"])
+                    chain["runner_bound_executor_invocation_readiness_path"].write_text(
+                        json.dumps(readiness),
+                        encoding="utf-8",
+                    )
+                    plan = dict(chain["runner_bound_executor_invocation_plan"])
+                    forged_readiness_checksum = checksum_json(readiness)
+                    plan["readiness"]["checksum"] = forged_readiness_checksum
+                    plan["target"]["readiness_checksum"] = forged_readiness_checksum
+                    chain["runner_bound_executor_invocation_plan_path"].write_text(
+                        json.dumps(plan),
+                        encoding="utf-8",
+                    )
+                    audit_before = audit_records(tmp)
+                    runtime_before = runtime_tree_manifest(tmp)
+
+                    result, output = self.run_controlled_loop_runner_executor_invocation_cli(
+                        tmp,
+                        chain,
+                        expected_executor_invocation_plan_checksum=checksum_json(plan),
+                    )
+
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertFalse(output["valid"])
+                    self.assertFalse(output["executor_started"])
+                    self.assertFalse(output["process_started"])
+                    self.assertEqual(output["side_effects"], [])
+                    self.assertIn(
+                        "executor_invocation_plan_not_runner_bound",
+                        {blocker["code"] for blocker in output["blockers"]},
+                    )
+                    self.assertEqual(audit_records(tmp), audit_before)
+                    self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_executor_invocation_records_audit_for_invalid_post_start_invocation(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_runner_bound_executor_invocation_plan(tmp, repo, write_result=False)
+            audit_before = audit_records(tmp)
+
+            result, output = self.run_controlled_loop_runner_executor_invocation_cli(tmp, chain)
+
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse(output["valid"])
+            self.assertTrue(output["executor_started"])
+            self.assertTrue(output["process_started"])
+            self.assertTrue(output["audit_evidence_appended"])
+            self.assertIn("executor_result_missing", {blocker["code"] for blocker in output["blockers"]})
+            real_invocation_path = Path(output["real_executor_invocation"]["file"])
+            real_invocation = json.loads(real_invocation_path.read_text(encoding="utf-8"))
+            self.assertFalse(real_invocation["valid"])
+            self.assertTrue(real_invocation["executor_started"])
+            self.assertIn(
+                "executor_result_missing",
+                {blocker["code"] for blocker in real_invocation["blockers"]},
+            )
+            records = audit_records(tmp)
+            self.assertEqual(len(records), len(audit_before) + 1)
+            self.assertEqual(records[-1]["event"], "real_executor_invocation_record")
+            self.assertEqual(records[-1]["action"], "record_real_executor_invocation")
+            self.assertEqual(records[-1]["invocation_id"], real_invocation["invocation_id"])
+            self.assertEqual(records[-1]["invocation_record_checksum"], checksum_json(real_invocation))
+            replay_result, replay_output = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay_output["valid"])
 
     def test_executor_invocation_readiness_accepts_repo_subdirectory_cwd(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:

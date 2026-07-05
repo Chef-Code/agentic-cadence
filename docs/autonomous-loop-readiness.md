@@ -266,7 +266,7 @@ Agentic Cadence cannot currently:
 | Handoff lifecycle | Implemented | `codex_cadence/handoff_loop.py`, `codex_cadence/cli.py` |
 | PR body/readiness checks | Implemented from saved inputs | `codex_cadence/pr_readiness.py` |
 | Elected Codex Review workflow | Implemented in GitHub Actions | `.github/workflows/codex-review.yml` |
-| Single loop tick | Partial, controlled local evidence | The local chain can plan a tick, start and close a governed epoch, compose controlled one-cycle runner evidence, execute one approved runner stage or one approved retry, bind continuation stage-2 `start-governed-execution` input evidence, consume successful retry outcomes into continuation/completion targets, feed reviewed runner executor-invocation readiness into the existing readiness/plan path, and `controlled-loop-runner-executor-invocation` can now start exactly one approved real executor process from that runner-bound plan. It still cannot start a second retry, consume failed/blocked retry inspection targets into a live inspection workflow, continue the loop autonomously, execute Git commands, call GitHub, create branches, commit, push, create PRs, merge, release, publish packages, assign roles, or schedule agents. |
+| Single loop tick | Partial, controlled local evidence | The local chain can plan a tick, start and close a governed epoch, compose controlled one-cycle runner evidence, execute one approved runner stage or one approved retry, bind continuation stage-2 `start-governed-execution` input evidence, consume successful retry outcomes into continuation/completion targets, feed reviewed runner executor-invocation readiness into the existing readiness/plan path, and `controlled-loop-runner-executor-invocation` can now start exactly one approved real executor process from that runner-bound plan. It still cannot start a second retry, consume failed/blocked retry inspection targets into a live inspection workflow, continue the loop autonomously, perform Cadence-owned Git/GitHub writes outside the approved executor process, merge, release, publish packages, assign roles, or schedule agents. The approved executor command remains governed by command policy, disabled permission gates, branch/head/ref drift checks, and side-effect mode. |
 | Local policy/audit controls | Partial | `loop-tick --policy-file`, task command policy, task-carried branch policy, active brake stop handling, governed execution-start audit, local `execution-run.v1` records, `<root>/audit/events.jsonl`, hash-chained new audit appends, read-only `audit-replay`, audited `operator-approval.v1` verification through `verify-operator-approval`, success-only `controlled_loop_tick`, and success-only `controlled_pr_cycle` audit evidence; no external identity provider or autonomous GitHub authority |
 | Agent-team orchestration | Partial read-only evidence | `role-readiness` can verify local `role-policy.v1`, scoped ownership role labels, and saved review-thread separation evidence; no agent pool, role assignment, role registry, or GitHub-native assignment workflow |
 | Continuous loop runner | Not built | Planned slice |
@@ -303,7 +303,10 @@ executor-invocation readiness plus a runner-bound `executor-invocation-plan.v1`,
 recheck both reviewed checksums and the readiness bridge, and start exactly
 one approved real executor process through the existing `invoke-real-executor`
 path. This still does not retry, select another stage, continue the runner or
-loop, write Git/GitHub state, assign roles, or schedule agents.
+loop, perform Cadence-owned Git/GitHub writes outside the approved executor
+process, assign roles, or schedule agents. The approved executor command
+remains governed by command policy, disabled permission gates, branch/head/ref
+drift checks, and side-effect mode.
 
 ## Can It Run The Full Loop Today?
 

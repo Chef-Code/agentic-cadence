@@ -3550,11 +3550,13 @@ record and stdout/stderr logs through the existing invocation path, and appends
 the existing `real_executor_invocation_record` audit evidence.
 
 This command does not retry the executor, start a second retry, execute another
-runner stage, select another stage, continue the runner or loop, execute Git
-commands, call GitHub APIs, create branches, commit, push, create PRs, merge,
-release, publish packages, assign roles, or schedule agents. Closeout remains
-deferred to `closeout-executor-result` with the recorded
-`real-executor-invocation.v1` file.
+runner stage, select another stage, continue the runner or loop, perform
+Cadence-owned Git/GitHub writes outside the approved executor process, merge,
+release, publish packages, assign roles, or schedule agents. The approved
+executor command remains governed by command policy, disabled permission gates,
+branch/head/ref drift checks, and side-effect mode. Closeout remains deferred
+to `closeout-executor-result` with the recorded `real-executor-invocation.v1`
+file.
 
 Stable blockers include
 `controlled_runner_executor_invocation_readiness_retry_evidence_incomplete`,

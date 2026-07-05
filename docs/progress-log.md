@@ -46,8 +46,11 @@ Summary:
   result-path, and runtime-root gates run immediately before process start.
 - The slice starts exactly one approved real executor process and records the
   existing `real-executor-invocation.v1` evidence, but it still does not retry,
-  select another stage, continue the loop, write Git/GitHub state, assign
-  roles, or schedule agents.
+  select another stage, continue the loop, perform Cadence-owned Git/GitHub
+  writes outside the approved executor process, assign roles, or schedule
+  agents. The approved executor command remains governed by command policy,
+  disabled permission gates, branch/head/ref drift checks, and side-effect
+  mode.
 
 Completed slices:
 - Task 78: runner-launched controlled executor invocation.
