@@ -3532,13 +3532,20 @@ outcome packet to be valid, read-only
 `stage_retry_closeout_status: completed`, no second retry target, and a
 `retry_outcome_target` whose purpose is
 `controlled_loop_runner_completion`. It rechecks retry closeout/execution
-checksums, original source outcome/closeout/execution checksums, runner-start,
-runner-plan, and dry-run checksums before emitting the existing
-`controlled-loop-runner-completion.v1` packet. Retry execution evidence may
-record a prior `epoch_started` effect from an approved
-`start-governed-execution` retry, but completion itself remains read-only and
-starts no process, executor, retry, epoch, loop continuation, Git/GitHub write,
-merge, release, publication, role assignment, or scheduler action.
+checksums, the reviewed source outcome checksum, original source
+outcome/closeout/execution checksums, runner-start, runner-plan, and dry-run
+checksums before emitting the existing `controlled-loop-runner-completion.v1`
+packet. The retry outcome, closeout, execution, and retry target must all
+report `retry_attempt: 1`; the target must report a completed retry closeout,
+the completed/closed-out stage, no next stage, and false second-retry flags.
+For continuation-sourced retry completion, it also rereads the saved
+continuation and stage-input-binding files from the source execution anchors
+and rechecks their checksums across source execution, closeout, and outcome
+evidence. Retry execution evidence may record a prior `epoch_started` effect
+from an approved `start-governed-execution` retry, but completion itself
+remains read-only and starts no process, executor, retry, epoch, loop
+continuation, Git/GitHub write, merge, release, publication, role assignment,
+or scheduler action.
 
 A valid packet emits `controlled-loop-runner-completion.v1` with
 `packet: controlled_loop_runner_completion`, `read_only: true`,
@@ -3594,6 +3601,11 @@ Stable blockers include `controlled_runner_completion_outcome_evidence_missing`,
 `controlled_runner_completion_stage_missing_from_runner_plan`,
 `controlled_runner_completion_selected_stage_plan_mismatch`,
 `controlled_runner_completion_execution_selected_stage_plan_mismatch`,
+`controlled_runner_completion_retry_evidence_incomplete`,
+`controlled_runner_completion_retry_attempt_mismatch`,
+`controlled_runner_completion_source_outcome_checksum_mismatch`,
+`controlled_runner_completion_retry_outcome_target_second_retry_started`,
+`controlled_runner_completion_retry_execution_selected_stage_plan_mismatch`,
 retry-source blockers under the `controlled_runner_completion_retry_*`,
 `controlled_runner_completion_source_*`, and
 `controlled_runner_completion_retry_outcome_*` prefixes, and rewritten upstream
@@ -3640,9 +3652,15 @@ outcome packet to be valid, read-only
 target, and a `retry_outcome_target` whose purpose is
 `controlled_loop_runner_next_stage_selection`. The target must select exactly
 `completed_stage_number + 1`; the command rechecks retry closeout/execution
-checksums, original source outcome/closeout/execution checksums, runner-start,
-runner-plan, dry-run, and selected-stage anchors before emitting the existing
-`controlled-loop-runner-next-stage-continuation.v1` packet. It still emits no
+checksums, the reviewed source outcome checksum, original source
+outcome/closeout/execution checksums, runner-start, runner-plan, dry-run, and
+selected-stage anchors before emitting the existing
+`controlled-loop-runner-next-stage-continuation.v1` packet. The retry outcome,
+closeout, execution, and retry target must all report `retry_attempt: 1`; the
+target must report the completed/closed-out stage, completed retry closeout
+status, the exact next stage, and false second-retry flags. For
+continuation-sourced retry selection, it also rereads saved continuation and
+stage-input-binding anchors from the source execution chain. It still emits no
 stage-execution readiness target and starts no process, executor, retry, loop
 continuation, Git/GitHub write, merge, release, publication, role assignment,
 or scheduler action.
@@ -3690,8 +3708,14 @@ Stable blockers include
 `controlled_runner_next_stage_continuation_execution_packet_mismatch`,
 `controlled_runner_next_stage_continuation_execution_not_completed`,
 `controlled_runner_next_stage_continuation_execution_stage_number_mismatch`,
+`controlled_runner_next_stage_continuation_completed_stage_missing_from_runner_plan`,
 `controlled_runner_next_stage_continuation_stage_missing_from_runner_plan`,
 `controlled_runner_next_stage_continuation_selected_stage_plan_mismatch`, and
+`controlled_runner_next_stage_continuation_retry_evidence_incomplete`,
+`controlled_runner_next_stage_continuation_retry_attempt_mismatch`,
+`controlled_runner_next_stage_continuation_source_outcome_checksum_mismatch`,
+`controlled_runner_next_stage_continuation_retry_outcome_target_second_retry_started`,
+`controlled_runner_next_stage_continuation_retry_execution_selected_stage_plan_mismatch`,
 retry-source blockers under the
 `controlled_runner_next_stage_continuation_retry_*`,
 `controlled_runner_next_stage_continuation_source_*`, and
