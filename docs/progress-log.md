@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-07-04
+Last updated: 2026-07-05
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,68 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-07-05 - Controlled runner post-retry target consumption
+
+Summary:
+- Added read-only post-retry target consumption for successful controlled
+  runner retries.
+- `controlled-loop-runner-next-stage-continuation` can now consume a completed
+  non-final `controlled-loop-runner-stage-retry-outcome-plan.v1` target plus
+  retry closeout/execution evidence to select the exact next stage without
+  emitting readiness or executing it.
+- `controlled-loop-runner-completion` can now consume a completed final retry
+  outcome target plus retry closeout/execution evidence to emit terminal
+  runner completion evidence.
+- Review hardening added explicit retry-attempt, second-retry target flag,
+  reviewed source-outcome checksum, selected-stage plan, and continuation
+  input-binding anchor checks for retry-source consumers.
+- Follow-up review hardening also rejects boolean retry-attempt values and
+  routes checksum-only retry-source invocations to retry evidence validation.
+- Final review hardening rechecks retry boundary, approval, and plan checksum
+  anchors carried inside retry outcome targets.
+- Failed and blocked retry outcomes remain inspection targets with no second
+  retry planning target.
+
+Completed slices:
+- Task 76: post-retry target consumption for next-stage selection and runner
+  completion, read-only after saved retry evidence.
+
+Confidence change:
+- Previous projected capability: 70%.
+- New projected capability: 71%.
+- Stable headline confidence: remains 25%.
+- Reason: successful retry outcomes can now rejoin the existing runner
+  continuation/completion path, but failed/blocked retry inspection workflows,
+  runner-launched executor invocation, Git/GitHub writes, role scheduling, and
+  unattended orchestration remain future work.
+
+Evidence:
+- Focused post-retry target-consumption and adjacent continuation/completion
+  suite, including review-hardening regressions: 14 tests passed.
+- Syntax check: `python -B -m py_compile scripts\cadence.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py scripts\validate_protocol.py` exited 0.
+- Protocol validation: `python scripts\validate_protocol.py` printed
+  `Protocol validation passed.`.
+- Package verification: `python scripts\verify_package.py` printed
+  `Package verification passed.`.
+- Diff whitespace check: `git diff --check` exited 0 with normal Windows
+  LF/CRLF warnings.
+
+New risks or blockers:
+- Failed and blocked retry inspection targets are not consumed by a live
+  inspection workflow.
+- The executor invocation readiness target is not consumed by a runner command
+  to invoke the executor.
+- There is still no second retry, automatic loop continuation, or Git/GitHub
+  write authority.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
 
 ## 2026-07-04 - Controlled runner executor invocation readiness
 
