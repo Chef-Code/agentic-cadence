@@ -33,6 +33,53 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-07-04 - Controlled runner executor invocation readiness
+
+Summary:
+- Added read-only controlled runner executor invocation readiness.
+- Added `controlled-loop-runner-executor-invocation-readiness`, emitting
+  `controlled-loop-runner-executor-invocation-readiness.v1` packets.
+- The command consumes saved continuation stage-2 execution-start evidence, or
+  successful stage-2 retry execution-start evidence, plus closeout/outcome,
+  approval, continuation, stage-input binding, and executor task evidence.
+- It rechecks source execution-start task/epoch anchors, stage-input binding
+  checksums, executor task checksums, active epoch compatibility, and retry
+  closeout/outcome anchors when retry evidence is supplied.
+- It emits only an `executor_invocation_readiness_target` for the existing
+  controlled real executor invocation approval/readiness path.
+
+Completed slices:
+- Task 75: runner-launched executor invocation readiness, read-only after
+  saved stage-2 or retry execution-start evidence.
+
+Confidence change:
+- Previous projected capability: 69%.
+- New projected capability: 70%.
+- Stable headline confidence: remains 25%.
+- Reason: the controlled runner can now prove a valid handoff target from
+  `start-governed-execution` output to executor invocation readiness, but it
+  still does not invoke an executor from the runner, consume post-retry targets,
+  write Git/GitHub state, schedule roles, or continue unattended.
+
+Evidence:
+- Focused Task 75 suite, including review-hardening regressions: 11 tests passed.
+- Syntax check: `python -B -m py_compile scripts\cadence.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py scripts\validate_protocol.py` exited 0.
+
+New risks or blockers:
+- The executor invocation readiness target is not consumed by a runner command
+  to invoke the executor.
+- Post-retry outcome targets are still not consumed by next-stage selection or
+  runner completion commands.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-07-04 - Controlled runner retry closeout and outcome planning
 
 Summary:
