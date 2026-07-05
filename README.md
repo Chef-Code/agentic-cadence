@@ -1289,6 +1289,11 @@ select another stage remain outside this command. A valid packet emits
 execute or retry a runner stage, invoke an executor, select another stage,
 continue the runner or loop, append audit evidence, write Git/GitHub state,
 merge, release, publish packages, assign roles, or schedule agents.
+The reviewed packet can then be supplied to `executor-invocation-readiness`
+with `--controlled-loop-runner-executor-invocation-readiness-file` and
+`--expected-controlled-loop-runner-executor-invocation-readiness-checksum`;
+`executor-invocation-plan` binds that runner summary through the readiness
+checksum before any real executor invocation approval.
 
 `controlled-loop-runner-completion` consumes the reviewed final-stage
 outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,
@@ -1582,18 +1587,27 @@ create branches, commit, push, merge, release, or publish packages.
 `executor-invocation-readiness` is a read-only preflight for a future real
 executor invocation. It consumes a reviewed `generic-executor-task.v1` packet,
 the active epoch id, matching local ownership evidence, the expected result
-path, and optional `role-readiness.v1` evidence:
+path, and optional `role-readiness.v1` evidence. For a controlled-runner
+handoff, it can instead consume a reviewed
+`controlled-loop-runner-executor-invocation-readiness.v1` packet and expected
+checksum; that path rechecks the runner target and carries its summary forward
+without requiring active ownership to still be open:
 
 ```bash
 agentic-cadence --root <runtime-root> executor-invocation-readiness --cwd . --task-file executor-task.json --epoch-id epoch-1 --ownership-target ownership-1 --expected-result-path <runtime-root>/executor-results/executor-result.json --role-readiness-file role-readiness.json
+```
+
+```bash
+agentic-cadence --root <runtime-root> executor-invocation-readiness --cwd . --task-file executor-task.json --epoch-id epoch-1 --expected-result-path <runtime-root>/executor-results/executor-result.json --controlled-loop-runner-executor-invocation-readiness-file controlled-loop-runner-executor-invocation-readiness.json --expected-controlled-loop-runner-executor-invocation-readiness-checksum sha256:<reviewed-runner-readiness-checksum>
 ```
 
 The command emits `executor-invocation-readiness.v1` with
 `executor_started: false`, `side_effects: []`, no executor process metadata,
 and `recommended_next_action: invoke_real_executor` only when repo path,
 branch, `HEAD`, clean worktree, active brake, active epoch id/status, task
-checksum, ownership binding, command policy, branch policy, required checks,
-runtime result-path boundary, and optional role readiness all pass.
+checksum, ownership binding or reviewed runner readiness target, command
+policy, branch policy, required checks, runtime result-path boundary, and
+optional role readiness all pass.
 
 Stable blockers include `repo_path_mismatch`, `repo_branch_mismatch`,
 `repo_head_mismatch`, `dirty_worktree`, `brake_not_drive`,
@@ -1601,10 +1615,11 @@ Stable blockers include `repo_path_mismatch`, `repo_branch_mismatch`,
 `task_checksum_mismatch`, `ownership_record_missing`,
 `ownership_epoch_mismatch`, `command_policy_invalid`,
 `branch_policy_invalid`, `required_checks_missing`,
-`result_path_outside_runtime`, and `role_readiness_blocked`.
+`result_path_outside_runtime`, `role_readiness_blocked`, and
+`controlled_runner_executor_invocation_readiness_checksum_mismatch`.
 Recommended actions include `refresh_task_evidence`, `fix_ownership`,
-`close_or_fail_active_epoch`, `inspect_policy_blockers`, and
-`operator_review`.
+`close_or_fail_active_epoch`, `inspect_policy_blockers`,
+`refresh_executor_invocation_readiness`, and `operator_review`.
 
 This is not real executor invocation. It does not edit code, start a process,
 create branches, commit, push, open or update PRs, merge, release, publish
@@ -1617,7 +1632,8 @@ a fresh successful `executor-invocation-readiness.v1` packet to a concrete
 adapter contract, command, environment allowlist, timeout, expected result path,
 rollback evidence, current audit-chain head, active epoch and ownership
 anchors, and `operator-approval.v1` evidence with purpose
-`real_executor_invocation`:
+`real_executor_invocation`. Runner-bound readiness summaries are bound through
+the readiness checksum before the plan target is approved:
 
 ```bash
 agentic-cadence --root <runtime-root> executor-invocation-plan --cwd . --readiness-file executor-invocation-readiness.json --approval-file operator-approval.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --adapter-file executor-adapter.json --rollback-file executor-rollback.json --command "python -m unittest tests.test_cadence" --env-allow PATH --timeout-seconds 300 --expected-result-path <runtime-root>/executor-results/executor-result.json
@@ -1646,7 +1662,23 @@ blockers include `readiness_packet_stale`,
 `ownership_record_missing`, `ownership_stale`, `duplicate_active_ownership`,
 `ownership_epoch_mismatch`, `ownership_head_mismatch`, `brake_not_drive`,
 `result_path_mismatch`, `result_path_outside_runtime`, and
-`result_path_invalid`.
+`result_path_invalid`. Runner-bound readiness bridge blockers include
+`controlled_runner_executor_invocation_readiness_not_ready`,
+`controlled_runner_executor_invocation_readiness_unreadable`,
+`controlled_runner_executor_invocation_readiness_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_schema_invalid`,
+`controlled_runner_executor_invocation_readiness_not_read_only`,
+`controlled_runner_executor_invocation_readiness_authority_flags_invalid`,
+`controlled_runner_executor_invocation_readiness_target_missing`,
+`controlled_runner_executor_invocation_readiness_target_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_target_purpose_invalid`,
+`controlled_runner_executor_invocation_readiness_stage_number_invalid`,
+`controlled_runner_executor_invocation_readiness_task_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_task_file_mismatch`,
+`controlled_runner_executor_invocation_readiness_epoch_mismatch`,
+`controlled_runner_executor_invocation_readiness_result_path_mismatch`,
+`controlled_runner_executor_invocation_readiness_cwd_mismatch`, and
+`controlled_runner_executor_invocation_readiness_source_checksum_mismatch`.
 
 This is still not process start. It does not invoke an executor, modify code,
 create branches, commit, push, open or update PRs, merge, release, publish

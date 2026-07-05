@@ -577,10 +577,20 @@ merge, release, or publish packages.
 future real executor invocation. It consumes a reviewed
 `generic-executor-task.v1` packet, active epoch evidence, active local
 ownership evidence, task-carried command and branch policy, required checks,
-an expected result path, and optional `role-readiness.v1` evidence:
+an expected result path, and optional `role-readiness.v1` evidence. It can also
+consume a reviewed
+`controlled-loop-runner-executor-invocation-readiness.v1` packet plus its
+expected checksum; that runner-bound path verifies the target checksum,
+task/epoch/result anchors, source execution checksum, and no-side-effect flags,
+then carries the runner summary forward without requiring active ownership to
+still be open:
 
 ```bash
 agentic-cadence --root <runtime-root> executor-invocation-readiness --cwd . --task-file executor-task.json --epoch-id epoch-1 --ownership-target ownership-1 --expected-result-path <runtime-root>/executor-results/executor-result.json --role-readiness-file role-readiness.json
+```
+
+```bash
+agentic-cadence --root <runtime-root> executor-invocation-readiness --cwd . --task-file executor-task.json --epoch-id epoch-1 --expected-result-path <runtime-root>/executor-results/executor-result.json --controlled-loop-runner-executor-invocation-readiness-file controlled-loop-runner-executor-invocation-readiness.json --expected-controlled-loop-runner-executor-invocation-readiness-checksum sha256:<reviewed-runner-readiness-checksum>
 ```
 
 It emits an `executor-invocation-readiness.v1` packet shaped as:
@@ -597,6 +607,7 @@ It emits an `executor-invocation-readiness.v1` packet shaped as:
   "task": {"checksum": "sha256:...", "id": "candidate-1"},
   "active_epoch": {"id": "epoch-1", "status": "ACTIVE"},
   "ownership": {"id": "ownership-1", "epoch_id": "epoch-1"},
+  "controlled_runner_executor_invocation_readiness": {"checksum": "sha256:...", "target_checksum": "sha256:..."},
   "role_readiness": {"present": true, "valid": true},
   "blockers": [{"code": "task_checksum_mismatch", "message": "human readable"}],
   "recommended_next_action": "refresh_task_evidence",
@@ -621,14 +632,34 @@ Stable blocker codes include `task_file_unreadable`,
 `result_path_missing`, `result_path_invalid`, `result_path_mismatch`,
 `result_path_outside_runtime`, `role_readiness_unreadable`,
 `role_readiness_invalid`, `role_readiness_scope_mismatch`, and
-`role_readiness_blocked`.
+`role_readiness_blocked`. Runner-bound readiness blockers include
+`controlled_runner_executor_invocation_readiness_file_missing`,
+`controlled_runner_executor_invocation_readiness_unreadable`,
+`controlled_runner_executor_invocation_readiness_invalid`,
+`controlled_runner_executor_invocation_readiness_expected_checksum_missing`,
+`controlled_runner_executor_invocation_readiness_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_schema_invalid`,
+`controlled_runner_executor_invocation_readiness_not_read_only`,
+`controlled_runner_executor_invocation_readiness_not_ready`,
+`controlled_runner_executor_invocation_readiness_authority_flags_invalid`,
+`controlled_runner_executor_invocation_readiness_target_missing`,
+`controlled_runner_executor_invocation_readiness_target_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_target_purpose_invalid`,
+`controlled_runner_executor_invocation_readiness_stage_number_invalid`,
+`controlled_runner_executor_invocation_readiness_task_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_task_file_mismatch`,
+`controlled_runner_executor_invocation_readiness_epoch_mismatch`,
+`controlled_runner_executor_invocation_readiness_result_path_mismatch`,
+`controlled_runner_executor_invocation_readiness_cwd_mismatch`, and
+`controlled_runner_executor_invocation_readiness_source_checksum_mismatch`.
 Ownership validation blockers from `validate-work-ownership` are forwarded.
 
 Recommended actions are limited to `invoke_real_executor`,
 `refresh_task_evidence`, `fix_ownership`, `close_or_fail_active_epoch`,
-`inspect_policy_blockers`, and `operator_review`. The success recommendation
-is only readiness evidence for a future orchestrator; this command does not
-start a real executor, emit executor process metadata, modify code, create
+`inspect_policy_blockers`, `refresh_executor_invocation_readiness`, and
+`operator_review`. The success recommendation is only readiness evidence for a
+future orchestrator; this command does not start a real executor, emit executor
+process metadata, modify code, create
 branches, commit, push, open or update PRs, merge, release, publish packages,
 assign roles, schedule agents, or write GitHub state.
 
@@ -640,7 +671,11 @@ process start. It consumes a fresh successful
 approval for purpose `real_executor_invocation`, clean `audit-replay`
 hash-chain evidence, `executor-adapter.v1` metadata, `executor-rollback.v1`
 rollback evidence, an exact command string, environment allowlist, timeout,
-cwd, active epoch and ownership anchors, and expected result path:
+cwd, active epoch and ownership anchors, and expected result path. When the
+readiness packet carries a valid
+`controlled_runner_executor_invocation_readiness` summary, invocation planning
+binds that summary through the readiness checksum instead of requiring a fresh
+active ownership record:
 
 ```bash
 agentic-cadence --root <runtime-root> executor-invocation-plan --cwd . --readiness-file executor-invocation-readiness.json --approval-file operator-approval.json --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --adapter-file executor-adapter.json --rollback-file executor-rollback.json --command "python -m unittest tests.test_cadence" --env-allow PATH --timeout-seconds 300 --expected-result-path <runtime-root>/executor-results/executor-result.json
@@ -707,7 +742,24 @@ Stable blocker codes include `readiness_unreadable`,
 `ownership_candidate_mismatch`, `ownership_epoch_mismatch`,
 `ownership_head_mismatch`, `duplicate_active_ownership`,
 `result_path_missing`, `result_path_mismatch`,
-`result_path_outside_runtime`, and `result_path_invalid`.
+`result_path_outside_runtime`, and `result_path_invalid`. Runner-bound
+readiness bridge blockers include
+`controlled_runner_executor_invocation_readiness_not_ready`,
+`controlled_runner_executor_invocation_readiness_unreadable`,
+`controlled_runner_executor_invocation_readiness_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_schema_invalid`,
+`controlled_runner_executor_invocation_readiness_not_read_only`,
+`controlled_runner_executor_invocation_readiness_authority_flags_invalid`,
+`controlled_runner_executor_invocation_readiness_target_missing`,
+`controlled_runner_executor_invocation_readiness_target_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_target_purpose_invalid`,
+`controlled_runner_executor_invocation_readiness_stage_number_invalid`,
+`controlled_runner_executor_invocation_readiness_task_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_task_file_mismatch`,
+`controlled_runner_executor_invocation_readiness_epoch_mismatch`,
+`controlled_runner_executor_invocation_readiness_result_path_mismatch`,
+`controlled_runner_executor_invocation_readiness_cwd_mismatch`, and
+`controlled_runner_executor_invocation_readiness_source_checksum_mismatch`.
 
 Recommended actions are limited to `invoke_real_executor` and
 `operator_review`. This command is read-only: it does not start a real executor,
@@ -3458,6 +3510,11 @@ not start a process, execute or retry a runner stage, invoke an executor,
 select another stage, continue the runner or loop, append audit evidence,
 execute Git commands, call GitHub APIs, create branches, commit, push, create
 PRs, merge, release, publish packages, assign roles, or schedule agents.
+The reviewed packet can then be supplied to `executor-invocation-readiness`
+with `--controlled-loop-runner-executor-invocation-readiness-file` and
+`--expected-controlled-loop-runner-executor-invocation-readiness-checksum`;
+`executor-invocation-plan` binds that runner summary through the readiness
+checksum before any real executor invocation approval.
 
 Stable blockers include
 `controlled_runner_executor_invocation_readiness_retry_evidence_incomplete`,

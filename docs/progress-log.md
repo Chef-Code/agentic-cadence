@@ -33,6 +33,57 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-07-05 - Runner-bound executor invocation readiness consumption
+
+Summary:
+- Added read-only consumption of reviewed controlled-runner executor
+  invocation readiness targets by the existing executor invocation
+  readiness/plan path.
+- `executor-invocation-readiness` can now accept
+  `--controlled-loop-runner-executor-invocation-readiness-file` plus the
+  reviewed checksum, recheck the runner target, and carry a
+  `controlled_runner_executor_invocation_readiness` summary forward without
+  requiring active ownership to still be open.
+- `executor-invocation-plan` now treats that valid runner-bound readiness
+  summary as the ownership bridge and binds it through the readiness checksum
+  before approval.
+- The path remains read-only: no executor is started, no runner stage is
+  continued, no audit evidence is appended, and no Git/GitHub state is written.
+
+Completed slices:
+- Task 77: consume controlled runner executor invocation readiness into the
+  existing executor invocation readiness/plan path.
+
+Confidence change:
+- Previous projected capability: 71%.
+- New projected capability: 72%.
+- Stable headline confidence: remains 25%.
+- Reason: the runner handoff target can now enter the existing real-executor
+  readiness and planning gates, but runner-launched executor process start,
+  failed/blocked retry inspection workflows, Git/GitHub writes, role
+  scheduling, and unattended orchestration remain future work.
+
+Evidence:
+- Focused runner-bound readiness/plan tests: 4 tests passed.
+- Adjacent direct readiness and controlled runner readiness tests: 6 tests
+  passed.
+- Adjacent invocation-plan regression tests: 3 tests passed.
+
+New risks or blockers:
+- The runner still does not launch the real executor process.
+- Failed and blocked retry inspection targets are not consumed by a live
+  inspection workflow.
+- There is still no automatic loop continuation, role scheduling, or
+  Git/GitHub write authority.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/roadmap.md`
+- `docs/progress-log.md`
+
 ## 2026-07-05 - Controlled runner post-retry target consumption
 
 Summary:

@@ -37199,6 +37199,14 @@ def executor_invocation_readiness_command(args: argparse.Namespace) -> int:
         ownership_target=args.ownership_target,
         expected_result_path=args.expected_result_path,
         role_readiness_file=Path(args.role_readiness_file) if args.role_readiness_file else None,
+        controlled_runner_executor_invocation_readiness_file=Path(
+            args.controlled_loop_runner_executor_invocation_readiness_file
+        )
+        if args.controlled_loop_runner_executor_invocation_readiness_file
+        else None,
+        expected_controlled_runner_executor_invocation_readiness_checksum=(
+            args.expected_controlled_loop_runner_executor_invocation_readiness_checksum
+        ),
         max_ownership_age_minutes=args.max_ownership_age_minutes,
     )
     emit(payload)
@@ -38880,6 +38888,8 @@ def build_parser() -> argparse.ArgumentParser:
     executor_readiness_parser.add_argument("--ownership-target")
     executor_readiness_parser.add_argument("--expected-result-path", required=True)
     executor_readiness_parser.add_argument("--role-readiness-file")
+    executor_readiness_parser.add_argument("--controlled-loop-runner-executor-invocation-readiness-file")
+    executor_readiness_parser.add_argument("--expected-controlled-loop-runner-executor-invocation-readiness-checksum")
     executor_readiness_parser.add_argument(
         "--max-ownership-age-minutes",
         type=non_negative_int,
