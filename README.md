@@ -178,7 +178,13 @@ continuing the loop, and `controlled-loop-runner-completion` evidence can
 consume that final-stage outcome target and emit a terminal, read-only
 `controlled-loop-runner-completion.v1` packet without selecting another stage,
 retrying, continuing, appending audit evidence, invoking an executor, or
-writing Git/GitHub state.
+writing Git/GitHub state, and `controlled-loop-runner-executor-invocation`
+evidence can consume reviewed runner executor-invocation readiness plus a
+runner-bound `executor-invocation-plan.v1`, recheck both checksums and the
+readiness bridge, then start exactly one approved real executor process through
+the existing `invoke-real-executor` path while still not retrying, selecting
+another stage, continuing the loop, writing Git/GitHub state, assigning roles,
+or scheduling agents.
 
 The public package identity is `agentic-cadence`. The legacy `codex-cadence` and `codex-transmission` command names remain compatibility aliases, while Claude and Gemini remain future adapter directions rather than shipped support or package metadata keywords.
 
@@ -1294,6 +1300,27 @@ with `--controlled-loop-runner-executor-invocation-readiness-file` and
 `--expected-controlled-loop-runner-executor-invocation-readiness-checksum`;
 `executor-invocation-plan` binds that runner summary through the readiness
 checksum before any real executor invocation approval.
+
+`controlled-loop-runner-executor-invocation` then consumes that reviewed
+runner readiness packet plus a runner-bound `executor-invocation-plan.v1`:
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-executor-invocation --controlled-loop-runner-executor-invocation-readiness-file controlled-loop-runner-executor-invocation-readiness.json --expected-controlled-loop-runner-executor-invocation-readiness-checksum sha256:<reviewed-runner-readiness-checksum> --executor-invocation-plan-file executor-invocation-plan.json --expected-executor-invocation-plan-checksum sha256:<reviewed-executor-invocation-plan-checksum> --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --side-effect-mode evidence_only
+```
+
+A valid `controlled-loop-runner-executor-invocation.v1` packet has `packet:
+controlled_loop_runner_executor_invocation`, `runner_executor_invocation_status:
+completed`, `runner_executor_invocation_authority:
+controlled_runner_executor_invocation_executed_once`, and a
+`real_executor_invocation` summary for the written `real-executor-invocation.v1`
+record. The command rechecks both reviewed checksums and the readiness bridge
+before delegating to `invoke-real-executor`; stable pre-start blockers include
+`executor_invocation_plan_not_runner_bound`,
+`executor_invocation_plan_checksum_mismatch`,
+`executor_invocation_plan_readiness_checksum_mismatch`, and
+`executor_invocation_plan_target_readiness_checksum_mismatch`. It does not
+retry, select another runner stage, continue the loop, write Git/GitHub state,
+assign roles, or schedule agents.
 
 `controlled-loop-runner-completion` consumes the reviewed final-stage
 outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,

@@ -10390,6 +10390,9 @@ CONTROLLED_LOOP_RUNNER_STAGE_RETRY_OUTCOME_PLAN_LIMITATIONS = [
 CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_READINESS_SCHEMA_VERSION = (
     "controlled-loop-runner-executor-invocation-readiness.v1"
 )
+CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_SCHEMA_VERSION = (
+    "controlled-loop-runner-executor-invocation.v1"
+)
 CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_READINESS_LIMITATIONS = [
     "runner_executor_invocation_readiness_only",
     "read_only",
@@ -10415,6 +10418,31 @@ CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_READINESS_LIMITATIONS = [
     "does_not_publish_packages",
     "does_not_assign_roles",
     "does_not_schedule_agents",
+]
+CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_LIMITATIONS = [
+    "controlled_runner_executor_invocation_only",
+    "starts_one_approved_real_executor_process",
+    "requires_controlled_runner_executor_invocation_readiness",
+    "requires_executor_invocation_plan",
+    "rechecks_executor_invocation_plan_before_start",
+    "does_not_start_runner_stage",
+    "does_not_retry_executor",
+    "does_not_start_second_retry",
+    "does_not_select_next_stage",
+    "does_not_continue_loop",
+    "does_not_write_git_or_github_state",
+    "does_not_execute_git_commands",
+    "does_not_call_github",
+    "does_not_create_branch",
+    "does_not_commit",
+    "does_not_push",
+    "does_not_create_pr",
+    "does_not_merge",
+    "does_not_release",
+    "does_not_publish_packages",
+    "does_not_assign_roles",
+    "does_not_schedule_agents",
+    "closeout_binding_deferred_to_executor_result_closeout",
 ]
 CONTROLLED_LOOP_RUNNER_COMPLETION_SCHEMA_VERSION = "controlled-loop-runner-completion.v1"
 CONTROLLED_LOOP_RUNNER_COMPLETION_LIMITATIONS = [
@@ -37231,20 +37259,12 @@ def executor_invocation_plan_command(args: argparse.Namespace) -> int:
     return 0 if payload["valid"] else 2
 
 
-def invoke_real_executor_command(args: argparse.Namespace) -> int:
-    payload = invoke_real_executor(
-        root=args.root,
-        plan_file=Path(args.plan_file),
-        approval_secret=operator_approval_secret_from_args(args),
-        side_effect_mode=args.side_effect_mode,
-        allow_repo_local_root=args.allow_repo_local_root,
-        max_plan_age_seconds=args.max_plan_age_minutes * 60,
-    )
+def _record_real_executor_invocation_audit(root: Path, payload: dict[str, Any]) -> dict[str, Any]:
     record_file = payload.get("record_file") if isinstance(payload, dict) else None
     if isinstance(record_file, str) and record_file.strip():
         try:
             append_audit_record(
-                args.root,
+                root,
                 real_executor_invocation_audit_record(
                     payload,
                     invocation_record_file=record_file,
@@ -37281,7 +37301,7 @@ def invoke_real_executor_command(args: argparse.Namespace) -> int:
             if blocked_record_written:
                 try:
                     append_audit_record(
-                        args.root,
+                        root,
                         real_executor_invocation_audit_record(
                             payload,
                             invocation_record_file=record_file,
@@ -37291,8 +37311,530 @@ def invoke_real_executor_command(args: argparse.Namespace) -> int:
                     )
                 except Exception as blocked_audit_exc:
                     payload["audit_record_error"] = str(blocked_audit_exc)
-            emit(payload)
-            return 2
+    return payload
+
+
+def invoke_real_executor_command(args: argparse.Namespace) -> int:
+    payload = invoke_real_executor(
+        root=args.root,
+        plan_file=Path(args.plan_file),
+        approval_secret=operator_approval_secret_from_args(args),
+        side_effect_mode=args.side_effect_mode,
+        allow_repo_local_root=args.allow_repo_local_root,
+        max_plan_age_seconds=args.max_plan_age_minutes * 60,
+    )
+    payload = _record_real_executor_invocation_audit(args.root, payload)
+    emit(payload)
+    return 0 if payload["valid"] else 2
+
+
+def controlled_loop_runner_executor_invocation_blocker(
+    code: str,
+    message: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    blocker = {"code": code, "message": message}
+    blocker.update(extra)
+    return blocker
+
+
+def read_controlled_loop_runner_executor_invocation_packet(
+    path: Path,
+    *,
+    code: str,
+    label: str,
+) -> tuple[Any | None, list[dict[str, Any]]]:
+    try:
+        packet = read_json(path)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        return None, [
+            controlled_loop_runner_executor_invocation_blocker(
+                code,
+                f"{label} could not be read as JSON",
+                path=str(path),
+                error=str(exc),
+            )
+        ]
+    if not isinstance(packet, dict):
+        return None, [
+            controlled_loop_runner_executor_invocation_blocker(
+                code,
+                f"{label} must be a JSON object",
+                path=str(path),
+            )
+        ]
+    return packet, []
+
+
+def controlled_loop_runner_executor_invocation_recommendation(
+    blockers: list[dict[str, Any]],
+    real_invocation: dict[str, Any] | None = None,
+) -> str:
+    if not blockers:
+        return "bind_real_executor_closeout"
+    codes = {blocker.get("code") for blocker in blockers}
+    if any(isinstance(code, str) and code.startswith("controlled_runner_executor_invocation_readiness") for code in codes):
+        return "refresh_runner_executor_invocation_readiness"
+    if any(isinstance(code, str) and code.startswith("executor_invocation_plan") for code in codes):
+        return "refresh_executor_invocation_plan"
+    if isinstance(real_invocation, dict) and isinstance(real_invocation.get("recommended_next_action"), str):
+        return real_invocation["recommended_next_action"]
+    return "operator_review"
+
+
+def controlled_loop_runner_executor_invocation_reason(
+    valid: bool,
+    blockers: list[dict[str, Any]],
+    real_invocation: dict[str, Any] | None = None,
+) -> str:
+    if valid:
+        return "controlled runner launched the approved real executor invocation"
+    if blockers:
+        return str(blockers[0].get("message") or "controlled runner executor invocation blocked")
+    if isinstance(real_invocation, dict) and isinstance(real_invocation.get("reason"), str):
+        return real_invocation["reason"]
+    return "controlled runner executor invocation blocked"
+
+
+def _controlled_loop_runner_executor_invocation_context_path(context_file: Path, value: Any) -> Path | None:
+    resolved = controlled_tick_context_path(context_file, value)
+    if isinstance(resolved, Path):
+        return resolved
+    if isinstance(resolved, str) and resolved.strip():
+        return Path(resolved)
+    return None
+
+
+def controlled_loop_runner_executor_invocation_preflight(
+    *,
+    runner_readiness_file: Path,
+    expected_runner_readiness_checksum: str,
+    plan_file: Path,
+    expected_plan_checksum: str,
+) -> tuple[dict[str, Any] | None, str | None, dict[str, Any] | None, str | None, list[dict[str, Any]]]:
+    blockers: list[dict[str, Any]] = []
+    runner_readiness_path = Path(runner_readiness_file)
+    plan_path = Path(plan_file)
+
+    runner_readiness, runner_read_blockers = read_controlled_loop_runner_executor_invocation_packet(
+        runner_readiness_path,
+        code="controlled_runner_executor_invocation_readiness_unreadable",
+        label="controlled runner executor invocation readiness",
+    )
+    blockers.extend(runner_read_blockers)
+    runner_readiness_checksum = checksum_json(runner_readiness) if isinstance(runner_readiness, dict) else None
+    runner_target_checksum: str | None = None
+    if isinstance(runner_readiness, dict):
+        if runner_readiness_checksum != expected_runner_readiness_checksum:
+            blockers.append(
+                controlled_loop_runner_executor_invocation_blocker(
+                    "controlled_runner_executor_invocation_readiness_checksum_mismatch",
+                    "controlled runner executor invocation readiness checksum does not match the reviewed checksum",
+                    expected=expected_runner_readiness_checksum,
+                    actual=runner_readiness_checksum,
+                    path=str(runner_readiness_path),
+                )
+            )
+        if (
+            runner_readiness.get("schema_version")
+            != CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_READINESS_SCHEMA_VERSION
+            or runner_readiness.get("packet")
+            != "controlled_loop_runner_executor_invocation_readiness"
+        ):
+            blockers.append(
+                controlled_loop_runner_executor_invocation_blocker(
+                    "controlled_runner_executor_invocation_readiness_packet_mismatch",
+                    "controlled runner executor invocation readiness packet type is invalid",
+                    expected_schema_version=CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_READINESS_SCHEMA_VERSION,
+                    actual_schema_version=runner_readiness.get("schema_version"),
+                    expected_packet="controlled_loop_runner_executor_invocation_readiness",
+                    actual_packet=runner_readiness.get("packet"),
+                )
+            )
+        if (
+            runner_readiness.get("valid") is not True
+            or runner_readiness.get("read_only") is not True
+            or runner_readiness.get("runner_executor_invocation_readiness_status") != "ready"
+            or runner_readiness.get("executor_started") is not False
+            or runner_readiness.get("process_started") is not False
+            or runner_readiness.get("side_effects") != []
+            or runner_readiness.get("next_controlled_action") != "run_executor_invocation_readiness"
+        ):
+            blockers.append(
+                controlled_loop_runner_executor_invocation_blocker(
+                    "controlled_runner_executor_invocation_readiness_not_ready",
+                    "controlled runner executor invocation readiness must be ready and not started",
+                    valid=runner_readiness.get("valid"),
+                    read_only=runner_readiness.get("read_only"),
+                    status=runner_readiness.get("runner_executor_invocation_readiness_status"),
+                    executor_started=runner_readiness.get("executor_started"),
+                    process_started=runner_readiness.get("process_started"),
+                    side_effects=runner_readiness.get("side_effects"),
+                    next_controlled_action=runner_readiness.get("next_controlled_action"),
+                )
+            )
+        runner_target = runner_readiness.get("executor_invocation_readiness_target")
+        if not isinstance(runner_target, dict):
+            blockers.append(
+                controlled_loop_runner_executor_invocation_blocker(
+                    "controlled_runner_executor_invocation_readiness_target_missing",
+                    "controlled runner readiness must include an executor invocation readiness target",
+                )
+            )
+        else:
+            runner_target_checksum = checksum_json(runner_target)
+            recorded_target_checksum = runner_readiness.get("executor_invocation_readiness_target_checksum")
+            recorded_checksums = runner_readiness.get("checksums") if isinstance(runner_readiness.get("checksums"), dict) else {}
+            if (
+                recorded_target_checksum != runner_target_checksum
+                or recorded_checksums.get("executor_invocation_readiness_target") != runner_target_checksum
+            ):
+                blockers.append(
+                    controlled_loop_runner_executor_invocation_blocker(
+                        "controlled_runner_executor_invocation_readiness_target_checksum_mismatch",
+                        "controlled runner readiness target checksum does not match target evidence",
+                        expected=runner_target_checksum,
+                        actual={
+                            "executor_invocation_readiness_target_checksum": recorded_target_checksum,
+                            "checksums.executor_invocation_readiness_target": recorded_checksums.get(
+                                "executor_invocation_readiness_target"
+                            ),
+                        },
+                    )
+                )
+
+    plan, plan_read_blockers = read_controlled_loop_runner_executor_invocation_packet(
+        plan_path,
+        code="executor_invocation_plan_unreadable",
+        label="executor invocation plan",
+    )
+    blockers.extend(plan_read_blockers)
+    plan_checksum = checksum_json(plan) if isinstance(plan, dict) else None
+    if isinstance(plan, dict):
+        if plan_checksum != expected_plan_checksum:
+            blockers.append(
+                controlled_loop_runner_executor_invocation_blocker(
+                    "executor_invocation_plan_checksum_mismatch",
+                    "executor invocation plan checksum does not match the reviewed checksum",
+                    expected=expected_plan_checksum,
+                    actual=plan_checksum,
+                    path=str(plan_path),
+                )
+            )
+        if (
+            plan.get("schema_version") != EXECUTOR_INVOCATION_PLAN_SCHEMA_VERSION
+            or plan.get("packet") != "executor_invocation_plan"
+        ):
+            blockers.append(
+                controlled_loop_runner_executor_invocation_blocker(
+                    "executor_invocation_plan_packet_mismatch",
+                    "executor invocation plan packet type is invalid",
+                    expected_schema_version=EXECUTOR_INVOCATION_PLAN_SCHEMA_VERSION,
+                    actual_schema_version=plan.get("schema_version"),
+                    expected_packet="executor_invocation_plan",
+                    actual_packet=plan.get("packet"),
+                )
+            )
+        if (
+            plan.get("valid") is not True
+            or plan.get("read_only") is not True
+            or plan.get("executor_invocation_planned") is not True
+            or plan.get("executor_started") is not False
+            or plan.get("recommended_next_action") != "invoke_real_executor"
+            or plan.get("side_effects") != []
+        ):
+            blockers.append(
+                controlled_loop_runner_executor_invocation_blocker(
+                    "executor_invocation_plan_not_invocable",
+                    "executor invocation plan must be valid, read-only, and ready to invoke",
+                    valid=plan.get("valid"),
+                    read_only=plan.get("read_only"),
+                    executor_invocation_planned=plan.get("executor_invocation_planned"),
+                    executor_started=plan.get("executor_started"),
+                    recommended_next_action=plan.get("recommended_next_action"),
+                    side_effects=plan.get("side_effects"),
+                )
+            )
+
+        plan_readiness = plan.get("readiness") if isinstance(plan.get("readiness"), dict) else {}
+        plan_readiness_file = plan_readiness.get("file")
+        readiness_path = _controlled_loop_runner_executor_invocation_context_path(plan_path, plan_readiness_file)
+        readiness: Any | None = None
+        readiness_checksum: str | None = None
+        if readiness_path is None:
+            blockers.append(
+                controlled_loop_runner_executor_invocation_blocker(
+                    "executor_invocation_plan_readiness_missing",
+                    "executor invocation plan must include readiness evidence",
+                    actual=plan_readiness,
+                )
+            )
+        else:
+            readiness, readiness_read_blockers = read_controlled_loop_runner_executor_invocation_packet(
+                readiness_path,
+                code="executor_invocation_plan_readiness_unreadable",
+                label="executor invocation readiness",
+            )
+            blockers.extend(readiness_read_blockers)
+            readiness_checksum = checksum_json(readiness) if isinstance(readiness, dict) else None
+            if plan_readiness.get("checksum") != readiness_checksum:
+                blockers.append(
+                    controlled_loop_runner_executor_invocation_blocker(
+                        "executor_invocation_plan_readiness_checksum_mismatch",
+                        "executor invocation plan readiness checksum does not match readiness evidence",
+                        expected=plan_readiness.get("checksum"),
+                        actual=readiness_checksum,
+                        path=str(readiness_path),
+                    )
+                )
+        if isinstance(readiness, dict):
+            target = plan.get("target") if isinstance(plan.get("target"), dict) else {}
+            if target.get("readiness_checksum") != readiness_checksum:
+                blockers.append(
+                    controlled_loop_runner_executor_invocation_blocker(
+                        "executor_invocation_plan_target_readiness_checksum_mismatch",
+                        "executor invocation plan target must bind the saved readiness checksum",
+                        expected=readiness_checksum,
+                        actual=target.get("readiness_checksum"),
+                    )
+                )
+            runner_bridge = (
+                readiness.get("controlled_runner_executor_invocation_readiness")
+                if isinstance(readiness.get("controlled_runner_executor_invocation_readiness"), dict)
+                else None
+            )
+            if runner_bridge is None:
+                blockers.append(
+                    controlled_loop_runner_executor_invocation_blocker(
+                        "executor_invocation_plan_not_runner_bound",
+                        "executor invocation plan readiness must be bound to controlled runner readiness",
+                    )
+                )
+            else:
+                mismatched = {}
+                if not controlled_loop_runner_plan_file_matches(
+                    readiness_path,
+                    runner_bridge.get("file"),
+                    runner_readiness_path,
+                ):
+                    mismatched["controlled_runner_executor_invocation_readiness.file"] = runner_bridge.get("file")
+                expected_bridge = {
+                    "controlled_runner_executor_invocation_readiness.checksum": runner_readiness_checksum,
+                    "controlled_runner_executor_invocation_readiness.expected_checksum": expected_runner_readiness_checksum,
+                    "controlled_runner_executor_invocation_readiness.target_checksum": runner_target_checksum,
+                    "controlled_runner_executor_invocation_readiness.valid": True,
+                    "controlled_runner_executor_invocation_readiness.status": "ready",
+                }
+                actual_bridge = {
+                    "controlled_runner_executor_invocation_readiness.checksum": runner_bridge.get("checksum"),
+                    "controlled_runner_executor_invocation_readiness.expected_checksum": runner_bridge.get("expected_checksum"),
+                    "controlled_runner_executor_invocation_readiness.target_checksum": runner_bridge.get("target_checksum"),
+                    "controlled_runner_executor_invocation_readiness.valid": runner_bridge.get("valid"),
+                    "controlled_runner_executor_invocation_readiness.status": runner_bridge.get("status"),
+                }
+                mismatched.update(
+                    {
+                        field: actual_bridge[field]
+                        for field, expected in expected_bridge.items()
+                        if actual_bridge[field] != expected
+                    }
+                )
+                if mismatched:
+                    blockers.append(
+                        controlled_loop_runner_executor_invocation_blocker(
+                            "executor_invocation_plan_not_runner_bound",
+                            "executor invocation plan readiness bridge does not match reviewed runner readiness",
+                            expected={
+                                "file": str(runner_readiness_path),
+                                "checksum": runner_readiness_checksum,
+                                "expected_checksum": expected_runner_readiness_checksum,
+                                "target_checksum": runner_target_checksum,
+                            },
+                            actual=mismatched,
+                        )
+                    )
+    return runner_readiness, runner_readiness_checksum, plan, plan_checksum, blockers
+
+
+def controlled_loop_runner_executor_invocation_payload(
+    *,
+    runner_readiness_file: Path,
+    expected_runner_readiness_checksum: str,
+    runner_readiness: dict[str, Any] | None,
+    runner_readiness_checksum: str | None,
+    plan_file: Path,
+    expected_plan_checksum: str,
+    plan: dict[str, Any] | None,
+    plan_checksum: str | None,
+    blockers: list[dict[str, Any]],
+    real_invocation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    real_blockers = (
+        [blocker for blocker in real_invocation.get("blockers", []) if isinstance(blocker, dict)]
+        if isinstance(real_invocation, dict)
+        else []
+    )
+    all_blockers = list(blockers) + real_blockers
+    real_valid = isinstance(real_invocation, dict) and real_invocation.get("valid") is True
+    valid = not blockers and real_valid
+    recommended_next_action = controlled_loop_runner_executor_invocation_recommendation(
+        all_blockers,
+        real_invocation,
+    )
+    runner_target_checksum = (
+        runner_readiness.get("executor_invocation_readiness_target_checksum")
+        if isinstance(runner_readiness, dict)
+        else None
+    )
+    record_file = real_invocation.get("record_file") if isinstance(real_invocation, dict) else None
+    real_invocation_summary = None
+    if isinstance(real_invocation, dict):
+        real_invocation_summary = {
+            "file": record_file,
+            "checksum": checksum_json(real_invocation),
+            "schema_version": real_invocation.get("schema_version"),
+            "valid": real_invocation.get("valid"),
+            "executor_started": real_invocation.get("executor_started"),
+            "result_file": real_invocation.get("result_file"),
+            "result_present": real_invocation.get("result_present"),
+            "closeout_status": real_invocation.get("closeout_status"),
+            "recommended_next_action": real_invocation.get("recommended_next_action"),
+        }
+    side_effects = (
+        [str(effect) for effect in real_invocation.get("side_effects", [])]
+        if isinstance(real_invocation, dict) and isinstance(real_invocation.get("side_effects"), list)
+        else []
+    )
+    return {
+        "protocol_version": PROTOCOL_VERSION,
+        "schema_version": CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_SCHEMA_VERSION,
+        "packet": "controlled_loop_runner_executor_invocation",
+        "generated_at": utc_now(),
+        "read_only": False,
+        "valid": valid,
+        "runner_executor_invocation_status": "completed" if valid else "blocked",
+        "runner_executor_invocation_authority": (
+            "controlled_runner_executor_invocation_executed_once"
+            if valid
+            else "blocked_before_or_during_executor_invocation"
+        ),
+        "reason": controlled_loop_runner_executor_invocation_reason(valid, all_blockers, real_invocation),
+        "runner_started": False,
+        "process_started": bool(isinstance(real_invocation, dict) and real_invocation.get("executor_started") is True),
+        "executor_started": bool(isinstance(real_invocation, dict) and real_invocation.get("executor_started") is True),
+        "stage_execution_started": False,
+        "next_stage_selected": False,
+        "stage_retry_started": False,
+        "retry_execution_started": False,
+        "second_stage_started": False,
+        "second_retry_started": False,
+        "epoch_started": False,
+        "pr_action_started": False,
+        "github_write_started": False,
+        "merge_started": False,
+        "release_started": False,
+        "package_publication_started": False,
+        "role_assignment_started": False,
+        "agent_scheduling_started": False,
+        "loop_continuation_started": False,
+        "audit_evidence_appended": bool(
+            valid
+            and isinstance(real_invocation, dict)
+            and isinstance(record_file, str)
+            and record_file.strip()
+        ),
+        "operator_confirmation_required": False,
+        "side_effect_mode": real_invocation.get("side_effect_mode") if isinstance(real_invocation, dict) else None,
+        "side_effects": side_effects,
+        "recommended_next_action": recommended_next_action,
+        "next_controlled_action": "closeout_executor_result" if valid else recommended_next_action,
+        "controlled_loop_runner_executor_invocation_readiness": {
+            "file": str(runner_readiness_file),
+            "checksum": runner_readiness_checksum,
+            "expected_checksum": expected_runner_readiness_checksum,
+            "schema_version": runner_readiness.get("schema_version") if isinstance(runner_readiness, dict) else None,
+            "status": (
+                runner_readiness.get("runner_executor_invocation_readiness_status")
+                if isinstance(runner_readiness, dict)
+                else None
+            ),
+            "target_checksum": runner_target_checksum,
+        },
+        "executor_invocation_plan": {
+            "file": str(plan_file),
+            "checksum": plan_checksum,
+            "expected_checksum": expected_plan_checksum,
+            "schema_version": plan.get("schema_version") if isinstance(plan, dict) else None,
+            "target_checksum": plan.get("target_checksum") if isinstance(plan, dict) else None,
+            "recommended_next_action": plan.get("recommended_next_action") if isinstance(plan, dict) else None,
+        },
+        "real_executor_invocation": real_invocation_summary,
+        "files": {
+            "controlled_loop_runner_executor_invocation_readiness": str(runner_readiness_file),
+            "executor_invocation_plan": str(plan_file),
+            "real_executor_invocation": record_file,
+        },
+        "checksums": {
+            "controlled_loop_runner_executor_invocation_readiness": runner_readiness_checksum,
+            "expected_controlled_loop_runner_executor_invocation_readiness": (
+                expected_runner_readiness_checksum
+            ),
+            "executor_invocation_plan": plan_checksum,
+            "expected_executor_invocation_plan": expected_plan_checksum,
+            "real_executor_invocation": checksum_json(real_invocation) if isinstance(real_invocation, dict) else None,
+        },
+        "blockers": all_blockers,
+        "limitations": CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_LIMITATIONS,
+        "non_continuation_guarantees": [
+            "does_not_start_retry",
+            "does_not_start_second_retry",
+            "does_not_select_next_stage",
+            "does_not_continue_loop",
+            "does_not_write_git_or_github_state",
+            "does_not_assign_roles",
+            "does_not_schedule_agents",
+        ],
+    }
+
+
+def controlled_loop_runner_executor_invocation_command(args: argparse.Namespace) -> int:
+    runner_readiness_file = Path(args.controlled_loop_runner_executor_invocation_readiness_file)
+    plan_file = Path(args.executor_invocation_plan_file)
+    runner_readiness, runner_readiness_checksum, plan, plan_checksum, blockers = (
+        controlled_loop_runner_executor_invocation_preflight(
+            runner_readiness_file=runner_readiness_file,
+            expected_runner_readiness_checksum=(
+                args.expected_controlled_loop_runner_executor_invocation_readiness_checksum
+            ),
+            plan_file=plan_file,
+            expected_plan_checksum=args.expected_executor_invocation_plan_checksum,
+        )
+    )
+    real_invocation: dict[str, Any] | None = None
+    if not blockers:
+        real_invocation = invoke_real_executor(
+            root=args.root,
+            plan_file=plan_file,
+            approval_secret=operator_approval_secret_from_args(args),
+            side_effect_mode=args.side_effect_mode,
+            allow_repo_local_root=args.allow_repo_local_root,
+            max_plan_age_seconds=args.max_plan_age_minutes * 60,
+        )
+        real_invocation = _record_real_executor_invocation_audit(args.root, real_invocation)
+    payload = controlled_loop_runner_executor_invocation_payload(
+        runner_readiness_file=runner_readiness_file,
+        expected_runner_readiness_checksum=(
+            args.expected_controlled_loop_runner_executor_invocation_readiness_checksum
+        ),
+        runner_readiness=runner_readiness if isinstance(runner_readiness, dict) else None,
+        runner_readiness_checksum=runner_readiness_checksum,
+        plan_file=plan_file,
+        expected_plan_checksum=args.expected_executor_invocation_plan_checksum,
+        plan=plan if isinstance(plan, dict) else None,
+        plan_checksum=plan_checksum,
+        blockers=blockers,
+        real_invocation=real_invocation,
+    )
     emit(payload)
     return 0 if payload["valid"] else 2
 
@@ -38925,6 +39467,34 @@ def build_parser() -> argparse.ArgumentParser:
     invoke_executor_parser.add_argument("--max-plan-age-minutes", type=positive_int, default=15)
     invoke_executor_parser.set_defaults(
         func=invoke_real_executor_command,
+        requires_root=True,
+        skip_runtime_root_safety=True,
+    )
+
+    runner_executor_invocation_parser = subparsers.add_parser(
+        "controlled-loop-runner-executor-invocation",
+        help="Start one approved real executor invocation from controlled runner readiness",
+    )
+    runner_executor_invocation_parser.add_argument(
+        "--controlled-loop-runner-executor-invocation-readiness-file",
+        required=True,
+    )
+    runner_executor_invocation_parser.add_argument(
+        "--expected-controlled-loop-runner-executor-invocation-readiness-checksum",
+        required=True,
+    )
+    runner_executor_invocation_parser.add_argument("--executor-invocation-plan-file", required=True)
+    runner_executor_invocation_parser.add_argument("--expected-executor-invocation-plan-checksum", required=True)
+    runner_executor_invocation_parser.add_argument("--approval-secret")
+    runner_executor_invocation_parser.add_argument("--approval-secret-env", default=OPERATOR_APPROVAL_SECRET_ENV)
+    runner_executor_invocation_parser.add_argument(
+        "--side-effect-mode",
+        choices=REAL_EXECUTOR_SIDE_EFFECT_MODES,
+        required=True,
+    )
+    runner_executor_invocation_parser.add_argument("--max-plan-age-minutes", type=positive_int, default=15)
+    runner_executor_invocation_parser.set_defaults(
+        func=controlled_loop_runner_executor_invocation_command,
         requires_root=True,
         skip_runtime_root_safety=True,
     )

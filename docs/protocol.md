@@ -3516,6 +3516,46 @@ with `--controlled-loop-runner-executor-invocation-readiness-file` and
 `executor-invocation-plan` binds that runner summary through the readiness
 checksum before any real executor invocation approval.
 
+`controlled-loop-runner-executor-invocation` is the controlled runner
+process-start boundary after that runner-bound invocation plan exists. It reads
+`--controlled-loop-runner-executor-invocation-readiness-file`,
+`--expected-controlled-loop-runner-executor-invocation-readiness-checksum`,
+`--executor-invocation-plan-file`,
+`--expected-executor-invocation-plan-checksum`, approval-secret inputs,
+`--side-effect-mode`, and optional `--max-plan-age-minutes`. Before any
+subprocess start, it rechecks the reviewed runner readiness checksum, the
+reviewed executor invocation plan checksum, the plan's saved readiness file
+checksum, and the readiness summary that binds the plan back to the same
+controlled-runner readiness file, checksum, expected checksum, target checksum,
+valid state, and ready status. If those anchors drift, the command emits a
+blocked `controlled-loop-runner-executor-invocation.v1` packet with
+`executor_started: false`, `process_started: false`, no side effects, and no
+audit append.
+
+When the runner bridge is intact, the command delegates process execution to
+the existing `invoke-real-executor` implementation. That shared path re-runs
+the executor invocation plan, repository, brake, epoch, approval, audit-chain,
+rollback, timeout, command-policy, result-path, and runtime-root gates
+immediately before start. A valid packet has `packet:
+controlled_loop_runner_executor_invocation`, `read_only: false`,
+`runner_executor_invocation_status: completed`,
+`runner_executor_invocation_authority:
+controlled_runner_executor_invocation_executed_once`, `executor_started:
+true`, `process_started: true`, a
+`controlled_loop_runner_executor_invocation_readiness` summary, an
+`executor_invocation_plan` summary, and a `real_executor_invocation` summary
+with the written `real-executor-invocation.v1` record file and checksum. It
+starts exactly one approved real executor process, writes the real invocation
+record and stdout/stderr logs through the existing invocation path, and appends
+the existing `real_executor_invocation_record` audit evidence.
+
+This command does not retry the executor, start a second retry, execute another
+runner stage, select another stage, continue the runner or loop, execute Git
+commands, call GitHub APIs, create branches, commit, push, create PRs, merge,
+release, publish packages, assign roles, or schedule agents. Closeout remains
+deferred to `closeout-executor-result` with the recorded
+`real-executor-invocation.v1` file.
+
 Stable blockers include
 `controlled_runner_executor_invocation_readiness_retry_evidence_incomplete`,
 `controlled_runner_executor_invocation_readiness_stage_number_unsupported`,
@@ -3542,7 +3582,23 @@ Stable blockers include
 `controlled_runner_executor_invocation_readiness_active_epoch_status_invalid`,
 and mapped continuation, stage-input binding, approval, source-chain, and
 retry-chain anchor blockers under the
-`controlled_runner_executor_invocation_readiness_*` prefix.
+`controlled_runner_executor_invocation_readiness_*` prefix. Runner-launched
+invocation also emits stable blockers including
+`controlled_runner_executor_invocation_readiness_unreadable`,
+`controlled_runner_executor_invocation_readiness_checksum_mismatch`,
+`controlled_runner_executor_invocation_readiness_packet_mismatch`,
+`controlled_runner_executor_invocation_readiness_not_ready`,
+`controlled_runner_executor_invocation_readiness_target_missing`,
+`controlled_runner_executor_invocation_readiness_target_checksum_mismatch`,
+`executor_invocation_plan_unreadable`,
+`executor_invocation_plan_checksum_mismatch`,
+`executor_invocation_plan_packet_mismatch`,
+`executor_invocation_plan_not_invocable`,
+`executor_invocation_plan_readiness_missing`,
+`executor_invocation_plan_readiness_unreadable`,
+`executor_invocation_plan_readiness_checksum_mismatch`,
+`executor_invocation_plan_target_readiness_checksum_mismatch`, and
+`executor_invocation_plan_not_runner_bound`.
 
 `controlled-loop-runner-completion` is the read-only terminal evidence packet
 for a final controlled runner outcome. It reads
