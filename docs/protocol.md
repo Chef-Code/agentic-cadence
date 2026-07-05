@@ -3538,7 +3538,8 @@ checksums before emitting the existing `controlled-loop-runner-completion.v1`
 packet. The retry outcome, closeout, execution, and retry target must all
 report strict integer `retry_attempt: 1`; boolean values do not satisfy the
 single-retry contract. The target must report a completed retry closeout, the
-completed/closed-out stage, no next stage, and false second-retry flags. For
+completed/closed-out stage, no next stage, false second-retry flags, and
+matching retry boundary, approval, and plan checksum anchors. For
 continuation-sourced retry completion, it also rereads the saved
 continuation and stage-input-binding files from the source execution anchors
 and rechecks their checksums across source execution, closeout, and outcome
@@ -3604,6 +3605,9 @@ Stable blockers include `controlled_runner_completion_outcome_evidence_missing`,
 `controlled_runner_completion_execution_selected_stage_plan_mismatch`,
 `controlled_runner_completion_retry_evidence_incomplete`,
 `controlled_runner_completion_retry_attempt_mismatch`,
+`controlled_runner_completion_retry_boundary_checksum_mismatch`,
+`controlled_runner_completion_retry_approval_checksum_mismatch`,
+`controlled_runner_completion_retry_plan_checksum_mismatch`,
 `controlled_runner_completion_source_outcome_checksum_mismatch`,
 `controlled_runner_completion_retry_outcome_target_second_retry_started`,
 `controlled_runner_completion_retry_execution_selected_stage_plan_mismatch`,
@@ -3660,7 +3664,8 @@ selected-stage anchors before emitting the existing
 closeout, execution, and retry target must all report strict integer
 `retry_attempt: 1`; boolean values do not satisfy the single-retry contract.
 The target must report the completed/closed-out stage, completed retry closeout
-status, the exact next stage, and false second-retry flags. For
+status, the exact next stage, false second-retry flags, and matching retry
+boundary, approval, and plan checksum anchors. For
 continuation-sourced retry selection, it also rereads saved continuation and
 stage-input-binding anchors from the source execution chain. It still emits no
 stage-execution readiness target and starts no process, executor, retry, loop
@@ -3715,6 +3720,9 @@ Stable blockers include
 `controlled_runner_next_stage_continuation_selected_stage_plan_mismatch`, and
 `controlled_runner_next_stage_continuation_retry_evidence_incomplete`,
 `controlled_runner_next_stage_continuation_retry_attempt_mismatch`,
+`controlled_runner_next_stage_continuation_retry_boundary_checksum_mismatch`,
+`controlled_runner_next_stage_continuation_retry_approval_checksum_mismatch`,
+`controlled_runner_next_stage_continuation_retry_plan_checksum_mismatch`,
 `controlled_runner_next_stage_continuation_source_outcome_checksum_mismatch`,
 `controlled_runner_next_stage_continuation_retry_outcome_target_second_retry_started`,
 `controlled_runner_next_stage_continuation_retry_execution_selected_stage_plan_mismatch`,

@@ -50,6 +50,8 @@ Summary:
   input-binding anchor checks for retry-source consumers.
 - Follow-up review hardening also rejects boolean retry-attempt values and
   routes checksum-only retry-source invocations to retry evidence validation.
+- Final review hardening rechecks retry boundary, approval, and plan checksum
+  anchors carried inside retry outcome targets.
 - Failed and blocked retry outcomes remain inspection targets with no second
   retry planning target.
 
@@ -68,7 +70,7 @@ Confidence change:
 
 Evidence:
 - Focused post-retry target-consumption and adjacent continuation/completion
-  suite, including review-hardening regressions: 13 tests passed.
+  suite, including review-hardening regressions: 14 tests passed.
 - Syntax check: `python -B -m py_compile scripts\cadence.py codex_cadence\cli.py codex_cadence\policy_audit.py tests\test_cadence.py scripts\validate_protocol.py` exited 0.
 - Protocol validation: `python scripts\validate_protocol.py` printed
   `Protocol validation passed.`.

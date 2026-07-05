@@ -12418,6 +12418,26 @@ def controlled_loop_runner_post_retry_target_blockers(
         if isinstance(retry_outcome.get("controlled_loop_runner_stage_retry_closeout"), dict)
         else {}
     )
+    retry_outcome_execution_ref = (
+        retry_outcome.get("controlled_loop_runner_stage_retry_execution")
+        if isinstance(retry_outcome.get("controlled_loop_runner_stage_retry_execution"), dict)
+        else {}
+    )
+    retry_outcome_boundary_ref = (
+        retry_outcome.get("controlled_loop_runner_stage_retry_boundary")
+        if isinstance(retry_outcome.get("controlled_loop_runner_stage_retry_boundary"), dict)
+        else {}
+    )
+    retry_outcome_approval_ref = (
+        retry_outcome.get("controlled_loop_runner_stage_retry_approval")
+        if isinstance(retry_outcome.get("controlled_loop_runner_stage_retry_approval"), dict)
+        else {}
+    )
+    retry_outcome_plan_ref = (
+        retry_outcome.get("controlled_loop_runner_stage_retry_plan")
+        if isinstance(retry_outcome.get("controlled_loop_runner_stage_retry_plan"), dict)
+        else {}
+    )
 
     if (
         retry_outcome.get("schema_version") != CONTROLLED_LOOP_RUNNER_STAGE_RETRY_OUTCOME_PLAN_SCHEMA_VERSION
@@ -12616,6 +12636,21 @@ def controlled_loop_runner_post_retry_target_blockers(
                 f"{code_prefix}_retry_execution_checksum_mismatch",
                 retry_execution_checksum,
                 retry_outcome_target.get("controlled_loop_runner_stage_retry_execution_checksum"),
+            ),
+            (
+                f"{code_prefix}_retry_boundary_checksum_mismatch",
+                retry_outcome_boundary_ref.get("checksum"),
+                retry_outcome_target.get("controlled_loop_runner_stage_retry_boundary_checksum"),
+            ),
+            (
+                f"{code_prefix}_retry_approval_checksum_mismatch",
+                retry_outcome_approval_ref.get("checksum"),
+                retry_outcome_target.get("controlled_loop_runner_stage_retry_approval_checksum"),
+            ),
+            (
+                f"{code_prefix}_retry_plan_checksum_mismatch",
+                retry_outcome_plan_ref.get("checksum"),
+                retry_outcome_target.get("controlled_loop_runner_stage_retry_plan_checksum"),
             ),
             (
                 f"{code_prefix}_source_outcome_checksum_mismatch",
