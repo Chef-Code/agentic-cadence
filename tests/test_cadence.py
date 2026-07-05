@@ -26601,6 +26601,63 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
             self.assertTrue(replay_output["valid"])
 
+    def test_controlled_loop_runner_executor_invocation_closeout_accepts_runner_bridge(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_runner_bound_executor_invocation_plan(tmp, repo)
+            target = chain["runner_bound_executor_invocation_target"]
+
+            invocation_result, invocation_output = self.run_controlled_loop_runner_executor_invocation_cli(tmp, chain)
+
+            self.assertEqual(invocation_result.returncode, 0, invocation_result.stderr)
+            self.assertTrue(invocation_output["valid"], invocation_output["blockers"])
+            invocation_path = Path(invocation_output["real_executor_invocation"]["file"])
+            result_path = Path(invocation_output["real_executor_invocation"]["result_file"])
+            snapshot_after_path = Path(tmp) / "runner-real-invocation-snapshot-after.json"
+            snapshot_after_path.write_text(
+                json.dumps(
+                    closeout_snapshot(
+                        repo,
+                        id="runner-real-invocation-snapshot-after",
+                        captured_at="2999-05-22T00:10:00Z",
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            closeout_result, closeout_output = run_cli(
+                tmp,
+                "closeout-executor-result",
+                "--epoch-id",
+                target["epoch_id"],
+                "--task-file",
+                target["task_file"],
+                "--result-file",
+                str(result_path),
+                "--snapshot-after-file",
+                str(snapshot_after_path),
+                "--real-invocation-file",
+                str(invocation_path),
+                "--cwd",
+                target["cwd"],
+            )
+
+            self.assertEqual(closeout_result.returncode, 0, closeout_result.stderr)
+            self.assertTrue(closeout_output["valid"], closeout_output["blockers"])
+            self.assertEqual(closeout_output["closeout_status"], "completed")
+            self.assertNotIn(
+                "ownership_closeout_blocked",
+                {blocker["code"] for blocker in closeout_output["blockers"]},
+            )
+            self.assertIn("real_executor_invocation_record_updated", closeout_output["side_effects"])
+            self.assertIn("real_executor_invocation_audit_appended", closeout_output["side_effects"])
+            updated_invocation = json.loads(invocation_path.read_text(encoding="utf-8"))
+            self.assertEqual(updated_invocation["closeout_status"], "completed")
+            self.assertEqual(updated_invocation["epoch_id"], target["epoch_id"])
+            replay_result, replay_output = run_cli(tmp, "audit-replay")
+            self.assertEqual(replay_result.returncode, 0, replay_result.stderr)
+            self.assertTrue(replay_output["valid"])
+
     def test_controlled_loop_runner_executor_invocation_runs_executor_process_once(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             import codex_cadence.cli as cadence_cli

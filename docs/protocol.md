@@ -3556,7 +3556,10 @@ release, publish packages, assign roles, or schedule agents. The approved
 executor command remains governed by command policy, disabled permission gates,
 branch/head/ref drift checks, and side-effect mode. Closeout remains deferred
 to `closeout-executor-result` with the recorded `real-executor-invocation.v1`
-file.
+file. For runner-launched real invocation records, closeout rechecks the saved
+`controlled_runner_executor_invocation_readiness` bridge against the runner
+readiness packet, supplied task/result files, epoch, cwd, and source checksum
+instead of requiring ordinary active ownership evidence.
 
 Stable blockers include
 `controlled_runner_executor_invocation_readiness_retry_evidence_incomplete`,

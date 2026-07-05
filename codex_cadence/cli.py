@@ -36229,6 +36229,251 @@ def _invocation_plan_and_readiness(
     return plan, readiness, readiness_path, blockers
 
 
+def _closeout_controlled_runner_readiness_bridge_blockers(
+    *,
+    readiness: dict[str, Any],
+    readiness_path: Path | None,
+    task_file: Path,
+    task_packet: Any,
+    epoch_id: str,
+    result_file: Path,
+    cwd: Path,
+) -> tuple[bool, list[dict[str, Any]]]:
+    summary = (
+        readiness.get("controlled_runner_executor_invocation_readiness")
+        if isinstance(readiness.get("controlled_runner_executor_invocation_readiness"), dict)
+        else None
+    )
+    if summary is None:
+        return False, []
+    blockers: list[dict[str, Any]] = []
+    if summary.get("valid") is not True or summary.get("status") != "ready":
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge is not ready for real executor closeout",
+                controlled_runner_executor_invocation_readiness=summary,
+            )
+        )
+    file_value = summary.get("file")
+    runner_readiness_path = _readiness_context_path(readiness_path, file_value)
+    runner_readiness: dict[str, Any] | None = None
+    if not isinstance(runner_readiness_path, Path):
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge file is required for real executor closeout",
+                controlled_runner_executor_invocation_readiness=summary,
+            )
+        )
+    else:
+        runner_packet, runner_read_blockers = _read_closeout_invocation_object(
+            runner_readiness_path,
+            code="ownership_closeout_blocked",
+            label="controlled runner executor invocation readiness evidence",
+        )
+        blockers.extend(runner_read_blockers)
+        if isinstance(runner_packet, dict):
+            runner_readiness = runner_packet
+        actual_checksum = checksum_json(runner_readiness) if isinstance(runner_readiness, dict) else None
+        checksum_mismatches = {
+            field: value
+            for field, value in (
+                ("summary.checksum", summary.get("checksum")),
+                ("summary.expected_checksum", summary.get("expected_checksum")),
+            )
+            if not isinstance(value, str) or not value.strip() or value != actual_checksum
+        }
+        if checksum_mismatches:
+            blockers.append(
+                real_invocation_blocker(
+                    "ownership_closeout_blocked",
+                    "controlled runner readiness bridge checksum does not match readiness evidence",
+                    expected=actual_checksum,
+                    actual=checksum_mismatches,
+                    path=str(runner_readiness_path),
+                )
+            )
+    if runner_readiness is None:
+        return False, blockers
+
+    if (
+        runner_readiness.get("schema_version")
+        != CONTROLLED_LOOP_RUNNER_EXECUTOR_INVOCATION_READINESS_SCHEMA_VERSION
+        or runner_readiness.get("packet") != "controlled_loop_runner_executor_invocation_readiness"
+    ):
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge must reference controlled-loop-runner-executor-invocation-readiness.v1",
+                path=str(runner_readiness_path),
+            )
+        )
+    if runner_readiness.get("read_only") is not True or runner_readiness.get("side_effects") != []:
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge must be read-only",
+                path=str(runner_readiness_path),
+            )
+        )
+    if (
+        runner_readiness.get("valid") is not True
+        or runner_readiness.get("runner_executor_invocation_readiness_status") != "ready"
+        or runner_readiness.get("recommended_next_action") != "run_executor_invocation_readiness"
+    ):
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge is not ready for closeout",
+                path=str(runner_readiness_path),
+            )
+        )
+    for flag in (
+        "executor_started",
+        "process_started",
+        "stage_execution_started",
+        "stage_retry_started",
+        "second_retry_started",
+        "epoch_started",
+        "github_write_started",
+        "merge_started",
+        "release_started",
+        "package_publication_started",
+        "role_assignment_started",
+        "agent_scheduling_started",
+        "loop_continuation_started",
+        "audit_evidence_appended",
+    ):
+        if runner_readiness.get(flag) is not False:
+            blockers.append(
+                real_invocation_blocker(
+                    "ownership_closeout_blocked",
+                    f"controlled runner readiness bridge flag {flag} must be false",
+                    flag=flag,
+                    actual=runner_readiness.get(flag),
+                    path=str(runner_readiness_path),
+                )
+            )
+
+    target = runner_readiness.get("executor_invocation_readiness_target")
+    if not isinstance(target, dict):
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge target is required for real executor closeout",
+                path=str(runner_readiness_path),
+            )
+        )
+        return False, blockers
+
+    target_checksum = runner_readiness.get("executor_invocation_readiness_target_checksum")
+    computed_target_checksum = checksum_json(target)
+    checksums = runner_readiness.get("checksums") if isinstance(runner_readiness.get("checksums"), dict) else {}
+    if (
+        target_checksum != computed_target_checksum
+        or summary.get("target_checksum") != computed_target_checksum
+        or checksums.get("executor_invocation_readiness_target") != computed_target_checksum
+    ):
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge target checksum does not match target evidence",
+                expected=computed_target_checksum,
+                actual={
+                    "packet.executor_invocation_readiness_target_checksum": target_checksum,
+                    "summary.target_checksum": summary.get("target_checksum"),
+                    "packet.checksums.executor_invocation_readiness_target": checksums.get(
+                        "executor_invocation_readiness_target"
+                    ),
+                },
+                path=str(runner_readiness_path),
+            )
+        )
+    task_checksum = checksum_json(task_packet) if isinstance(task_packet, dict) else None
+    target_task_file = _readiness_context_path(runner_readiness_path, target.get("task_file"))
+    target_result_file = _readiness_context_path(runner_readiness_path, target.get("expected_result_path"))
+    if target.get("purpose") != "executor_invocation_readiness":
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge target purpose must be executor_invocation_readiness",
+                actual=target.get("purpose"),
+                path=str(runner_readiness_path),
+            )
+        )
+    if target.get("stage_number") != 2:
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge target must be scoped to stage 2",
+                actual=target.get("stage_number"),
+                path=str(runner_readiness_path),
+            )
+        )
+    if target.get("task_checksum") != task_checksum:
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge task checksum does not match supplied task packet",
+                expected=task_checksum,
+                actual=target.get("task_checksum"),
+                path=str(runner_readiness_path),
+            )
+        )
+    if not _closeout_paths_match(target_task_file, task_file):
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge task file does not match supplied task file",
+                expected=str(task_file),
+                actual=target.get("task_file"),
+                path=str(runner_readiness_path),
+            )
+        )
+    if target.get("epoch_id") != epoch_id:
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge epoch does not match requested closeout epoch",
+                expected=epoch_id,
+                actual=target.get("epoch_id"),
+                path=str(runner_readiness_path),
+            )
+        )
+    if not _closeout_paths_match(target_result_file, result_file):
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge result path does not match supplied result file",
+                expected=str(result_file),
+                actual=target.get("expected_result_path"),
+                path=str(runner_readiness_path),
+            )
+        )
+    if not _closeout_paths_match(target.get("cwd"), cwd):
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge cwd does not match closeout cwd",
+                expected=str(cwd),
+                actual=target.get("cwd"),
+                path=str(runner_readiness_path),
+            )
+        )
+    if runner_readiness.get("source_execution_checksum") != target.get("source_execution_checksum"):
+        blockers.append(
+            real_invocation_blocker(
+                "ownership_closeout_blocked",
+                "controlled runner readiness bridge source execution checksum does not match target",
+                expected=target.get("source_execution_checksum"),
+                actual=runner_readiness.get("source_execution_checksum"),
+                path=str(runner_readiness_path),
+            )
+        )
+    return not blockers, blockers
+
+
 def validate_closeout_real_invocation(
     root: Path,
     invocation: Any,
@@ -36369,16 +36614,30 @@ def validate_closeout_real_invocation(
                 )
             )
         repo_packet = task_packet.get("repo") if isinstance(task_packet, dict) and isinstance(task_packet.get("repo"), dict) else {}
+        controlled_runner_bridge_valid, controlled_runner_bridge_blockers = (
+            _closeout_controlled_runner_readiness_bridge_blockers(
+                readiness=readiness,
+                readiness_path=readiness_path,
+                task_file=task_file,
+                task_packet=task_packet,
+                epoch_id=epoch_id,
+                result_file=result_file,
+                cwd=cwd,
+            )
+        )
+        blockers.extend(controlled_runner_bridge_blockers)
         ownership = readiness.get("ownership") if isinstance(readiness.get("ownership"), dict) else {}
         ownership_target = ownership.get("id") or ownership.get("path")
-        if not isinstance(ownership_target, str) or not ownership_target.strip():
+        if not controlled_runner_bridge_valid and (
+            not isinstance(ownership_target, str) or not ownership_target.strip()
+        ):
             blockers.append(
                 real_invocation_blocker(
                     "ownership_closeout_blocked",
                     "real executor invocation readiness ownership evidence is required",
                 )
             )
-        else:
+        elif not controlled_runner_bridge_valid:
             task = task_packet.get("task") if isinstance(task_packet, dict) and isinstance(task_packet.get("task"), dict) else {}
             ownership_validation = validate_work_ownership(
                 root=root,

@@ -51,6 +51,10 @@ Summary:
   agents. The approved executor command remains governed by command policy,
   disabled permission gates, branch/head/ref drift checks, and side-effect
   mode.
+- PR review follow-up taught `closeout-executor-result --real-invocation-file`
+  to accept runner-launched invocation records by rechecking the saved
+  `controlled_runner_executor_invocation_readiness` bridge when ordinary active
+  ownership evidence is intentionally absent.
 
 Completed slices:
 - Task 78: runner-launched controlled executor invocation.

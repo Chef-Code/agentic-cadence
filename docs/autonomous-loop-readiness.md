@@ -306,7 +306,9 @@ path. This still does not retry, select another stage, continue the runner or
 loop, perform Cadence-owned Git/GitHub writes outside the approved executor
 process, assign roles, or schedule agents. The approved executor command
 remains governed by command policy, disabled permission gates, branch/head/ref
-drift checks, and side-effect mode.
+drift checks, and side-effect mode. Its recorded real invocation can be closed
+out through the existing closeout path because closeout rechecks the saved
+controlled-runner readiness bridge when active ownership evidence is absent.
 
 ## Can It Run The Full Loop Today?
 

@@ -1329,7 +1329,12 @@ side-effect mode. The packet limitation tokens include
 `does_not_perform_cadence_owned_git_or_github_writes`,
 `does_not_call_github_outside_approved_executor_command`,
 `approved_executor_command_governed_by_command_policy`, and
-`branch_head_ref_drift_blocked_after_executor_invocation`.
+`branch_head_ref_drift_blocked_after_executor_invocation`. The recorded
+`real-executor-invocation.v1` can then be supplied to
+`closeout-executor-result --real-invocation-file`; for runner-launched records,
+closeout rechecks the saved `controlled_runner_executor_invocation_readiness`
+bridge instead of requiring ordinary active ownership evidence. In validator
+terms, closeout rechecks the saved `controlled_runner_executor_invocation_readiness` bridge.
 
 `controlled-loop-runner-completion` consumes the reviewed final-stage
 outcome-plan packet plus saved closeout, execution, runner-start, runner-plan,
