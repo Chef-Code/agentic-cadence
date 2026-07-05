@@ -3536,9 +3536,10 @@ checksums, the reviewed source outcome checksum, original source
 outcome/closeout/execution checksums, runner-start, runner-plan, and dry-run
 checksums before emitting the existing `controlled-loop-runner-completion.v1`
 packet. The retry outcome, closeout, execution, and retry target must all
-report `retry_attempt: 1`; the target must report a completed retry closeout,
-the completed/closed-out stage, no next stage, and false second-retry flags.
-For continuation-sourced retry completion, it also rereads the saved
+report strict integer `retry_attempt: 1`; boolean values do not satisfy the
+single-retry contract. The target must report a completed retry closeout, the
+completed/closed-out stage, no next stage, and false second-retry flags. For
+continuation-sourced retry completion, it also rereads the saved
 continuation and stage-input-binding files from the source execution anchors
 and rechecks their checksums across source execution, closeout, and outcome
 evidence. Retry execution evidence may record a prior `epoch_started` effect
@@ -3656,8 +3657,9 @@ checksums, the reviewed source outcome checksum, original source
 outcome/closeout/execution checksums, runner-start, runner-plan, dry-run, and
 selected-stage anchors before emitting the existing
 `controlled-loop-runner-next-stage-continuation.v1` packet. The retry outcome,
-closeout, execution, and retry target must all report `retry_attempt: 1`; the
-target must report the completed/closed-out stage, completed retry closeout
+closeout, execution, and retry target must all report strict integer
+`retry_attempt: 1`; boolean values do not satisfy the single-retry contract.
+The target must report the completed/closed-out stage, completed retry closeout
 status, the exact next stage, and false second-retry flags. For
 continuation-sourced retry selection, it also rereads saved continuation and
 stage-input-binding anchors from the source execution chain. It still emits no

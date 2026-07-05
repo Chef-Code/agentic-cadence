@@ -12558,7 +12558,10 @@ def controlled_loop_runner_post_retry_target_blockers(
             "retry_execution.retry_attempt": retry_execution.get("retry_attempt"),
             "retry_outcome_target.retry_attempt": retry_outcome_target.get("retry_attempt"),
         }
-        if any(value != 1 for value in retry_attempt_values.values()):
+        if any(
+            not controlled_loop_runner_stage_input_binding_strict_int_matches(value, 1)
+            for value in retry_attempt_values.values()
+        ):
             blockers.append(
                 blocker_func(
                     f"{code_prefix}_retry_attempt_mismatch",
@@ -13317,7 +13320,8 @@ def controlled_loop_runner_next_stage_continuation_command(args: argparse.Namesp
     retry_outcome_file = getattr(args, "controlled_loop_runner_stage_retry_outcome_plan_file", None)
     retry_closeout_file = getattr(args, "controlled_loop_runner_stage_retry_closeout_file", None)
     retry_execution_file = getattr(args, "controlled_loop_runner_stage_retry_execution_file", None)
-    if retry_outcome_file or retry_closeout_file or retry_execution_file:
+    expected_retry_outcome_checksum = getattr(args, "expected_stage_retry_outcome_plan_checksum", None)
+    if retry_outcome_file or retry_closeout_file or retry_execution_file or expected_retry_outcome_checksum:
         return controlled_loop_runner_next_stage_continuation_from_retry_outcome_command(args)
 
     root = Path(args.root).expanduser().resolve(strict=False) if args.root else None
@@ -14891,7 +14895,8 @@ def controlled_loop_runner_completion_command(args: argparse.Namespace) -> int:
     retry_outcome_file = getattr(args, "controlled_loop_runner_stage_retry_outcome_plan_file", None)
     retry_closeout_file = getattr(args, "controlled_loop_runner_stage_retry_closeout_file", None)
     retry_execution_file = getattr(args, "controlled_loop_runner_stage_retry_execution_file", None)
-    if retry_outcome_file or retry_closeout_file or retry_execution_file:
+    expected_retry_outcome_checksum = getattr(args, "expected_stage_retry_outcome_plan_checksum", None)
+    if retry_outcome_file or retry_closeout_file or retry_execution_file or expected_retry_outcome_checksum:
         return controlled_loop_runner_completion_from_retry_outcome_command(args)
 
     root = Path(args.root).expanduser().resolve(strict=False) if args.root else None
