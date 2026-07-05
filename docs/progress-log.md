@@ -33,6 +33,58 @@ Docs updated:
 - List living docs updated.
 ```
 
+## 2026-07-05 - Runner-launched executor invocation
+
+Summary:
+- Added controlled `controlled-loop-runner-executor-invocation` evidence that
+  emits `controlled-loop-runner-executor-invocation.v1` packets and consumes
+  reviewed runner executor-invocation readiness plus a runner-bound
+  `executor-invocation-plan.v1`.
+- The command rechecks both reviewed checksums and the readiness bridge before
+  delegating to the existing `invoke-real-executor` path, so the same plan,
+  repository, approval, audit-chain, rollback, timeout, command-policy,
+  result-path, and runtime-root gates run immediately before process start.
+- The slice starts exactly one approved real executor process and records the
+  existing `real-executor-invocation.v1` evidence, but it still does not retry,
+  select another stage, continue the loop, perform Cadence-owned Git/GitHub
+  writes outside the approved executor process, assign roles, or schedule
+  agents. The approved executor command remains governed by command policy,
+  disabled permission gates, branch/head/ref drift checks, and side-effect
+  mode.
+- PR review follow-up taught `closeout-executor-result --real-invocation-file`
+  to accept runner-launched invocation records by rechecking the saved
+  `controlled_runner_executor_invocation_readiness` bridge when ordinary active
+  ownership evidence is intentionally absent.
+
+Completed slices:
+- Task 78: runner-launched controlled executor invocation.
+
+Confidence change:
+- Previous projected capability: 72%.
+- New projected capability: 73%.
+- Stable headline confidence: remains 25%.
+- Reason: the runner can now launch the existing governed executor invocation
+  path from reviewed runner readiness and plan evidence, but autonomous
+  continuation, failed/blocked retry inspection workflows, Git/GitHub writes,
+  role scheduling, and unattended orchestration remain future work.
+
+Evidence:
+- Focused runner-launched invocation tests: 3 tests passed.
+
+New risks or blockers:
+- Failed and blocked retry inspection targets are not consumed by a live
+  inspection workflow.
+- There is still no automatic loop continuation, role scheduling, or
+  Git/GitHub write authority.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/roadmap.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `scripts/validate_protocol.py`
+
 ## 2026-07-05 - Runner-bound executor invocation readiness consumption
 
 Summary:
