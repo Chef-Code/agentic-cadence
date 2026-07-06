@@ -1,8 +1,8 @@
 # Implementation Slices
 
 Status: living document
-Last updated: 2026-07-05
-Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled loop real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, controlled-loop-runner-start evidence, read-only controlled loop runner next-stage evidence, read-only controlled loop runner stage-execution readiness evidence, read-only controlled loop runner stage-execution approval evidence, read-only controlled loop runner stage-invocation boundary evidence, controlled loop runner single-stage execution evidence, read-only controlled loop runner stage-closeout evidence, read-only controlled loop runner stage-outcome planning evidence, read-only controlled loop runner next-stage continuation evidence, read-only controlled loop runner stage-input binding evidence, continuation-aware controlled loop runner stage-execution readiness evidence, continuation-aware controlled loop runner stage-execution approval evidence with executor-task approval binding, continuation-aware controlled loop runner stage-invocation boundary evidence, continuation-aware controlled loop runner single-stage execution evidence, continuation-aware controlled loop runner closeout/outcome planning evidence, read-only controlled runner completion evidence, read-only initial and continuation controlled runner retry planning evidence, read-only controlled runner stage-retry approval evidence, read-only controlled runner stage-retry boundary evidence, controlled runner single retry execution evidence, read-only controlled runner retry closeout/outcome planning evidence, read-only controlled runner post-retry target consumption evidence, read-only controlled runner executor invocation readiness evidence, read-only runner-bound executor invocation readiness/plan consumption evidence, controlled runner executor invocation evidence, ownership-bound controlled runner continuation readiness evidence, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 1-78 complete in the current implementation
+Last updated: 2026-07-06
+Baseline: released 0.1.3 plus unreleased audit-replay with local hash-chain integrity evidence, authenticated local operator approval identity evidence, policy/stop-control, git-pr-plan, controlled executor fixture, governed execution-start epoch gating, local execution-run evidence records, local executor epoch closeout, real-invocation closeout binding, controlled single-tick run packet evidence, `controlled-pr-cycle` evidence composition, read-only merge decision planning, read-only controlled loop-start composition, read-only controlled loop invocation-plan composition, read-only controlled loop real-invocation composition, read-only controlled closeout composition, read-only controlled loop-run summary evidence, read-only controlled loop outcome planning, read-only controlled loop run manifest planning, read-only controlled loop run manifest approval, read-only controlled loop runner planning, read-only controlled loop runner execution approval, read-only controlled loop runner dry-run evidence, read-only controlled loop runner start-readiness evidence, read-only controlled loop runner start-approval evidence, controlled-loop-runner-start evidence, read-only controlled loop runner next-stage evidence, read-only controlled loop runner stage-execution readiness evidence, read-only controlled loop runner stage-execution approval evidence, read-only controlled loop runner stage-invocation boundary evidence, controlled loop runner single-stage execution evidence, read-only controlled loop runner stage-closeout evidence, read-only controlled loop runner stage-outcome planning evidence, read-only controlled loop runner next-stage continuation evidence, read-only controlled loop runner stage-input binding evidence, continuation-aware controlled loop runner stage-execution readiness evidence, continuation-aware controlled loop runner stage-execution approval evidence with executor-task approval binding, continuation-aware controlled loop runner stage-invocation boundary evidence, continuation-aware controlled loop runner single-stage execution evidence, continuation-aware controlled loop runner closeout/outcome planning evidence, read-only controlled runner completion evidence, read-only initial and continuation controlled runner retry planning evidence, read-only controlled runner stage-retry approval evidence, read-only controlled runner stage-retry boundary evidence, controlled runner single retry execution evidence, read-only controlled runner retry closeout/outcome planning evidence, read-only controlled runner post-retry target consumption evidence, read-only controlled runner retry inspection-preparation evidence, read-only controlled runner executor invocation readiness evidence, read-only runner-bound executor invocation readiness/plan consumption evidence, controlled runner executor invocation evidence, ownership-bound controlled runner continuation readiness evidence, read-only GitHub evidence sync, branch policy, operator-approved dirty-worktree local commit materialization, operator-approved Git/PR materialization, read-only resume verification, ownership-aware read-only resume continuation, read-only review-response planning, operator-approved review-response materialization, post-write PR evidence gate, read-only review-thread resolution planning, read-only role-readiness evidence, read-only executor-invocation-readiness and invocation-plan evidence, local work ownership claim/closeout evidence, Tasks 1-79 complete in the current implementation
 
 This document tracks the smallest implementation slices expected to move
 Agentic Cadence from a governed protocol toolkit toward roughly 50% confidence
@@ -259,16 +259,20 @@ evidence, selecting another stage, starting a second retry, continuing, or
 writing Git/GitHub state. Read-only controlled runner stage retry outcome
 planning can then emit only the post-retry operator target for next-stage
 selection, runner completion, or failed/blocked inspection, with no automatic
-second retry target. Ownership-bound continuation readiness can now validate active ownership evidence and prepare exact stage-2
+second retry target. Read-only controlled runner stage retry inspection
+preparation can now consume failed/blocked retry inspection targets into a
+deterministic packet without performing the inspection, starting a second
+retry, continuing, appending audit evidence, invoking an executor, or writing
+Git/GitHub state. Ownership-bound continuation readiness can now validate active ownership evidence and prepare exact stage-2
 `start-governed-execution` ownership arguments only when the approved runner
 plan declares `work_ownership_epoch_bound`; role assignment and scheduling
 remain out of scope. Autonomous branch/commit/push or PR creation, automatic
 session launch, distributed work ownership, role assignment, and continuous
 loop orchestration remain missing.
 Current unattended-operation confidence is 25%. Progress-log entries record
-Task 78 projected capability at 73% while this stable headline remains 25%.
+Task 79 projected capability at 74% while this stable headline remains 25%.
 
-Tasks 1-78 are complete after this slice. Read-only controlled runner retry
+Tasks 1-79 are complete after this slice. Read-only controlled runner retry
 planning now accepts failed or blocked continuation-stage outcomes when the
 matching continuation selection and stage-input binding evidence is supplied
 and checksum-verified, and read-only stage retry approval now verifies a
@@ -294,12 +298,13 @@ active ownership to still be open. `controlled-loop-runner-executor-invocation`
 can now consume that reviewed runner readiness and a runner-bound
 `executor-invocation-plan.v1`, recheck both checksums and the readiness bridge,
 and start exactly one approved real executor process through the existing
-`invoke-real-executor` path. Failed/blocked post-retry inspection workflows,
-autonomous
+`invoke-real-executor` path. Failed/blocked post-retry inspection targets can
+now be consumed into deterministic read-only inspection-preparation evidence.
+Live retry inspection workflows, autonomous
 Git/GitHub writes, role scheduling, and
 unattended orchestration remain future work. The current roadmap anchor remains
 `docs/roadmaps/2026-06-20-tasks-61-66-roadmap.md`; the next missing
-capabilities are failed/blocked retry inspection consumption, role/work
+capabilities are live failed/blocked retry inspection workflows, role/work
 assignment planning, autonomous loop continuation, and Git/GitHub writes.
 
 Historical roadmap anchors remain part of the current context: Tasks 1-7 from
@@ -936,6 +941,13 @@ Validation needed:
   appending audit evidence, selecting the stage, starting a second retry,
   continuing the loop, invoking an executor, or writing Git/GitHub state:
   complete for Task 74.
+- controlled-loop-runner-stage-retry-inspection-preparation consumes reviewed
+  failed or blocked retry outcome targets, rechecks the retry
+  closeout/execution/source chain and reviewed outcome checksum, and emits a
+  deterministic inspection-preparation packet without performing the
+  inspection, starting a second retry, continuing the loop, invoking an
+  executor, appending audit evidence, or writing Git/GitHub state: complete for
+  Task 79.
 - Ownership-bound continuation readiness is explicit for Task 69: stage-2
   `start-governed-execution` boundaries can carry ownership evidence only after
   active ownership validation and only when the approved side-effect policy

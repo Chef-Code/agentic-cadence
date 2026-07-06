@@ -3470,6 +3470,83 @@ Stable blockers include
 and mapped retry/source/runner anchor blockers under the
 `controlled_runner_stage_retry_outcome_plan_*` prefix.
 
+`controlled-loop-runner-stage-retry-inspection-preparation` is the read-only
+consumer for failed or blocked retry outcome targets. It reads
+`--controlled-loop-runner-stage-retry-outcome-plan-file`,
+`--expected-stage-retry-outcome-plan-checksum`,
+`--controlled-loop-runner-stage-retry-closeout-file`,
+`--controlled-loop-runner-stage-retry-execution-file`,
+`--controlled-loop-runner-stage-retry-boundary-file`,
+`--controlled-loop-runner-stage-retry-approval-file`,
+`--controlled-loop-runner-stage-retry-plan-file`,
+`--controlled-loop-runner-stage-outcome-plan-file`,
+`--controlled-loop-runner-stage-closeout-file`,
+`--controlled-loop-runner-stage-execution-file`,
+`--controlled-loop-runner-start-file`, `--controlled-loop-runner-plan-file`,
+`--controlled-loop-runner-dry-run-file`, `--expected-operator-id`,
+approval-secret inputs, and optional `--stage-number` (default `1`).
+Continuation retry inspection preparation also reads
+`--controlled-loop-runner-next-stage-continuation-file`,
+`--controlled-loop-runner-stage-input-binding-file`, and
+`--expected-stage-input-binding-checksum`.
+
+Retry inspection preparation requires the reviewed retry outcome checksum,
+rechecks the retry outcome target, and revalidates the retry closeout,
+retry execution, retry boundary, retry approval, retry plan, source
+outcome/closeout/execution, runner-start, runner-plan, and dry-run chain. It
+only accepts `stage_retry_outcome_decision: inspect_stage_retry_failure` or
+`inspect_stage_retry_blocked`, requires no second retry planning target, and
+emits a deterministic inspection-preparation packet for operator review. It
+does not perform the inspection, start a second retry, select a stage,
+continue the runner or loop, append audit evidence, invoke an executor,
+execute Git commands, call GitHub APIs, create branches, commit, push, create
+PRs, merge, release, publish packages, assign roles, or schedule agents.
+
+A valid packet emits
+`controlled-loop-runner-stage-retry-inspection-preparation.v1` with
+`packet: controlled_loop_runner_stage_retry_inspection_preparation`,
+`read_only: true`, `runner_stage_retry_authority:
+stage_retry_inspection_prepared`, `inspection_kind`,
+`inspection_target`, `inspection_target_checksum`,
+`inspection_preparation`, `inspection_preparation_checksum`, and
+`second_retry_planning_target: null`. Failed retry targets produce
+`inspection_kind: failure`; blocked retry targets produce
+`inspection_kind: blocked`.
+
+Stable blockers include
+`controlled_runner_stage_retry_inspection_preparation_outcome_evidence_missing`,
+`controlled_runner_stage_retry_inspection_preparation_closeout_evidence_missing`,
+`controlled_runner_stage_retry_inspection_preparation_execution_evidence_missing`,
+`controlled_runner_stage_retry_inspection_preparation_boundary_evidence_missing`,
+`controlled_runner_stage_retry_inspection_preparation_approval_evidence_missing`,
+`controlled_runner_stage_retry_inspection_preparation_retry_plan_evidence_missing`,
+`controlled_runner_stage_retry_inspection_preparation_source_outcome_evidence_missing`,
+`controlled_runner_stage_retry_inspection_preparation_source_closeout_evidence_missing`,
+`controlled_runner_stage_retry_inspection_preparation_source_execution_evidence_missing`,
+`controlled_runner_stage_retry_inspection_preparation_outcome_checksum_mismatch`,
+`controlled_runner_stage_retry_inspection_preparation_upstream_invalid`,
+`controlled_runner_stage_retry_inspection_preparation_root_missing`,
+`controlled_runner_stage_retry_inspection_preparation_continuation_evidence_missing`,
+`controlled_runner_stage_retry_inspection_preparation_stage_input_binding_evidence_missing`,
+`controlled_runner_stage_retry_inspection_preparation_stage_input_binding_expected_checksum_missing`,
+`controlled_runner_stage_retry_inspection_preparation_stage_input_binding_checksum_mismatch`,
+`controlled_runner_stage_retry_inspection_preparation_unexpected_continuation_evidence`,
+`controlled_runner_stage_retry_inspection_preparation_outcome_packet_mismatch`,
+`controlled_runner_stage_retry_inspection_preparation_outcome_closeout_status_mismatch`,
+`controlled_runner_stage_retry_inspection_preparation_outcome_execution_status_mismatch`,
+`controlled_runner_stage_retry_inspection_preparation_outcome_not_inspectable`,
+`controlled_runner_stage_retry_inspection_preparation_outcome_not_completed`,
+`controlled_runner_stage_retry_inspection_preparation_outcome_decision_mismatch`,
+`controlled_runner_stage_retry_inspection_preparation_outcome_stage_number_mismatch`,
+`controlled_runner_stage_retry_inspection_preparation_outcome_selection_source_mismatch`,
+`controlled_runner_stage_retry_inspection_preparation_outcome_retry_attempt_mismatch`,
+`controlled_runner_stage_retry_inspection_preparation_target_missing`,
+`controlled_runner_stage_retry_inspection_preparation_target_checksum_mismatch`,
+`controlled_runner_stage_retry_inspection_preparation_target_mismatch`,
+`controlled_runner_stage_retry_inspection_preparation_second_retry_target_present`,
+and mapped retry/source/runner anchor blockers under the
+`controlled_runner_stage_retry_inspection_preparation_*` prefix.
+
 `controlled-loop-runner-executor-invocation-readiness` is the read-only
 handoff packet from a successful continuation `start-governed-execution` stage,
 or from a successful attempt-1 retry of that stage, to the existing executor
