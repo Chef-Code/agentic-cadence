@@ -21214,6 +21214,7 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(output["inspection_kind"], "failure")
             self.assertEqual(output["recommended_next_action"], "review_controlled_runner_stage_retry_failure_inspection")
             self.assertEqual(output["next_controlled_action"], "review_controlled_runner_stage_retry_failure_inspection")
+            self.assertIn("does_not_prepare_executor_invocation", output["limitations"])
             self.assertEqual(
                 output["inspection_target"],
                 chain["controlled_loop_runner_stage_retry_outcome_plan"]["retry_outcome_target"],
@@ -21302,6 +21303,96 @@ class CadenceCliTests(unittest.TestCase):
             self.assertFalse(output["second_retry_started"])
             self.assertFalse(output["stage_retry_started"])
             self.assertFalse(output["loop_continuation_started"])
+            self.assertFalse(output["executor_invocation_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
+    def test_controlled_loop_runner_stage_retry_inspection_preparation_uses_source_selection(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_successful_continuation_stage_retry_outcome_chain(tmp, repo)
+            retry_execution = json.loads(
+                chain["controlled_loop_runner_stage_retry_execution_path"].read_text(encoding="utf-8")
+            )
+            retry_execution.pop("stage_selection_source", None)
+            chain["controlled_loop_runner_stage_retry_execution"] = retry_execution
+            chain["controlled_loop_runner_stage_retry_execution_path"].write_text(
+                json.dumps(retry_execution),
+                encoding="utf-8",
+            )
+            retry_execution_checksum = checksum_json(retry_execution)
+
+            retry_closeout = json.loads(
+                chain["controlled_loop_runner_stage_retry_closeout_path"].read_text(encoding="utf-8")
+            )
+            retry_closeout.pop("stage_selection_source", None)
+            retry_closeout["controlled_loop_runner_stage_retry_execution"][
+                "checksum"
+            ] = retry_execution_checksum
+            retry_closeout["checksums"][
+                "controlled_loop_runner_stage_retry_execution"
+            ] = retry_execution_checksum
+            chain["controlled_loop_runner_stage_retry_closeout"] = retry_closeout
+            chain["controlled_loop_runner_stage_retry_closeout_path"].write_text(
+                json.dumps(retry_closeout),
+                encoding="utf-8",
+            )
+            retry_closeout_checksum = checksum_json(retry_closeout)
+
+            def reanchor_source_evidence(retry_outcome):
+                retry_outcome["controlled_loop_runner_stage_retry_execution"][
+                    "checksum"
+                ] = retry_execution_checksum
+                retry_outcome["checksums"][
+                    "controlled_loop_runner_stage_retry_execution"
+                ] = retry_execution_checksum
+                retry_outcome["controlled_loop_runner_stage_retry_closeout"][
+                    "checksum"
+                ] = retry_closeout_checksum
+                retry_outcome["checksums"][
+                    "controlled_loop_runner_stage_retry_closeout"
+                ] = retry_closeout_checksum
+                retry_outcome["retry_outcome_target"][
+                    "controlled_loop_runner_stage_retry_execution_checksum"
+                ] = retry_execution_checksum
+                retry_outcome["retry_outcome_target"][
+                    "controlled_loop_runner_stage_retry_closeout_checksum"
+                ] = retry_closeout_checksum
+                retry_outcome["retry_outcome_target_checksum"] = checksum_json(
+                    retry_outcome["retry_outcome_target"]
+                )
+                retry_outcome["checksums"]["retry_outcome_target"] = retry_outcome[
+                    "retry_outcome_target_checksum"
+                ]
+
+            self.update_controlled_loop_runner_stage_retry_outcome(chain, reanchor_source_evidence)
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_inspection_preparation_in_process(
+                    tmp,
+                    chain,
+                    stage_number=2,
+                    controlled_loop_runner_next_stage_continuation_file=chain[
+                        "controlled_loop_runner_next_stage_continuation_path"
+                    ],
+                    controlled_loop_runner_stage_input_binding_file=chain[
+                        "controlled_loop_runner_stage_input_binding_path"
+                    ],
+                    expected_stage_input_binding_checksum=checksum_json(
+                        chain["controlled_loop_runner_stage_input_binding"]
+                    ),
+                )
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            self.assertEqual(output["stage_selection_source"], "initial")
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertIn(
+                "controlled_runner_stage_retry_inspection_preparation_outcome_selection_source_mismatch",
+                blocker_codes,
+            )
             self.assertFalse(output["executor_invocation_started"])
             self.assertEqual(output["side_effects"], [])
             self.assertEqual(audit_records(tmp), audit_before)

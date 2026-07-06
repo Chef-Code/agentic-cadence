@@ -10399,6 +10399,7 @@ CONTROLLED_LOOP_RUNNER_STAGE_RETRY_INSPECTION_PREPARATION_LIMITATIONS = [
     "does_not_execute_runner_stage",
     "does_not_start_executor",
     "does_not_invoke_executor",
+    "does_not_prepare_executor_invocation",
     "does_not_start_second_retry",
     "does_not_execute_second_stage",
     "does_not_continue_loop",
@@ -24472,8 +24473,6 @@ def controlled_loop_runner_stage_retry_inspection_preparation_command(args: argp
         if isinstance(retry_closeout, dict) and isinstance(retry_closeout.get("stage_selection_source"), str)
         else retry_execution.get("stage_selection_source")
         if isinstance(retry_execution, dict) and isinstance(retry_execution.get("stage_selection_source"), str)
-        else retry_outcome.get("stage_selection_source")
-        if isinstance(retry_outcome, dict) and isinstance(retry_outcome.get("stage_selection_source"), str)
         else "initial"
     )
     continuation = None
