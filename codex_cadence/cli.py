@@ -21610,6 +21610,7 @@ def controlled_loop_runner_stage_retry_closeout_mapped_blocker(
     if isinstance(code, str):
         mapped["upstream_code"] = code
         for source_prefix in [
+            "controlled_runner_stage_retry_outcome_plan",
             "controlled_runner_stage_retry_closeout",
             "controlled_runner_stage_retry_execution",
             "controlled_runner_stage_retry_boundary",

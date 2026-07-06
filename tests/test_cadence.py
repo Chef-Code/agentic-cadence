@@ -21596,6 +21596,72 @@ class CadenceCliTests(unittest.TestCase):
             self.assertEqual(audit_records(tmp), audit_before)
             self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
 
+    def test_controlled_loop_runner_stage_retry_inspection_preparation_maps_closeout_blockers(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
+            init_committed_repo(repo)
+            chain = self.write_controlled_loop_runner_stage_retry_closeout_chain(
+                tmp,
+                repo,
+                retry_returncode=7,
+                retry_stdout_text="",
+                retry_stderr_text="failed",
+            )
+            chain = self.write_successful_stage_retry_outcome_packets(
+                tmp,
+                chain,
+                closeout_filename="controlled-loop-runner-stage-retry-closeout.json",
+                outcome_filename="controlled-loop-runner-stage-retry-outcome-plan.json",
+            )
+            retry_closeout = json.loads(
+                chain["controlled_loop_runner_stage_retry_closeout_path"].read_text(encoding="utf-8")
+            )
+            retry_closeout["github_write_started"] = True
+            chain["controlled_loop_runner_stage_retry_closeout"] = retry_closeout
+            chain["controlled_loop_runner_stage_retry_closeout_path"].write_text(
+                json.dumps(retry_closeout),
+                encoding="utf-8",
+            )
+            retry_closeout_checksum = checksum_json(retry_closeout)
+
+            def reanchor_closeout(retry_outcome):
+                retry_outcome["controlled_loop_runner_stage_retry_closeout"][
+                    "checksum"
+                ] = retry_closeout_checksum
+                retry_outcome["checksums"][
+                    "controlled_loop_runner_stage_retry_closeout"
+                ] = retry_closeout_checksum
+                retry_outcome["retry_outcome_target"][
+                    "controlled_loop_runner_stage_retry_closeout_checksum"
+                ] = retry_closeout_checksum
+                retry_outcome["retry_outcome_target_checksum"] = checksum_json(
+                    retry_outcome["retry_outcome_target"]
+                )
+                retry_outcome["checksums"]["retry_outcome_target"] = retry_outcome[
+                    "retry_outcome_target_checksum"
+                ]
+
+            self.update_controlled_loop_runner_stage_retry_outcome(chain, reanchor_closeout)
+
+            code, output, audit_before, runtime_before = (
+                self.run_controlled_loop_runner_stage_retry_inspection_preparation_in_process(tmp, chain)
+            )
+
+            self.assertEqual(code, 2)
+            self.assertFalse(output["valid"])
+            blocker_codes = {blocker["code"] for blocker in output["blockers"]}
+            self.assertIn(
+                "controlled_runner_stage_retry_inspection_preparation_closeout_forbidden_flags",
+                blocker_codes,
+            )
+            self.assertNotIn(
+                "controlled_runner_stage_retry_outcome_plan_closeout_forbidden_flags",
+                blocker_codes,
+            )
+            self.assertFalse(output["github_write_started"])
+            self.assertEqual(output["side_effects"], [])
+            self.assertEqual(audit_records(tmp), audit_before)
+            self.assertEqual(runtime_tree_manifest(tmp), runtime_before)
+
     def test_controlled_loop_runner_stage_retry_inspection_preparation_blocks_stale_nested_target_checksum(self):
         with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as repo:
             init_committed_repo(repo)
