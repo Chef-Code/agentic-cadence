@@ -1,7 +1,7 @@
 # Progress Log
 
 Status: living document
-Last updated: 2026-07-05
+Last updated: 2026-07-06
 
 This log records meaningful project progress, confidence changes, new risks,
 and evidence. New discoveries count as progress when they change what the
@@ -32,6 +32,58 @@ New risks or blockers:
 Docs updated:
 - List living docs updated.
 ```
+
+## 2026-07-06 - Retry inspection preparation
+
+Summary:
+- Added read-only consumption of failed and blocked controlled-runner retry
+  outcome targets.
+- `controlled-loop-runner-stage-retry-inspection-preparation` now consumes a
+  reviewed `controlled-loop-runner-stage-retry-outcome-plan.v1`, rechecks the
+  retry closeout/execution/source chain and reviewed checksum, and emits a
+  deterministic `controlled-loop-runner-stage-retry-inspection-preparation.v1`
+  packet.
+- The packet remains read-only: no second retry is planned, no loop
+  continuation starts, no executor invocation is prepared, no audit evidence is
+  appended, and no Git/GitHub state is written.
+- Review hardening now derives expected closeout status and retry attempt from
+  revalidated closeout/execution evidence, rejects stale nested target
+  checksums, rejects forbidden executor-invocation flags, rejects forged second
+  retry planning targets, strictly rejects boolean retry-attempt evidence, and
+  expands the stable blocker vocabulary in protocol validation.
+
+Completed slices:
+- Task 79: failed/blocked retry inspection target consumption into read-only
+  inspection-preparation evidence.
+
+Confidence change:
+- Previous projected capability: 73%.
+- New projected capability: 74%.
+- Stable headline confidence: remains 25%.
+- Reason: failed/blocked retry outcomes no longer stop at an unconsumed target,
+  but live inspection workflow execution, second-retry policy, autonomous
+  continuation, Git/GitHub writes, role scheduling, and unattended orchestration
+  remain future work.
+
+Evidence:
+- Focused retry outcome/inspection-preparation tests: 16 tests passed.
+- Protocol validation: `python scripts\validate_protocol.py` printed
+  `Protocol validation passed.`.
+
+New risks or blockers:
+- Retry inspection preparation is now available, but the live operator
+  inspection workflow and any second-retry policy remain future work.
+- There is still no automatic loop continuation, role scheduling, or
+  Git/GitHub write authority.
+
+Docs updated:
+- `README.md`
+- `docs/protocol.md`
+- `docs/roadmap.md`
+- `docs/implementation-slices.md`
+- `docs/autonomous-loop-readiness.md`
+- `docs/progress-log.md`
+- `scripts/validate_protocol.py`
 
 ## 2026-07-05 - Runner-launched executor invocation
 

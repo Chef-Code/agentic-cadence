@@ -68,6 +68,7 @@ read-only `controlled-loop-runner-stage-retry-boundary`,
 controlled `controlled-loop-runner-stage-retry-execute`,
 read-only `controlled-loop-runner-stage-retry-closeout`,
 read-only `controlled-loop-runner-stage-retry-outcome-plan`,
+read-only `controlled-loop-runner-stage-retry-inspection-preparation`,
 read-only `controlled-loop-runner-next-stage-continuation`,
 read-only `controlled-loop-runner-stage-input-binding`,
 reusable `verify-operator-approval`,
@@ -1253,6 +1254,33 @@ runner or loop, append audit evidence, start a process, invoke an executor,
 write Git/GitHub state, merge, release, publish packages, assign roles, or
 schedule agents.
 
+Failed and blocked retry outcome targets can now be consumed by
+`controlled-loop-runner-stage-retry-inspection-preparation`, which rechecks the
+reviewed retry outcome checksum plus the retry closeout, retry execution,
+retry boundary, retry approval, retry plan, source outcome/closeout/execution,
+runner start, runner plan, and dry-run chain before emitting a deterministic
+inspection-preparation packet. The packet is still read-only: it does not
+perform the inspection, plan a second retry, continue the runner or loop,
+invoke an executor, append audit evidence, or write Git/GitHub state.
+
+```bash
+agentic-cadence --root examples/first-run/work/runtime controlled-loop-runner-stage-retry-inspection-preparation --controlled-loop-runner-stage-retry-outcome-plan-file controlled-loop-runner-stage-retry-outcome-plan.json --expected-stage-retry-outcome-plan-checksum sha256:<reviewed-stage-retry-outcome-plan-checksum> --controlled-loop-runner-stage-retry-closeout-file controlled-loop-runner-stage-retry-closeout.json --controlled-loop-runner-stage-retry-execution-file controlled-loop-runner-stage-retry-execution.json --controlled-loop-runner-stage-retry-boundary-file controlled-loop-runner-stage-retry-boundary.json --controlled-loop-runner-stage-retry-approval-file controlled-loop-runner-stage-retry-approval.json --controlled-loop-runner-stage-retry-plan-file controlled-loop-runner-stage-retry-plan.json --controlled-loop-runner-stage-outcome-plan-file controlled-loop-runner-stage-outcome-plan.json --controlled-loop-runner-stage-closeout-file controlled-loop-runner-stage-closeout.json --controlled-loop-runner-stage-execution-file controlled-loop-runner-stage-execution.json --controlled-loop-runner-start-file controlled-loop-runner-start.json --controlled-loop-runner-plan-file controlled-loop-runner-plan.json --controlled-loop-runner-dry-run-file controlled-loop-runner-dry-run.json --expected-operator-id operator@example.test --approval-secret-env CADENCE_OPERATOR_APPROVAL_SECRET --stage-number 1
+```
+
+For continuation-sourced retry inspection preparation, also pass
+`--controlled-loop-runner-next-stage-continuation-file`,
+`--controlled-loop-runner-stage-input-binding-file`, and
+`--expected-stage-input-binding-checksum`.
+
+Valid retry-inspection-preparation packets emit
+`controlled-loop-runner-stage-retry-inspection-preparation.v1` with
+`packet: controlled_loop_runner_stage_retry_inspection_preparation`,
+`read_only: true`, `inspection_target`, `inspection_target_checksum`,
+`inspection_preparation`, and `inspection_preparation_checksum`.
+Failed retries produce `inspection_kind: failure`; blocked retries produce
+`inspection_kind: blocked`. Both paths keep `second_retry_planning_target:
+null`.
+
 Successful retry outcome targets can now be consumed by the existing terminal
 runner consumers without adding execution authority. For completed non-final
 retries, pass `--controlled-loop-runner-stage-retry-outcome-plan-file`,
@@ -1264,7 +1292,8 @@ retry target and selects exactly the next stage without emitting readiness or
 executing it. For completed final retries, pass the same retry arguments to
 `controlled-loop-runner-completion`; it emits terminal completion evidence
 from the reviewed retry target. Failed and blocked retry outcomes remain
-inspection targets and still emit no second-retry plan.
+inspection targets, can be prepared for operator inspection, and still emit no
+second-retry plan.
 
 `controlled-loop-runner-executor-invocation-readiness` is the read-only
 handoff packet from a completed continuation `start-governed-execution` stage,
